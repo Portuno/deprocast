@@ -16,6 +16,7 @@ import {
 } from './misiones.ts'
 import { catalogo } from './menciones.ts'
 import { pensar } from './alertas.ts'
+import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, hayFfmpeg, iterarArtefacto, listarArtefactos, VOCES } from './taller.ts'
 import { buscarOportunidades, listarOportunidades, marcarOportunidad, redactarOportunidad } from './radar.ts'
 import { cuotas, hayBuscadorWeb } from './web.ts'
 import { calificarAMano, calificarDia, curva, predecirDia, prediccionesDe, textoDeCalificacion } from './gemelo.ts'
@@ -352,6 +353,19 @@ const rutas: [string, RegExp, Ruta][] = [
     if (r.informe) mensajeDeMastropiero(db, conversacionHoy(db).id, `Cerré el Directo. ${r.informe}`)
     return r
   }],
+  ['GET', /^\/api\/taller$/, () => ({ artefactos: listarArtefactos(db, { limite: 80 }), voces: VOCES, ffmpeg: hayFfmpeg() })],
+  // Crear corre en segundo plano (un video tarda minutos): la pantalla ve el avance en la lista.
+  ['POST', /^\/api\/taller$/, (b) => {
+    const pedido = String(b.pedido ?? '').trim()
+    if (!pedido) throw new Error('Decime qué querés crear')
+    const crear = { juego: () => crearJuego(db, pedido), imagen: () => crearImagen(db, pedido, { modelo: b.modelo || undefined }), voz: () => crearVoz(db, pedido, { voz: b.voz || undefined }),
+      personaje: () => crearPersonaje(db, pedido), video: () => crearVideo(db, pedido, { personajeId: b.personajeId ? Number(b.personajeId) : null, voz: b.voz || undefined }) }[b.tipo as string]
+    if (!crear) throw new Error('Tipo inválido')
+    void crear().catch((e) => console.error('  taller:', e))
+    return { ok: true }
+  }],
+  ['POST', /^\/api\/taller\/(\d+)\/iterar$/, (b, [a]) => { void iterarArtefacto(db, id(a), String(b.cambio ?? '')).catch((e) => console.error('  taller:', e)); return { ok: true } }],
+  ['POST', /^\/api\/taller\/(\d+)\/corpus$/, (_, [a]) => ({ pieza: artefactoAlCorpus(db, id(a)) })],
   ['GET', /^\/api\/radar$/, () => ({
     oportunidades: listarOportunidades(db, { estados: ['nueva', 'me_interesa', 'hecha'], limite: 200 }), cuotas: cuotas(db), conBuscador: hayBuscadorWeb(),
     primarias: listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana: semanaDe(), estados: ['activa'] }).map((m) => ({ id: m.id, titulo: m.titulo })),
@@ -450,6 +464,15 @@ const rutas: [string, RegExp, Ruta][] = [
 const TIPOS_MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.png': 'image/png',
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.mp3': 'audio/mpeg', '.mp4': 'video/mp4', '.json': 'application/json; charset=utf-8', '.webm': 'audio/webm',
+}
+
+/** Solo la propia pantalla puede hablarle a la API: ni otros sitios (CSRF) ni los iframes aislados del Taller (origen «null»). */
+function origenPermitido(req: http.IncomingMessage): boolean {
+  const o = req.headers.origin
+  if (!o) return true // navegación directa, curl, la CLI
+  const extra = (process.env.MASTRO_ORIGENES ?? '').split(',').map((x) => x.trim()).filter(Boolean) // p. ej. el del celular por Tailscale
+  return o === `http://127.0.0.1:${PUERTO}` || o === `http://localhost:${PUERTO}` || extra.includes(o)
 }
 
 function leerCrudo(req: http.IncomingMessage, max: number): Promise<Buffer> {
@@ -479,6 +502,16 @@ async function leerCuerpo(req: http.IncomingMessage): Promise<any> {
 
 const servidor = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost')
+  if (url.pathname.startsWith('/api/') && !origenPermitido(req)) {
+    return void res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify({ error: 'Origen no permitido' }))
+  }
+  // Lo que crea el Taller: siempre aislado (un juego escrito por el modelo no puede tocar la app ni la API).
+  if (url.pathname.startsWith('/taller/')) {
+    const archivo = path.join(dirTaller(), path.normalize(decodeURIComponent(url.pathname.slice('/taller/'.length))))
+    if (!archivo.startsWith(dirTaller()) || !fs.existsSync(archivo) || fs.statSync(archivo).isDirectory()) return void res.writeHead(404).end('No encontrado')
+    res.writeHead(200, { 'content-type': TIPOS_MIME[path.extname(archivo).toLowerCase()] ?? 'application/octet-stream', 'cache-control': 'no-store', 'content-security-policy': 'sandbox allow-scripts allow-pointer-lock', 'x-content-type-options': 'nosniff' })
+    return void fs.createReadStream(archivo).pipe(res)
+  }
   if (url.pathname.startsWith('/api/')) {
     res.setHeader('content-type', 'application/json; charset=utf-8')
     try {

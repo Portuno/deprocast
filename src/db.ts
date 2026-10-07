@@ -439,6 +439,20 @@ CREATE TABLE IF NOT EXISTS no_duplicados (
   PRIMARY KEY (a, b)
 );
 
+CREATE TABLE IF NOT EXISTS artefactos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tipo TEXT NOT NULL,                 -- juego | imagen | voz | personaje | video
+  titulo TEXT NOT NULL,
+  pedido TEXT NOT NULL,
+  version INTEGER NOT NULL DEFAULT 1,
+  padre_id INTEGER,                   -- la versión anterior
+  archivos TEXT NOT NULL,             -- JSON: nombres dentro de data/taller/<id>/
+  meta TEXT,                          -- JSON: prompt, modelo, voz, ficha…
+  estado TEXT NOT NULL,               -- haciendo | listo | fallo
+  progreso TEXT,
+  creado_en INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS alertas (
   clave TEXT PRIMARY KEY,             -- tipo:id:fecha (una por día)
   texto TEXT NOT NULL,

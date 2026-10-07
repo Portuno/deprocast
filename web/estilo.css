@@ -803,6 +803,19 @@ pre.json { background: var(--panel-2); border-radius: 8px; padding: 12px; font: 
 .dup > small { color: var(--debil); font: 11px var(--mono); }
 .dup label { font-size: 13.5px; }
 
+/* ─── Taller ─── */
+.taller-crear { margin-bottom: 18px; display: grid; gap: 8px; }
+.taller-crear textarea { width: 100%; margin: 0; }
+.taller-crear select { width: auto; margin: 0; }
+.tl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+.tl { background: var(--panel); border: 1px solid var(--linea); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+.tl h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.tl img, .tl video { width: 100%; border-radius: 8px; background: #000; }
+.tl audio { width: 100%; }
+.tl-juego { width: 100%; aspect-ratio: 4 / 3; border: 1px solid var(--linea); border-radius: 8px; background: #000; }
+.tl-haciendo { display: flex; align-items: center; gap: 8px; color: var(--tenue); font-size: 13px; padding: 20px 0; }
+.tl-acc .campo-suelto { flex: 1; min-width: 120px; margin: 0; }
+
 /* ─── Radar ─── */
 .radar-buscar { margin-bottom: 18px; }
 .radar-buscar .fila .campo-suelto { margin: 0; }

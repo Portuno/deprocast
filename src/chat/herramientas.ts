@@ -17,6 +17,7 @@ import {
 import { aportes, ayudantesDe, CLASES_AYUDANTE, pedirAportes, quitarAyudante, sumarAyudante } from '../ayudantes.ts'
 import { encolarPregunta, listarPreguntas } from '../preguntas.ts'
 import { curva, prediccionesDe } from '../gemelo.ts'
+import { crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, iterarArtefacto, listarArtefactos, VOCES } from '../taller.ts'
 import { buscarOportunidades, listarOportunidades, redactarOportunidad } from '../radar.ts'
 import { buscarWeb, hayBuscadorWeb, leerPagina } from '../web.ts'
 import { listarSesiones, momentos as momentosDirecto, sesionActiva } from '../directo.ts'
@@ -732,6 +733,29 @@ export const HERRAMIENTAS: Herramienta[] = [
     parametros: S({ id: int('id de la oportunidad'), pedido: str('Algo que quiera en el borrador') }, ['id']),
     ejecutar: async (a, { db }) => ({ borrador: (await redactarOportunidad(db, a.id, a.pedido)).borrador }),
     resumen: () => 'redactó un borrador',
+  },
+  {
+    nombre: 'crear_en_taller', familia: 'accion',
+    descripcion: `El Taller crea cosas: un juego (HTML jugable), una imagen, una voz (texto leído), un personaje (ficha + retrato + voz) o un video corto (guion, imágenes, voz, montaje). Corre en segundo plano: decile que lo va a ver en Taller. Voces: ${Object.entries(VOCES).map(([k, v]) => `${k} (${v})`).join(', ')}.`,
+    parametros: S({ tipo: str('Qué crear', { enum: ['juego', 'imagen', 'voz', 'personaje', 'video'] }), pedido: str('Lo que pide, con todo el detalle que dio'), voz: str('Voz (para voz, video)'), personaje: int('id de un personaje del Taller, para un video') }, ['tipo', 'pedido']),
+    ejecutar: (a, { db }) => {
+      const f = { juego: () => crearJuego(db, a.pedido), imagen: () => crearImagen(db, a.pedido), voz: () => crearVoz(db, a.pedido, { voz: a.voz }), personaje: () => crearPersonaje(db, a.pedido), video: () => crearVideo(db, a.pedido, { personajeId: a.personaje ?? null, voz: a.voz }) }[a.tipo as string]
+      if (!f) return { error: 'Tipo inválido' }
+      void f().catch(() => {})
+      return { empezado: true, donde: 'Taller' }
+    },
+    resumen: (a) => `empezó ${a.tipo === 'imagen' ? 'una imagen' : a.tipo === 'voz' ? 'una voz' : `un ${a.tipo}`} en el Taller`,
+  },
+  {
+    nombre: 'iterar_en_taller', familia: 'accion', descripcion: 'Una versión nueva de algo del Taller con el cambio que pide («que el dragón sea azul», «que el juego tenga niveles»).',
+    parametros: S({ id: int('id del artefacto'), cambio: str('El cambio') }, ['id', 'cambio']),
+    ejecutar: (a, { db }) => { void iterarArtefacto(db, a.id, a.cambio).catch(() => {}); return { empezado: true } },
+    resumen: () => 'pidió una versión nueva en el Taller',
+  },
+  {
+    nombre: 'ver_taller', familia: 'lectura', descripcion: 'Lo que hay en el Taller (juegos, imágenes, voces, personajes, videos) y en qué estado.',
+    parametros: S({}),
+    ejecutar: (_, { db }) => listarArtefactos(db, { limite: 30 }).map((x) => ({ id: x.id, tipo: x.tipo, titulo: x.titulo, version: x.version, estado: x.estado, progreso: x.progreso ?? undefined })),
   },
   {
     nombre: 'ver_respuestas', familia: 'lectura', descripcion: 'Lo que ya le preguntaste al jugador y lo que contestó (o salteó).',
