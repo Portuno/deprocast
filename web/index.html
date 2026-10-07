@@ -54,6 +54,15 @@
 
   <div class="velo" id="velo" hidden><div class="modal" id="modal"></div></div>
   <div class="toasts" id="toasts"></div>
-  <script type="module" src="/app.js"></script>
+  <!-- Scripts comunes, en orden: comparten el ámbito global; el arranque (registro de vistas) va último. -->
+  <script defer src="/js/00-base.js"></script>
+  <script defer src="/js/10-menciones.js"></script>
+  <script defer src="/js/20-liga.js"></script>
+  <script defer src="/js/30-hoy.js"></script>
+  <script defer src="/js/40-personajes.js"></script>
+  <script defer src="/js/50-saber.js"></script>
+  <script defer src="/js/60-chat.js"></script>
+  <script defer src="/js/70-directo.js"></script>
+  <script defer src="/js/90-arranque.js"></script>
 </body>
 </html>
