@@ -350,6 +350,20 @@ CREATE TABLE IF NOT EXISTS run_plantillas (
   creada_en INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS preguntas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  texto TEXT NOT NULL,
+  por_que TEXT,
+  tipo TEXT NOT NULL,                 -- abierta | opciones | numero
+  opciones TEXT,                      -- JSON string[]
+  tema TEXT,
+  estado TEXT NOT NULL,               -- pendiente | respondida | salteada
+  respuesta TEXT,
+  origen TEXT NOT NULL,               -- mastropiero | chat | agente
+  creada_en INTEGER NOT NULL,
+  respondida_en INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS reportes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   tipo TEXT NOT NULL,                 -- hora | run | semana

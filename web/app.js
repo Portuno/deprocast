@@ -508,7 +508,9 @@ function pintarMiniHoy() {
 
 function refrescarHoy() {
   const f = JSON.stringify(E.hoy)
-  if (f !== hoyFirma) { hoyFirma = f; traerHoy() }
+  // Mientras escribís en el panel del día (una respuesta, una nota), no se redibuja: se pondría al día después.
+  const escribiendo = document.activeElement?.closest?.('#hoy-dia') && /INPUT|TEXTAREA/.test(document.activeElement.tagName)
+  if (f !== hoyFirma && !escribiendo) { hoyFirma = f; traerHoy() }
 }
 
 async function traerHoy() {
@@ -541,6 +543,7 @@ function pintarHoy() {
       <button class="btn btn-chico" id="hoy-ocultar" title="Ocultar las tareas: el chat ocupa toda la pantalla">Ocultar tareas ⇥</button>
       ${avisoNotif ? '<button class="btn btn-chico" id="hoy-notif">Activar avisos</button>' : ''}
     </div>
+    <div id="pregunta-caja"></div>
     ${run?.estado === 'en_curso' ? runEnCursoHTML(run) : run?.estado === 'propuesta' ? runPropuestaHTML(run) : sinRunHTML()}
     ${hoyDatos.proximas?.length ? `<section class="hoy-semana"><h3 class="sub">Próximas runs</h3>${hoyDatos.proximas.map((r) => `<details class="run-pasada"><summary><b>${esc(new Date(`${r.fecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric' }))}</b> ${r.inicio}–${r.fin} · ${r.misiones.length} bandas · propuesta</summary>
       ${r.resumen ? `<p class="hoy-resumen">${esc(r.resumen)}</p>` : ''}<ol class="bandas">${r.misiones.map((m) => bandaHTML(m, { propuesta: true })).join('')}</ol>
@@ -555,6 +558,7 @@ function pintarHoy() {
   if (nb) nb.onclick = async () => { await Notification.requestPermission(); pintarHoy() }
   engancharRun(cont, run)
   engancharSemanaHoy(cont)
+  traerPregunta()
   if (!hoyScrolleado) {
     hoyScrolleado = true
     $('.banda.ahora', cont)?.scrollIntoView({ block: 'center' })
@@ -654,6 +658,52 @@ function semanaHoyHTML() {
     ${hoyDatos.aportes?.length ? `<h3 class="sub">De tus ayudantes</h3>${hoyDatos.aportes.map((a) => `<div class="sq"><span><a href="#" data-pieza="${a.id}">${esc(a.titulo.split(' · ').slice(1).join(' · ') || a.titulo)}</a><small>${esc(a.autor ?? a.agente)} · ${haceCuanto(a.en)}</small></span></div>`).join('')}` : ''}
     ${reporte && reporte.tipo !== 'hora' ? `<details class="hoy-reporte"><summary>Último reporte (${reporte.tipo === 'run' ? 'run' : 'semana'})</summary><div class="md">${md(reporte.texto)}</div></details>` : ''}
   </section>`
+}
+
+// Mastropiero pregunta: una por vez, se contesta con un toque o una línea
+
+let preguntaActual = null
+async function traerPregunta() {
+  const caja = $('#pregunta-caja')
+  if (!caja) return
+  try {
+    const r = await api('/preguntas/siguiente')
+    preguntaActual = r.pregunta
+    pintarPregunta(r)
+  } catch { caja.innerHTML = '' }
+}
+
+function pintarPregunta(r) {
+  const caja = $('#pregunta-caja')
+  if (!caja) return
+  const p = r.pregunta
+  if (!p) {
+    caja.innerHTML = r.generando ? '<div class="pregunta vacia"><small>Mastropiero pregunta</small><p class="tenue">Pensando qué preguntarte…</p></div>' : ''
+    if (r.generando) setTimeout(() => vista === 'hoy' && traerPregunta(), 6000)
+    return
+  }
+  caja.innerHTML = `<div class="pregunta" data-pregunta="${p.id}">
+    <small>Mastropiero pregunta${r.respondidas ? ` · ${r.respondidas} respondidas` : ''}</small>
+    <p class="p-texto">${esc(p.texto)}</p>
+    ${p.porQue ? `<p class="p-porque">${esc(p.porQue)}</p>` : ''}
+    ${p.tipo === 'opciones' ? `<div class="chips">${p.opciones.map((o) => `<button class="chip" data-opcion="${esc(o)}">${esc(o)}</button>`).join('')}</div>` : ''}
+    <div class="fila p-resp">
+      <input class="campo-suelto" id="p-resp" ${p.tipo === 'numero' ? 'inputmode="decimal"' : ''} placeholder="${p.tipo === 'opciones' ? 'O escribí otra cosa…' : 'Tu respuesta…'}">
+      <button class="btn btn-chico btn-primario" id="p-enviar">Responder</button>
+      <button class="btn btn-chico" id="p-saltar" title="Ahora no">Saltear</button>
+    </div>
+  </div>`
+  const responder = async (respuesta) => {
+    try {
+      const r2 = await api(`/preguntas/${p.id}`, { respuesta })
+      if (respuesta) toast('Anotado<small>Lo guardo en lo que sé de vos.</small>', 'suave')
+      pintarPregunta({ pregunta: r2.siguiente, generando: !r2.siguiente, respondidas: (r.respondidas ?? 0) + (respuesta ? 1 : 0) })
+    } catch (e) { error(e) }
+  }
+  $$('[data-opcion]', caja).forEach((b) => (b.onclick = () => responder(b.dataset.opcion)))
+  $('#p-enviar').onclick = () => { const v = $('#p-resp').value.trim(); if (v) responder(v) }
+  $('#p-resp').onkeydown = (e) => { if (e.key === 'Enter' && $('#p-resp').value.trim()) responder($('#p-resp').value.trim()) }
+  $('#p-saltar').onclick = () => responder(null)
 }
 
 function engancharSemanaHoy(cont) {

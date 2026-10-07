@@ -15,6 +15,7 @@ import {
   procesarJugador, proponerPrimarias, rehacerRun, reporteSemana, runActual, semanaDe, type Mision,
 } from '../misiones.ts'
 import { aportes, ayudantesDe, CLASES_AYUDANTE, pedirAportes, quitarAyudante, sumarAyudante } from '../ayudantes.ts'
+import { encolarPregunta, listarPreguntas } from '../preguntas.ts'
 import { agregarItem, editarItem, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, personaje, resolverPersonaje, TIPOS_INVENTARIO } from '../personajes.ts'
 import { asientos, especializacion } from '../auditor.ts'
 import { enEspera, leerTarea, pausarIngesta, publicar, reanudarIngesta, tareas } from '../bus.ts'
@@ -660,6 +661,18 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a, r) => (r?.requiere_confirmacion ? 'pidió confirmación para fusionar entidades' : `fusionó ${a.absorbe?.length ?? 0} duplicadas en ${r?.nombre ?? ''}`),
   },
 
+  {
+    nombre: 'preguntarle_despues', familia: 'accion',
+    descripcion: 'Deja una pregunta para el jugador en su tarjeta de Hoy (la contesta cuando quiera, con un toque). Para lo que te falta saber y no urge preguntar ahora en la charla.',
+    parametros: S({ texto: str('La pregunta, corta'), por_que: str('Para qué te sirve saberlo'), opciones: { type: 'array', items: { type: 'string' }, description: 'De 2 a 5 opciones, si conviene elegir' } }, ['texto']),
+    ejecutar: (a, { db }) => ({ pregunta: encolarPregunta(db, { texto: a.texto, porQue: a.por_que, opciones: a.opciones, origen: 'chat' })?.id }),
+    resumen: (a) => `le dejó una pregunta: ${recorte(a.texto, 50)}`,
+  },
+  {
+    nombre: 'ver_respuestas', familia: 'lectura', descripcion: 'Lo que ya le preguntaste al jugador y lo que contestó (o salteó).',
+    parametros: S({}),
+    ejecutar: (_, { db }) => listarPreguntas(db, { limite: 40 }).map((p) => ({ pregunta: p.texto, estado: p.estado, respuesta: p.respuesta ?? undefined })),
+  },
   {
     nombre: 'pausar_ingesta', familia: 'accion',
     descripcion: 'Pone en espera la ingesta masiva del bus (destilar piezas con agentes): deja de repartirse y de gastar tokens. Las piezas siguen en el corpus y se buscan igual.',

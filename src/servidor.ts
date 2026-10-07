@@ -15,6 +15,7 @@ import {
   proponerPrimarias, rehacerRun, reporteSemana, runActual, semanaDe, semanaVecina, seguimientos, prepararRun, diasDeSemana, asegurarPrincipal,
 } from './misiones.ts'
 import { catalogo } from './menciones.ts'
+import { encolarPregunta, generandoPreguntas, generarPreguntas, listarPreguntas, reponerPreguntas, responderPregunta, siguientePregunta } from './preguntas.ts'
 import { aportes, ayudantesDe, pedirAportes, quitarAyudante, sumarAyudante } from './ayudantes.ts'
 import { agregarItem, editarItem, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, marcarJugador, personaje, resolverHistoria, TIPOS_INVENTARIO } from './personajes.ts'
 import { aprender, archivar, corregir, estadoAprendizaje, fuentesParaAprender, memoriaVigente, recordar, revisar } from './memoria.ts'
@@ -115,6 +116,7 @@ function estado() {
     propuestasAbiertas: (db.prepare(`SELECT COUNT(*) AS n FROM propuestas WHERE estado = 'abierta'`).get() as { n: number }).n,
     hoy: {
       fecha: fechaLocal(), ...progreso(db, fechaLocal()), conversacion: conversacionHoy(db).id,
+      pregunta: siguientePregunta(db)?.id ?? null,
       run: (() => { const r = runActual(db); return r ? { id: r.id, estado: r.estado, marcadas: misionesDeRun(db, r.id).filter((m) => m.estado !== 'activa').length } : null })(),
       // Lo último que Mastropiero dijo solo (rutinas): la pantalla avisa cuando aparece algo nuevo.
       aviso: db.prepare(`SELECT m.id, m.texto FROM mensajes m JOIN conversaciones c ON c.id = m.conversacion_id WHERE c.modo = 'hoy' AND m.modelo = 'rutina' ORDER BY m.id DESC LIMIT 1`).get() ?? null,
@@ -314,6 +316,19 @@ const rutas: [string, RegExp, Ruta][] = [
     if (b.id) actualizarMision(db, Number(b.id), { estado: 'activa' }, { por: 'operador' })
     else crearMision(db, { personaje: clave, nivel: 'principal', titulo: String(b.titulo ?? ''), detalle: b.detalle || null }, { por: 'operador' })
     return fichaDe(clave)
+  }],
+  ['GET', /^\/api\/preguntas\/siguiente$/, () => {
+    reponerPreguntas(db)
+    return { pregunta: siguientePregunta(db), generando: generandoPreguntas(), respondidas: listarPreguntas(db, { estado: 'respondida', limite: 500 }).length }
+  }],
+  ['GET', /^\/api\/preguntas$/, () => listarPreguntas(db, { limite: 100 })],
+  ['POST', /^\/api\/preguntas\/generar$/, async () => generarPreguntas(db)],
+  ['POST', /^\/api\/preguntas$/, (b) => encolarPregunta(db, { texto: String(b.texto ?? ''), porQue: b.porQue, opciones: b.opciones, tipo: b.tipo, origen: 'operador' })],
+  // La respuesta se guarda ya; el escriba la procesa en segundo plano.
+  ['POST', /^\/api\/preguntas\/(\d+)$/, (b, [p]) => {
+    void responderPregunta(db, id(p), b.respuesta ?? null).catch((e) => console.error('  pregunta:', e))
+    reponerPreguntas(db)
+    return { ok: true, siguiente: siguientePregunta(db) }
   }],
   ['GET', /^\/api\/menciones$/, () => catalogo(db).map((m) => ({ k: m.clave, n: m.nombre, t: m.tipo, a: m.alias.slice(0, 8), p: m.piezas }))],
   ['POST', /^\/api\/entidades\/(\d+)$/, (b, [e]) => editarEntidad(db, id(e), { nombre: b.nombre, tipo: b.tipo, notas: b.notas, alias: Array.isArray(b.alias) ? b.alias : undefined, sumarAlias: b.sumarAlias })],
