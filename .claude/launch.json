@@ -20,9 +20,11 @@
         "src/servidor.ts",
         "--db",
         "data/prueba-ui.db",
+        "--puerto",
+        "7373",
         "--sin-rutinas"
       ],
-      "port": 7272
+      "port": 7373
     }
   ]
 }

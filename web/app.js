@@ -103,7 +103,7 @@ function renderHud() {
   const tokens = E.uso.reduce((s, u) => s + u.tokens, 0)
   const stat = (k, v, extra = '') => `<div class="stat"><small>${k}</small><b>${v}</b>${extra ? `<em>${extra}</em>` : ''}</div>`
   $('#hud').innerHTML = [
-    stat('Hoy', E.hoy.total ? `${E.hoy.hechos}/${E.hoy.total}` : '—', E.hoy.total ? 'bloques' : 'sin jornada'),
+    stat('Hoy', E.hoy.total ? `${E.hoy.hechos}/${E.hoy.total}` : '—', E.hoy.run?.estado === 'en_curso' ? 'run en curso' : E.hoy.total ? 'bandas' : 'sin run'),
     stat('Memoria', E.memoriaSinRevisar || '✓', E.memoriaSinRevisar ? 'por revisar' : 'al día'),
     stat('Roster', r.length, `${cuenta('activo')} act · ${cuenta('prueba')} prueba`),
     stat('Bus', t.pendiente ?? 0, `pend · ${t.hecha ?? 0} hechas`),
@@ -134,12 +134,13 @@ function renderCronica() {
 
 const VISTAS = {
   hoy: { montar: montarHoy, refrescar: refrescarHoy },
-  norte: { montar: montarNorte, refrescar: refrescarNorte },
+  misiones: { montar: montarMisionesVida, refrescar: refrescarMisionesVida },
+  jugador: { montar: montarJugador, refrescar: refrescarJugador },
   chat: { montar: montarChat, refrescar: () => pintarLado() },
   entidades: { montar: montarEntidades, refrescar: refrescarEntidades },
   liga: { montar: montarLiga, refrescar: refrescarLiga },
   forja: { montar: montarForja, refrescar: () => {} },
-  misiones: { montar: montarMisiones, refrescar: refrescarTablero },
+  encargos: { montar: montarMisiones, refrescar: refrescarTablero },
   corpus: { montar: montarCorpus, refrescar: refrescarCorpus },
   quantomos: { montar: montarQuantomos, refrescar: refrescarQuantomos },
   matriz: { montar: montarMatriz, refrescar: montarMatriz },
@@ -251,12 +252,15 @@ function montarForja() {
         <div><label class="campo">Celda de la Matriz 72</label>
           <div class="fila" style="margin-top:5px"><button class="btn btn-chico" id="f-celda"></button><button class="btn btn-chico" id="f-celda-x">quitar</button></div></div>
         <label class="campo campo-ancho">Instrucciones<textarea id="f-instr" placeholder="Qué hace y cómo. Vacío = el contrato de la clase."></textarea></label>
+        <label class="campo campo-ancho">Misión principal<input id="f-mision" placeholder="La razón por la que nace. No cambia nunca. Vacío = la de su oficio."></label>
       </section>
       <section class="vista-previa"><div id="f-prev"></div>
         <button class="btn btn-primario forjar" id="f-forjar">FORJAR</button></section>
     </div>`
   $('#f-instr').value = forja.instrucciones
   $('#f-instr').oninput = (e) => { forja.instrucciones = e.target.value }
+  $('#f-mision').value = forja.mision ?? ''
+  $('#f-mision').oninput = (e) => { forja.mision = e.target.value }
   $('#f-proy').innerHTML = `<option value="">— agente libre (sirve a cualquiera) —</option>` + E.liga.proyectos.map((p) => `<option value="${esc(p.id)}">${esc(p.nombre)}</option>`).join('')
   $('#f-proy').value = forja.proyectoId
   $('#f-proy').onchange = (e) => { forja.proyectoId = e.target.value }
@@ -322,20 +326,21 @@ function pintarPrevia() {
 
 async function forjar() {
   try {
-    const f = await api('/forja', { clase: forja.clase, reparto: forja.reparto, motor: forja.motor, instrucciones: forja.instrucciones, proyectoId: forja.proyectoId, celda: forja.celda })
+    const f = await api('/forja', { clase: forja.clase, reparto: forja.reparto, motor: forja.motor, instrucciones: forja.instrucciones, proyectoId: forja.proyectoId, celda: forja.celda, misionPrincipal: forja.mision })
     nuevas.add(f.id)
     forja.reparto = {}
     forja.instrucciones = ''
+    forja.mision = ''
     forja.celda = null
     await refrescar()
     abrirModal(`<div style="display:grid;grid-template-columns:240px 1fr;gap:22px;align-items:center">
       ${cartaHTML(f)}
       <div><h2>¡${esc(f.id)} fue forjado!</h2>
         <p style="color:var(--tenue)">Entra en <b>prueba</b>. Necesita ${R.PRUEBA_EXITOS} misiones cumplidas para ganarse el roster. Si en ${R.DIAS_SIN_CORRER} días no corre, se borra.</p>
-        <div class="fila"><button class="btn" data-cerrar id="otra">Forjar otro</button><button class="btn" id="encargar">Encargarle una misión</button><button class="btn btn-primario" id="a-liga">Ir a la liga</button></div></div></div>`)
+        <div class="fila"><button class="btn" data-cerrar id="otra">Forjar otro</button><button class="btn" id="encargar">Encargarle algo</button><button class="btn btn-primario" id="a-liga">Ir a la liga</button></div></div></div>`)
     $('#otra').onclick = () => { cerrarModal(); montarForja() }
     $('#a-liga').onclick = () => { cerrarModal(); nuevas.add(f.id); irA('liga') }
-    $('#encargar').onclick = () => { cerrarModal(); mision.clase = f.clase; mision.proyectoId = f.proyectoId ?? ''; irA('misiones') }
+    $('#encargar').onclick = () => { cerrarModal(); mision.clase = f.clase; mision.proyectoId = f.proyectoId ?? ''; irA('encargos') }
   } catch (e) { error(e) }
 }
 
@@ -343,11 +348,11 @@ async function forjar() {
 
 function montarMisiones() {
   $('#principal').innerHTML = `
-    <div class="titulo"><h1>Misiones</h1><p>El bus: una sola cola. Publicás para una clase; el gerente (o Mastropiero) elige quién la corre. Nadie llama a nadie.</p></div>
+    <div class="titulo"><h1>Encargos</h1><p>El bus de la liga: una sola cola. Publicás para una clase; el gerente (o Mastropiero) elige quién lo corre. Nadie llama a nadie.</p></div>
     <div class="panel">
       <div class="form-mision">
         <label class="campo">Clase<select id="m-clase">${META.clases.map((c) => `<option value="${c.id}" ${c.id === mision.clase ? 'selected' : ''}>${c.glifo} ${esc(c.nombre)}</option>`).join('')}</select></label>
-        <label class="campo">Misión<input id="m-texto" placeholder="Qué hay que hacer…"></label>
+        <label class="campo">Encargo<input id="m-texto" placeholder="Qué hay que hacer…"></label>
         <label class="campo">Proyecto<select id="m-proy"><option value="">— libre —</option>${E.liga.proyectos.map((p) => `<option value="${esc(p.id)}" ${p.id === mision.proyectoId ? 'selected' : ''}>${esc(p.nombre)}</option>`).join('')}</select></label>
         <label class="campo">Dominio<input id="m-dom" placeholder="derecho, captura…"></label>
         <button class="btn btn-primario" id="m-publicar">Publicar</button>
@@ -373,7 +378,7 @@ function montarMisiones() {
         url: $('#m-url')?.value, agenteId: $('#m-ag')?.value,
       })
       $('#m-texto').value = ''
-      toast(`Misión #${t.id} en el bus<small>Dale Tick para que alguien la tome.</small>`, 'suave')
+      toast(`Encargo #${t.id} en el bus<small>Dale Tick para que alguien lo tome.</small>`, 'suave')
       await refrescar()
     } catch (e) { error(e) }
   }
@@ -458,91 +463,342 @@ async function traerHoy() {
 function pintarHoy() {
   const cont = $('#hoy-dia')
   if (!cont || !hoyDatos) return
-  const { fecha, jornada: j, progreso: p, semana, rutinas, calendarios } = hoyDatos
-  const ahora = minutosAhora()
-  const rutJ = rutinas.find((r) => r.id === 'jornada')
+  const { fecha, jornada: j, progreso: p, semana, run, calendarios } = hoyDatos
   const fechaTxt = new Date(`${fecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })
   const barras = semana.map((d) => {
     const dia = new Date(`${d.fecha}T12:00:00`)
-    return `<div class="sem-dia ${d.fecha === fecha ? 'hoy' : ''}" title="${dia.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric' })}: ${d.hechos} de ${d.total}">
+    return `<div class="sem-dia ${d.fecha === fecha ? 'hoy' : ''}" title="${dia.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric' })}: ${d.hechos} de ${d.total} bandas">
       <span><i style="height:${d.total ? Math.round((d.hechos / d.total) * 100) : 0}%"></i></span><small>${DIA_LETRA[dia.getDay()]}</small></div>`
   }).join('')
   const avisoNotif = 'Notification' in window && Notification.permission === 'default'
   cont.innerHTML = `
     <header class="hoy-cab">
       <div><small>Hoy</small><h1>${esc(fechaTxt)}</h1>
-        <p class="tenue">${j ? `${p.hechos} de ${p.total} bloques${p.saltados ? ` · ${p.saltados} saltados` : ''}` : 'Todavía sin jornada'}</p></div>
-      <div class="semana" title="Bloques hechos por día">${barras}</div>
+        <p class="tenue">${p.total ? `${p.hechos} de ${p.total} bandas${p.parciales ? ` · ${p.parciales} a medias` : ''}` : 'Todavía sin bandas trabajadas'}</p></div>
+      <div class="semana" title="Bandas hechas por día">${barras}</div>
     </header>
     <div class="fila hoy-acciones">
-      <button class="btn btn-chico ${j ? '' : 'btn-primario'}" id="hoy-armar">${j ? 'Rehacer desde ahora' : 'Armar el día'}</button>
-      <button class="btn btn-chico btn-icono" id="hoy-ajustes" title="Horarios y rutinas">⚙</button>
+      <button class="btn btn-chico btn-icono" id="hoy-ajustes" title="Rutinas">⚙</button>
       ${avisoNotif ? '<button class="btn btn-chico" id="hoy-notif">Activar avisos</button>' : ''}
     </div>
-    ${j?.resumen ? `<p class="hoy-resumen">${esc(j.resumen)}</p>` : ''}
-    ${j ? `<ol class="bloques">${j.bloques.map((b) => {
-      const ini = aMinJs(b.inicio)
-      const fin = aMinJs(b.fin)
-      const clase = [b.estado, ini <= ahora && ahora < fin ? 'ahora' : '', fin <= ahora && b.estado === 'pendiente' ? 'pasado' : ''].join(' ')
-      return `<li class="bloque ${clase}" data-bloque="${esc(b.id)}">
-        <span class="b-hora">${b.inicio}<small>${b.fin}</small></span>
-        <div class="b-cuerpo"><b>${esc(b.titulo)}</b>${b.por_que ? `<small>${esc(b.por_que)}</small>` : ''}${b.proyecto ? `<em>${esc(b.proyecto)}</em>` : ''}</div>
-        ${b.estado === 'fijo' ? '<span class="b-agenda">agenda</span>' : `<span class="b-acc"><button data-marcar="hecho" title="Hecho" class="${b.estado === 'hecho' ? 'on' : ''}">✓</button><button data-marcar="saltado" title="Saltar" class="${b.estado === 'saltado' ? 'on' : ''}">↷</button></span>`}
-      </li>`
-    }).join('')}</ol>`
-    : `<div class="vacio hoy-vacio"><div class="gran">☀</div><h2>Todavía no armé tu día</h2>
-        <p>${rutJ?.activa ? `Lo armo solo a las ${rutJ.hora}, o ahora si me lo pedís.` : 'Pedímelo cuando quieras.'} Uso lo que sé de vos, lo que hablamos y tu agenda.</p></div>`}
+    ${run?.estado === 'en_curso' ? runEnCursoHTML(run) : run?.estado === 'propuesta' ? runPropuestaHTML(run) : sinRunHTML()}
+    ${semanaHoyHTML()}
     ${j?.cierre ? `<div class="hoy-cierre"><small>Tu cierre</small><p>${esc(j.cierre)}</p></div>` : ''}
     ${calendarios ? '' : `<p class="hoy-nota">Para que tenga en cuenta tu agenda: en Google Calendar, Configuración del calendario → «Dirección secreta en formato iCal», y pegala en <code>.env</code> como <code>GCAL_ICS_URLS</code>.</p>`}`
-  // Armar o rehacer: para hoy, siempre desde ahora (lo hecho y lo pasado se conserva).
-  $('#hoy-armar').onclick = async () => {
-    const b = $('#hoy-armar')
-    b.disabled = true
-    b.textContent = 'Armando…'
-    document.body.classList.add('jugando')
-    try {
-      const r = await api('/jornada/armar', {})
-      if (r.avisos?.length) toast(esc(r.avisos.join(' ')), 'suave')
-      await refrescar()
-      await traerHoy()
-    } catch (e) { error(e); b.disabled = false } finally { document.body.classList.remove('jugando') }
-  }
   $('#hoy-ajustes').onclick = modalAjustesHoy
   const nb = $('#hoy-notif')
   if (nb) nb.onclick = async () => { await Notification.requestPermission(); pintarHoy() }
-  $$('.bloque [data-marcar]', cont).forEach((btn) => (btn.onclick = async () => {
-    const li = btn.closest('[data-bloque]')
-    const b = j.bloques.find((x) => x.id === li.dataset.bloque)
-    const estado = b.estado === btn.dataset.marcar ? 'pendiente' : btn.dataset.marcar
-    try {
-      await api(`/jornada/${fecha}/bloques/${encodeURIComponent(b.id)}`, { estado })
-      await refrescar()
-      await traerHoy()
-    } catch (e) { error(e) }
-  }))
+  engancharRun(cont, run)
+  engancharSemanaHoy(cont)
   if (!hoyScrolleado) {
     hoyScrolleado = true
-    $('.bloque.ahora', cont)?.scrollIntoView({ block: 'center' })
+    $('.banda.ahora', cont)?.scrollIntoView({ block: 'center' })
   }
 }
 
-function modalAjustesHoy() {
-  const a = hoyDatos.ajustes
-  const r = hoyDatos.rutinas
-  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Tu día</h2>
-    <p class="tenue">La ventana en la que Mastropiero arma bloques, de cuántos minutos, y a qué hora hace cada cosa solo.</p>
-    <div class="form-ing">
-      <label class="campo">Empieza<input id="aj-ini" type="time" value="${esc(a.jornada_inicio)}"></label>
-      <label class="campo">Termina<input id="aj-fin" type="time" value="${esc(a.jornada_fin)}"></label>
-      <label class="campo">Bloques (minutos)<input id="aj-min" value="${esc(a.bloques_minutos)}" placeholder="12,25,50"></label>
+const MARCA = { hecha: '✓', parcial: '◐', no: '✗' }
+let cuentaRegresiva = null
+
+function bandaHTML(m, { propuesta = false, actual = null } = {}) {
+  const ahora = minutosAhora()
+  const clase = [m.estado, m.id === actual ? 'ahora' : '', !propuesta && aMinJs(m.fin) <= ahora && m.estado === 'activa' ? 'pasado' : '', m.fijada ? 'fijada' : ''].join(' ')
+  return `<li class="banda ${clase}" data-mid="${m.id}">
+    <span class="b-hora">${m.inicio}<small>${m.minutos}′</small></span>
+    <div class="b-cuerpo"><b>${esc(m.titulo)}</b>${m.detalle ? `<small>${esc(m.detalle)}</small>` : ''}
+      ${m.feedback ? `<small class="b-nota">“${esc(m.feedback)}”</small>` : ''}
+      ${[m.categoria, m.con && `con ${m.con}`, m.gasto != null && `${m.gasto}`].filter(Boolean).map((x) => `<em>${esc(x)}</em>`).join('')}</div>
+    ${propuesta
+      ? `<span class="b-acc"><button data-fijar title="${m.fijada ? 'Soltar' : 'Fijar: rehacer la conserva'}" class="${m.fijada ? 'on' : ''}">★</button></span>`
+      : `<span class="b-acc">${Object.entries(MARCA).map(([e, g]) => `<button data-marcar="${e}" title="${e === 'parcial' ? 'A medias' : e === 'no' ? 'No salió' : 'Hecha'}" class="${m.estado === e ? 'on' : ''}">${g}</button>`).join('')}<button data-nota title="Nota">✎</button></span>`}
+  </li>`
+}
+
+function runEnCursoHTML(run) {
+  const ms = run.misiones
+  const actual = ms.find((m) => m.id === hoyDatos.actual)
+  const marcadas = ms.filter((m) => m.estado !== 'activa').length
+  const hechas = ms.filter((m) => m.estado === 'hecha').length
+  return `<section class="run en-curso">
+    <div class="run-cab"><small>Run · ${run.inicio}–${run.fin}</small><span>${hechas} de ${ms.length} hechas</span></div>
+    <div class="run-barra"><i style="width:${ms.length ? Math.round((marcadas / ms.length) * 100) : 0}%"></i></div>
+    ${actual ? `<div class="mision-actual" data-mid="${actual.id}">
+        <div class="ma-top"><span>${actual.inicio}–${actual.fin}</span><span class="ma-cuenta" id="ma-cuenta" data-fin="${actual.fin}"></span></div>
+        <h2>${esc(actual.titulo)}</h2>
+        ${actual.detalle ? `<p>${esc(actual.detalle)}</p>` : ''}
+        <div class="ma-acc">
+          <button class="btn ${actual.estado === 'hecha' ? 'btn-primario' : ''}" data-marcar="hecha">✓ Hecha</button>
+          <button class="btn ${actual.estado === 'parcial' ? 'btn-primario' : ''}" data-marcar="parcial">◐ A medias</button>
+          <button class="btn ${actual.estado === 'no' ? 'btn-primario' : ''}" data-marcar="no">✗ No salió</button>
+        </div>
+        <input class="campo-suelto" id="ma-nota" placeholder="Una nota para calibrar (qué trabó, qué funcionó)…" value="${esc(actual.feedback ?? '')}">
+      </div>`
+      : `<div class="mision-actual entre"><p class="tenue">${minutosAhora() < aMinJs(run.inicio) ? `Arranca a las ${run.inicio}.` : 'Entre bandas. Respirá.'}</p></div>`}
+    <ol class="bandas">${ms.map((m) => bandaHTML(m, { actual: actual?.id })).join('')}</ol>
+    <div class="fila run-pie">
+      <button class="btn btn-chico" id="run-rehacer">Rehacer lo que sigue</button>
+      <button class="btn btn-chico" id="run-cerrar">Cerrar la run</button>
     </div>
+  </section>`
+}
+
+function runPropuestaHTML(run) {
+  const ms = run.misiones
+  return `<section class="run propuesta">
+    <div class="run-cab"><small>Run propuesta · ${run.inicio}–${run.fin}</small><span>${ms.length} misiones</span></div>
+    ${run.resumen ? `<p class="hoy-resumen">${esc(run.resumen)}</p>` : ''}
+    ${run.agentes?.length ? `<p class="run-agentes">La armó Mastropiero con ${run.agentes.map((a) => `<a href="#" data-ver-agente="${esc(a.id)}">${esc(a.nombre)}</a>${a.ok ? '' : ' (no pudo)'}`).join(', ')}.</p>` : ''}
+    ${run.fijos?.length ? `<p class="run-agentes">Respeta tu agenda: ${run.fijos.map((f) => `${f.inicio} ${esc(f.titulo)}`).join(' · ')}.</p>` : ''}
+    <ol class="bandas">${ms.map((m) => bandaHTML(m, { propuesta: true })).join('')}</ol>
+    <div class="run-iterar">
+      <input class="campo-suelto" id="run-cambio" placeholder="¿Algo para cambiar? «más corta», «sacá lo de X», «más creativas»…">
+      <button class="btn" id="run-rehacer">Rehacer</button>
+    </div>
+    <div class="fila run-pie">
+      <button class="btn btn-primario" id="run-arrancar">▶ Arrancar</button>
+      <button class="btn btn-chico" id="run-descartar">Descartar</button>
+      <button class="btn btn-chico" id="run-plantilla" title="Guardar este pedido para reusarlo">Guardar pedido como plantilla</button>
+    </div>
+  </section>`
+}
+
+function sinRunHTML() {
+  return `<section class="run vacia">
+    <h2>¿Arrancamos una run?</h2>
+    <p class="tenue">La diseñás vos: cuánto tiempo, cómo estás, qué querés meter y cómo querés ver las tareas. Mastropiero arma las misiones.</p>
+    <div class="fila">
+      <button class="btn btn-primario" id="run-nueva">Nueva run</button>
+      ${hoyDatos.plantillas.map((p) => `<button class="chip" data-plantilla="${p.id}" title="Armar con esta plantilla, sin más">${esc(p.nombre)}</button>`).join('')}
+    </div>
+  </section>`
+}
+
+function semanaHoyHTML() {
+  const { primarias, principal, terciarias, seguimientos, reporte } = hoyDatos
+  const activas = primarias.filter((m) => m.estado !== 'sugerida')
+  const sugeridas = primarias.filter((m) => m.estado === 'sugerida')
+  return `<section class="hoy-semana">
+    ${principal ? `<p class="principal-linea" title="Tu misión principal">◎ ${esc(principal.titulo)}</p>` : ''}
+    <h3 class="sub">Primarias de la semana <a href="#" class="ref" data-ir="misiones">ver todo</a></h3>
+    ${activas.length ? `<div class="prim-mini">${activas.map((m) => `<div class="pm ${m.estado}">
+        <span>${esc(m.titulo)}</span><i class="barrita"><b style="width:${m.avance.progreso}%"></b></i><small>${m.avance.bandas.hechas ? `${m.avance.bandas.hechas} bandas` : ''}</small></div>`).join('')}</div>`
+      : `<p class="tenue chico">${sugeridas.length ? `Mastropiero te sugirió ${sugeridas.length}: aceptalas en <a href="#" class="ref" data-ir="misiones">Misiones</a>.` : 'Sin primarias esta semana. <a href="#" class="ref" data-ir="misiones">Proponer</a>'}</p>`}
+    ${terciarias.filter((m) => m.estado === 'activa').length ? `<h3 class="sub">Side quests</h3>${terciarias.filter((m) => m.estado === 'activa').map((m) => `<div class="sq" data-mid="${m.id}">
+        <span>⚑ ${esc(m.titulo)}${m.disparador ? `<small>${esc(Object.values(m.disparador).filter(Boolean).join(' · '))}</small>` : ''}</span>
+        <button class="btn btn-chico" data-sq-hecha title="Cumplida">✓</button></div>`).join('')}` : ''}
+    ${seguimientos.length ? `<h3 class="sub">Te deben</h3>${seguimientos.map((m) => `<div class="sq"><span>↻ <b>${esc(m.quien)}</b>: ${esc(m.titulo)}<small>vencía ${esc(m.vence)}</small></span></div>`).join('')}` : ''}
+    ${reporte && reporte.tipo !== 'hora' ? `<details class="hoy-reporte"><summary>Último reporte (${reporte.tipo === 'run' ? 'run' : 'semana'})</summary><div class="md">${md(reporte.texto)}</div></details>` : ''}
+  </section>`
+}
+
+function engancharSemanaHoy(cont) {
+  $$('[data-ir]', cont).forEach((a) => (a.onclick = (e) => { e.preventDefault(); irA(a.dataset.ir) }))
+  $$('[data-sq-hecha]', cont).forEach((b) => (b.onclick = async () => {
+    try { await api(`/misiones/${b.closest('[data-mid]').dataset.mid}`, { estado: 'hecha' }); toast('Side quest cumplida', 'suave'); await traerHoy() } catch (e) { error(e) }
+  }))
+}
+
+async function trabajando(boton, texto, f) {
+  const antes = boton?.textContent
+  if (boton) { boton.disabled = true; boton.textContent = texto }
+  document.body.classList.add('jugando')
+  try { return await f() } catch (e) { error(e) } finally {
+    document.body.classList.remove('jugando')
+    if (boton && document.body.contains(boton)) { boton.disabled = false; boton.textContent = antes }
+  }
+}
+
+function engancharRun(cont, run) {
+  clearInterval(cuentaRegresiva)
+  const nueva = $('#run-nueva', cont)
+  if (nueva) nueva.onclick = () => modalRun()
+  $$('[data-plantilla]', cont).forEach((b) => (b.onclick = () => trabajando(b, 'Armando…', async () => {
+    const r = await api('/runs/preparar', { pedido: { plantilla: Number(b.dataset.plantilla) } })
+    if (r.avisos?.length) toast(esc(r.avisos.join(' ')), 'suave')
+    await traerHoy()
+  })))
+  if (!run) return
+  const marcar = async (id, estado, nota) => {
+    try {
+      await api(`/misiones/${id}/marcar`, { estado, nota: nota ?? null })
+      await refrescar()
+      await traerHoy()
+    } catch (e) { error(e) }
+  }
+  $$('.banda [data-marcar]', cont).forEach((b) => (b.onclick = () => {
+    const m = run.misiones.find((x) => x.id === Number(b.closest('[data-mid]').dataset.mid))
+    marcar(m.id, m.estado === b.dataset.marcar ? 'activa' : b.dataset.marcar)
+  }))
+  $$('.banda [data-nota]', cont).forEach((b) => (b.onclick = () => {
+    const m = run.misiones.find((x) => x.id === Number(b.closest('[data-mid]').dataset.mid))
+    const nota = prompt(`Nota sobre «${m.titulo}» (para calibrar):`)
+    if (nota?.trim()) marcar(m.id, m.estado === 'activa' ? 'parcial' : m.estado, nota.trim())
+  }))
+  $$('.banda [data-fijar]', cont).forEach((b) => (b.onclick = async () => {
+    const m = run.misiones.find((x) => x.id === Number(b.closest('[data-mid]').dataset.mid))
+    try { await api(`/misiones/${m.id}`, { fijada: !m.fijada }); await traerHoy() } catch (e) { error(e) }
+  }))
+  const ma = $('.mision-actual[data-mid]', cont)
+  if (ma) {
+    $$('[data-marcar]', ma).forEach((b) => (b.onclick = () => marcar(Number(ma.dataset.mid), b.dataset.marcar, $('#ma-nota').value.trim() || null)))
+    const reloj = $('#ma-cuenta')
+    const tic = () => {
+      const [h, mi] = reloj.dataset.fin.split(':').map(Number)
+      const fin = new Date()
+      fin.setHours(h, mi, 0, 0)
+      const s = Math.round((fin - Date.now()) / 1000)
+      if (s <= 0) { clearInterval(cuentaRegresiva); traerHoy(); return }
+      reloj.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+    }
+    tic()
+    cuentaRegresiva = setInterval(tic, 1000)
+  }
+  const rehacer = $('#run-rehacer', cont)
+  if (rehacer) rehacer.onclick = () => {
+    const cambio = run.estado === 'propuesta' ? $('#run-cambio').value.trim() : prompt('¿Qué cambio querés en lo que sigue? (vacío = rearmar igual)')
+    if (cambio === null) return
+    trabajando(rehacer, 'Rehaciendo…', async () => { await api(`/runs/${run.id}/rehacer`, { cambio }); await traerHoy() })
+  }
+  const cambio = $('#run-cambio', cont)
+  if (cambio) cambio.onkeydown = (e) => e.key === 'Enter' && rehacer.click()
+  const arrancar = $('#run-arrancar', cont)
+  if (arrancar) arrancar.onclick = () => trabajando(arrancar, 'Arrancando…', async () => { await api(`/runs/${run.id}/arrancar`, {}); hoyScrolleado = false; await refrescar(); await traerHoy() })
+  const descartar = $('#run-descartar', cont)
+  if (descartar) descartar.onclick = async () => { try { await api(`/runs/${run.id}/descartar`, {}); await traerHoy() } catch (e) { error(e) } }
+  const cerrar = $('#run-cerrar', cont)
+  if (cerrar) cerrar.onclick = () => {
+    if (!confirm('¿Cerrar la run? Escribo el reporte con lo que marcaste.')) return
+    trabajando(cerrar, 'Escribiendo el reporte…', async () => {
+      const r = await api(`/runs/${run.id}/cerrar`, {})
+      abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Reporte de la run</h2><div class="md">${md(r.texto)}</div>`)
+      await refrescar()
+      await traerHoy()
+    })
+  }
+  const plantilla = $('#run-plantilla', cont)
+  if (plantilla) plantilla.onclick = async () => {
+    const nombre = prompt('Nombre de la plantilla (ej. «Tarde creativa»):', run.pedido.plantillaNombre && run.pedido.texto ? '' : run.pedido.plantillaNombre ?? '')
+    if (!nombre?.trim()) return
+    const { incluir, plantillaNombre, inicio, fin, ...pedido } = run.pedido
+    try { await api('/plantillas', { nombre: nombre.trim(), pedido: { ...pedido, incluir: (incluir ?? []).map((e) => e.id) } }); toast(`Plantilla «${esc(nombre.trim())}» guardada`, 'suave'); await traerHoy() } catch (e) { error(e) }
+  }
+}
+
+// ─── Nueva run ──────────────────────────────────────────────────────────
+
+function modalRun(pre = {}) {
+  const ps = hoyDatos?.plantillas ?? []
+  const estado = { plantilla: pre.plantilla ?? ps[0]?.id ?? null, incluir: [], intensidad: null }
+  const base = () => ps.find((p) => p.id === estado.plantilla)?.pedido ?? {}
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button>
+    <h2>Nueva run</h2>
+    <p class="tenue">Escribile como quieras: tiempo, energía, plata, qué meter, cómo querés ver las tareas. Lo que digas manda sobre la plantilla.</p>
+    <div class="chips" id="r-plantillas">${ps.map((p) => `<button class="chip" data-p="${p.id}">${esc(p.nombre)}</button>`).join('')}</div>
+    <p class="tenue chico" id="r-base"></p>
+    <label class="campo">Tu pedido<textarea id="r-texto" rows="4" placeholder="Tengo dos horas y la cabeza a medias. 20 € para gastar. Quiero avanzar con el proyecto X y escribirle a Y. Bandas de 25 con una pausa en el medio."></textarea></label>
+    <details class="r-mano"><summary>Ajustar a mano</summary>
+      <div class="form-ing">
+        <label class="campo">Duración (minutos)<input id="r-dur" type="number" min="10" step="5"></label>
+        <label class="campo">Bandas (minutos)<input id="r-banda" placeholder="12 · 12,25 · libre"></label>
+        <label class="campo">Cantidad<input id="r-cant" type="number" min="1" max="60"></label>
+        <label class="campo">Plata para gastar<input id="r-dinero" type="number" min="0" step="1"></label>
+        <div class="campo campo-ancho">Intensidad mental<div class="chips r-int">${[1, 2, 3, 4, 5].map((n) => `<button class="chip" data-int="${n}" title="${['cabeza apagada', 'liviana', 'normal', 'enfocada', 'modo profundo'][n - 1]}">${n}</button>`).join('')}</div></div>
+        <label class="campo">Cómo estás<input id="r-energia" placeholder="cansado, disperso, a mil…"></label>
+        <label class="campo">Recursos y contexto<input id="r-recursos" placeholder="en la oficina, sin poder llamar, con la notebook…"></label>
+        <label class="campo">Excluir<input id="r-excluir" placeholder="mails, reuniones…"></label>
+        <label class="campo">Formato<input id="r-formato" placeholder="verbos al principio, con pausas…"></label>
+        <label class="campo campo-ancho">Meter proyectos o personas<input id="r-incluir-q" placeholder="Buscá una entidad, o escribí un nombre nuevo…" autocomplete="off"></label>
+        <div class="campo-ancho"><div class="r-sugerencias" id="r-sug"></div><div class="tags" id="r-incluidos"></div></div>
+        <label class="campo fila" style="gap:6px"><input id="r-sub" type="checkbox" checked> Con subdescripción</label>
+      </div>
+    </details>
+    <div class="fila" style="margin-top:14px">
+      <button class="btn btn-primario" id="r-armar">Armar</button>
+      <button class="btn btn-chico" id="r-guardar">Guardar como plantilla</button>
+    </div>`)
+  const pintarBase = () => {
+    $$('#r-plantillas [data-p]').forEach((b) => b.classList.toggle('on', Number(b.dataset.p) === estado.plantilla))
+    const b = base()
+    $('#r-base').textContent = `Base: ${b.duracion ?? 180} min${b.banda?.length ? ` en bandas de ${b.banda.join(' o ')}` : ', bandas libres'}${b.cantidad ? ` · ${b.cantidad} misiones` : ''}${b.subdescripcion === false ? ' · sin subdescripción' : ''}.`
+  }
+  $$('#r-plantillas [data-p]').forEach((b) => (b.onclick = () => { estado.plantilla = Number(b.dataset.p); pintarBase() }))
+  $$('[data-int]').forEach((b) => (b.onclick = () => {
+    estado.intensidad = estado.intensidad === Number(b.dataset.int) ? null : Number(b.dataset.int)
+    $$('[data-int]').forEach((x) => x.classList.toggle('on', Number(x.dataset.int) === estado.intensidad))
+  }))
+  const pintarIncluidos = () => {
+    $('#r-incluidos').innerHTML = estado.incluir.map((e, i) => `<span>${esc(e.nombre)}${e.nuevo ? ` <small>(${e.nuevo})</small>` : ''} <a href="#" data-sacar="${i}">✕</a></span>`).join('')
+    $$('[data-sacar]').forEach((a) => (a.onclick = (ev) => { ev.preventDefault(); estado.incluir.splice(Number(a.dataset.sacar), 1); pintarIncluidos() }))
+  }
+  let espera
+  $('#r-incluir-q').oninput = (ev) => {
+    clearTimeout(espera)
+    const q = ev.target.value.trim()
+    if (!q) return void ($('#r-sug').innerHTML = '')
+    espera = setTimeout(async () => {
+      try {
+        const r = await api(`/entidades?${new URLSearchParams({ q, limite: 6 })}`)
+        $('#r-sug').innerHTML = r.entidades.map((e) => `<button class="chip" data-ent-id="${e.id}" data-ent-nombre="${esc(e.nombre)}">${TIPO_ENT[e.tipo]?.glifo ?? ''} ${esc(e.nombre)}</button>`).join('') +
+          ['proyecto', 'persona'].map((t) => `<button class="chip" data-ent-nuevo="${t}">+ «${esc(q)}» como ${t}</button>`).join('')
+        $$('[data-ent-id]').forEach((b) => (b.onclick = () => { estado.incluir.push({ id: Number(b.dataset.entId), nombre: b.dataset.entNombre }); $('#r-incluir-q').value = ''; $('#r-sug').innerHTML = ''; pintarIncluidos() }))
+        $$('[data-ent-nuevo]').forEach((b) => (b.onclick = () => { estado.incluir.push({ nombre: q, nuevo: b.dataset.entNuevo }); $('#r-incluir-q').value = ''; $('#r-sug').innerHTML = ''; pintarIncluidos() }))
+      } catch (e) { error(e) }
+    }, 220)
+  }
+  const pedido = () => {
+    const p = { plantilla: estado.plantilla, texto: $('#r-texto').value.trim() || null }
+    const n = (sel) => ($(sel).value === '' ? null : Number($(sel).value))
+    if (n('#r-dur')) p.duracion = n('#r-dur')
+    const banda = $('#r-banda').value.trim().toLowerCase()
+    if (banda === 'libre') p.libre = true
+    else if (banda) p.banda = banda.split(/[,\s]+/).map(Number).filter((x) => x > 0)
+    if (n('#r-cant')) p.cantidad = n('#r-cant')
+    if (n('#r-dinero') != null) p.dinero = n('#r-dinero')
+    if (estado.intensidad) p.intensidad = estado.intensidad
+    for (const [k, sel] of [['energia', '#r-energia'], ['recursos', '#r-recursos'], ['excluir', '#r-excluir'], ['formato', '#r-formato']]) if ($(sel).value.trim()) p[k] = $(sel).value.trim()
+    if (estado.incluir.length) p.incluir = estado.incluir.map((e) => (e.id ? e.id : `${e.nuevo}:${e.nombre}`))
+    if (!$('#r-sub').checked) p.subdescripcion = false
+    return p
+  }
+  $('#r-armar').onclick = () => trabajando($('#r-armar'), 'Armando… (Mastropiero y la liga)', async () => {
+    const r = await api('/runs/preparar', { pedido: pedido() })
+    cerrarModal()
+    if (r.avisos?.length) toast(esc(r.avisos.join(' ')), 'suave')
+    if (r.run.agentes?.length) toast(`La armé con ${esc(r.run.agentes.map((a) => a.nombre).join(', '))}`, 'suave')
+    if (vista !== 'hoy') irA('hoy')
+    else await traerHoy()
+  })
+  $('#r-guardar').onclick = async () => {
+    const nombre = prompt('Nombre de la plantilla:')
+    if (!nombre?.trim()) return
+    const { texto, plantilla, ...resto } = pedido()
+    try {
+      await api('/plantillas', { nombre: nombre.trim(), pedido: { ...base(), ...resto } })
+      toast(`Plantilla «${esc(nombre.trim())}» guardada`, 'suave')
+      hoyDatos = await api('/hoy')
+    } catch (e) { error(e) }
+  }
+  pintarBase()
+  $('#r-texto').focus()
+}
+
+function modalAjustesHoy() {
+  const r = hoyDatos.rutinas
+  const ps = hoyDatos.plantillas
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Tu día</h2>
+    <p class="tenue">A qué hora hace Mastropiero cada cosa solo, y cuántas primarias te propone por semana.</p>
+    <div class="form-ing"><label class="campo">Primarias por semana<input id="aj-prim" type="number" min="1" max="12" value="${esc(hoyDatos.ajustes.primarias_semana ?? 6)}"></label></div>
     <h3 class="sub">Rutinas</h3>
-    ${r.map((x) => `<div class="fila" style="margin:6px 0"><label class="fila" style="gap:6px;min-width:200px"><input type="checkbox" data-rut-activa="${x.id}" ${x.activa ? 'checked' : ''}> ${esc(x.nombre)}</label>
-      <input class="campo-suelto" type="time" data-rut-hora="${x.id}" value="${esc(x.hora)}" style="width:120px;margin:0"></div>`).join('')}
+    ${r.map((x) => `<div class="fila" style="margin:6px 0"><label class="fila" style="gap:6px;min-width:260px"><input type="checkbox" data-rut-activa="${x.id}" ${x.activa ? 'checked' : ''}> ${esc(x.nombre)}</label>
+      <input class="campo-suelto" type="time" data-rut-hora="${x.id}" value="${esc(x.hora)}" style="width:120px;margin:0"><small class="tenue">${x.dias === '0123456' ? 'todos los días' : x.dias.split('').map((d) => ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'][d]).join(', ')}</small></div>`).join('')}
+    <h3 class="sub">Plantillas de run</h3>
+    ${ps.map((p) => `<div class="fila" style="margin:4px 0"><span style="min-width:200px">${esc(p.nombre)}</span><small class="tenue">${esc(JSON.stringify(p.pedido))}</small>${p.sistema ? '' : `<button class="btn btn-chico btn-peligro" data-borrar-p="${p.id}">Borrar</button>`}</div>`).join('')}
     <div class="fila" style="margin-top:16px"><button class="btn btn-primario" id="aj-guardar">Guardar</button></div>`)
+  $$('[data-borrar-p]').forEach((b) => (b.onclick = async () => {
+    try { await api(`/plantillas/${b.dataset.borrarP}/borrar`, {}); await traerHoy(); modalAjustesHoy() } catch (e) { error(e) }
+  }))
   $('#aj-guardar').onclick = async () => {
     try {
-      await api('/ajustes', { jornada_inicio: $('#aj-ini').value, jornada_fin: $('#aj-fin').value, bloques_minutos: $('#aj-min').value })
+      await api('/ajustes', { primarias_semana: $('#aj-prim').value })
       for (const x of r) await api(`/rutinas/${x.id}`, { hora: $(`[data-rut-hora="${x.id}"]`).value, activa: $(`[data-rut-activa="${x.id}"]`).checked })
       cerrarModal()
       toast('Guardado', 'suave')
@@ -556,9 +812,9 @@ function modalAjustesHoy() {
 const TIPO_REC = { meta: 'meta', vision: 'visión', sueño: 'sueño', preferencia: 'preferencia', hecho: 'hecho', correccion: 'corrección' }
 const HORIZ = [['castillo', 'Castillo', 'años · estrategia'], ['campamento', 'Campamento', 'semanas y meses'], ['trinchera', 'Trinchera', 'días']]
 
-function montarNorte() {
-  $('#principal').innerHTML = `
-    <div class="titulo"><h1>Norte</h1><p>Tu visión, tus metas y lo que Mastropiero sabe de vos. Se escribe solo con lo que le contás; acá lo corregís.</p>
+function montarNorte(cont = $('#principal')) {
+  cont.innerHTML = `
+    <div class="titulo titulo-chico"><p>Tu visión, tus metas y lo que Mastropiero sabe de vos. Se escribe solo con lo que le contás; acá lo corregís.</p>
       <div class="fila"><span class="tenue" id="n-aprende" style="font-size:12.5px"></span><button class="btn" id="n-aprender" title="Lee tus charlas con Mastropiero y tus piezas propias más pesadas (audios, notas, cuaderno) y anota lo que vale recordar">Aprender de lo que ya cargaste</button></div></div>
     <div id="norte"></div>
     <div class="panel" style="margin-top:18px"><h3>Agregar</h3>
@@ -635,6 +891,287 @@ async function traerNorte() {
       el.querySelector('[data-archivar]').onclick = () => { if (confirm('¿Olvidar esto? Deja de usarse, pero queda archivado.')) accion(() => api(`/memoria/${id}/archivar`, {})) }
     })
   } catch (e) { error(e) }
+}
+
+// Misiones (las de la vida: principal, primarias, side quests, lo que otros deben)
+
+let misSemana = null
+let misFirma = ''
+const fmtSemana = (d) => `${new Date(`${d.desde}T12:00:00`).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })} – ${new Date(`${d.hasta}T12:00:00`).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}`
+
+function montarMisionesVida() {
+  $('#principal').innerHTML = `
+    <div class="titulo"><h1>Misiones</h1><p>Tu misión principal, las primarias de la semana, tus side quests y lo que les encargaste a otros. Lo que propone Mastropiero aparece como sugerencia: vos decidís.</p>
+      <div class="fila"><button class="btn" id="mi-procesar" title="Lee tu memoria y tu material propio y propone historia, inventario, candidatas a misión principal y primarias">Procesarme</button></div></div>
+    <div id="mis"></div>`
+  $('#mi-procesar').onclick = () => procesarme($('#mi-procesar'))
+  traerMisiones()
+}
+
+function refrescarMisionesVida() {
+  const f = JSON.stringify(E.hoy)
+  if (f !== misFirma) { misFirma = f; traerMisiones() }
+}
+
+async function procesarme(boton) {
+  await trabajando(boton, 'Procesándote…', async () => {
+    const r = await api('/jugador/procesar', {})
+    toast(`Listo<small>${r.historia ? 'Historia sugerida · ' : ''}${r.inventario} ítems de inventario · ${r.principales} candidatas a principal · ${r.primarias} primarias. Todo como sugerencia.</small>`)
+    await refrescar()
+    if (vista === 'misiones') traerMisiones()
+    if (vista === 'jugador') montarJugador()
+  })
+}
+
+async function traerMisiones() {
+  const cont = $('#mis')
+  if (!cont) return
+  try {
+    const d = await api(`/misiones${misSemana ? `?semana=${misSemana}` : ''}`)
+    misFirma = JSON.stringify(E.hoy)
+    const prim = (m) => `<div class="prim ${m.estado}" data-mid="${m.id}">
+      <div class="p-top">${m.categoria ? `<span class="tipo-chip">${esc(m.categoria)}</span>` : ''}${m.estado === 'sugerida' ? '<span class="nivel-badge">sugerida</span>' : m.estado !== 'activa' ? `<span class="tipo-chip">${esc(m.estado)}</span>` : ''}</div>
+      <h3>${esc(m.titulo)}</h3>
+      ${m.detalle ? `<p>${esc(m.detalle)}</p>` : ''}
+      ${m.entidadId ? `<a href="#" class="ref" data-ref-ent="${m.entidadId}">ver el proyecto</a>` : ''}
+      ${m.estado === 'sugerida'
+        ? `<div class="fila p-acc"><button class="btn btn-chico btn-primario" data-m-estado="activa">Aceptar</button><button class="btn btn-chico" data-m-editar>Cambiar</button><button class="btn btn-chico" data-m-estado="descartada">Descartar</button></div>`
+        : `<div class="p-avance"><input type="range" min="0" max="100" step="5" value="${m.avance.progreso}" data-m-prog><b>${m.avance.progreso}%</b></div>
+           <small class="tenue">${m.avance.bandas.total ? `${m.avance.bandas.hechas} bandas hechas${m.avance.bandas.parciales ? `, ${m.avance.bandas.parciales} a medias` : ''} · ${m.avance.minutos} min de foco` : 'Todavía sin bandas'}</small>
+           <div class="fila p-acc">${m.estado === 'activa' ? '<button class="btn btn-chico" data-m-estado="hecha">✓ Cumplida</button>' : '<button class="btn btn-chico" data-m-estado="activa">Reabrir</button>'}<button class="btn btn-chico" data-m-editar>✎</button><button class="btn btn-chico" data-m-estado="descartada" title="Descartar">✕</button></div>`}
+    </div>`
+    cont.innerHTML = `
+      <section class="panel mi-principal">
+        <small>Misión principal</small>
+        ${d.principal ? `<h2>◎ ${esc(d.principal.titulo)}</h2>${d.principal.detalle ? `<p>${esc(d.principal.detalle)}</p>` : ''}` : '<h2 class="tenue">Sin fijar</h2><p class="tenue">Tu objetivo de vida, en una frase. Solo vos la fijás.</p>'}
+        ${d.candidatas.length ? `<div class="candidatas"><small>Mastropiero sugiere:</small>${d.candidatas.map((c) => `<div class="fila"><span>${esc(c.titulo)}${c.detalle ? ` <small class="tenue">— ${esc(c.detalle)}</small>` : ''}</span><button class="btn btn-chico" data-elegir="${c.id}">Elegir esta</button></div>`).join('')}</div>` : ''}
+        <div class="fila"><button class="btn btn-chico" id="mi-fijar">${d.principal ? 'Cambiar' : 'Fijarla'}</button></div>
+      </section>
+      <div class="mi-semana-cab">
+        <button class="btn btn-chico btn-icono" data-sem="${d.anterior}" title="Semana anterior">‹</button>
+        <h2>Semana ${esc(d.semana.split('-W')[1])} <small>${esc(fmtSemana(d))}</small></h2>
+        <button class="btn btn-chico btn-icono" data-sem="${d.siguiente}" title="Semana siguiente">›</button>
+        <span style="flex:1"></span>
+        <button class="btn btn-chico" id="mi-proponer">Proponer primarias</button>
+        <button class="btn btn-chico" id="mi-nueva">+ Primaria</button>
+        <button class="btn btn-chico" id="mi-reporte">Reporte de la semana</button>
+      </div>
+      ${d.primarias.length ? `<div class="prim-grid">${d.primarias.map(prim).join('')}</div>` : `<div class="vacio"><div class="gran">⚔</div><h2>Sin primarias esta semana</h2><p>Hasta seis focos para la semana. Pedile a Mastropiero que te las proponga, o anotalas vos.</p></div>`}
+      <div class="mi-cols">
+        <section class="panel"><h3>Side quests</h3>
+          ${d.terciarias.map((m) => `<div class="sq ${m.estado}" data-mid="${m.id}"><span>⚑ ${esc(m.titulo)}${m.disparador ? `<small>${esc(Object.values(m.disparador).filter(Boolean).join(' · '))}</small>` : ''}${m.estado === 'sugerida' ? '<small class="sugerida">sugerida</small>' : ''}</span>
+            <span class="fila">${m.estado === 'sugerida' ? '<button class="btn btn-chico" data-m-estado="activa">Aceptar</button>' : '<button class="btn btn-chico" data-m-estado="hecha" title="Cumplida">✓</button>'}<button class="btn btn-chico" data-m-estado="descartada" title="Descartar">✕</button></span></div>`).join('') || '<p class="tenue chico">Ninguna abierta. Las anota Mastropiero cuando contás algo de pasada («cuando pase por…»).</p>'}
+          <div class="form-sq"><input class="campo-suelto" id="sq-titulo" placeholder="Qué hacer…"><input class="campo-suelto" id="sq-donde" placeholder="Dónde o cuándo se activa (zona, lugar, actividad)"><button class="btn btn-chico" id="sq-agregar">Anotar</button></div>
+        </section>
+        <section class="panel"><h3>Lo que les encargaste a otros</h3>
+          ${d.deOtros.map((m) => `<div class="sq" data-mid="${m.id}"><span><b>${esc(m.quien)}</b>: ${esc(m.titulo)}${m.vence ? `<small class="${m.vence < E.hoy.fecha ? 'vencida' : ''}">vence ${esc(m.vence)}</small>` : ''}</span>
+            <span class="fila"><button class="btn btn-chico" data-m-estado="hecha" title="Lo hizo">✓</button><button class="btn btn-chico" data-m-estado="descartada" title="Ya no">✕</button></span></div>`).join('') || '<p class="tenue chico">Nada pendiente de otros.</p>'}
+          <div class="form-sq"><input class="campo-suelto" id="ot-quien" placeholder="Quién"><input class="campo-suelto" id="ot-que" placeholder="Qué tiene que hacer"><input class="campo-suelto" id="ot-vence" type="date"><button class="btn btn-chico" id="ot-agregar">Asignar</button></div>
+        </section>
+      </div>
+      <h3 class="sub">Runs de la semana</h3>
+      ${d.runs.length ? d.runs.map((r) => {
+        const h = r.misiones.filter((m) => m.estado === 'hecha').length
+        return `<details class="run-pasada"><summary><b>${esc(new Date(`${r.fecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric' }))}</b> ${r.inicio}–${r.fin} · ${h} de ${r.misiones.length} hechas${r.estado === 'en_curso' ? ' · en curso' : ''}</summary>
+          <ol class="bandas">${r.misiones.map((m) => `<li class="banda ${m.estado}"><span class="b-hora">${m.inicio}</span><div class="b-cuerpo"><b>${esc(m.titulo)}</b>${m.feedback ? `<small class="b-nota">“${esc(m.feedback)}”</small>` : ''}</div><span>${MARCA[m.estado] ?? ''}</span></li>`).join('')}</ol>
+          ${r.reporte ? `<div class="md">${md(r.reporte)}</div>` : ''}</details>`
+      }).join('') : '<p class="tenue chico">Ninguna todavía.</p>'}
+      ${d.reportes.filter((r) => r.tipo === 'semana').length ? `<h3 class="sub">Reportes semanales</h3>${d.reportes.filter((r) => r.tipo === 'semana').map((r) => `<details class="run-pasada"><summary>${esc(new Date(r.creadoEn).toLocaleDateString('es-AR', { day: 'numeric', month: 'long' }))}</summary><div class="md">${md(r.texto)}</div></details>`).join('')}` : ''}`
+    engancharMisiones(cont, d)
+  } catch (e) { error(e) }
+}
+
+function engancharMisiones(cont, d) {
+  const recargar = async () => { await refrescar(); traerMisiones() }
+  $$('[data-sem]', cont).forEach((b) => (b.onclick = () => { misSemana = b.dataset.sem; traerMisiones() }))
+  $$('[data-m-estado]', cont).forEach((b) => (b.onclick = async () => {
+    try { await api(`/misiones/${b.closest('[data-mid]').dataset.mid}`, { estado: b.dataset.mEstado }); await recargar() } catch (e) { error(e) }
+  }))
+  $$('[data-m-prog]', cont).forEach((r) => {
+    r.oninput = () => (r.nextElementSibling.textContent = `${r.value}%`)
+    r.onchange = async () => { try { await api(`/misiones/${r.closest('[data-mid]').dataset.mid}`, { progreso: Number(r.value) }) } catch (e) { error(e) } }
+  })
+  $$('[data-m-editar]', cont).forEach((b) => (b.onclick = () => {
+    const m = d.primarias.find((x) => x.id === Number(b.closest('[data-mid]').dataset.mid))
+    modalMision(m, recargar)
+  }))
+  $$('[data-elegir]', cont).forEach((b) => (b.onclick = async () => {
+    if (!confirm('¿Esta pasa a ser tu misión principal?')) return
+    try { await api('/personajes/jugador/principal', { id: Number(b.dataset.elegir) }); await recargar() } catch (e) { error(e) }
+  }))
+  $('#mi-fijar').onclick = async () => {
+    const t = prompt('Tu misión principal, en una frase:', d.principal?.titulo ?? '')
+    if (!t?.trim()) return
+    try { await api('/personajes/jugador/principal', { titulo: t.trim() }); await recargar() } catch (e) { error(e) }
+  }
+  $('#mi-proponer').onclick = () => trabajando($('#mi-proponer'), 'Pensando…', async () => {
+    const texto = prompt('¿Algo que quieras que tenga en cuenta? (vacío = lo que ya sabe de vos)') ?? ''
+    const r = await api('/misiones/primarias', { semana: d.semana, texto })
+    toast(`${r.length} primarias sugeridas`, 'suave')
+    await recargar()
+  })
+  $('#mi-nueva').onclick = () => modalMision({ nivel: 'primaria', semana: d.semana }, recargar)
+  $('#mi-reporte').onclick = () => trabajando($('#mi-reporte'), 'Escribiendo…', async () => {
+    const r = await api('/reportes/semana', { semana: d.semana })
+    abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Semana ${esc(d.semana.split('-W')[1])}</h2><div class="md">${md(r.texto)}</div>`)
+    await recargar()
+  })
+  $('#sq-agregar').onclick = async () => {
+    const titulo = $('#sq-titulo').value.trim()
+    if (!titulo) return
+    try { await api('/misiones', { nivel: 'terciaria', titulo, disparador: $('#sq-donde').value.trim() ? { zona: $('#sq-donde').value.trim() } : null }); await recargar() } catch (e) { error(e) }
+  }
+  $('#ot-agregar').onclick = async () => {
+    const quien = $('#ot-quien').value.trim()
+    const que = $('#ot-que').value.trim()
+    if (!quien || !que) return toast('Decime quién y qué', 'error')
+    try { await api('/misiones', { asignarA: quien, titulo: que, vence: $('#ot-vence').value || null }); await recargar() } catch (e) { error(e) }
+  }
+}
+
+function modalMision(m, luego) {
+  const nueva = !m.id
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>${nueva ? 'Nueva primaria' : 'Cambiar misión'}</h2>
+    <div class="form-ing">
+      <label class="campo campo-ancho">Título<input id="mm-titulo" value="${esc(m.titulo ?? '')}" placeholder="Publicar…, Escribir…, Cerrar…"></label>
+      <label class="campo campo-ancho">Detalle<textarea id="mm-detalle" placeholder="Qué sería un buen avance">${esc(m.detalle ?? '')}</textarea></label>
+      <label class="campo">Categoría<input id="mm-cat" value="${esc(m.categoria ?? '')}" placeholder="proyecto, salud, plata…"></label>
+      <label class="campo">Proyecto o persona<input id="mm-ent" placeholder="nombre exacto (opcional)"></label>
+    </div>
+    <div class="fila" style="margin-top:12px"><button class="btn btn-primario" id="mm-guardar">Guardar</button></div>`)
+  $('#mm-guardar').onclick = async () => {
+    const cuerpo = { titulo: $('#mm-titulo').value.trim(), detalle: $('#mm-detalle').value.trim() || null, categoria: $('#mm-cat').value.trim() || null }
+    try {
+      let entidadId
+      const ent = $('#mm-ent').value.trim()
+      if (ent) {
+        const r = await api(`/entidades?${new URLSearchParams({ q: ent, limite: 1 })}`)
+        entidadId = r.entidades[0]?.id
+        if (!entidadId) return toast(`No encuentro «${esc(ent)}» entre las entidades`, 'error')
+      }
+      if (nueva) await api('/misiones', { ...cuerpo, nivel: m.nivel, semana: m.semana, entidadId })
+      else await api(`/misiones/${m.id}`, { ...cuerpo, ...(entidadId ? { entidadId } : {}), ...(m.estado === 'sugerida' ? { estado: 'activa' } : {}) })
+      cerrarModal()
+      luego()
+    } catch (e) { error(e) }
+  }
+}
+
+// Jugador: su ficha de personaje (historia, inventario) y su memoria (lo que era Norte)
+
+let jugTab = 'historia'
+
+function montarJugador() {
+  $('#principal').innerHTML = `
+    <div class="titulo"><h1 id="j-nombre">Jugador</h1><p>Tu ficha de personaje: tu historia, tu inventario y lo que Mastropiero sabe de vos. Se escribe sola con lo que le contás; acá la corregís.</p>
+      <div class="fila"><button class="btn" id="j-procesar" title="Lee tu memoria y tu material propio y propone historia, inventario, candidatas a misión principal y primarias">Procesarme</button></div></div>
+    <div class="tabs" id="j-tabs">${[['historia', 'Historia'], ['inventario', 'Inventario'], ['memoria', 'Memoria']].map(([k, n]) => `<button data-tab="${k}" class="${jugTab === k ? 'on' : ''}">${n}</button>`).join('')}</div>
+    <div id="j-cuerpo"></div>`
+  $('#j-procesar').onclick = () => procesarme($('#j-procesar'))
+  $$('#j-tabs [data-tab]').forEach((b) => (b.onclick = () => { jugTab = b.dataset.tab; montarJugador() }))
+  if (jugTab === 'memoria') montarNorte($('#j-cuerpo'))
+  else fichaPersonaje($('#j-cuerpo'), 'jugador', { tabs: [jugTab], alCargar: (f) => ($('#j-nombre').textContent = f.personaje.nombre) })
+}
+
+function refrescarJugador() {
+  if (jugTab === 'memoria') refrescarNorte()
+}
+
+// Ficha de personaje: la misma para el jugador, las entidades, los agentes y Mastropiero
+
+const TIPO_INV = { capital: 'Capital', conexion: 'Conexiones', presencia: 'Presencia digital', conocimiento: 'Conocimiento', herramienta: 'Herramientas', acceso: 'Accesos', recurso: 'Recursos' }
+const NIVEL_MIS = { principal: 'Principal', primaria: 'Primarias', secundaria: 'Secundarias', terciaria: 'Side quests' }
+
+async function fichaPersonaje(cont, clave, { tabs = ['misiones', 'historia', 'inventario'], tab = tabs[0], alCargar } = {}) {
+  let f
+  try { f = await api(`/personajes/${encodeURIComponent(clave)}`) } catch (e) { cont.innerHTML = ''; return error(e) }
+  alCargar?.(f)
+  const otra = () => fichaPersonaje(cont, clave, { tabs, tab, alCargar })
+  const h = f.historia
+  const secciones = {
+    historia: () => `<div class="ficha-sec">
+      ${h.sugerencia ? `<div class="sugerencia"><small>Mastropiero sugiere</small><p>${esc(h.sugerencia.texto)}</p>${h.sugerencia.elementos?.length ? `<div class="tags">${h.sugerencia.elementos.map((x) => `<span>${esc(x)}</span>`).join('')}</div>` : ''}
+        <div class="fila"><button class="btn btn-chico btn-primario" data-hist="aceptar">Aceptar</button><button class="btn btn-chico" data-hist="descartar">Descartar</button></div></div>` : ''}
+      ${h.texto ? `<div class="historia">${md(h.texto)}</div>` : h.derivada ? `<p class="tenue historia-derivada">${esc(h.derivada)}</p>` : `<p class="tenue">Sin historia todavía.${clave === 'jugador' ? ' «Procesarme» propone una a partir de lo que sabe de vos.' : ''}</p>`}
+      ${h.elementos?.length ? `<div class="tags">${h.elementos.map((x) => `<span>${esc(x)}</span>`).join('')}</div>` : ''}
+      <div class="fila" style="margin-top:8px"><button class="btn btn-chico" data-hist-editar>✎ Escribirla</button></div></div>`,
+    inventario: () => {
+      const porTipo = Object.keys(TIPO_INV).map((t) => [t, [...f.inventario.filter((i) => i.tipo === t), ...f.derivado.filter((i) => i.tipo === t).map((i) => ({ ...i, derivado: true }))]]).filter(([, xs]) => xs.length)
+      return `<div class="ficha-sec">
+        ${porTipo.length ? porTipo.map(([t, xs]) => `<h3 class="sub">${TIPO_INV[t]}</h3><div class="inv">${xs.map((i) => `<div class="item ${i.estado ?? ''} ${i.derivado ? 'derivado' : ''}" ${i.id ? `data-item="${i.id}"` : ''}>
+            <span><b>${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.nombre)}</a>` : esc(i.nombre)}</b>${i.valor != null ? ` <em>${esc(i.valor.toLocaleString('es-AR'))}${i.unidad ? ` ${esc(i.unidad)}` : ''}</em>` : ''}${i.detalle ? `<small>${esc(i.detalle)}</small>` : ''}</span>
+            ${i.derivado ? '' : `<span class="r-acc">${i.estado === 'sugerido' ? '<button data-inv="vigente" title="Es así">✓</button>' : '<button data-inv-editar title="Corregir">✎</button>'}<button data-inv="archivado" title="Sacar">✕</button></span>`}
+          </div>`).join('')}</div>`).join('') : `<p class="tenue">Inventario vacío.${clave === 'jugador' ? ' Contale a Mastropiero con qué contás (plata, contactos, sitios, saberes) o tocá «Procesarme».' : ''}</p>`}
+        <div class="form-inv">
+          <select class="campo-suelto" id="inv-tipo">${Object.entries(TIPO_INV).map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select>
+          <input class="campo-suelto" id="inv-nombre" placeholder="Qué es">
+          <input class="campo-suelto" id="inv-valor" type="number" placeholder="Valor">
+          <input class="campo-suelto" id="inv-unidad" placeholder="Unidad">
+          <input class="campo-suelto" id="inv-extra" placeholder="Link o detalle">
+          <button class="btn btn-chico" id="inv-agregar">Agregar</button>
+        </div></div>`
+    },
+    misiones: () => {
+      const p = f.principal
+      const porNivel = ['principal', 'primaria', 'terciaria', 'secundaria'].map((n) => [n, f.misiones.filter((m) => m.nivel === n)]).filter(([, xs]) => xs.length)
+      return `<div class="ficha-sec">
+        <div class="mi-principal-mini"><small>Misión principal${f.personaje.tipo === 'agente' ? ' · nació con ella, no cambia' : ''}</small><b>${p ? esc(p.titulo) : '<span class="tenue">sin fijar</span>'}</b>${p?.detalle ? `<small>${esc(p.detalle)}</small>` : ''}</div>
+        ${porNivel.map(([n, xs]) => `<h3 class="sub">${n === 'principal' ? 'Candidatas a principal' : NIVEL_MIS[n]}</h3>${xs.map((m) => `<div class="sq ${m.estado}" data-mid="${m.id}"><span>${esc(m.titulo)}${m.vence ? `<small>vence ${esc(m.vence)}</small>` : ''}${m.asignadaPor !== f.personaje.clave && m.asignadaPor !== 'sistema' ? `<small>${m.asignadaPor === 'jugador' ? 'se la encargaste vos' : `de ${esc(m.asignadaPor)}`}</small>` : ''}${m.estado === 'sugerida' ? '<small class="sugerida">sugerida</small>' : ''}</span>
+            <span class="fila">${m.estado === 'sugerida' ? '<button class="btn btn-chico" data-fm="activa">Aceptar</button>' : '<button class="btn btn-chico" data-fm="hecha" title="Cumplida">✓</button>'}<button class="btn btn-chico" data-fm="descartada" title="Descartar">✕</button></span></div>`).join('')}`).join('')}
+        ${f.encargos?.length ? `<h3 class="sub">Encargos en el bus</h3>${f.encargos.slice(0, 6).map((t) => `<div class="sq"><span><a href="#" data-ver-tarea="${t.id}">#${t.id}</a> ${esc(JSON.parse(t.payload || '{}').texto?.slice(0, 90) ?? t.tipo)}<small>${esc(t.estado)}</small></span></div>`).join('')}` : ''}
+        ${f.asignadasPorEl?.length ? `<h3 class="sub">Encargó a otros</h3>${f.asignadasPorEl.map((m) => `<div class="sq"><span><b>${esc(m.quien)}</b>: ${esc(m.titulo)}</span></div>`).join('')}` : ''}
+        ${f.personaje.tipo === 'jugador' ? '' : `<div class="form-sq"><input class="campo-suelto" id="fm-titulo" placeholder="${f.personaje.tipo === 'entidad' && f.personaje.subtipo === 'persona' ? 'Qué tiene que hacer (se la encargás vos)' : 'Nueva misión'}"><input class="campo-suelto" id="fm-vence" type="date" title="Vence"><button class="btn btn-chico" id="fm-agregar">Agregar</button></div>`}
+        ${f.personaje.tipo !== 'agente' && f.personaje.tipo !== 'jugador' ? `<div class="fila" style="margin-top:6px"><button class="btn btn-chico" id="fm-principal">${p ? 'Cambiar su misión principal' : 'Fijar su misión principal'}</button></div>` : ''}
+      </div>`
+    },
+  }
+  cont.innerHTML = `${tabs.length > 1 ? `<div class="tabs chicas">${tabs.map((t) => `<button data-ftab="${t}" class="${t === tab ? 'on' : ''}">${{ historia: 'Historia', inventario: 'Inventario', misiones: 'Misiones' }[t]}</button>`).join('')}</div>` : ''}${secciones[tab]()}`
+  $$('[data-ftab]', cont).forEach((b) => (b.onclick = () => fichaPersonaje(cont, clave, { tabs, tab: b.dataset.ftab, alCargar })))
+  const k = encodeURIComponent(clave)
+  const accion = async (fn) => { try { await fn(); await refrescar(); otra() } catch (e) { error(e) } }
+  $$('[data-hist]', cont).forEach((b) => (b.onclick = () => accion(() => api(`/personajes/${k}/historia/${b.dataset.hist}`, {}))))
+  const he = $('[data-hist-editar]', cont)
+  if (he) he.onclick = () => {
+    abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Historia de ${esc(f.personaje.nombre)}</h2>
+      <label class="campo">Trasfondo y origen<textarea id="hi-texto" rows="9">${esc(h.texto ?? h.sugerencia?.texto ?? '')}</textarea></label>
+      <label class="campo">Elementos base (separados por coma)<input id="hi-elem" value="${esc((h.elementos ?? []).join(', '))}"></label>
+      <div class="fila" style="margin-top:12px"><button class="btn btn-primario" id="hi-guardar">Guardar</button></div>`)
+    $('#hi-guardar').onclick = () => accion(async () => {
+      await api(`/personajes/${k}/historia`, { texto: $('#hi-texto').value, elementos: $('#hi-elem').value.split(',').map((x) => x.trim()).filter(Boolean) })
+      cerrarModal()
+    })
+  }
+  $$('[data-inv]', cont).forEach((b) => (b.onclick = () => accion(() => api(`/inventario/${b.closest('[data-item]').dataset.item}`, { estado: b.dataset.inv }))))
+  $$('[data-inv-editar]', cont).forEach((b) => (b.onclick = () => {
+    const i = f.inventario.find((x) => x.id === Number(b.closest('[data-item]').dataset.item))
+    const detalle = prompt(`Detalle de «${i.nombre}»:`, i.detalle ?? '')
+    if (detalle === null) return
+    const valor = prompt('Valor (vacío = sin número):', i.valor ?? '')
+    accion(() => api(`/inventario/${i.id}`, { detalle: detalle.trim() || null, valor: valor === null || valor.trim() === '' ? null : Number(valor) }))
+  }))
+  const ia = $('#inv-agregar', cont)
+  if (ia) ia.onclick = () => {
+    const extra = $('#inv-extra').value.trim()
+    const esUrl = /^https?:\/\//.test(extra)
+    accion(() => api(`/personajes/${k}/inventario`, {
+      tipo: $('#inv-tipo').value, nombre: $('#inv-nombre').value, valor: $('#inv-valor').value === '' ? null : Number($('#inv-valor').value),
+      unidad: $('#inv-unidad').value || null, url: esUrl ? extra : null, detalle: esUrl ? null : extra || null,
+    }))
+  }
+  $$('[data-fm]', cont).forEach((b) => (b.onclick = () => accion(() => api(`/misiones/${b.closest('[data-mid]').dataset.mid}`, { estado: b.dataset.fm }))))
+  const fa = $('#fm-agregar', cont)
+  if (fa) fa.onclick = () => {
+    const titulo = $('#fm-titulo').value.trim()
+    if (!titulo) return
+    accion(() => api('/misiones', f.personaje.tipo === 'entidad' && f.personaje.subtipo === 'persona'
+      ? { asignarA: clave, titulo, vence: $('#fm-vence').value || null }
+      : { personaje: clave, nivel: 'primaria', titulo, vence: $('#fm-vence').value || null }))
+  }
+  const fp = $('#fm-principal', cont)
+  if (fp) fp.onclick = () => {
+    const t = prompt(`La misión principal de ${f.personaje.nombre}:`, f.principal?.titulo ?? '')
+    if (t?.trim()) accion(() => api(`/personajes/${k}/principal`, { titulo: t.trim() }))
+  }
 }
 
 // Corpus
@@ -1376,14 +1913,18 @@ function pintarChat() {
 const VIVO = {
   buscar_corpus: (a) => `buscando «${a?.consulta ?? '…'}»`, leer_pieza: () => 'leyendo una fuente', ver_entidad: () => 'mirando una ficha',
   listar_entidades: () => 'repasando nombres', estado_general: () => 'mirando cómo está la liga', leer_lineamientos: () => 'releyendo sus lineamientos',
-  listar_agentes: () => 'mirando el roster', ver_agente: (a) => `mirando a ${a?.id ?? 'un agente'}`, ver_bus: () => 'mirando el bus', ver_mision: () => 'leyendo una misión',
+  listar_agentes: () => 'mirando el roster', ver_agente: (a) => `mirando a ${a?.id ?? 'un agente'}`, ver_bus: () => 'mirando el bus', ver_encargo: () => 'leyendo un encargo',
   listar_quantomos: () => 'repasando quántomos', listar_fuentes: () => 'mirando las fuentes', listar_cargas: () => 'mirando las cargas', ver_cronica: () => 'leyendo la crónica',
   forjar_agente: () => 'forjando un agente', hablar_con_agente: (a) => `hablando con ${a?.id ?? 'un agente'}`, correr_ticks: () => 'haciendo correr la liga',
-  publicar_mision: () => 'publicando una misión', ingerir: () => 'guardando en el corpus', proponer_mejora: () => 'anotando una mejora', crear_proyecto: () => 'creando un proyecto',
+  publicar_encargo: () => 'publicando un encargo', ingerir: () => 'guardando en el corpus', proponer_mejora: () => 'anotando una mejora', crear_proyecto: () => 'creando un proyecto',
+  ver_personaje: () => 'mirando una ficha', ver_misiones: () => 'repasando misiones', ver_run: () => 'mirando la run', ver_reportes: () => 'leyendo reportes',
+  preparar_run: () => 'armando la run (con la liga)', rehacer_run: () => 'rehaciendo la run', arrancar_run: () => 'arrancando la run', cerrar_run: () => 'escribiendo el reporte',
+  proponer_primarias: () => 'pensando tus primarias', procesar_jugador: () => 'procesándote', reporte_semanal: () => 'escribiendo el reporte de la semana',
+  marcar_mision: () => 'marcando una banda', anotar_side_quest: () => 'anotando una side quest', asignar_mision: () => 'asignando una misión',
 }
 const CONSULTA = {
   buscar_corpus: 'el corpus', leer_pieza: 'el corpus', listar_fuentes: 'el corpus', listar_entidades: 'quién es quién', ver_entidad: 'quién es quién',
-  estado_general: 'la liga', listar_agentes: 'la liga', ver_agente: 'la liga', ver_bus: 'la liga', ver_mision: 'la liga', ver_cronica: 'la liga', listar_caidos: 'la liga',
+  estado_general: 'la liga', listar_agentes: 'la liga', ver_agente: 'la liga', ver_bus: 'la liga', ver_encargo: 'la liga', ver_personaje: 'las fichas', ver_misiones: 'tus misiones', ver_run: 'la run', ver_reportes: 'los reportes', ver_cronica: 'la liga', listar_caidos: 'la liga',
   listar_cargas: 'las cargas', leer_lineamientos: 'sus lineamientos', listar_propuestas: 'las propuestas', listar_quantomos: 'los quántomos',
 }
 const listaY = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} y ${xs.at(-1)}`)
@@ -1507,6 +2048,7 @@ const TIPO_ENT = {
   dominio: { glifo: '▦', nombre: 'Dominios' }, lugar: { glifo: '⌖', nombre: 'Lugares' }, concepto: { glifo: '✧', nombre: 'Conceptos' },
 }
 const filtroEnt = { tipo: '', q: '', sel: null }
+let entTab = 'corpus'
 let entLista = { total: 0, entidades: [] }
 
 function montarEntidades() {
@@ -1568,11 +2110,23 @@ async function verEntidad(id) {
       ${e.alias.length ? `<div class="tags">${e.alias.map((a) => `<span>${esc(a)}</span>`).join('')}</div>` : ''}
       ${e.notas ? `<div class="notas">${esc(e.notas)}</div>` : ''}
       <div class="fila" style="margin:12px 0 4px"><button class="btn btn-chico btn-primario" id="ent-preguntar">☿ Preguntarle a Mastropiero</button></div>
+      <div class="tabs chicas" id="ent-tabs">${[['corpus', 'Corpus'], ['misiones', 'Misiones'], ['historia', 'Historia'], ['inventario', 'Inventario']].map(([k, n]) => `<button data-etab="${k}" class="${k === entTab ? 'on' : ''}">${n}</button>`).join('')}</div>
+      <div id="ent-ficha"></div>
+      <div id="ent-corpus" ${entTab === 'corpus' ? '' : 'hidden'}>
       ${coocurrencias.length ? `<h3 class="sub">Aparece con</h3><div class="coocurre">${coocurrencias.map((x) => `<button data-co="${x.id}">${TIPO_ENT[x.tipo]?.glifo ?? ''} ${esc(x.nombre)}<em>${x.compartidas}</em></button>`).join('')}</div>` : ''}
       <h3 class="sub">Piezas que la mencionan · ${total.toLocaleString('es-AR')}</h3>
       ${piezas.length ? piezas.map(piezaHTML).join('') : '<p class="tenue">Ninguna pieza la menciona todavía.</p>'}
       ${total > piezas.length ? `<p class="tenue">Mostrando ${piezas.length}. En Corpus podés buscarla por nombre.</p>` : ''}
+      </div>
     </div>`
+    const pintarTab = () => {
+      $$('#ent-tabs [data-etab]').forEach((b) => b.classList.toggle('on', b.dataset.etab === entTab))
+      $('#ent-corpus').hidden = entTab !== 'corpus'
+      if (entTab === 'corpus') $('#ent-ficha').innerHTML = ''
+      else fichaPersonaje($('#ent-ficha'), `entidad:${e.id}`, { tabs: [entTab] })
+    }
+    $$('#ent-tabs [data-etab]').forEach((b) => (b.onclick = () => { entTab = b.dataset.etab; pintarTab() }))
+    pintarTab()
     $('#ent-preguntar').onclick = () => preguntarAMastropiero(`Contame sobre ${e.nombre} (entidad #${e.id}): qué es, con qué aparece y qué dice el corpus.`)
     $$('[data-co]', det).forEach((b) => (b.onclick = () => verEntidad(Number(b.dataset.co))))
   } catch (err) { error(err) }
@@ -1655,20 +2209,22 @@ async function modalAgente(id) {
             ${f.estado === 'activo' ? '<button class="btn btn-peligro" data-estado="banca">⇣ Mandar a la banca</button>' : ''}
             ${f.estado === 'banca' ? '<button class="btn" data-estado="activo">⇡ Volver a jugar</button>' : ''}
             ${f.estado === 'prueba' ? `<span style="color:var(--aviso);font-size:13px">En prueba: ${f.exitos}/${R.PRUEBA_EXITOS} éxitos · ${f.fallos}/${R.PRUEBA_FALLOS} fallos.</span>` : ''}
-            <button class="btn" id="a-mision">Encargar misión a su clase</button>
+            <button class="btn" id="a-mision">Encargar algo a su clase</button>
             <button class="btn" id="a-hablar">☿ Hablar</button>
             <button class="btn btn-peligro" id="a-retirar">Retirar</button>
           </div>
+          <div class="ficha-agente" id="a-ficha"></div>
           <h3 style="color:var(--tenue);font-size:12px;letter-spacing:.12em;margin-bottom:0">BITÁCORA DEL AUDITOR</h3>
           ${log.length ? `<table class="log">${log.map((a) => `<tr><td class="${a.ok ? 'ok' : 'mal'}">${a.ok ? '✓' : '✗'}</td>
             <td style="font:11px var(--mono);color:var(--tenue);white-space:nowrap">${a.tareaId ? `<a href="#" data-ver-tarea="${a.tareaId}" style="color:var(--tenue)">#${a.tareaId}</a>` : 'asigna'}</td>
             <td>${esc(a.decision ?? '')}</td></tr>`).join('')}</table>` : '<p style="color:var(--tenue)">Todavía no corrió.</p>'}
         </div>
       </div>`)
+    fichaPersonaje($('#a-ficha'), `agente:${f.id}`)
     $$('[data-estado]').forEach((b) => (b.onclick = async () => {
       try { await api(`/agentes/${encodeURIComponent(f.id)}/estado`, { estado: b.dataset.estado }); await refrescar(); modalAgente(f.id) } catch (e) { error(e) }
     }))
-    $('#a-mision').onclick = () => { cerrarModal(); mision.clase = f.clase; mision.proyectoId = f.proyectoId ?? ''; irA('misiones') }
+    $('#a-mision').onclick = () => { cerrarModal(); mision.clase = f.clase; mision.proyectoId = f.proyectoId ?? ''; irA('encargos') }
     $('#a-hablar').onclick = () => {
       cerrarModal()
       const c = chat.conversaciones.find((x) => x.con === f.id)

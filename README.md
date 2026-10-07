@@ -20,22 +20,56 @@ La pantalla abre en **Hoy**. Mastropiero ya no solo ingiere: acompaña el día.
 
 - **Memoria** (`src/memoria.ts`): lo que sabe del operador (hechos, metas, preferencias, sueños, visión), con fecha. Se escribe sola. Después de cada charla, un escriba lee **solo lo que dijo el operador** y anota de 0 a 3 cosas. Corregir no borra: la versión vieja queda como corregida. Cada recuerdo sabe de qué charla o pieza salió.
 - **Aprender de lo cargado**: en Norte, pasa el escriba por las charlas pasadas y por las piezas propias más pesadas, de a 4 en paralelo. Con las grabaciones es más cuidadoso: puede haber otras voces o errores de transcripción. Aun así, conviene revisar lo nuevo.
-- **Norte**: metas, visión y sueños en Castillo, Campamento y Trinchera, más "lo que sé de vos". Ahí se revisa, se corrige, se mueve de horizonte o se olvida.
-- **Jornada** (`src/jornada.ts`): el día en bloques (12, 25 o 50 minutos, configurables), armado con la memoria, lo que hablaron, el calendario y cómo fue ayer. Los bloques se validan: sin solapes, dentro de la ventana y respetando la agenda. Para hoy se arma desde ahora. Los bloques se marcan como hecho o saltado, y se puede rehacer desde ahora.
+- **Memoria del jugador** (pestaña de Jugador, lo que antes era Norte): metas, visión y sueños en Castillo, Campamento y Trinchera, más "lo que sé de vos". Ahí se revisa, se corrige, se mueve de horizonte o se olvida.
+- **Jornada** (`src/jornada.ts`): el día como contenedor. El trabajo vive en **runs** (ver Personajes y misiones); la jornada guarda el progreso del día, el saludo y el cierre.
 - **Calendario** (`src/calendario.ts`): solo lectura, por la dirección secreta iCal de Google (`GCAL_ICS_URLS` en `.env`, sin OAuth). Entiende zonas horarias, eventos de día entero y repeticiones simples.
-- **Rutinas** (`src/rutinas.ts`): la jornada a las 08:30 y el cierre a las 22:30, editables. Corren mientras el servidor está prendido, y si al arrancar ya pasó la hora, se ponen al día. Lo que producen llega a la conversación **Hoy**, con aviso. Tu respuesta al cierre queda guardada y alimenta el día siguiente. `npm run jugar -- --sin-rutinas` las apaga.
+- **Rutinas** (`src/rutinas.ts`): el saludo a las 08:30 (sin modelo: tu semana, lo que te deben, side quests que tocan por tu agenda, y la invitación a una run), el cierre a las 22:30, las primarias de la semana los lunes a las 08:00 y el reporte semanal los domingos a las 21:00. Todo editable. Corren mientras el servidor está prendido, y si al arrancar ya pasó la hora, se ponen al día. Lo que producen llega a la conversación **Hoy**, con aviso. Tu respuesta al cierre queda guardada y alimenta el día siguiente. `npm run jugar -- --sin-rutinas` las apaga.
 - **Diario**: en el chat, "Contale algo". Mastropiero escucha y pregunta poco. Cada entrada entra al corpus como voz propia, y se puede subir un audio, que transcribe el Whisper de NaN.
 - **Quántomos**: quedan como plomería interna, detrás de un botón en Corpus.
 
+## Personajes y misiones
+
+Todo personaje tiene **historia** (trasfondo y origen), **inventario** (capital, conexiones, presencia digital, conocimiento, herramientas, accesos, recursos) y **misiones**. Son personajes el **jugador** (vos), **Mastropiero**, cada **agente** y cada **entidad**. Una clave los nombra a todos: `jugador`, `mastropiero`, `agente:GEN-0007`, `entidad:42` (`src/personajes.ts`).
+
+Las misiones (`src/misiones.ts`) tienen cuatro niveles:
+
+| Nivel | Qué es | Reglas |
+| --- | --- | --- |
+| Principal | El objetivo de vida. | Una vigente por personaje. La de un agente se fija al forjarlo y no cambia nunca; la del jugador solo la fija él (Mastropiero sugiere candidatas). |
+| Primarias | Los focos de la semana (6 por defecto). | Mastropiero las propone los lunes desde tu memoria, tu principal y lo que quedó de la semana pasada; vos las aceptás, cambiás o descartás. Tienen progreso (0–100) y suman el foco de sus secundarias. |
+| Secundarias | Las bandas de una **run**. | Las arma Mastropiero a tu pedido; las marcás hecha, a medias o no, con una nota. |
+| Terciarias | Side quests que dependen de dónde estás o qué hacés. | Tienen un disparador (lugar, zona, actividad, cuándo). Si lo que contás o tu agenda lo tocan, Mastropiero te las recuerda. |
+
+**Runs.** Una run la diseñás vos: duración, largo de las bandas (fijo, varios o libre), cantidad, intensidad mental (1–5), cómo estás, plata para gastar, recursos, proyectos y personas para meter (se crean al vuelo si no existen), qué excluir, el formato y, sobre todo, **lo que le digas en palabras**, que manda sobre todo lo demás. «Mañana oficina» (3 horas, 15 bandas de 12 minutos) es solo la plantilla de fábrica; podés guardar las tuyas.
+
+Para armarla, Mastropiero:
+1. interpreta tu pedido;
+2. reúne contexto: la ficha de cada proyecto o persona incluida, sus piezas y sus misiones, y les pide aporte a los **agentes activos que los conocen** (un generativo del proyecto o especializado en él), que corren el encargo en el momento y ganan XP como en el bus;
+3. genera y programa: respeta tu agenda, el tope de plata y lo que excluiste.
+
+Queda como propuesta: la podés rehacer con un cambio en palabras («más corta», «sacá lo de X») fijando las bandas que querés conservar, y arranca cuando vos decís. La calibración aprende de lo que marcás y de tus notas: lo que solés saltear se achica, lo que funciona se repite.
+
+**Reportes.** Cada hora de una run en curso deja un reporte corto en Hoy (sin modelo). Al cerrar la run (o 15 minutos después de que termina) se escribe su reporte, que entra al corpus y calibra la próxima. El domingo llega el reporte de la semana, con métricas: primarias, bandas, minutos de foco por categoría, side quests y lo que otros te deben.
+
+**Para otros.** Le podés asignar misiones a personas («Ana tiene que mandarme el presupuesto antes del viernes»); Mastropiero reconoce apodos si hay una sola persona que encaja. Lo vencido aparece en Hoy como seguimiento.
+
+**Conversando.** El escriba de memoria también anota lo que decís que tenés (al inventario) y los encargos de pasada (como side quests), siempre como sugerencia. «Procesarme» lee tu memoria y tu material propio y propone tu historia, tu inventario, candidatas a misión principal y las primarias de la semana.
+
+```bash
+npm run mastro -- misiones                     # principal, primarias, run y side quests
+npm run mastro -- run "dos horas, cansado, meté el proyecto X"
+npm run mastro -- run arrancar | run cerrar
+```
+
 ## El chat: hablar con el omnívoro
 
-El chat es la puerta principal. Con **Mastropiero** se habla en lenguaje natural, y él opera toda la plataforma con 31 herramientas (`src/chat/herramientas.ts`):
+El chat es la puerta principal. Con **Mastropiero** se habla en lenguaje natural, y él opera toda la plataforma con sus herramientas (`src/chat/herramientas.ts`):
 
 | Familia | Herramientas |
 | --- | --- |
-| Leer | Estado general, agentes, caídos, bus, misiones, corpus (búsqueda y piezas), fuentes, quántomos, entidades (con co-ocurrencias), cargas, crónica, **sus propios lineamientos** (este README y un mapa del código), propuestas. |
-| Actuar | Forjar y bautizar agentes, crear proyectos, publicar misiones, correr ticks, ingerir, crear fuentes, crear, sellar y mejorar quántomos, **hablar con otro agente**, **proponer mejoras**. |
-| Destructivas | Banca, retirar un agente, deshacer una carga. Solo corren con `confirmado: true`, después de un sí explícito del operador. |
+| Leer | Estado general, agentes, caídos, bus y encargos, fichas de personaje, misiones, la run, reportes, memoria, corpus (búsqueda y piezas), fuentes, quántomos, entidades (con co-ocurrencias), cargas, crónica, **sus propios lineamientos** (este README y un mapa del código), propuestas. |
+| Actuar | Preparar, rehacer, arrancar y cerrar runs, marcar bandas, proponer primarias, crear y actualizar misiones, asignar misiones a otros, anotar side quests, escribir historias, sumar al inventario, procesar al jugador, reporte semanal, recordar. Forjar y bautizar agentes, crear proyectos, publicar encargos en el bus, correr ticks, ingerir, crear fuentes, crear, sellar y mejorar quántomos, **hablar con otro agente**, **proponer mejoras**. |
+| Destructivas | Fijar la misión principal del jugador, olvidar un recuerdo, banca, retirar un agente, deshacer una carga. Solo corren con `confirmado: true`, después de un sí explícito del operador. |
 
 - **Hablar con los agentes:** también se puede abrir una conversación directa con cualquier agente de la liga. Contesta desde su persona (clase, instrucciones, nivel, especialización) y solo con herramientas de lectura, con el tope de lectura que le da su nivel.
 - **Quién es el operador:** Mastropiero lo arma con lo que hay cargado (la entidad marcada como operador y lo que más aparece en el corpus). No hay nada de eso escrito en el código.
@@ -48,7 +82,9 @@ Las conversaciones y las propuestas viven en la base (`conversaciones`, `mensaje
 
 ## La pantalla
 
-- **Secciones:** Chat · Liga (Roster, Forja, Misiones, Matriz 72, Cementerio) · Saber (Corpus, Quántomos, Entidades).
+- **Secciones:** Mastropiero (Hoy, Chat, Misiones, Jugador) · Liga (Roster, Forja, Encargos, Matriz 72, Cementerio) · Saber (Corpus, Entidades). El bus de la liga se llama **Encargos** para no confundirlo con las misiones.
+- **Hoy:** la run en curso con la banda actual en grande (cuenta regresiva, ✓ / ◐ / ✗ y una nota), o la propuesta para iterar, o «Nueva run»; abajo, las primarias de la semana, las side quests, lo que te deben y el último reporte. Al lado, la conversación del día.
+- **Fichas:** jugador, entidades y agentes muestran historia, inventario y misiones con el mismo componente.
 - **Estilo:** sobrio, con tema oscuro y claro. La crónica se oculta desde el botón ☰.
 - **Entidades:** personas, proyectos, agrupaciones, dominios, lugares y conceptos. Cada una muestra con quién aparece y en qué piezas, y tiene un botón para preguntarle a Mastropiero por ella.
 

@@ -22,6 +22,7 @@ import { CAPAS, umbral } from './xp.ts'
 import { PREGUNTA_EJEMPLO, sembrarEjemplo } from './semilla.ts'
 import { respaldar, restaurar } from './respaldo.ts'
 import { chequear, informe } from './doctor.ts'
+import { arrancarRun, cerrarRun, conAvance, enCurso, listarMisiones, misionesDeRun, prepararRun, principalDe, runActual, semanaDe } from './misiones.ts'
 
 function parsear(argv: string[]) {
   const pos: string[] = []
@@ -136,6 +137,17 @@ const AYUDA = `
                                     analiza una carga; con --todo la ejecuta con lo que propone
     reetiquetar <carga>             recalcula entidades y etiquetas de una carga hecha
 
+  MISIONES
+    misiones                        tu principal, las primarias de la semana, la run y las side quests
+    run "<pedido en tus palabras>" [--plantilla p] [--duracion min]
+                                    prepara una run (queda propuesta)
+    run arrancar | run cerrar       arranca la propuesta / cierra la que está en curso
+
+  MUDANZA
+    respaldo                        copia la base y las cargas a data/respaldos/
+    restaurar <carpeta> [--forzar]  la pone en esta compu
+    doctor [--rapido]               revisa que esta compu tenga todo
+
   Niveles: ${Object.values(NIVELES).map((n) => `${n.numero} ${n.nombre}`).join(' · ')}
 `
 
@@ -247,6 +259,39 @@ async function main() {
       console.log(`  Respaldo en ${r.carpeta}
   ${JSON.stringify(r.manifiesto.conteos)}
   Llevá esa carpeta y tu .env a la otra compu.`)
+      break
+    }
+    case 'misiones': {
+      const p = principalDe(db, 'jugador')
+      console.log(`\n  Principal: ${p ? p.titulo : '(sin fijar)'}\n\n  Primarias de la semana ${semanaDe()}:`)
+      for (const m of conAvance(db, listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana: semanaDe() }).filter((x) => x.estado !== 'descartada'))) {
+        console.log(`    ${m.estado === 'sugerida' ? '?' : m.estado === 'hecha' ? '✓' : '·'} ${m.titulo}  ${m.avance.progreso}% · ${m.avance.bandas.hechas} bandas`)
+      }
+      const v = enCurso(db)
+      const r = runActual(db)
+      if (r) {
+        console.log(`\n  Run ${r.estado} ${r.inicio}–${r.fin}${v?.actual ? ` · ahora: ${v.actual.titulo}` : ''}`)
+        const marca: Record<string, string> = { hecha: '✓', parcial: '◐', no: '✗', activa: ' ' }
+        for (const m of misionesDeRun(db, r.id)) console.log(`    ${m.inicio} ${marca[m.estado] ?? '·'} ${m.titulo}`)
+      }
+      const t = listarMisiones(db, { personaje: 'jugador', nivel: 'terciaria', abiertas: true })
+      if (t.length) console.log(`\n  Side quests:\n${t.map((m) => `    ⚑ ${m.titulo}${m.disparador ? ` (${Object.values(m.disparador).filter(Boolean).join(', ')})` : ''}`).join('\n')}`)
+      console.log('')
+      break
+    }
+    case 'run': {
+      if (pos[0] === 'arrancar' || pos[0] === 'cerrar') {
+        const r = runActual(db)
+        if (!r) throw new Error('No hay run viva')
+        if (pos[0] === 'arrancar') console.log(`  Arrancó: ${arrancarRun(db, r.id).inicio}–${r.fin}`)
+        else console.log(`\n${(await cerrarRun(db, r.id)).texto}\n`)
+        break
+      }
+      const { run, misiones, avisos } = await prepararRun(db, { texto: pos.join(' ') || null, plantilla: flags.plantilla ?? null, duracion: flags.duracion ? Number(flags.duracion) : null })
+      console.log(`\n  Run propuesta ${run.inicio}–${run.fin}${run.agentes.length ? ` (con ${run.agentes.map((a) => a.nombre).join(', ')})` : ''}\n  ${run.resumen ?? ''}\n`)
+      for (const m of misiones) console.log(`    ${m.inicio} ${m.titulo}${m.detalle ? `\n           ${m.detalle}` : ''}`)
+      if (avisos.length) console.log(`\n  ${avisos.join(' ')}`)
+      console.log('\n  Para arrancarla: npm run mastro -- run arrancar\n')
       break
     }
     case 'doctor':

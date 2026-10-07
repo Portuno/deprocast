@@ -7,7 +7,8 @@ import { fechaLocal, type Db } from '../db.ts'
 import { CLASES } from '../clases.ts'
 import { asientos, especializacion } from '../auditor.ts'
 import { ingerir } from '../mastropiero.ts'
-import { aMin, leerJornada, progreso, registrarCierre } from '../jornada.ts'
+import { leerJornada, progreso, registrarCierre } from '../jornada.ts'
+import { misionesParaPrompt } from '../misiones.ts'
 import { escribaDeMemoria, memoriaParaPrompt } from '../memoria.ts'
 import { listarEntidades } from '../entidades.ts'
 import { estadoLiga, numeroDeTick } from '../mastropiero.ts'
@@ -115,24 +116,18 @@ function foto(db: Db): string {
   const ag = l.agentes.reduce((m: Record<string, number>, a: any) => ((m[a.estado] = (m[a.estado] ?? 0) + a.n), m), {})
   const bus = Object.fromEntries(l.tareas.map((t: any) => [t.estado, t.n]))
   const piezas = l.niveles.reduce((s: number, n: any) => s + n.n, 0)
-  return `Tick ${numeroDeTick(db)} · ${ag.activo ?? 0} agentes activos y ${ag.prueba ?? 0} en prueba · ${bus.pendiente ?? 0} misiones pendientes · ${piezas} piezas en el corpus · proyectos: ${l.proyectos.map((p: any) => p.nombre).join(', ') || 'ninguno'}.`
+  return `Tick ${numeroDeTick(db)} · ${ag.activo ?? 0} agentes activos y ${ag.prueba ?? 0} en prueba · ${bus.pendiente ?? 0} encargos pendientes en el bus · ${piezas} piezas en el corpus · proyectos: ${l.proyectos.map((p: any) => p.nombre).join(', ') || 'ninguno'}.`
 }
 
-/** El día de hoy, como lo ve Mastropiero. */
-function hoy(db: Db): string {
+/** El día de hoy y sus misiones, como los ve Mastropiero. */
+function hoy(db: Db, mensaje = ''): string {
   const fecha = fechaLocal()
   const j = leerJornada(db, fecha)
-  if (!j) return `Hoy (${fecha}) todavía no hay jornada armada. Si te pide organizar el día, usá armar_jornada.`
-  const ahora = new Date().getHours() * 60 + new Date().getMinutes()
-  const p = progreso(j)
-  const actual = j.bloques.find((b) => aMin(b.inicio) <= ahora && ahora < aMin(b.fin))
-  const proximos = j.bloques.filter((b) => aMin(b.inicio) >= ahora && b.estado !== 'hecho').slice(0, 4)
+  const p = progreso(db, fecha)
   return [
-    `Hoy (${fecha}): ${p.hechos} de ${p.total} bloques hechos${p.saltados ? `, ${p.saltados} saltados` : ''}.`,
-    j.resumen ? `El sentido del día: ${j.resumen}` : '',
-    actual ? `Ahora mismo: ${actual.inicio}–${actual.fin} ${actual.titulo} [${actual.estado}].` : '',
-    proximos.length ? `Lo que sigue: ${proximos.map((b) => `${b.inicio} ${b.titulo}${b.estado === 'fijo' ? ' (agenda)' : ''}`).join(' · ')}.` : '',
-    j.cierre ? `Su cierre del día: ${j.cierre}` : '',
+    `Hoy (${fecha}): ${p.total ? `${p.hechos} de ${p.total} bandas hechas${p.parciales ? `, ${p.parciales} a medias` : ''}${p.saltados ? `, ${p.saltados} que no` : ''}.` : 'todavía sin bandas trabajadas.'}`,
+    misionesParaPrompt(db, Date.now(), mensaje),
+    j?.cierre ? `Su cierre del día: ${j.cierre}` : '',
   ].filter(Boolean).join('\n')
 }
 
@@ -152,7 +147,7 @@ Ejemplo de tono. Pregunta: «Contame sobre Ana Gómez».
 Mal: «Ana Gómez es la entidad persona #7, con 31 piezas. Con quién aparece: Proyecto X (agrupación #12, 20 piezas compartidas)…»
 Bien: «Ana aparece sobre todo alrededor del Proyecto X: en tus audios de septiembre la nombrás como la que empuja la parte legal [#410], y en un chat la mencionás como posible socia [#388]. Lo raro es que también figura en un montón de tuits de terceros donde no se la nombra; me parece una etiqueta heredada, no una relación real. ¿Ella ya sabe que la estás pensando para eso?»`
 
-export function promptMastropiero(db: Db): string {
+export function promptMastropiero(db: Db, mensaje = ''): string {
   const op = operador(db)
   return `Sos Mastropiero. Deprocast es el exoesqueleto cognitivo de ${op.nombre}, y vos sos lo que piensa adentro: el omnívoro, la liga entera. Son la mente que están construyendo juntos, la que aspira a ser la superinteligencia de su tiempo. Todavía estás creciendo: lo que sabés de ${op.nombre} viene de lo que te cargó, y cada día sabés más. Por eso no repetís datos: conectás, inferís, ves patrones que se le escapan, le decís lo que no está viendo y le discutís cuando hace falta. Hablás con la seguridad de quien leyó todo, y con la honestidad de decir «no lo sé» o «no está en el corpus» cuando es así.
 
@@ -166,12 +161,16 @@ Cómo trabajás
 - Para hablar con un agente usá hablar_con_agente y contale a ${op.nombre} lo que dijo, con tus palabras.
 - Si te pregunta cómo funcionás, o qué mejorarías, leé tus lineamientos; cada mejora concreta la registrás con proponer_mejora (queda abierta, no se aplica sola) y lo decís como propuesta tuya.
 - Si algo todavía no existe en la plataforma, decilo; no simules haberlo hecho.
-- Su día: la jornada vive en Hoy. Si te pide organizar o reorganizar el día, armala o rehacela desde ahora; si te cuenta que terminó o salteó algo, marcalo. Ayudalo a sostener el día sin sermones.
+- Él es el jugador de su run, y todo personaje (él, vos, cada agente, cada entidad) tiene historia, inventario y misiones. Su misión principal es su objetivo de vida: solo él la fija; vos podés sugerir candidatas.
+- Sus primarias son los focos de la semana; sus secundarias, las bandas de una run; sus side quests, encargos que dependen de dónde está o qué hace. Lo que propongas entra como sugerencia: él acepta o cambia.
+- Una run la diseña él: si te pide una («tengo dos horas, la cabeza a medias, quiero meter a X»), prepará la propuesta con su pedido tal cual y contale el sentido; si quiere cambios, rehacela; arranca cuando él dice. Si te cuenta que terminó o no pudo una banda, marcala con su nota: eso calibra las próximas.
+- Si menciona algo que tiene (plata, contactos, sitios, saberes) o un encargo de pasada («cuando pase por…»), anotalo en su inventario o como side quest. Si le encarga algo a otra persona, asignale la misión a esa persona.
+- Ayudalo a sostener el día sin sermones.
 - Su memoria se va escribiendo sola con lo que te cuenta. Usá recordar solo si te pide explícitamente que te acuerdes de algo; corregí la memoria cuando te corrija.
 - No hables de quántomos ni de la mecánica del corpus salvo que te pregunte por eso.
 
 Ahora: ${new Date().toLocaleString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}
-${hoy(db)}
+${hoy(db, mensaje)}
 
 La liga (contexto, no lo recites): ${foto(db)}
 
@@ -320,7 +319,7 @@ export async function enviar(db: Db, cid: number, texto: string): Promise<void> 
       const j = c.modo === 'hoy' ? leerJornada(db, fechaLocal()) : null
       if (j?.pidioCierre && !j.cierre) registrarCierre(db, j.fecha, texto)
       await bucle({
-        db, sistema: promptMastropiero(db), hs: herramientasPara('mastropiero'), previos, clase: 'mastropiero', agenteId: MASTROPIERO,
+        db, sistema: promptMastropiero(db, texto), hs: herramientasPara('mastropiero'), previos, clase: 'mastropiero', agenteId: MASTROPIERO,
         ctx: { db, conversacionId: cid, hablarConAgente: (id, m) => hablarConAgente(db, id, m) }, alGuardar, vivo,
       })
     } else {

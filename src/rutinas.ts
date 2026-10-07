@@ -3,8 +3,10 @@
  * si al arrancar ya pasó la hora de una rutina de hoy, se pone al día. Una rutina corre una vez por día.
  */
 import { fechaLocal, type Db } from './db.ts'
-import { aHora, aMin, armarJornada, leerJornada, textoDeCierre } from './jornada.ts'
+import { aMin, asegurarJornada, fijarResumen, leerJornada, textoDeCierre } from './jornada.ts'
+import { agendaDelDia } from './calendario.ts'
 import { conversacionHoy, mensajeDeMastropiero } from './chat/index.ts'
+import { conAvance, listarMisiones, proponerPrimarias, reporteSemana, semanaDe, seguimientos, sideQuestsRelevantes } from './misiones.ts'
 
 export type Rutina = { id: string; nombre: string; hora: string; dias: string; accion: string; activa: boolean; ultimaFecha: string | null }
 
@@ -36,19 +38,48 @@ type Acciones = Record<string, (db: Db, fecha: string, ahora: number) => Promise
 
 /** Lo que hace cada rutina. Devuelve el mensaje que Mastropiero deja en «Hoy» (o null si no hay nada que decir). */
 export const ACCIONES: Acciones = {
+  /** El saludo: sin modelo. Su semana, lo que otros le deben, side quests que tocan por su agenda, y la invitación a una run. */
   async jornada(db, fecha, ahora) {
-    if (leerJornada(db, fecha)) return null
-    // Si se pone al día tarde (la compu estaba apagada), arma desde ahora: no tiene sentido llenar horas que ya pasaron.
-    const d = new Date(ahora)
-    const desde = aHora(Math.min(23 * 60 + 55, Math.ceil((d.getHours() * 60 + d.getMinutes()) / 5) * 5))
-    const { jornada, avisos } = await armarJornada(db, fecha, { desde, ahora })
-    const n = jornada.bloques.filter((b) => b.estado !== 'fijo').length
-    return [`Buen día. Te armé la jornada: ${n} bloques.`, jornada.resumen, avisos.length ? `(${avisos.join(' ')})` : '', 'Si algo no te cierra, decímelo y la rehago.'].filter(Boolean).join(' ')
+    if (leerJornada(db, fecha)?.resumen) return null
+    asegurarJornada(db, fecha, ahora)
+    const { eventos } = await agendaDelDia(fecha).catch(() => ({ eventos: [] as { titulo: string; lugar: string | null; todoElDia: boolean }[] }))
+    const primarias = conAvance(db, listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana: semanaDe(ahora), estados: ['activa', 'sugerida'] }))
+    const aceptadas = primarias.filter((p) => p.estado === 'activa')
+    const tocan = sideQuestsRelevantes(db, eventos.map((e) => `${e.titulo} ${e.lugar ?? ''}`).join(' '))
+    const deben = seguimientos(db, ahora)
+    const partes = [
+      'Buen día.',
+      eventos.length ? `Hoy tenés ${eventos.length === 1 ? 'una cosa' : `${eventos.length} cosas`} en la agenda.` : '',
+      aceptadas.length ? `Tus primarias de la semana: ${aceptadas.map((p) => `${p.titulo} (${p.avance.progreso}%)`).join(', ')}.`
+        : primarias.length ? 'Te dejé primarias sugeridas para la semana: aceptalas o cambialas en Misiones.' : 'No tenés primarias esta semana; si querés te las propongo.',
+      tocan.length ? `Por donde andás hoy podés cumplir una side quest: ${tocan.map((m) => m.titulo).join(', ')}.` : '',
+      deben.length ? `Te deben respuesta: ${deben.map((m) => m.titulo).join(', ')}.` : '',
+      'Cuando quieras arrancamos una run: decime cuánto tiempo tenés y cómo estás.',
+    ].filter(Boolean)
+    fijarResumen(db, fecha, partes.slice(1, -1).join(' ') || 'Día sin nada agendado.', ahora)
+    return partes.join(' ')
   },
-  async cierre(db, fecha) {
+  async cierre(db, fecha, ahora) {
     const j = leerJornada(db, fecha)
-    if (!j || j.cierre) return null
-    return textoDeCierre(db, fecha)
+    const huboRun = !!db.prepare(`SELECT 1 FROM runs WHERE fecha = ? AND estado IN ('en_curso', 'cerrada')`).get(fecha)
+    if ((!j && !huboRun) || j?.cierre) return null
+    return textoDeCierre(db, fecha, ahora)
+  },
+  /** El lunes: primarias sugeridas para la semana (si no las tiene ya). */
+  async semana(db, _fecha, ahora) {
+    const semana = semanaDe(ahora)
+    if (listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana, estados: ['activa', 'sugerida'] }).length) return null
+    const ps = await proponerPrimarias(db, semana, { ahora })
+    if (!ps.length) return null
+    return `Arranca la semana. Te propongo ${ps.length} primarias: ${ps.map((p) => p.titulo).join(' · ')}. Aceptalas, cambialas o descartalas en Misiones; son tuyas.`
+  },
+  /** El domingo a la noche: el reporte de la semana que termina. */
+  async reporte_semanal(db, _fecha, ahora) {
+    const semana = semanaDe(ahora)
+    const hubo = db.prepare(`SELECT 1 FROM misiones WHERE semana = ? OR run_id IN (SELECT id FROM runs WHERE estado IN ('en_curso', 'cerrada') AND creada_en > ?) LIMIT 1`).get(semana, ahora - 7 * 86_400_000)
+    if (!hubo) return null
+    const r = await reporteSemana(db, semana, { ahora })
+    return `Reporte de la semana ${semana}.\n\n${r.texto}`
   },
 }
 

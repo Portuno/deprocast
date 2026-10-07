@@ -4,7 +4,7 @@
  */
 import { CLASES } from './clases.ts'
 import type { Db } from './db.ts'
-import { asignar, asignadasA, cerrarFallo, cerrarOk, leerTarea, publicar, type Tarea } from './bus.ts'
+import { asignar, asignadasA, cerrarFallo, cerrarOk, leerTarea, publicar, type NuevaTarea, type Tarea } from './bus.ts'
 import { registrar } from './auditor.ts'
 import { construir } from './contexto.ts'
 import { aplicarEtapa, insertar, PIPELINE_INGESTA, type TipoPieza } from './corpus.ts'
@@ -143,6 +143,23 @@ function repartir(db: Db, ahora: number, reclutar: boolean, ev: Evento[]) {
     ev.push({ tipo: 'asigna', texto: `tarea ${tarea.id} (${tarea.tipo}) → ${alias(pick.agente)} [${pick.razon}]` })
     if (gerente) acreditar(db, gerente, XP_POR_ASIGNACION, ahora, ev)
   }
+}
+
+/**
+ * Un encargo puntual a un agente elegido, sin esperar al tick: se publica, se le asigna y corre ya.
+ * Pasa por el mismo contrato, auditoría y XP que cualquier tarea del bus.
+ */
+export async function encargarYa(db: Db, agenteId: string, t: Omit<NuevaTarea, 'clase'>, ahora = Date.now()): Promise<{ tarea: Tarea; eventos: Evento[] }> {
+  const f = leer(db, agenteId)
+  if (!f) throw new Error(`No existe ${agenteId}`)
+  const tarea = publicar(db, { ...t, clase: f.clase }, ahora)
+  asignar(db, tarea.id, f.id, MASTROPIERO, ahora)
+  const ev: Evento[] = []
+  await ejecutar(db, f, leerTarea(db, tarea.id)!, ahora, ev)
+  const n = numeroDeTick(db)
+  const alta = db.prepare('INSERT INTO cronica (tick, tipo, texto, en) VALUES (?, ?, ?, ?)')
+  for (const e of ev) alta.run(n, e.tipo, e.texto, ahora)
+  return { tarea: leerTarea(db, tarea.id)!, eventos: ev }
 }
 
 async function correr(db: Db, ahora: number, ev: Evento[]) {

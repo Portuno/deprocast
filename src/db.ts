@@ -267,6 +267,102 @@ CREATE TABLE IF NOT EXISTS ajustes (
   valor TEXT NOT NULL
 );
 
+-- Personajes: el jugador, Mastropiero, cada agente y cada entidad. Clave: jugador | mastropiero | agente:ID | entidad:N.
+CREATE TABLE IF NOT EXISTS historias (
+  personaje TEXT PRIMARY KEY,
+  texto TEXT,                         -- trasfondo y origen, en prosa
+  elementos TEXT,                     -- JSON string[]: rasgos y elementos base
+  sugerencia TEXT,                    -- JSON {texto, elementos}: lo que propone Mastropiero, hasta que se acepta
+  actualizada_en INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS inventario (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  personaje TEXT NOT NULL,
+  tipo TEXT NOT NULL,                 -- capital | conexion | presencia | conocimiento | herramienta | acceso | recurso
+  nombre TEXT NOT NULL,
+  detalle TEXT,
+  valor REAL,                         -- plata, seguidores, horas…
+  unidad TEXT,
+  url TEXT,
+  entidad_id INTEGER,                 -- una conexión apunta a su entidad
+  estado TEXT NOT NULL,               -- sugerido | vigente | archivado
+  fuente TEXT NOT NULL,               -- operador | escriba | mastropiero | carga
+  creado_en INTEGER NOT NULL,
+  actualizado_en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS inventario_personaje ON inventario(personaje, estado);
+
+CREATE TABLE IF NOT EXISTS misiones (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  personaje TEXT NOT NULL,            -- quien la hace
+  asignada_por TEXT NOT NULL,         -- clave de personaje
+  nivel TEXT NOT NULL,                -- principal | primaria | secundaria | terciaria
+  padre_id INTEGER,                   -- árbol: secundaria → primaria → principal (puede cruzar personajes)
+  titulo TEXT NOT NULL,
+  detalle TEXT,                       -- la subdescripción
+  categoria TEXT,
+  entidad_id INTEGER,                 -- el proyecto o la persona de la que trata
+  estado TEXT NOT NULL,               -- sugerida | activa | hecha | parcial | no | descartada
+  progreso INTEGER NOT NULL DEFAULT 0,
+  feedback TEXT,
+  semana TEXT,                        -- primarias: 2026-W41
+  run_id INTEGER,                     -- secundarias
+  inicio TEXT,                        -- secundarias: HH:MM
+  fin TEXT,
+  minutos INTEGER,
+  fijada INTEGER NOT NULL DEFAULT 0,  -- secundarias: rehacer la conserva
+  con TEXT,                           -- persona involucrada
+  gasto REAL,                         -- si usa plata
+  disparador TEXT,                    -- terciarias: JSON {lugar, zona, actividad, cuando}
+  vence TEXT,                         -- YYYY-MM-DD
+  orden INTEGER NOT NULL DEFAULT 0,
+  creada_por TEXT NOT NULL,
+  creada_en INTEGER NOT NULL,
+  cerrada_en INTEGER
+);
+CREATE INDEX IF NOT EXISTS misiones_personaje ON misiones(personaje, nivel, estado);
+CREATE INDEX IF NOT EXISTS misiones_run ON misiones(run_id);
+
+CREATE TABLE IF NOT EXISTS runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  fecha TEXT NOT NULL,
+  inicio TEXT NOT NULL,               -- HH:MM
+  fin TEXT NOT NULL,
+  estado TEXT NOT NULL,               -- propuesta | en_curso | cerrada | descartada
+  pedido TEXT NOT NULL,               -- JSON: el pedido ya resuelto (plantilla + campos + texto)
+  fijos TEXT,                         -- JSON: eventos del calendario que caen adentro
+  agentes TEXT,                       -- JSON: quiénes ayudaron a armarla
+  resumen TEXT,
+  reporte TEXT,
+  modelo TEXT,
+  ultima_hora INTEGER NOT NULL DEFAULT 0,
+  creada_en INTEGER NOT NULL,
+  iniciada_en INTEGER,
+  cerrada_en INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS run_plantillas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL UNIQUE,
+  pedido TEXT NOT NULL,               -- JSON PedidoRun
+  sistema INTEGER NOT NULL DEFAULT 0,
+  creada_en INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS reportes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tipo TEXT NOT NULL,                 -- hora | run | semana
+  personaje TEXT NOT NULL,
+  desde INTEGER NOT NULL,
+  hasta INTEGER NOT NULL,
+  run_id INTEGER,
+  texto TEXT NOT NULL,
+  metricas TEXT,                      -- JSON
+  pieza_id INTEGER,
+  creado_en INTEGER NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS quantomos_pieza ON quantomos(pieza_id);
 CREATE INDEX IF NOT EXISTS quantomos_etapa ON quantomos(etapa);
 `
@@ -294,13 +390,20 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
 
 /** Rutinas y ajustes de fábrica: horarios editables, nada del operador. */
 const RUTINAS_SISTEMA = [
-  { id: 'jornada', nombre: 'Armar la jornada', hora: '08:30', accion: 'jornada' },
-  { id: 'cierre', nombre: 'Cierre del día', hora: '22:30', accion: 'cierre' },
+  { id: 'jornada', nombre: 'Saludo del día', hora: '08:30', dias: '0123456', accion: 'jornada' },
+  { id: 'cierre', nombre: 'Cierre del día', hora: '22:30', dias: '0123456', accion: 'cierre' },
+  { id: 'semana', nombre: 'Proponer las primarias de la semana', hora: '08:00', dias: '1', accion: 'semana' },
+  { id: 'reporte_semanal', nombre: 'Reporte de la semana', hora: '21:00', dias: '0', accion: 'reporte_semanal' },
+]
+/** La única plantilla de run de fábrica: genérica, sin nada del operador. */
+const PLANTILLAS_SISTEMA = [
+  { nombre: 'Mañana oficina', pedido: { duracion: 180, banda: [12], cantidad: 15, subdescripcion: true } },
 ]
 const AJUSTES_SISTEMA: Record<string, string> = {
   jornada_inicio: '09:00',
   jornada_fin: '23:00',
   bloques_minutos: '12,25,50',
+  primarias_semana: '6',
 }
 
 /** Fuentes de fábrica. Estructura, no contenido: el corpus arranca vacío. */
@@ -337,8 +440,12 @@ function migrar(db: Db) {
   db.exec(FTS)
   if (!habiaFts) db.exec(`INSERT INTO corpus_fts(corpus_fts) VALUES ('rebuild')`)
 
-  const rutina = db.prepare(`INSERT OR IGNORE INTO rutinas (id, nombre, hora, dias, accion, activa) VALUES (?, ?, ?, '0123456', ?, 1)`)
-  for (const r of RUTINAS_SISTEMA) rutina.run(r.id, r.nombre, r.hora, r.accion)
+  const rutina = db.prepare(`INSERT OR IGNORE INTO rutinas (id, nombre, hora, dias, accion, activa) VALUES (?, ?, ?, ?, ?, 1)`)
+  for (const r of RUTINAS_SISTEMA) rutina.run(r.id, r.nombre, r.hora, r.dias, r.accion)
+  db.prepare(`UPDATE rutinas SET nombre = 'Saludo del día' WHERE id = 'jornada' AND nombre = 'Armar la jornada'`).run()
+  const plantilla = db.prepare('INSERT OR IGNORE INTO run_plantillas (nombre, pedido, sistema, creada_en) VALUES (?, ?, 1, ?)')
+  for (const p of PLANTILLAS_SISTEMA) plantilla.run(p.nombre, JSON.stringify(p.pedido), Date.now())
+  migrarJornadas(db)
   const ajuste = db.prepare('INSERT OR IGNORE INTO ajustes (clave, valor) VALUES (?, ?)')
   for (const [k, v] of Object.entries(AJUSTES_SISTEMA)) ajuste.run(k, v)
 
@@ -351,6 +458,30 @@ function migrar(db: Db) {
     alta.run(fuente, deprocast ? `Deprocast ${fuente}` : fuente, 'propia', null, deprocast ? 'deprocast-0.7' : null, 0, ahora)
   }
   db.exec(`UPDATE corpus SET nivel = COALESCE((SELECT nivel FROM fuentes WHERE fuentes.id = corpus.fuente), 'propia') WHERE nivel IS NULL`)
+}
+
+/**
+ * Una sola vez: los bloques de las jornadas viejas pasan a ser misiones secundarias, con una run por día.
+ * La columna `bloques` queda vacía; la jornada sigue guardando el resumen y el cierre del día.
+ */
+function migrarJornadas(db: Db) {
+  const viejas = db.prepare(`SELECT fecha, bloques, creada_en FROM jornadas WHERE bloques != '[]'`).all() as { fecha: string; bloques: string; creada_en: number }[]
+  const estado: Record<string, string> = { hecho: 'hecha', saltado: 'no', pendiente: 'activa' }
+  for (const j of viejas) {
+    const bloques = json<any[]>(j.bloques, []).filter((b) => b && b.estado !== 'fijo' && b.inicio && b.fin)
+    if (bloques.length) {
+      const r = db.prepare(`INSERT INTO runs (fecha, inicio, fin, estado, pedido, resumen, modelo, creada_en, iniciada_en, cerrada_en) VALUES (?, ?, ?, 'cerrada', '{}', 'Jornada anterior a las runs.', 'migracion', ?, ?, ?)`)
+        .run(j.fecha, bloques[0].inicio, bloques.at(-1).fin, j.creada_en, j.creada_en, j.creada_en)
+      const run = Number(r.lastInsertRowid)
+      const alta = db.prepare(`INSERT INTO misiones (personaje, asignada_por, nivel, titulo, detalle, categoria, estado, run_id, inicio, fin, minutos, orden, creada_por, creada_en, cerrada_en)
+        VALUES ('jugador', 'mastropiero', 'secundaria', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'migracion', ?, ?)`)
+      bloques.forEach((b, i) => {
+        const e = estado[b.estado] ?? 'activa'
+        alta.run(String(b.titulo ?? '').slice(0, 160), b.por_que ?? null, b.proyecto ?? null, e, run, b.inicio, b.fin, b.minutos ?? null, i, j.creada_en, e === 'activa' ? null : j.creada_en)
+      })
+    }
+    db.prepare(`UPDATE jornadas SET bloques = '[]' WHERE fecha = ?`).run(j.fecha)
+  }
 }
 
 export function ajuste(db: Db, clave: string): string | null {

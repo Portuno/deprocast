@@ -4,6 +4,8 @@
  */
 import { fechaLocal, type Db } from './db.ts'
 import { pedirJson } from './modelo.ts'
+import { agregarItem } from './personajes.ts'
+import { anotarSideQuest } from './misiones.ts'
 
 export const TIPOS_MEMORIA = ['hecho', 'meta', 'preferencia', 'sueño', 'vision', 'correccion'] as const
 export type TipoMemoria = (typeof TIPOS_MEMORIA)[number]
@@ -116,7 +118,9 @@ Reglas:
 - Cada recuerdo, una oración corta en tercera persona («Quiere…», «Prefiere…», «Trabaja en…»).
 - tipo: hecho | meta | preferencia | sueño | vision | correccion. horizonte (opcional, solo para metas/visión/sueños): castillo (años, estrategia), campamento (semanas o meses), trinchera (días).
 - Entre 0 y 3 recuerdos. Si no hay nada que valga, devolvé la lista vacía.
-Forma: {"recuerdos": [{"texto": string, "tipo": string, "horizonte": string | null}]}`
+- inventario (0 a 2, opcional): cosas que dice que TIENE. tipo: capital (plata, bienes), conexion (una persona o grupo con nombre), presencia (un sitio, red o canal suyo), conocimiento, herramienta, acceso, recurso. Con «valor» y «unidad» si hay número.
+- side_quests (0 a 2, opcional): encargos chicos que surgen sobre la marcha y dependen de estar en un lugar o haciendo algo («cuando pase por…», «si salgo a caminar…, comprarle X a Y»). «disparador»: {lugar, zona, actividad, cuando}, solo lo que se sabe.
+Forma: {"recuerdos": [{"texto": string, "tipo": string, "horizonte": string | null}], "inventario": [{"tipo": string, "nombre": string, "detalle": string, "valor": number | null, "unidad": string | null, "url": string | null}], "side_quests": [{"titulo": string, "detalle": string, "disparador": {"lugar": string | null, "zona": string | null, "actividad": string | null, "cuando": string | null}}]}`
 
 export type FuenteDeMemoria = { texto: string; origen: number | null; pieza: number | null; grabacion: boolean }
 
@@ -173,11 +177,11 @@ export async function escribaDeMemoria(
   if (texto.trim().length < 12) return []
   const conocidos = memoriaParaPrompt(db, 40)
   try {
-    const { datos } = await pedirJson<{ recuerdos?: { texto: string; tipo: string; horizonte?: string | null }[] }>(
+    const { datos } = await pedirJson<{ recuerdos?: { texto: string; tipo: string; horizonte?: string | null }[]; inventario?: any[]; side_quests?: any[] }>(
       { db, clase: 'mastropiero', agenteId: 'escriba' },
       ESCRIBA,
       `${conocidos ? `Lo que ya sabés (no lo repitas):\n${conocidos}\n\n` : ''}${o.grabacion ? GRABACION : 'Mensaje del operador:'}\n${texto.slice(0, 6000)}`,
-      { temperatura: 0.2, maxTokens: 800 },
+      { temperatura: 0.2, maxTokens: 1200 },
     )
     const nuevos: Recuerdo[] = []
     for (const r of (datos.recuerdos ?? []).slice(0, 3)) {
@@ -185,6 +189,15 @@ export async function escribaDeMemoria(
       const antes = (db.prepare('SELECT MAX(id) AS n FROM memoria').get() as { n: number | null }).n ?? 0
       const x = recordar(db, { texto: r.texto, tipo: r.tipo, horizonte: r.horizonte ?? null, origen, piezaId: o.pieza ?? null, creadaPor: 'escriba' })
       if (x.id > antes) nuevos.push(x)
+    }
+    // Lo que dice que tiene y los encargos de pasada entran como sugerencia: él los acepta en su ficha y en Misiones.
+    for (const i of (datos.inventario ?? []).slice(0, 2)) {
+      if (typeof i?.nombre !== 'string' || !i.nombre.trim()) continue
+      try { agregarItem(db, 'jugador', i, { fuente: 'escriba', sugerido: true }) } catch { /* un ítem raro no frena nada */ }
+    }
+    for (const q of (o.grabacion ? [] : datos.side_quests ?? []).slice(0, 2)) {
+      if (typeof q?.titulo !== 'string' || !q.titulo.trim()) continue
+      try { anotarSideQuest(db, { titulo: q.titulo, detalle: q.detalle ?? null, disparador: q.disparador ?? null, sugerida: true, creadaPor: 'escriba' }) } catch { /* idem */ }
     }
     return nuevos
   } catch {

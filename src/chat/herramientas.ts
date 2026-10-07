@@ -8,7 +8,13 @@ import path from 'node:path'
 import { ATRIBUTOS, CLASE_IDS, CLASES } from '../clases.ts'
 import { fechaLocal, type Db } from '../db.ts'
 import { archivar, corregir, HORIZONTES, memoriaVigente, recordar, TIPOS_MEMORIA } from '../memoria.ts'
-import { aHora, armarJornada, leerJornada, marcarBloque, progreso } from '../jornada.ts'
+import { leerJornada, progreso } from '../jornada.ts'
+import {
+  actualizarMision, anotarSideQuest, arrancarRun, asignarMision, avanceDe, cerrarRun, conAvance, crearMision, descartarRun, enCurso, fijarPrincipal,
+  leerRun, listarMisiones, listarPlantillas, listarReportes, marcarSecundaria, misionesDeRun, NIVELES_MISION, prepararRun, principalDe,
+  procesarJugador, proponerPrimarias, rehacerRun, reporteSemana, runActual, semanaDe, type Mision,
+} from '../misiones.ts'
+import { agregarItem, editarItem, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, personaje, resolverPersonaje, TIPOS_INVENTARIO } from '../personajes.ts'
 import { asientos, especializacion } from '../auditor.ts'
 import { leerTarea, publicar, tareas } from '../bus.ts'
 import { asegurarFuente, buscar, esNivel, fuentes, leerPieza, listarPiezas, NIVELES, type Nivel, type Pieza } from '../corpus.ts'
@@ -56,6 +62,24 @@ function piezaCorta(p: Pieza, largo = 280) {
     id: p.id, nivel: `${NIVELES[p.nivel].numero} ${NIVELES[p.nivel].nombre}`, fuente: p.fuente, tipo: p.tipo, titulo: p.titulo,
     autor: p.autor ?? undefined, fecha: p.fecha?.slice(0, 10) ?? undefined, url: p.url ?? undefined, peso: p.peso ?? undefined,
     etiquetas: p.etiquetas.length ? p.etiquetas.slice(0, 8) : undefined, extracto: recorte(p.contenido, largo),
+  }
+}
+
+function misionCorta(m: Mision) {
+  return {
+    id: m.id, nivel: m.nivel, titulo: m.titulo, detalle: m.detalle ? recorte(m.detalle, 240) : undefined, estado: m.estado, categoria: m.categoria ?? undefined,
+    semana: m.semana ?? undefined, hora: m.inicio ? `${m.inicio}–${m.fin}` : undefined, vence: m.vence ?? undefined, disparador: m.disparador ?? undefined,
+    asignada_por: m.asignadaPor !== 'jugador' ? m.asignadaPor : undefined, para: m.personaje !== 'jugador' ? m.personaje : undefined, nota: m.feedback ?? undefined,
+  }
+}
+
+/** Un proyecto o persona por nombre o id, para colgarle una misión. */
+function entidadId(db: Db, x: string | number): number | null {
+  try {
+    const k = resolverPersonaje(db, x)
+    return k.startsWith('entidad:') ? Number(k.slice(8)) : null
+  } catch {
+    return null
   }
 }
 
@@ -132,17 +156,17 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'ver_bus', familia: 'lectura',
-    descripcion: 'Misiones del bus. Sin estado devuelve las más recientes.',
+    descripcion: 'Encargos del bus de la liga (tareas de los agentes). Sin estado devuelve los más recientes.',
     parametros: S({ estado: str('Estado', { enum: ['pendiente', 'asignada', 'hecha', 'fallida'] }), limite: int('Cuántas (máx. 40)') }),
     ejecutar: (a, { db }) => tareas(db, a.estado, Math.min(a.limite ?? 15, 40)).map((t) => ({
       id: t.id, clase: t.clase, tipo: t.tipo, estado: t.estado, agente: t.asignadaA, texto: recorte(String(t.payload.texto ?? t.payload.titulo ?? ''), 120), error: t.error ?? undefined,
     })),
   },
   {
-    nombre: 'ver_mision', familia: 'lectura', descripcion: 'Una misión completa con su resultado.', parametros: S({ id: int('id de la misión') }, ['id']),
+    nombre: 'ver_encargo', familia: 'lectura', descripcion: 'Un encargo del bus completo, con su resultado.', parametros: S({ id: int('id del encargo') }, ['id']),
     ejecutar: (a, { db }) => {
       const t = leerTarea(db, a.id)
-      if (!t) return { error: `No existe la misión ${a.id}` }
+      if (!t) return { error: `No existe el encargo ${a.id}` }
       const r = t.resultado && Array.isArray((t.resultado as any).embedding) ? { ...t.resultado, embedding: `[${(t.resultado as any).embedding.length} dimensiones]` } : t.resultado
       return { ...t, resultado: r }
     },
@@ -229,12 +253,52 @@ export const HERRAMIENTAS: Herramienta[] = [
     ejecutar: (a, { db }) => memoriaVigente(db, { tipo: a.tipo, horizonte: a.horizonte, limite: 120 }).map((r) => ({ id: r.id, fecha: r.fecha, tipo: r.tipo, horizonte: r.horizonte, texto: r.texto })),
   },
   {
-    nombre: 'ver_jornada', familia: 'lectura', descripcion: 'La jornada de un día: bloques con hora, estado y por qué, el sentido del día y su cierre.',
-    parametros: S({ fecha: str('YYYY-MM-DD; vacío = hoy') }),
+    nombre: 'ver_personaje', familia: 'lectura',
+    descripcion: 'La ficha de un personaje: historia, inventario y misiones. Personaje: «jugador» (el operador), «mastropiero», un agente (id o nombre) o una entidad (id o nombre exacto).',
+    parametros: S({ personaje: str('jugador | mastropiero | id o nombre de agente | id o nombre de entidad') }),
     ejecutar: (a, { db }) => {
-      const j = leerJornada(db, a.fecha || fechaLocal())
-      return j ? { ...j, progreso: progreso(j) } : { sin_jornada: true, fecha: a.fecha || fechaLocal() }
+      const k = resolverPersonaje(db, a.personaje)
+      const h = leerHistoria(db, k)
+      return {
+        personaje: personaje(db, k), historia: h.texto ?? h.derivada, elementos: h.elementos, historia_sugerida: h.sugerencia ?? undefined,
+        inventario: [...inventarioDe(db, k, { conSugeridos: true }).map((i) => ({ id: i.id, tipo: i.tipo, nombre: i.nombre, detalle: i.detalle ?? undefined, valor: i.valor ?? undefined, unidad: i.unidad ?? undefined, url: i.url ?? undefined, sugerido: i.estado === 'sugerido' || undefined })),
+          ...inventarioDerivado(db, k)],
+        principal: principalDe(db, k) ? misionCorta(principalDe(db, k)!) : null,
+        misiones_abiertas: listarMisiones(db, { personaje: k, abiertas: true, limite: 30 }).filter((m) => m.nivel !== 'principal' && m.nivel !== 'secundaria').map(misionCorta),
+      }
     },
+  },
+  {
+    nombre: 'ver_misiones', familia: 'lectura',
+    descripcion: 'Misiones con filtros. Sin filtros: las del jugador abiertas. Niveles: principal, primaria (las de la semana), secundaria (bandas de runs), terciaria (side quests). «asignadas_por_mi» trae lo que el jugador les encargó a otros.',
+    parametros: S({ personaje: str('Por defecto el jugador'), nivel: str('Nivel', { enum: [...NIVELES_MISION] }), semana: str('2026-W41; «actual» para esta semana'), abiertas: bool('Solo sugeridas y activas'), asignadas_por_mi: bool('Lo que el jugador asignó a otros') }),
+    ejecutar: (a, { db }) => {
+      const semana = a.semana === 'actual' ? semanaDe() : a.semana
+      const ms = a.asignadas_por_mi
+        ? listarMisiones(db, { asignadaPor: 'jugador', excluirPersonaje: 'jugador', abiertas: a.abiertas ?? true })
+        : listarMisiones(db, { personaje: resolverPersonaje(db, a.personaje), nivel: a.nivel, semana, abiertas: a.abiertas ?? !semana, limite: 80 })
+      return conAvance(db, ms).map((m) => ({ ...misionCorta(m), progreso: m.avance.progreso, bandas_hechas: m.avance.bandas.hechas || undefined }))
+    },
+  },
+  {
+    nombre: 'ver_run', familia: 'lectura',
+    descripcion: 'La run viva (en curso o propuesta de hoy) o una por id: su pedido, sus bandas con estado y nota, y la que toca ahora.',
+    parametros: S({ id: int('id de la run; vacío = la viva') }),
+    ejecutar: (a, { db }) => {
+      const run = a.id ? leerRun(db, a.id) : runActual(db)
+      if (!run) return { sin_run: true, plantillas: listarPlantillas(db).map((p) => p.nombre) }
+      const v = enCurso(db)
+      return {
+        id: run.id, estado: run.estado, fecha: run.fecha, de: run.inicio, a: run.fin, resumen: run.resumen, pedido: { ...run.pedido, incluir: run.pedido.incluir?.map((e) => e.nombre) },
+        agentes: run.agentes.map((x) => x.nombre), ahora: v?.run.id === run.id ? v.actual?.titulo ?? 'entre bandas' : undefined,
+        bandas: misionesDeRun(db, run.id).map((m) => ({ id: m.id, hora: `${m.inicio}–${m.fin}`, titulo: m.titulo, estado: m.estado, nota: m.feedback ?? undefined })),
+      }
+    },
+  },
+  {
+    nombre: 'ver_reportes', familia: 'lectura', descripcion: 'Los reportes recientes: por hora, por run y de la semana.',
+    parametros: S({ tipo: str('hora | run | semana', { enum: ['hora', 'run', 'semana'] }) }),
+    ejecutar: (a, { db }) => listarReportes(db, { tipo: a.tipo, limite: 8 }).map((r) => ({ id: r.id, tipo: r.tipo, cuando: new Date(r.creadoEn).toLocaleString('es-AR'), texto: recorte(r.texto, 1500) })),
   },
 
   // Acción
@@ -268,17 +332,17 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a, r) => `creó el proyecto ${a.nombre}${r?.gerente ? ` con ${r.gerente}` : ''}`,
   },
   {
-    nombre: 'publicar_mision', familia: 'accion',
-    descripcion: 'Publica una misión en el bus para una clase. Se corre en el próximo tick. Crawler necesita url; auditor puede llevar agente_objetivo.',
-    parametros: S({ clase: str('Clase', { enum: CLASE_IDS }), texto: str('La misión'), proyecto: str('id de proyecto'), dominio: str('Dominio'), url: str('URL (crawler)'), agente_objetivo: str('Agente a auditar') }, ['clase', 'texto']),
+    nombre: 'publicar_encargo', familia: 'accion',
+    descripcion: 'Publica un encargo en el bus de la liga para una clase de agente. Se corre en el próximo tick. Crawler necesita url; auditor puede llevar agente_objetivo. (Las misiones del jugador o de las personas van con crear_mision.)',
+    parametros: S({ clase: str('Clase', { enum: CLASE_IDS }), texto: str('El encargo'), proyecto: str('id de proyecto'), dominio: str('Dominio'), url: str('URL (crawler)'), agente_objetivo: str('Agente a auditar') }, ['clase', 'texto']),
     ejecutar: (a, { db }) => {
       const payload: Record<string, unknown> = { texto: a.texto }
       if (a.url) payload.url = a.url
       if (a.agente_objetivo) payload.agenteId = a.agente_objetivo
       const t = publicar(db, { clase: a.clase, payload, publicadaPor: 'mastropiero', proyectoId: a.proyecto || null, dominio: a.dominio || null })
-      return { mision: t.id, clase: t.clase, estado: t.estado }
+      return { encargo: t.id, clase: t.clase, estado: t.estado }
     },
-    resumen: (a, r) => `publicó la misión #${r?.mision ?? '?'} para ${a.clase}`,
+    resumen: (a, r) => `publicó el encargo #${r?.encargo ?? '?'} para ${a.clase}`,
   },
   {
     nombre: 'correr_ticks', familia: 'accion',
@@ -380,34 +444,182 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `corrigió un recuerdo${a.texto ? `: ${recorte(a.texto, 50)}` : ''}`,
   },
   {
-    nombre: 'armar_jornada', familia: 'accion',
-    descripcion: 'Arma la jornada de un día en bloques (según su memoria, lo que hablaron, su calendario y su ayer). Para hoy desde una hora, usá rehacer_desde_ahora.',
-    parametros: S({ fecha: str('YYYY-MM-DD; vacío = hoy'), desde: str('HH:MM desde donde armar') }),
+    nombre: 'escribir_historia', familia: 'accion',
+    descripcion: 'Escribe la historia (trasfondo, origen, elementos base) de un personaje. Para el jugador entra como sugerencia que él acepta, salvo que te la haya dictado.',
+    parametros: S({ personaje: str('jugador | mastropiero | agente | entidad'), texto: str('La historia, en prosa'), elementos: { type: 'array', items: { type: 'string' }, description: 'Rasgos y elementos base, cortos' }, dictada: bool('true si el texto es lo que él te dijo tal cual') }, ['texto']),
+    ejecutar: (a, { db }) => {
+      const k = resolverPersonaje(db, a.personaje)
+      const h = escribirHistoria(db, k, { texto: a.texto, elementos: a.elementos }, { sugerida: k === 'jugador' && !a.dictada })
+      return { personaje: k, sugerida: !!h.sugerencia }
+    },
+    resumen: (a, r) => (r?.sugerida ? `sugirió una historia para ${a.personaje ?? 'el jugador'}` : `escribió la historia de ${a.personaje ?? 'el jugador'}`),
+  },
+  {
+    nombre: 'inventario_agregar', familia: 'accion',
+    descripcion: `Suma algo al inventario de un personaje. Tipos: ${TIPOS_INVENTARIO.join(', ')} (presencia = sitios web, redes, canales). Si ya está, lo actualiza.`,
+    parametros: S({ personaje: str('Por defecto el jugador'), tipo: str('Tipo', { enum: [...TIPOS_INVENTARIO] }), nombre: str('Qué es'), detalle: str('Detalle'), valor: { type: 'number', description: 'Número, si hay (plata, seguidores…)' }, unidad: str('€, USD, seguidores…'), url: str('Link, si es presencia') }, ['tipo', 'nombre']),
+    ejecutar: (a, { db }) => {
+      const k = resolverPersonaje(db, a.personaje)
+      const i = agregarItem(db, k, a, { fuente: 'mastropiero' })
+      return { item: i.id, personaje: k, nombre: i.nombre }
+    },
+    resumen: (a) => `sumó al inventario: ${recorte(a.nombre, 50)}`,
+  },
+  {
+    nombre: 'inventario_editar', familia: 'accion', descripcion: 'Cambia un ítem del inventario (valor, detalle) o lo archiva (estado archivado), o acepta uno sugerido (estado vigente).',
+    parametros: S({ id: int('id del ítem'), nombre: str('Nombre'), detalle: str('Detalle'), valor: { type: 'number', description: 'Valor' }, unidad: str('Unidad'), url: str('Link'), estado: str('Estado', { enum: ['vigente', 'archivado'] }) }, ['id']),
+    ejecutar: (a, { db }) => {
+      const { id, ...c } = a
+      const i = editarItem(db, id, c)
+      return { item: i.id, nombre: i.nombre, estado: i.estado }
+    },
+    resumen: (a) => (a.estado === 'archivado' ? 'archivó un ítem del inventario' : 'actualizó el inventario'),
+  },
+  {
+    nombre: 'sugerir_misiones', familia: 'accion',
+    descripcion: 'Sugiere misiones a un personaje (entran como sugeridas: él las acepta). Para el jugador, la principal solo se sugiere. Para proponer las primarias de la semana del jugador desde su memoria, usá proponer_primarias.',
+    parametros: S({
+      personaje: str('Por defecto el jugador'), nivel: str('Nivel', { enum: ['principal', 'primaria', 'terciaria'] }),
+      misiones: { type: 'array', items: { type: 'object', properties: { titulo: str('Título'), detalle: str('Subdescripción'), categoria: str('Categoría'), entidad: str('Proyecto o persona de la que trata') }, required: ['titulo'] } },
+    }, ['nivel', 'misiones']),
+    ejecutar: (a, { db }) => {
+      const k = resolverPersonaje(db, a.personaje)
+      const ids = (a.misiones ?? []).slice(0, 12).map((m: any) => crearMision(db, {
+        personaje: k, asignadaPor: 'mastropiero', nivel: a.nivel, titulo: m.titulo, detalle: m.detalle, categoria: m.categoria,
+        entidadId: m.entidad ? entidadId(db, m.entidad) : null, estado: 'sugerida', creadaPor: 'mastropiero',
+      }, { por: 'mastropiero' }).id)
+      return { sugeridas: ids }
+    },
+    resumen: (a, r) => `sugirió ${r?.sugeridas?.length ?? 0} misión(es) ${a.nivel === 'principal' ? 'principal(es)' : a.nivel + 's'}`,
+  },
+  {
+    nombre: 'proponer_primarias', familia: 'accion', descripcion: 'Propone las primarias de la semana del jugador desde su memoria, su principal y lo que quedó de la semana pasada. Entran como sugeridas.',
+    parametros: S({ semana: str('2026-W41; vacío = esta'), pedido: str('Lo que él pidió para la propuesta, si dijo algo') }),
+    ejecutar: async (a, { db }) => ({ semana: a.semana || semanaDe(), sugeridas: (await proponerPrimarias(db, a.semana || semanaDe(), { texto: a.pedido })).map(misionCorta) }),
+    resumen: (_, r) => `propuso ${r?.sugeridas?.length ?? 0} primarias para la semana`,
+  },
+  {
+    nombre: 'crear_mision', familia: 'accion',
+    descripcion: 'Crea una misión activa cuando él lo pide («anotame como primaria…»). Para el jugador o cualquier personaje. La principal del jugador va con fijar_principal.',
+    parametros: S({ personaje: str('Por defecto el jugador'), nivel: str('Nivel', { enum: ['primaria', 'secundaria', 'terciaria'] }), titulo: str('Título'), detalle: str('Subdescripción'), categoria: str('Categoría'), entidad: str('Proyecto o persona de la que trata'), padre: int('id de la misión que empuja'), vence: str('YYYY-MM-DD') }, ['nivel', 'titulo']),
+    ejecutar: (a, { db }) => {
+      const m = crearMision(db, { personaje: resolverPersonaje(db, a.personaje), asignadaPor: 'jugador', nivel: a.nivel, titulo: a.titulo, detalle: a.detalle, categoria: a.categoria, entidadId: a.entidad ? entidadId(db, a.entidad) : null, padreId: a.padre ?? null, vence: a.vence ?? null, creadaPor: 'mastropiero' }, { por: 'mastropiero' })
+      return misionCorta(m)
+    },
+    resumen: (a) => `anotó la misión «${recorte(a.titulo, 50)}»`,
+  },
+  {
+    nombre: 'actualizar_mision', familia: 'accion',
+    descripcion: 'Cambia una misión: aceptar una sugerida (estado activa), cerrarla (hecha, parcial, no, descartada), su progreso (0–100), feedback, título o detalle. La principal del jugador no se toca desde acá.',
+    parametros: S({ id: int('id'), estado: str('Estado', { enum: ['activa', 'hecha', 'parcial', 'no', 'descartada'] }), progreso: int('0–100'), feedback: str('Lo que contó de cómo fue'), titulo: str('Título'), detalle: str('Detalle'), vence: str('YYYY-MM-DD') }, ['id']),
+    ejecutar: (a, { db }) => {
+      const { id, ...c } = a
+      return misionCorta(actualizarMision(db, id, c, { por: 'mastropiero' }))
+    },
+    resumen: (a, r) => `actualizó «${recorte(r?.titulo ?? `#${a.id}`, 40)}»${a.estado ? ` → ${a.estado}` : ''}${a.progreso != null ? ` (${a.progreso}%)` : ''}`,
+  },
+  {
+    nombre: 'marcar_mision', familia: 'accion', descripcion: 'Marca una banda de la run (o cualquier secundaria) como hecha, a medias o no, con su nota. Es lo que calibra las próximas runs.',
+    parametros: S({ id: int('id de la banda (ver_run)'), estado: str('Estado', { enum: ['hecha', 'parcial', 'no', 'activa'] }), nota: str('Lo que contó: qué trabó, qué funcionó') }, ['id', 'estado']),
+    ejecutar: (a, { db }) => misionCorta(marcarSecundaria(db, a.id, a.estado, a.nota)),
+    resumen: (a, r) => `marcó «${recorte(r?.titulo ?? `#${a.id}`, 40)}» como ${a.estado === 'parcial' ? 'a medias' : a.estado}`,
+  },
+  {
+    nombre: 'asignar_mision', familia: 'accion',
+    descripcion: 'El jugador le encarga algo a otra persona (o agente): «Ana tiene que mandarme el presupuesto antes del viernes». Reconoce apodos si hay una sola persona que encaja («Ana» → «Ana María …»); si no existe, la crea. Decile a quién se la asignaste.',
+    parametros: S({ a: str('Nombre o id de la persona, o agente'), titulo: str('Qué tiene que hacer'), detalle: str('Detalle'), vence: str('YYYY-MM-DD, si hay plazo') }, ['a', 'titulo']),
+    ejecutar: (a, { db }) => {
+      const m = asignarMision(db, { a: a.a, titulo: a.titulo, detalle: a.detalle, vence: a.vence })
+      return { ...misionCorta(m), quien: personaje(db, m.personaje).nombre }
+    },
+    resumen: (a) => `le asignó a ${a.a}: ${recorte(a.titulo, 40)}`,
+  },
+  {
+    nombre: 'anotar_side_quest', familia: 'accion',
+    descripcion: 'Anota una side quest: un encargo chico que depende de dónde esté o qué haga («si pasás por una tienda de regalos, comprale X a Y»). El disparador es lo que la activa.',
+    parametros: S({ titulo: str('Qué hacer'), detalle: str('Detalle'), lugar: str('Un lugar concreto'), zona: str('Barrio o zona'), actividad: str('Actividad que la habilita: caminar, salir, viajar…'), cuando: str('Momento: fin de semana, a la tarde…'), vence: str('YYYY-MM-DD') }, ['titulo']),
+    ejecutar: (a, { db }) => misionCorta(anotarSideQuest(db, { titulo: a.titulo, detalle: a.detalle, disparador: { lugar: a.lugar, zona: a.zona, actividad: a.actividad, cuando: a.cuando }, vence: a.vence, creadaPor: 'mastropiero' })),
+    resumen: (a) => `anotó la side quest «${recorte(a.titulo, 50)}»`,
+  },
+  {
+    nombre: 'preparar_run', familia: 'accion',
+    descripcion: 'Prepara una run a su pedido: interpreta lo que dijo, reúne contexto (y consulta a los agentes que conocen los proyectos incluidos), arma las bandas y las programa. Queda como propuesta hasta que arranque. Pasale su pedido tal cual en «texto».',
+    parametros: S({
+      texto: str('Su pedido en sus palabras'), plantilla: str('Nombre de plantilla (por defecto «Mañana oficina»)'), duracion: int('Minutos'), banda: { type: 'array', items: { type: 'integer' }, description: 'Minutos por banda permitidos' },
+      libre: bool('Que vos elijas el largo de cada banda'), cantidad: int('Cuántas bandas'), intensidad: int('1–5'), energia: str('Cómo está'), dinero: { type: 'number', description: 'Plata disponible' },
+      recursos: str('Dónde está, qué tiene, si puede salir o llamar'), incluir: { type: 'array', items: { type: 'string' }, description: 'Proyectos o personas a meter (nombre, o «persona:Nombre» para crearla)' },
+      excluir: str('Lo que no quiere'), formato: str('Cómo quiere ver las tareas'),
+    }),
     ejecutar: async (a, { db }) => {
-      const { jornada, avisos } = await armarJornada(db, a.fecha || fechaLocal(), { desde: a.desde })
-      return { fecha: jornada.fecha, resumen: jornada.resumen, bloques: jornada.bloques.map((b) => `${b.inicio}–${b.fin} ${b.titulo}${b.estado === 'fijo' ? ' (agenda)' : ''}`), avisos }
+      const { run, misiones, avisos } = await prepararRun(db, a)
+      return { run: run.id, estado: run.estado, de: run.inicio, a: run.fin, resumen: run.resumen, agentes: run.agentes.map((x) => x.nombre), avisos, bandas: misiones.map((m) => `${m.inicio} ${m.titulo}`) }
     },
-    resumen: (_, r) => (r?.bloques ? `armó la jornada (${r.bloques.length} bloques)` : 'intentó armar la jornada'),
+    resumen: (_, r) => (r?.run ? `preparó una run de ${r.de} a ${r.a} (${r.bandas.length} bandas)` : 'intentó preparar una run'),
   },
   {
-    nombre: 'rehacer_desde_ahora', familia: 'accion', descripcion: 'Rehace la jornada de hoy desde este momento: conserva lo hecho y lo pasado, reacomoda lo que sigue.',
-    parametros: S({ motivo: str('Por qué se reorganiza (lo que te contó)') }),
-    ejecutar: async (_, { db }) => {
-      const d = new Date()
-      const desde = aHora(Math.min(23 * 60 + 55, Math.ceil((d.getHours() * 60 + d.getMinutes()) / 5) * 5))
-      const { jornada } = await armarJornada(db, fechaLocal(), { desde })
-      return { desde, bloques: jornada.bloques.filter((b) => b.inicio >= desde).map((b) => `${b.inicio} ${b.titulo}`) }
+    nombre: 'rehacer_run', familia: 'accion', descripcion: 'Rehace la run viva con un cambio en palabras («más corta», «sacá lo de X», «más creativas»). Conserva lo fijado, lo marcado y lo que ya pasó.',
+    parametros: S({ cambio: str('El cambio que pidió'), id: int('id de la run; vacío = la viva') }, ['cambio']),
+    ejecutar: async (a, { db }) => {
+      const id = a.id ?? runActual(db)?.id
+      if (!id) return { error: 'No hay run viva para rehacer' }
+      const { run, misiones } = await rehacerRun(db, id, a.cambio)
+      return { run: run.id, de: run.inicio, a: run.fin, bandas: misiones.map((m) => `${m.inicio} ${m.titulo} [${m.estado}]`) }
     },
-    resumen: (_, r) => (r?.desde ? `rehízo el día desde las ${r.desde}` : 'intentó rehacer el día'),
+    resumen: () => 'rehízo la run',
   },
   {
-    nombre: 'marcar_bloque', familia: 'accion', descripcion: 'Marca un bloque de la jornada como hecho, saltado o pendiente (cuando te cuenta cómo va).',
-    parametros: S({ id: str('id del bloque (ver_jornada)'), estado: str('Estado', { enum: ['hecho', 'saltado', 'pendiente'] }), fecha: str('YYYY-MM-DD; vacío = hoy') }, ['id', 'estado']),
-    ejecutar: (a, { db }) => progreso(marcarBloque(db, a.fecha || fechaLocal(), a.id, a.estado)),
-    resumen: (a) => `marcó un bloque como ${a.estado}`,
+    nombre: 'arrancar_run', familia: 'accion', descripcion: 'Arranca la run propuesta (se corre a ahora si se tardó). Solo cuando él dice que arranca.',
+    parametros: S({ id: int('id; vacío = la propuesta de hoy') }),
+    ejecutar: (a, { db }) => {
+      const id = a.id ?? runActual(db)?.id
+      if (!id) return { error: 'No hay run propuesta' }
+      const r = arrancarRun(db, id)
+      return { run: r.id, de: r.inicio, a: r.fin }
+    },
+    resumen: (_, r) => (r?.run ? `arrancó la run (${r.de}–${r.a})` : 'intentó arrancar la run'),
+  },
+  {
+    nombre: 'cerrar_run', familia: 'accion', descripcion: 'Cierra la run en curso y escribe su reporte (va al corpus y calibra la próxima). Si la propuesta no se va a usar, descartala.',
+    parametros: S({ id: int('id; vacío = la viva'), descartar: bool('true para descartar una propuesta sin arrancar') }),
+    ejecutar: async (a, { db }) => {
+      const run = a.id ? leerRun(db, a.id) : runActual(db)
+      if (!run) return { error: 'No hay run viva' }
+      if (a.descartar || run.estado === 'propuesta') return (descartarRun(db, run.id), { descartada: run.id })
+      const r = await cerrarRun(db, run.id)
+      return { cerrada: run.id, reporte: r.texto }
+    },
+    resumen: (_, r) => (r?.descartada ? 'descartó la run propuesta' : r?.cerrada ? 'cerró la run con su reporte' : 'intentó cerrar la run'),
+  },
+  {
+    nombre: 'reporte_semanal', familia: 'accion', descripcion: 'Escribe el reporte de la semana (lo hecho, avance de primarias, runs, métricas, lo que otros deben).',
+    parametros: S({ semana: str('2026-W41; vacío = esta') }),
+    ejecutar: async (a, { db }) => ({ texto: (await reporteSemana(db, a.semana || semanaDe())).texto }),
+    resumen: () => 'escribió el reporte de la semana',
+  },
+  {
+    nombre: 'procesar_jugador', familia: 'accion',
+    descripcion: 'Procesa todo lo que sabés del jugador y propone su ficha: historia, inventario, candidatas a misión principal y primarias de la semana. Todo entra como sugerencia.',
+    parametros: S({}),
+    ejecutar: async (_, { db }) => procesarJugador(db),
+    resumen: (_, r) => (r ? `procesó al jugador: ${r.inventario} ítems, ${r.principales} principales y ${r.primarias} primarias sugeridas` : 'intentó procesar al jugador'),
   },
 
   // Destructivas
+  {
+    nombre: 'fijar_principal', familia: 'destructiva',
+    descripcion: 'Fija la misión principal de un personaje (reemplaza la vigente). La del jugador solo con su confirmación explícita; la de un agente no cambia nunca. Para aceptar una candidata sugerida, pasá su id.',
+    parametros: S({ personaje: str('Por defecto el jugador'), titulo: str('La misión'), detalle: str('Detalle'), id: int('id de una principal sugerida para aceptarla'), confirmado: bool('true solo si el operador confirmó') }),
+    ejecutar: (a, { db }) => {
+      const k = resolverPersonaje(db, a.personaje)
+      if (k === 'jugador') {
+        const c = exigirConfirmacion(a, 'cambia la misión principal del jugador')
+        if (c) return c
+      }
+      const m = a.id ? actualizarMision(db, a.id, { estado: 'activa' }, { por: 'operador' }) : fijarPrincipal(db, k, { titulo: a.titulo, detalle: a.detalle }, { por: k === 'jugador' ? 'operador' : 'mastropiero' })
+      return misionCorta(m)
+    },
+    resumen: (a, r) => (r?.requiere_confirmacion ? 'pidió confirmación para fijar la misión principal' : `fijó la misión principal: ${recorte(r?.titulo ?? a.titulo ?? '', 50)}`),
+  },
   {
     nombre: 'olvidar', familia: 'destructiva', descripcion: 'Archiva un recuerdo del operador (deja de usarse). Requiere confirmación.',
     parametros: S({ id: int('id del recuerdo'), confirmado: bool('true solo si el operador confirmó') }, ['id']),

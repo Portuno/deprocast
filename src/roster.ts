@@ -95,6 +95,8 @@ export type PedidoForja = {
   creador?: string
   proyectoId?: string | null
   celda?: number | null
+  /** La razón por la que nace. Se fija al forjar y no cambia nunca; si falta, sale de su oficio. */
+  misionPrincipal?: string | null
   ahora?: number
 }
 
@@ -148,6 +150,10 @@ export function forjar(db: Db, p: PedidoForja): Ficha {
     id, clase, p.creador ?? 'operador', p.proyectoId ?? null, p.celda ?? null, motor,
     instrucciones, JSON.stringify(atributos), p.ahora ?? Date.now(),
   )
+  const mision = p.misionPrincipal?.trim() || `Producir ${CLASES[clase].produce}`
+  db.prepare(
+    `INSERT INTO misiones (personaje, asignada_por, nivel, titulo, detalle, estado, creada_por, creada_en) VALUES (?, ?, 'principal', ?, ?, 'activa', ?, ?)`,
+  ).run(`agente:${id}`, p.creador ?? 'operador', mision.slice(0, 200), instrucciones, p.creador ?? 'operador', p.ahora ?? Date.now())
   return leer(db, id)!
 }
 
@@ -187,6 +193,9 @@ export function retirar(db: Db, id: string, causa: string, ahora = Date.now()) {
     `INSERT INTO lapidas (id, clase, nombre, xp, especializacion, causa, ficha, retirado_en) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(f.id, f.clase, f.nombre, f.xp, especializacion(db, f.id), causa, JSON.stringify(f), ahora)
   liberarTareas(db, f.id)
+  // Lo que tenía abierto muere con él; su misión principal queda como epitafio.
+  db.prepare(`UPDATE misiones SET estado = 'descartada', feedback = COALESCE(feedback, 'el agente se retiró'), cerrada_en = ? WHERE personaje = ? AND nivel != 'principal' AND estado IN ('sugerida', 'activa')`)
+    .run(ahora, `agente:${f.id}`)
   db.prepare('DELETE FROM agentes WHERE id = ?').run(f.id)
 }
 

@@ -8,7 +8,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { ATRIBUTO_MAX, ATRIBUTOS, CLASE_IDS, CLASES, PUNTOS_LIBRES } from './clases.ts'
 import { abrir, ajuste, fechaLocal, fijarAjuste, type Db } from './db.ts'
-import { armarJornada, leerJornada, marcarBloque, progreso, semana } from './jornada.ts'
+import { leerJornada, progreso, semana } from './jornada.ts'
+import {
+  actualizarMision, anotarSideQuest, arrancarRun, asignarMision, borrarPlantilla, cerrarRun, conAvance, crearMision, descartarRun, enCurso, guardarPlantilla,
+  latidoRuns, leerRun, listarMisiones, listarPlantillas, listarReportes, listarRuns, marcarSecundaria, misionesDeRun, principalDe, procesarJugador,
+  proponerPrimarias, rehacerRun, reporteSemana, runActual, semanaDe, semanaVecina, seguimientos, prepararRun, diasDeSemana, asegurarPrincipal,
+} from './misiones.ts'
+import { agregarItem, editarItem, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, personaje, resolverHistoria, TIPOS_INVENTARIO } from './personajes.ts'
 import { aprender, archivar, corregir, estadoAprendizaje, fuentesParaAprender, memoriaVigente, recordar, revisar } from './memoria.ts'
 import { actualizarRutina, correrRutinas, listarRutinas } from './rutinas.ts'
 import { urlsCalendario } from './calendario.ts'
@@ -18,7 +24,7 @@ import { asegurarFuente, fuentes, leerPieza, listarPiezas, NIVELES, TIPOS } from
 import { deshacer, descartar, ejecutar as ejecutarCarga, IMPORTADORES, leerCarga, listarCargas, reetiquetar, subir } from './cargas/index.ts'
 import { contarEntidades, coocurrencias, entidadesPorId, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from './entidades.ts'
 import {
-  archivarConversacion, conversacionHoy, crearConversacion, enviar, estadoEnVivo, estaPensando, leerConversacion, listarConversaciones, listarPropuestas, mensajes, resolverPropuesta,
+  archivarConversacion, conversacionHoy, crearConversacion, enviar, estadoEnVivo, estaPensando, leerConversacion, listarConversaciones, listarPropuestas, mensajeDeMastropiero, mensajes, resolverPropuesta,
 } from './chat/index.ts'
 import { celda, DOMINIOS } from './geometria72.ts'
 import { crearProyecto, cronica, estadoLiga, ingerir, numeroDeTick, tickEnCurso, tickUnico } from './mastropiero.ts'
@@ -43,6 +49,9 @@ try {
 // `--db ruta` para jugar otra partida sin tocar la principal.
 const iDb = process.argv.indexOf('--db')
 if (iDb > 0 && process.argv[iDb + 1]) process.env.MASTRO_DB = process.argv[iDb + 1]
+// `--puerto n` para levantar otra al lado (pruebas sobre una copia).
+const iPuerto = process.argv.indexOf('--puerto')
+if (iPuerto > 0 && process.argv[iPuerto + 1]) process.env.MASTRO_PUERTO = process.argv[iPuerto + 1]
 // `--sin-rutinas` para levantar sin que Mastropiero haga cosas solo (pruebas, o hasta decidir).
 if (process.argv.includes('--sin-rutinas')) process.env.MASTRO_SIN_RUTINAS = '1'
 
@@ -101,7 +110,8 @@ function estado() {
     corriendo: tickEnCurso(),
     propuestasAbiertas: (db.prepare(`SELECT COUNT(*) AS n FROM propuestas WHERE estado = 'abierta'`).get() as { n: number }).n,
     hoy: {
-      fecha: fechaLocal(), ...progreso(leerJornada(db, fechaLocal())), conversacion: conversacionHoy(db).id,
+      fecha: fechaLocal(), ...progreso(db, fechaLocal()), conversacion: conversacionHoy(db).id,
+      run: (() => { const r = runActual(db); return r ? { id: r.id, estado: r.estado, marcadas: misionesDeRun(db, r.id).filter((m) => m.estado !== 'activa').length } : null })(),
       // Lo último que Mastropiero dijo solo (rutinas): la pantalla avisa cuando aparece algo nuevo.
       aviso: db.prepare(`SELECT m.id, m.texto FROM mensajes m JOIN conversaciones c ON c.id = m.conversacion_id WHERE c.modo = 'hoy' AND m.modelo = 'rutina' ORDER BY m.id DESC LIMIT 1`).get() ?? null,
     },
@@ -109,6 +119,30 @@ function estado() {
     memoriaSinRevisar: (db.prepare(`SELECT COUNT(*) AS n FROM memoria WHERE estado = 'vigente' AND revisada = 0`).get() as { n: number }).n,
     chatConModelo: nanConfigurado(),
     nTick: numeroDeTick(db),
+  }
+}
+
+// ─── personajes ─────────────────────────────────────────────────────────
+
+function nombreDe(clave: string) {
+  try {
+    return personaje(db, clave).nombre
+  } catch {
+    return clave
+  }
+}
+
+/** La ficha completa de un personaje para la pantalla. */
+function fichaDe(clave: string) {
+  const p = personaje(db, clave)
+  asegurarPrincipal(db, p.clave)
+  const misiones = listarMisiones(db, { personaje: p.clave, limite: 200 }).filter((m) => m.estado !== 'descartada' && (m.nivel !== 'secundaria' || m.estado === 'activa'))
+  return {
+    personaje: p, historia: leerHistoria(db, p.clave), inventario: inventarioDe(db, p.clave, { conSugeridos: true }), derivado: inventarioDerivado(db, p.clave),
+    tiposInventario: TIPOS_INVENTARIO, principal: principalDe(db, p.clave),
+    misiones: conAvance(db, misiones.filter((m) => m.nivel !== 'principal' || m.estado === 'sugerida')).slice(0, 60),
+    encargos: p.tipo === 'agente' ? db.prepare('SELECT id, tipo, estado, payload, actualizada_en FROM tareas WHERE asignada_a = ? ORDER BY id DESC LIMIT 15').all(p.clave.slice(7)) : [],
+    asignadasPorEl: listarMisiones(db, { asignadaPor: p.clave, excluirPersonaje: p.clave, abiertas: true, limite: 20 }).map((m) => ({ ...m, quien: nombreDe(m.personaje) })),
   }
 }
 
@@ -136,7 +170,7 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/tareas\/(\d+)$/, (_, [t]) => leerTarea(db, id(t))],
   ['POST', /^\/api\/forja$/, (b) => vista(db, forjar(db, {
     clase: b.clase, motor: b.motor || undefined, instrucciones: b.instrucciones, reparto: b.reparto,
-    proyectoId: b.proyectoId || null, celda: b.celda ? Number(b.celda) : null,
+    proyectoId: b.proyectoId || null, celda: b.celda ? Number(b.celda) : null, misionPrincipal: b.misionPrincipal || null,
   }))],
   ['POST', /^\/api\/agentes\/([^/]+)\/bautizar$/, (b, [a]) => (bautizar(db, decodeURIComponent(a), String(b.nombre ?? '')), vista(db, leer(db, decodeURIComponent(a))!))],
   ['POST', /^\/api\/agentes\/([^/]+)\/estado$/, (b, [a]) => (cambiarEstado(db, decodeURIComponent(a), b.estado), vista(db, leer(db, decodeURIComponent(a))!))],
@@ -187,19 +221,85 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/chat\/(\d+)\/archivar$/, (_, [c]) => (archivarConversacion(db, id(c)), { ok: true })],
   ['GET', /^\/api\/hoy$/, () => {
     const fecha = fechaLocal()
-    const jornada = leerJornada(db, fecha)
+    const run = runActual(db)
+    const vivo = enCurso(db)
     return {
-      fecha, jornada, progreso: progreso(jornada), semana: semana(db, fecha), conversacion: conversacionHoy(db).id,
-      rutinas: listarRutinas(db), calendarios: urlsCalendario().length,
-      ajustes: { jornada_inicio: ajuste(db, 'jornada_inicio'), jornada_fin: ajuste(db, 'jornada_fin'), bloques_minutos: ajuste(db, 'bloques_minutos') },
+      fecha, jornada: leerJornada(db, fecha), progreso: progreso(db, fecha), semana: semana(db, fecha), conversacion: conversacionHoy(db).id,
+      rutinas: listarRutinas(db), calendarios: urlsCalendario().length, plantillas: listarPlantillas(db),
+      run: run ? { ...run, misiones: misionesDeRun(db, run.id) } : null,
+      actual: vivo?.actual?.id ?? null,
+      primarias: conAvance(db, listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana: semanaDe(), estados: ['activa', 'hecha', 'parcial', 'sugerida'] })),
+      principal: principalDe(db, 'jugador'),
+      terciarias: listarMisiones(db, { personaje: 'jugador', nivel: 'terciaria', abiertas: true }),
+      seguimientos: seguimientos(db).map((m) => ({ ...m, quien: nombreDe(m.personaje) })),
+      reporte: listarReportes(db, { limite: 1 })[0] ?? null,
+      ajustes: { primarias_semana: ajuste(db, 'primarias_semana') },
     }
   }],
-  ['POST', /^\/api\/jornada\/armar$/, async (b) => armarJornada(db, b.fecha || fechaLocal(), { desde: b.desde || undefined })],
-  ['POST', /^\/api\/jornada\/(\d{4}-\d{2}-\d{2})\/bloques\/([^/]+)$/, (b, [f, bl]) => marcarBloque(db, f, decodeURIComponent(bl), b.estado)],
   ['POST', /^\/api\/ajustes$/, (b) => {
-    for (const k of ['jornada_inicio', 'jornada_fin', 'bloques_minutos']) if (typeof b[k] === 'string' && b[k].trim()) fijarAjuste(db, k, b[k].trim())
+    for (const k of ['primarias_semana']) if (typeof b[k] === 'string' && b[k].trim()) fijarAjuste(db, k, b[k].trim())
     return { ok: true }
   }],
+
+  // Runs
+  ['GET', /^\/api\/runs$/, (_, __, q) => listarRuns(db, { desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined, limite: num(q.get('limite')) })],
+  ['GET', /^\/api\/runs\/(\d+)$/, (_, [r]) => {
+    const run = leerRun(db, id(r))
+    if (!run) throw new Error(`No existe la run ${r}`)
+    return { ...run, misiones: misionesDeRun(db, run.id), reportes: listarReportes(db, { runId: run.id }) }
+  }],
+  ['POST', /^\/api\/runs\/preparar$/, async (b) => prepararRun(db, b.pedido ?? b)],
+  ['POST', /^\/api\/runs\/(\d+)\/rehacer$/, async (b, [r]) => rehacerRun(db, id(r), String(b.cambio ?? '') || null)],
+  ['POST', /^\/api\/runs\/(\d+)\/arrancar$/, (_, [r]) => arrancarRun(db, id(r))],
+  ['POST', /^\/api\/runs\/(\d+)\/cerrar$/, async (_, [r]) => cerrarRun(db, id(r))],
+  ['POST', /^\/api\/runs\/(\d+)\/descartar$/, (_, [r]) => (descartarRun(db, id(r)), { ok: true })],
+  ['GET', /^\/api\/plantillas$/, () => listarPlantillas(db)],
+  ['POST', /^\/api\/plantillas$/, (b) => guardarPlantilla(db, String(b.nombre ?? ''), b.pedido ?? {})],
+  ['POST', /^\/api\/plantillas\/(\d+)\/borrar$/, (_, [p]) => (borrarPlantilla(db, id(p)), { ok: true })],
+
+  // Misiones
+  ['GET', /^\/api\/misiones$/, (_, __, q) => {
+    const semana = q.get('semana') || semanaDe()
+    const { desde, hasta } = diasDeSemana(semana)
+    return {
+      semana, desde, hasta, anterior: semanaVecina(semana, -1), siguiente: semanaVecina(semana, 1),
+      principal: principalDe(db, 'jugador'),
+      candidatas: listarMisiones(db, { personaje: 'jugador', nivel: 'principal', estados: ['sugerida'] }),
+      primarias: conAvance(db, listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana }).filter((m) => m.estado !== 'descartada')),
+      terciarias: listarMisiones(db, { personaje: 'jugador', nivel: 'terciaria', abiertas: true }),
+      terciariasHechas: listarMisiones(db, { personaje: 'jugador', nivel: 'terciaria', estados: ['hecha'], limite: 10 }),
+      deOtros: listarMisiones(db, { asignadaPor: 'jugador', excluirPersonaje: 'jugador', abiertas: true }).map((m) => ({ ...m, quien: nombreDe(m.personaje) })),
+      runs: listarRuns(db, { desde, hasta, estados: ['en_curso', 'cerrada'] }).map((r) => ({ ...r, misiones: misionesDeRun(db, r.id) })),
+      reportes: listarReportes(db, { limite: 20 }).filter((r) => r.tipo !== 'hora'),
+    }
+  }],
+  ['POST', /^\/api\/misiones$/, (b) => {
+    if (b.nivel === 'terciaria') return anotarSideQuest(db, { titulo: String(b.titulo ?? ''), detalle: b.detalle || null, disparador: b.disparador ?? null, vence: b.vence || null, personaje: b.personaje || 'jugador' })
+    if (b.asignarA) return asignarMision(db, { a: String(b.asignarA), titulo: String(b.titulo ?? ''), detalle: b.detalle || null, vence: b.vence || null })
+    return crearMision(db, {
+      personaje: b.personaje || 'jugador', nivel: b.nivel, titulo: String(b.titulo ?? ''), detalle: b.detalle || null, categoria: b.categoria || null,
+      entidadId: b.entidadId ? Number(b.entidadId) : null, padreId: b.padreId ? Number(b.padreId) : null, semana: b.semana || null, vence: b.vence || null,
+    }, { por: 'operador' })
+  }],
+  ['POST', /^\/api\/misiones\/primarias$/, async (b) => proponerPrimarias(db, b.semana || semanaDe(), { texto: b.texto || undefined })],
+  ['POST', /^\/api\/misiones\/(\d+)$/, (b, [m]) => actualizarMision(db, id(m), b, { por: 'operador' })],
+  ['POST', /^\/api\/misiones\/(\d+)\/marcar$/, (b, [m]) => marcarSecundaria(db, id(m), b.estado, b.nota ?? null)],
+  ['GET', /^\/api\/reportes$/, (_, __, q) => listarReportes(db, { tipo: q.get('tipo') || undefined, limite: num(q.get('limite')) })],
+  ['POST', /^\/api\/reportes\/semana$/, async (b) => reporteSemana(db, b.semana || semanaDe())],
+
+  // Personajes
+  ['GET', /^\/api\/personajes\/([^/]+)$/, (_, [k]) => fichaDe(decodeURIComponent(k))],
+  ['POST', /^\/api\/personajes\/([^/]+)\/historia$/, (b, [k]) => (escribirHistoria(db, decodeURIComponent(k), { texto: b.texto, elementos: b.elementos }), fichaDe(decodeURIComponent(k)))],
+  ['POST', /^\/api\/personajes\/([^/]+)\/historia\/(aceptar|descartar)$/, (_, [k, a]) => (resolverHistoria(db, decodeURIComponent(k), a === 'aceptar'), fichaDe(decodeURIComponent(k)))],
+  ['POST', /^\/api\/personajes\/([^/]+)\/inventario$/, (b, [k]) => (agregarItem(db, decodeURIComponent(k), b, { fuente: 'operador' }), fichaDe(decodeURIComponent(k)))],
+  ['POST', /^\/api\/personajes\/([^/]+)\/principal$/, (b, [k]) => {
+    const clave = decodeURIComponent(k)
+    if (b.id) actualizarMision(db, Number(b.id), { estado: 'activa' }, { por: 'operador' })
+    else crearMision(db, { personaje: clave, nivel: 'principal', titulo: String(b.titulo ?? ''), detalle: b.detalle || null }, { por: 'operador' })
+    return fichaDe(clave)
+  }],
+  ['POST', /^\/api\/inventario\/(\d+)$/, (b, [i]) => editarItem(db, id(i), b)],
+  ['POST', /^\/api\/jugador\/procesar$/, async () => procesarJugador(db)],
   ['POST', /^\/api\/rutinas\/([a-z]+)$/, (b, [r]) => (actualizarRutina(db, r, { hora: b.hora, dias: b.dias, activa: b.activa }), listarRutinas(db))],
   ['GET', /^\/api\/memoria$/, (_, __, q) => memoriaVigente(db, { tipo: q.get('tipo') || undefined, horizonte: q.get('horizonte') || undefined })],
   ['POST', /^\/api\/memoria$/, (b) => recordar(db, { texto: String(b.texto ?? ''), tipo: b.tipo, horizonte: b.horizonte || null, creadaPor: 'operador', revisada: true })],
@@ -353,6 +453,21 @@ async function latido() {
   }
 }
 setInterval(latido, 60_000).unref()
+
+// Las runs las arranca él: su latido (reporte por hora, cierre de la run vencida) corre aunque las rutinas estén apagadas.
+let enRuns = false
+async function latidoDeRuns() {
+  if (enRuns) return
+  enRuns = true
+  try {
+    for (const texto of await latidoRuns(db)) mensajeDeMastropiero(db, conversacionHoy(db).id, texto)
+  } catch (e) {
+    console.error('  ⏱ runs:', e instanceof Error ? e.message : e)
+  } finally {
+    enRuns = false
+  }
+}
+setInterval(latidoDeRuns, 60_000).unref()
 setTimeout(latido, 3_000).unref()
 
 servidor.listen(PUERTO, '127.0.0.1', () => {
