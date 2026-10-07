@@ -16,6 +16,7 @@ import {
 } from './misiones.ts'
 import { catalogo } from './menciones.ts'
 import { pensar } from './alertas.ts'
+import { autorizado, cookieDeEntrada, expuesto, host, leerFormulario, PAGINA_ENTRAR, validarAcceso } from './acceso.ts'
 import { CONECTORES, guardarCuenta, listarCuentas, listarPublicaciones, MODOS, publicarPendientes, redactarPublicaciones, resolverPublicacion } from './cuentas.ts'
 import { decir as decirPorTelegram, escucharTelegram, telegramConfigurado } from './telegram.ts'
 import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, hayFfmpeg, iterarArtefacto, listarArtefactos, VOCES } from './taller.ts'
@@ -470,14 +471,16 @@ const rutas: [string, RegExp, Ruta][] = [
 const TIPOS_MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.png': 'image/png',
-  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.mp3': 'audio/mpeg', '.mp4': 'video/mp4', '.json': 'application/json; charset=utf-8', '.webm': 'audio/webm',
+  '.webmanifest': 'application/manifest+json', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.mp3': 'audio/mpeg', '.mp4': 'video/mp4', '.json': 'application/json; charset=utf-8', '.webm': 'audio/webm',
 }
 
 /** Solo la propia pantalla puede hablarle a la API: ni otros sitios (CSRF) ni los iframes aislados del Taller (origen «null»). */
 function origenPermitido(req: http.IncomingMessage): boolean {
   const o = req.headers.origin
   if (!o) return true // navegación directa, curl, la CLI
-  const extra = (process.env.MASTRO_ORIGENES ?? '').split(',').map((x) => x.trim()).filter(Boolean) // p. ej. el del celular por Tailscale
+  const extra = (process.env.MASTRO_ORIGENES ?? '').split(',').map((x) => x.trim()).filter(Boolean)
+  // La misma pantalla (sea por localhost, por la IP de Tailscale o por el nombre que tenga): mismo host que el pedido.
+  try { if (new URL(o).host === req.headers.host) return true } catch { /* origen raro */ }
   return o === `http://127.0.0.1:${PUERTO}` || o === `http://localhost:${PUERTO}` || extra.includes(o)
 }
 
@@ -508,6 +511,32 @@ async function leerCuerpo(req: http.IncomingMessage): Promise<any> {
 
 const servidor = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost')
+  // Expuesto a la red: primero la clave (salvo desde esta misma compu).
+  if (url.pathname === '/entrar') {
+    if (req.method === 'POST') {
+      const f = leerFormulario(await leerCrudo(req, 64 * 1024), String(req.headers['content-type'] ?? ''))
+      const cookie = cookieDeEntrada(f.clave ?? '')
+      if (!cookie) return void res.writeHead(401, { 'content-type': 'text/html; charset=utf-8' }).end(PAGINA_ENTRAR(true))
+      return void res.writeHead(303, { 'set-cookie': cookie, location: '/' }).end()
+    }
+    return void res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(PAGINA_ENTRAR())
+  }
+  if (!autorizado(req) && !['/manifest.webmanifest', '/icono.svg'].includes(url.pathname)) {
+    if (url.pathname.startsWith('/api/')) return void res.writeHead(401, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify({ error: 'Falta la clave' }))
+    return void res.writeHead(303, { location: '/entrar' }).end()
+  }
+  // Compartir desde el celular (la app instalada): un link, un reel o un texto llega a Mastropiero.
+  if (url.pathname === '/compartir' && req.method === 'POST') {
+    const f = leerFormulario(await leerCrudo(req, 2 * 1024 * 1024), String(req.headers['content-type'] ?? ''))
+    const compartido = [f.title, f.text, f.url].filter((x) => x?.trim()).join('\n').trim()
+    if (compartido) {
+      const link = /https?:\/\/\S+/.exec(compartido)?.[0] ?? null
+      ingerir(db, { fuente: 'operador', titulo: `Compartido · ${(f.title || link || compartido).slice(0, 80)}`, contenido: compartido, url: link, dominio: 'compartido' })
+      const c = conversacionHoy(db)
+      if (!estaPensando(c.id)) void enviar(db, c.id, `Te compartí esto desde el celular:\n${compartido}`)
+    }
+    return void res.writeHead(303, { location: '/?compartido=1' }).end()
+  }
   if (url.pathname.startsWith('/api/') && !origenPermitido(req)) {
     return void res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify({ error: 'Origen no permitido' }))
   }
@@ -640,6 +669,11 @@ async function latidoDeRuns() {
 setInterval(latidoDeRuns, 60_000).unref()
 setTimeout(latido, 3_000).unref()
 
-servidor.listen(PUERTO, '127.0.0.1', () => {
-  console.log(`\n  ☿ Mastropiero en http://127.0.0.1:${PUERTO}   (base: ${process.env.MASTRO_DB ?? 'data/mastro.db'} · motor de reclutas: ${MOTOR_DEFECTO()})\n`)
+const problemaDeAcceso = validarAcceso()
+if (problemaDeAcceso) {
+  console.error(`\n  ✗ ${problemaDeAcceso}\n`)
+  process.exit(1)
+}
+servidor.listen(PUERTO, host(), () => {
+  console.log(`\n  ☿ Mastropiero en http://${host() === '0.0.0.0' ? '127.0.0.1' : host()}:${PUERTO}${expuesto() ? '   (expuesto a la red: pide clave)' : ''}   (base: ${process.env.MASTRO_DB ?? 'data/mastro.db'} · motor de reclutas: ${MOTOR_DEFECTO()})\n`)
 })

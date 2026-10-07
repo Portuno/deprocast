@@ -257,6 +257,17 @@ La base, las cargas y la memoria viajan en un respaldo; el código, por git o co
 5. `npm run doctor`: revisa Node, la búsqueda (FTS5), el `.env`, que NaN responda, la base, el puerto, el calendario y `ffmpeg`. Con `--rapido` no sale a la red.
 6. `npm run jugar`. Arranca con las rutinas prendidas; `--sin-rutinas` las apaga.
 
+## Siempre prendido y en el celular
+
+- **Arrancar con Windows:** `powershell -ExecutionPolicy Bypass -File scriptsrrancar-al-iniciar.ps1` lo registra en el Programador de tareas (arranca al iniciar sesión y se reinicia si se cae). Mientras la compu esté prendida, las rutinas, el radar, los ayudantes y Telegram andan solos.
+- **Del todo siempre prendido:** una mini PC o un VPS con Node 24, el proyecto y `restaurar` del respaldo.
+- **Desde el celular:**
+  1. Instalá Tailscale en la compu y en el celular (misma cuenta).
+  2. En `.env`: `MASTRO_HOST=0.0.0.0` y `MASTRO_CLAVE=` una clave larga. Sin clave, no arranca expuesto.
+  3. En el celular abrí `http://<nombre-de-la-compu>:7272`, entrá con la clave y «Agregar a la pantalla de inicio»: queda como app.
+  4. Desde cualquier app, **Compartir → Mastropiero** manda el link o el texto (un reel, una nota): entra al corpus y Mastropiero lo comenta en Hoy.
+- **Telegram** no necesita nada de esto: con `TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID` le hablás desde cualquier lado mientras el servidor esté prendido.
+
 ## Pendiente, a propósito
 
 - **Módulo Personas**: la matriz de relaciones, con la próxima acción sugerida por contacto.
