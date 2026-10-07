@@ -799,6 +799,17 @@ pre.json { background: var(--panel-2); border-radius: 8px; padding: 12px; font: 
 .momento p { margin: 2px 0 0; color: var(--tenue); font-size: 12.5px; line-height: 1.45; }
 .momento.voz b { color: var(--acento-texto); }
 
+/* ─── El gemelo ─── */
+.conozco { font: 600 11px var(--mono); color: var(--acento-texto); text-transform: none; letter-spacing: 0; margin-left: 6px; }
+.spark { width: 100%; height: 30px; margin: 0 0 6px; }
+.spark polyline { fill: none; stroke: var(--acento); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.pred { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 8px; align-items: start; padding: 5px 0; border-bottom: 1px solid var(--linea); font-size: 13px; }
+.pred .prob { font: 600 11.5px var(--mono); color: var(--tenue); }
+.pred small { display: block; color: var(--debil); font-size: 11.5px; }
+.pred.si .res { color: var(--ok); }
+.pred.no .res { color: var(--mal); }
+.sellado summary { cursor: pointer; font-size: 12.5px; color: var(--tenue); margin: 4px 0; }
+
 /* ─── Mastropiero pregunta ─── */
 .pregunta { border: 1px solid var(--linea-2); border-left: 3px solid var(--acento); border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; background: var(--panel); }
 .pregunta.vacia { border-left-color: var(--linea-2); }

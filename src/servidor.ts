@@ -16,6 +16,7 @@ import {
 } from './misiones.ts'
 import { catalogo } from './menciones.ts'
 import { pensar } from './alertas.ts'
+import { calificarAMano, calificarDia, curva, predecirDia, prediccionesDe, textoDeCalificacion } from './gemelo.ts'
 import { cerrarDirecto, iniciarDirecto, latidoDirecto, leerSesion, listarSesiones, momentos as momentosDirecto, registrarAudio, registrarCuadro, sesionActiva } from './directo.ts'
 import { encolarPregunta, generandoPreguntas, generarPreguntas, listarPreguntas, reponerPreguntas, responderPregunta, siguientePregunta } from './preguntas.ts'
 import { aportes, ayudantesDe, pedirAportes, quitarAyudante, sumarAyudante } from './ayudantes.ts'
@@ -348,6 +349,16 @@ const rutas: [string, RegExp, Ruta][] = [
     if (r.informe) mensajeDeMastropiero(db, conversacionHoy(db).id, `Cerré el Directo. ${r.informe}`)
     return r
   }],
+  ['GET', /^\/api\/gemelo$/, (_, __, q) => {
+    const fecha = q.get('fecha') || fechaLocal()
+    return { fecha, predicciones: prediccionesDe(db, fecha), curva: curva(db, fecha, 21), ayer: prediccionesDe(db, fechaLocal(Date.now() - 86_400_000)) }
+  }],
+  ['POST', /^\/api\/gemelo\/predecir$/, async (b) => predecirDia(db, b.fecha || fechaLocal())],
+  ['POST', /^\/api\/gemelo\/calificar$/, async (b) => {
+    const r = await calificarDia(db, b.fecha || fechaLocal())
+    return { ...r, texto: textoDeCalificacion(r) }
+  }],
+  ['POST', /^\/api\/gemelo\/(\d+)$/, (b, [p]) => calificarAMano(db, id(p), !!b.paso)],
   ['GET', /^\/api\/menciones$/, () => catalogo(db).map((m) => ({ k: m.clave, n: m.nombre, t: m.tipo, a: m.alias.slice(0, 8), p: m.piezas }))],
   ['POST', /^\/api\/entidades\/(\d+)$/, (b, [e]) => editarEntidad(db, id(e), { nombre: b.nombre, tipo: b.tipo, notas: b.notas, alias: Array.isArray(b.alias) ? b.alias : undefined, sumarAlias: b.sumarAlias })],
   ['POST', /^\/api\/entidades\/(\d+)\/fusionar$/, (b, [e]) => fusionarEntidades(db, id(e), (b.absorbe ?? []).map(Number))],

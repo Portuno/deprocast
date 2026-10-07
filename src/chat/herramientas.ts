@@ -16,6 +16,7 @@ import {
 } from '../misiones.ts'
 import { aportes, ayudantesDe, CLASES_AYUDANTE, pedirAportes, quitarAyudante, sumarAyudante } from '../ayudantes.ts'
 import { encolarPregunta, listarPreguntas } from '../preguntas.ts'
+import { curva, prediccionesDe } from '../gemelo.ts'
 import { listarSesiones, momentos as momentosDirecto, sesionActiva } from '../directo.ts'
 import { agregarItem, editarItem, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, personaje, resolverPersonaje, TIPOS_INVENTARIO } from '../personajes.ts'
 import { asientos, especializacion } from '../auditor.ts'
@@ -679,6 +680,16 @@ export const HERRAMIENTAS: Herramienta[] = [
         prendido: s ? { desde: new Date(s.inicio).toLocaleTimeString('es-AR'), momentos: momentosDirecto(db, s.id).slice(-Math.min(a.momentos ?? 20, 60)).map((m) => ({ tipo: m.tipo, hora: new Date(m.desde).toLocaleTimeString('es-AR'), app: m.app ?? undefined, actividad: m.actividad ?? undefined, detalle: m.detalle ?? undefined, nota: m.nota ?? undefined, texto: m.texto ? recorte(m.texto, 600) : undefined })) } : null,
         informes: listarSesiones(db, 6).filter((x) => x.informe).map((x) => ({ cuando: new Date(x.inicio).toLocaleString('es-AR'), informe: recorte(x.informe!, 1500) })),
       }
+    },
+  },
+  {
+    nombre: 'ver_gemelo', familia: 'lectura',
+    descripcion: 'Tu gemelo predictivo: las predicciones de un día (con probabilidad y si pasaron) y la curva «te conozco». Si él pregunta cuánto lo conocés o qué predijiste.',
+    parametros: S({ fecha: str('YYYY-MM-DD; vacío = hoy') }),
+    ejecutar: (a, { db }) => {
+      const f = a.fecha || fechaLocal()
+      const c = curva(db, f, 14)
+      return { te_conozco: c.total, calificadas: c.calificadas, predicciones: prediccionesDe(db, f).map((p) => ({ texto: p.texto, probabilidad: p.probabilidad, resultado: p.resultado, estado: p.estado, nota: p.nota ?? undefined })) }
     },
   },
   {

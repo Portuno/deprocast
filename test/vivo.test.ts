@@ -20,7 +20,7 @@ function modelo(respuestas: { escriba?: unknown; jornada?: unknown; chat?: strin
     const sistema = String(o.mensajes[0].content)
     const usuario = String(o.mensajes.at(-1)!.content)
     vistos.push({ sistema, usuario, herramientas: (o.herramientas as unknown[]).length })
-    const datos = sistema.includes('escriba de memoria') ? respuestas.escriba : sistema.includes('armás la jornada') ? respuestas.jornada : null
+    const datos = sistema.includes('escriba de memoria') ? respuestas.escriba : sistema.includes('armás la jornada') ? respuestas.jornada : sistema.includes('gemelo predictivo') ? { predicciones: [] } : null
     return { texto: datos ? JSON.stringify(datos) : respuestas.chat ?? 'ok', llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }
   })
   return vistos
@@ -82,7 +82,7 @@ test('rutinas: corren una vez por día a su hora y dejan el mensaje en Hoy; el c
   assert.equal(pendientes(db, ahora).length, 0, 'antes de las 07:45 nada')
   const nueve = new Date(2026, 9, 7, 9, 0).getTime()
   const r = await correrRutinas(db, nueve)
-  assert.deepEqual(r.map((x) => [x.id, x.ok]), [['ayudantes', true], ['jornada', true]])
+  assert.deepEqual(r.map((x) => [x.id, x.ok]), [['ayudantes', true], ['prediccion', true], ['jornada', true]])
   assert.equal((await correrRutinas(db, nueve + 60_000)).length, 0, 'una vez por día')
   const hoy = conversacionHoy(db)
   assert.match(mensajes(db, hoy.id).at(-1)!.texto!, /Buen día.*No tenés primarias.*arrancamos una run/)

@@ -7,6 +7,7 @@ import { aMin, asegurarJornada, fijarResumen, leerJornada, textoDeCierre } from 
 import { agendaDelDia } from './calendario.ts'
 import { conversacionHoy, mensajeDeMastropiero } from './chat/index.ts'
 import { pedirAportes } from './ayudantes.ts'
+import { calificarDia, predecirDia, textoDeCalificacion } from './gemelo.ts'
 import { conAvance, listarMisiones, proponerPrimarias, reporteSemana, semanaDe, seguimientos, sideQuestsRelevantes } from './misiones.ts'
 
 export type Rutina = { id: string; nombre: string; hora: string; dias: string; accion: string; activa: boolean; ultimaFecha: string | null }
@@ -71,6 +72,16 @@ export const ACCIONES: Acciones = {
     const r = await pedirAportes(db, { ahora, soloSinAporteHoy: true })
     if (!r.aportes.length) return r.frenado ? `Tus ayudantes no trabajaron hoy: ${r.frenado}.` : null
     return `Tus ayudantes te dejaron ${r.aportes.length} aporte${r.aportes.length > 1 ? 's' : ''}: ${r.aportes.map((a) => `${a.autor} para «${a.titulo.split(' · ').slice(1).join(' · ')}»`).join('; ')}. Los vas a ver en Misiones y entran como material en tu próxima run.${r.frenado ? ` (Me frené: ${r.frenado}.)` : ''}`
+  },
+  /** A la mañana, el gemelo predice el día (sellado: no se le cuenta, para no condicionarlo). */
+  async prediccion(db, fecha, ahora) {
+    await predecirDia(db, fecha, ahora)
+    return null
+  },
+  /** A la noche, el gemelo se califica y cuenta cómo le fue. */
+  async calificacion(db, fecha, ahora) {
+    const r = await calificarDia(db, fecha, { ahora })
+    return r.predicciones.length ? textoDeCalificacion(r) : null
   },
   /** El lunes: primarias sugeridas para la semana (si no las tiene ya). */
   async semana(db, _fecha, ahora) {

@@ -391,6 +391,22 @@ CREATE TABLE IF NOT EXISTS directo_momentos (
 );
 CREATE INDEX IF NOT EXISTS directo_momentos_sesion ON directo_momentos(sesion_id, desde);
 
+CREATE TABLE IF NOT EXISTS predicciones (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  fecha TEXT NOT NULL,
+  texto TEXT NOT NULL,
+  probabilidad REAL NOT NULL,         -- 0..1
+  tipo TEXT,
+  criterio TEXT,                      -- JSON: cómo se verifica solo (o null)
+  resultado INTEGER,                  -- 1 pasó, 0 no pasó, null sin calificar
+  estado TEXT NOT NULL,               -- abierta | calificada | para_el_jugador
+  calificada_por TEXT,                -- datos | mastropiero | jugador
+  nota TEXT,
+  creada_en INTEGER NOT NULL,
+  calificada_en INTEGER
+);
+CREATE INDEX IF NOT EXISTS predicciones_fecha ON predicciones(fecha);
+
 CREATE TABLE IF NOT EXISTS alertas (
   clave TEXT PRIMARY KEY,             -- tipo:id:fecha (una por día)
   texto TEXT NOT NULL,
@@ -441,6 +457,8 @@ const RUTINAS_SISTEMA = [
   { id: 'cierre', nombre: 'Cierre del día', hora: '22:30', dias: '0123456', accion: 'cierre' },
   { id: 'semana', nombre: 'Proponer las primarias de la semana', hora: '08:00', dias: '1', accion: 'semana' },
   { id: 'ayudantes', nombre: 'Aportes de los ayudantes', hora: '07:45', dias: '0123456', accion: 'ayudantes' },
+  { id: 'prediccion', nombre: 'El gemelo predice el día', hora: '08:20', dias: '0123456', accion: 'prediccion' },
+  { id: 'calificacion', nombre: 'El gemelo se califica', hora: '23:40', dias: '0123456', accion: 'calificacion' },
   { id: 'reporte_semanal', nombre: 'Reporte de la semana', hora: '21:00', dias: '0', accion: 'reporte_semanal' },
 ]
 /** La única plantilla de run de fábrica: genérica, sin nada del operador. */

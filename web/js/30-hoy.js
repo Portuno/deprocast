@@ -101,6 +101,7 @@ function pintarHoy() {
     ${hoyDatos.proximas?.length ? `<section class="hoy-semana"><h3 class="sub">Próximas runs</h3>${hoyDatos.proximas.map((r) => `<details class="run-pasada"><summary><b>${esc(new Date(`${r.fecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric' }))}</b> ${r.inicio}–${r.fin} · ${r.misiones.length} bandas · propuesta</summary>
       ${r.resumen ? `<p class="hoy-resumen">${esc(r.resumen)}</p>` : ''}<ol class="bandas">${r.misiones.map((m) => bandaHTML(m, { propuesta: true })).join('')}</ol>
       <p class="tenue chico">Ese día aparece en Hoy para arrancarla (o rehacerla).</p></details>`).join('')}</section>` : ''}
+    <section class="hoy-semana" id="gemelo-caja"></section>
     ${semanaHoyHTML()}
     ${j?.cierre ? `<div class="hoy-cierre"><small>Tu cierre</small><p>${esc(j.cierre)}</p></div>` : ''}
     ${calendarios ? '' : `<p class="hoy-nota">Para que tenga en cuenta tu agenda: en Google Calendar, Configuración del calendario → «Dirección secreta en formato iCal», y pegala en <code>.env</code> como <code>GCAL_ICS_URLS</code>.</p>`}`
@@ -112,6 +113,7 @@ function pintarHoy() {
   engancharRun(cont, run)
   engancharSemanaHoy(cont)
   traerPregunta()
+  traerGemelo()
   if (!hoyScrolleado) {
     hoyScrolleado = true
     $('.banda.ahora', cont)?.scrollIntoView({ block: 'center' })
@@ -211,6 +213,32 @@ function semanaHoyHTML() {
     ${hoyDatos.aportes?.length ? `<h3 class="sub">De tus ayudantes</h3>${hoyDatos.aportes.map((a) => `<div class="sq"><span><a href="#" data-pieza="${a.id}">${esc(a.titulo.split(' · ').slice(1).join(' · ') || a.titulo)}</a><small>${esc(a.autor ?? a.agente)} · ${haceCuanto(a.en)}</small></span></div>`).join('')}` : ''}
     ${reporte && reporte.tipo !== 'hora' ? `<details class="hoy-reporte"><summary>Último reporte (${reporte.tipo === 'run' ? 'run' : 'semana'})</summary><div class="md">${md(reporte.texto)}</div></details>` : ''}
   </section>`
+}
+
+// El gemelo: lo que predijo del día (sellado), cómo le fue y cuánto te conoce
+
+async function traerGemelo() {
+  const caja = $('#gemelo-caja')
+  if (!caja) return
+  try {
+    const g = await api('/gemelo')
+    const pend = [...g.ayer, ...g.predicciones].filter((p) => p.estado === 'para_el_jugador')
+    const pts = g.curva.puntos.filter((p) => p.conocimiento != null)
+    const spark = pts.length > 1 ? `<svg class="spark" viewBox="0 0 ${(pts.length - 1) * 10} 30" preserveAspectRatio="none"><polyline points="${pts.map((p, i) => `${i * 10},${30 - (p.conocimiento / 100) * 28 - 1}`).join(' ')}"/></svg>` : ''
+    const pred = (p, conMarcas) => `<div class="pred ${p.resultado === 1 ? 'si' : p.resultado === 0 ? 'no' : ''}" data-pred="${p.id}">
+      <span class="prob">${Math.round(p.probabilidad * 100)}%</span><span>${esc(p.texto)}${p.nota ? `<small>${esc(p.nota)}</small>` : ''}</span>
+      ${conMarcas ? '<span class="fila"><button class="btn btn-chico" data-paso="1" title="Pasó">✓</button><button class="btn btn-chico" data-paso="0" title="No pasó">✗</button></span>' : p.resultado != null ? `<span class="res">${p.resultado ? '✓' : '✗'}</span>` : ''}</div>`
+    caja.innerHTML = `<h3 class="sub">El gemelo ${g.curva.total != null ? `<span class="conozco">te conozco ${g.curva.total}%</span>` : ''}</h3>
+      ${spark}
+      ${pend.length ? `<p class="tenue chico">No puedo saber solo si pasaron: ¿sí o no?</p>${pend.map((p) => pred(p, true)).join('')}` : ''}
+      ${g.predicciones.length ? `<details class="sellado"><summary>${g.predicciones.length} predicciones para hoy ${g.predicciones.every((p) => p.estado === 'abierta') ? '(selladas: abrilas solo si querés)' : ''}</summary>${g.predicciones.filter((p) => p.estado !== 'para_el_jugador').map((p) => pred(p, false)).join('')}</details>`
+        : '<p class="tenue chico">Todavía no predije hoy. <a href="#" class="ref" id="gemelo-predecir">Predecí mi día</a></p>'}`
+    $$('[data-paso]', caja).forEach((b) => (b.onclick = async () => {
+      try { await api(`/gemelo/${b.closest('[data-pred]').dataset.pred}`, { paso: b.dataset.paso === '1' }); traerGemelo() } catch (e) { error(e) }
+    }))
+    const pr = $('#gemelo-predecir', caja)
+    if (pr) pr.onclick = (e) => { e.preventDefault(); trabajando(null, '', async () => { await api('/gemelo/predecir', {}); toast('Predicciones selladas<small>A la noche me califico.</small>', 'suave'); traerGemelo() }) }
+  } catch { caja.innerHTML = '' }
 }
 
 // Mastropiero pregunta: una por vez, se contesta con un toque o una línea
