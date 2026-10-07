@@ -10,6 +10,7 @@ import { ingerir } from '../mastropiero.ts'
 import { leerJornada, progreso, registrarCierre } from '../jornada.ts'
 import { listarMisiones, misionesParaPrompt } from '../misiones.ts'
 import { menciones } from '../menciones.ts'
+import { directoParaPrompt } from '../directo.ts'
 import { leerEntidad as leerEnt } from '../entidades.ts'
 import { escribaDeMemoria, memoriaParaPrompt } from '../memoria.ts'
 import { listarEntidades } from '../entidades.ts'
@@ -186,6 +187,7 @@ Cómo trabajás
 
 Ahora: ${new Date().toLocaleString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}
 ${hoy(db, mensaje)}
+${directoParaPrompt(db)}
 ${mencionado(db, mensaje)}
 
 La liga (contexto, no lo recites): ${foto(db)}

@@ -16,6 +16,7 @@ import {
 } from '../misiones.ts'
 import { aportes, ayudantesDe, CLASES_AYUDANTE, pedirAportes, quitarAyudante, sumarAyudante } from '../ayudantes.ts'
 import { encolarPregunta, listarPreguntas } from '../preguntas.ts'
+import { listarSesiones, momentos as momentosDirecto, sesionActiva } from '../directo.ts'
 import { agregarItem, editarItem, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, personaje, resolverPersonaje, TIPOS_INVENTARIO } from '../personajes.ts'
 import { asientos, especializacion } from '../auditor.ts'
 import { enEspera, leerTarea, pausarIngesta, publicar, reanudarIngesta, tareas } from '../bus.ts'
@@ -667,6 +668,18 @@ export const HERRAMIENTAS: Herramienta[] = [
     parametros: S({ texto: str('La pregunta, corta'), por_que: str('Para qué te sirve saberlo'), opciones: { type: 'array', items: { type: 'string' }, description: 'De 2 a 5 opciones, si conviene elegir' } }, ['texto']),
     ejecutar: (a, { db }) => ({ pregunta: encolarPregunta(db, { texto: a.texto, porQue: a.por_que, opciones: a.opciones, origen: 'chat' })?.id }),
     resumen: (a) => `le dejó una pregunta: ${recorte(a.texto, 50)}`,
+  },
+  {
+    nombre: 'ver_directo', familia: 'lectura',
+    descripcion: 'Lo que viste y escuchaste con el Directo: la sesión prendida (sus últimos momentos) o los informes de las anteriores.',
+    parametros: S({ momentos: int('Cuántos momentos recientes (máx. 60)') }),
+    ejecutar: (a, { db }) => {
+      const s = sesionActiva(db)
+      return {
+        prendido: s ? { desde: new Date(s.inicio).toLocaleTimeString('es-AR'), momentos: momentosDirecto(db, s.id).slice(-Math.min(a.momentos ?? 20, 60)).map((m) => ({ tipo: m.tipo, hora: new Date(m.desde).toLocaleTimeString('es-AR'), app: m.app ?? undefined, actividad: m.actividad ?? undefined, detalle: m.detalle ?? undefined, nota: m.nota ?? undefined, texto: m.texto ? recorte(m.texto, 600) : undefined })) } : null,
+        informes: listarSesiones(db, 6).filter((x) => x.informe).map((x) => ({ cuando: new Date(x.inicio).toLocaleString('es-AR'), informe: recorte(x.informe!, 1500) })),
+      }
+    },
   },
   {
     nombre: 'ver_respuestas', familia: 'lectura', descripcion: 'Lo que ya le preguntaste al jugador y lo que contestó (o salteó).',

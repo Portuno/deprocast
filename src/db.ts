@@ -364,6 +364,33 @@ CREATE TABLE IF NOT EXISTS preguntas (
   respondida_en INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS directo_sesiones (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  inicio INTEGER NOT NULL,
+  fin INTEGER,
+  estado TEXT NOT NULL,               -- activa | cerrada
+  fuentes TEXT,                       -- JSON: pantalla, voz, medio
+  informe TEXT,
+  resumen TEXT,                       -- JSON: métricas, ideas, tareas, consumido
+  pieza_id INTEGER,
+  ultimo INTEGER                      -- última señal del navegador
+);
+
+CREATE TABLE IF NOT EXISTS directo_momentos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sesion_id INTEGER NOT NULL,
+  tipo TEXT NOT NULL,                 -- pantalla | voz | medio
+  desde INTEGER NOT NULL,
+  hasta INTEGER NOT NULL,
+  app TEXT,
+  actividad TEXT,
+  tema TEXT,
+  detalle TEXT,
+  nota TEXT,
+  texto TEXT                          -- la transcripción (voz o medio)
+);
+CREATE INDEX IF NOT EXISTS directo_momentos_sesion ON directo_momentos(sesion_id, desde);
+
 CREATE TABLE IF NOT EXISTS reportes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   tipo TEXT NOT NULL,                 -- hora | run | semana

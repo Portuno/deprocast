@@ -778,6 +778,21 @@ pre.json { background: var(--panel-2); border-radius: 8px; padding: 12px; font: 
 .aporte { border-left: 2px solid var(--acento); padding: 4px 0 4px 10px; margin: 8px 0; font-size: 13px; }
 .aporte small { display: block; font: 10.5px var(--mono); color: var(--debil); margin-bottom: 3px; }
 
+/* ─── Directo ─── */
+.btn-directo { color: var(--tenue); }
+.btn-directo.on { color: #fff; background: var(--mal); border-color: var(--mal); font-family: var(--mono); animation: latido 2s ease-in-out infinite; }
+.btn-directo.huerfano { color: var(--aviso); border-color: var(--aviso); }
+@keyframes latido { 50% { opacity: .75; } }
+.momentos { display: grid; gap: 2px; max-height: 60vh; overflow-y: auto; }
+.momento { display: grid; grid-template-columns: 48px 20px minmax(0, 1fr); gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--linea); font-size: 13.5px; }
+.momento .mo-hora { font: 500 12px var(--mono); color: var(--tenue); display: flex; flex-direction: column; }
+.momento .mo-hora small { font-size: 10px; color: var(--debil); }
+.momento i { font-style: normal; color: var(--tenue); text-align: center; }
+.momento b { font-weight: 500; }
+.momento small { display: block; color: var(--tenue); font-size: 12.5px; }
+.momento p { margin: 2px 0 0; color: var(--tenue); font-size: 12.5px; line-height: 1.45; }
+.momento.voz b { color: var(--acento-texto); }
+
 /* ─── Mastropiero pregunta ─── */
 .pregunta { border: 1px solid var(--linea-2); border-left: 3px solid var(--acento); border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; background: var(--panel); }
 .pregunta.vacia { border-left-color: var(--linea-2); }

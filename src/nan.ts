@@ -339,6 +339,22 @@ export async function nanTranscribir(db: Db, audio: Buffer, nombre: string): Pro
   throw new Error('Whisper no respondió')
 }
 
+/** Ver una imagen: la cadena de los que tienen visión (DeepSeek primero: el más rápido; Qwen de respaldo). */
+export async function nanVision(
+  l: { db: Db; clase: ClaseId | 'mastropiero'; agenteId: string },
+  o: { sistema: string; texto: string; imagen: string; maxTokens?: number },
+): Promise<{ texto: string; modelo: string; tokens: number }> {
+  const { modelo, r } = await recorrer(l, [M.deepseek, M.qwen], (m) => pedir('POST', '/chat/completions', {
+    model: m, temperature: 0.2, max_tokens: m === M.deepseek ? Math.max(o.maxTokens ?? 800, 4096) : (o.maxTokens ?? 800) + PRESUPUESTO_RAZONAMIENTO,
+    messages: [
+      { role: 'system', content: o.sistema },
+      { role: 'user', content: [{ type: 'text', text: o.texto }, { type: 'image_url', image_url: { url: o.imagen } }] },
+    ],
+  }))
+  const c = r.json?.choices?.[0]?.message?.content
+  return { texto: typeof c === 'string' ? c.trim() : '', modelo, tokens: (r.json?.usage?.prompt_tokens ?? 0) + (r.json?.usage?.completion_tokens ?? 0) }
+}
+
 export function nanConfigurado(): boolean {
   return !!env('NAN_API_KEY')
 }

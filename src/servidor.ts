@@ -15,6 +15,7 @@ import {
   proponerPrimarias, rehacerRun, reporteSemana, runActual, semanaDe, semanaVecina, seguimientos, prepararRun, diasDeSemana, asegurarPrincipal,
 } from './misiones.ts'
 import { catalogo } from './menciones.ts'
+import { cerrarDirecto, iniciarDirecto, latidoDirecto, leerSesion, listarSesiones, momentos as momentosDirecto, registrarAudio, registrarCuadro, sesionActiva } from './directo.ts'
 import { encolarPregunta, generandoPreguntas, generarPreguntas, listarPreguntas, reponerPreguntas, responderPregunta, siguientePregunta } from './preguntas.ts'
 import { aportes, ayudantesDe, pedirAportes, quitarAyudante, sumarAyudante } from './ayudantes.ts'
 import { agregarItem, editarItem, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, marcarJugador, personaje, resolverHistoria, TIPOS_INVENTARIO } from './personajes.ts'
@@ -117,6 +118,7 @@ function estado() {
     hoy: {
       fecha: fechaLocal(), ...progreso(db, fechaLocal()), conversacion: conversacionHoy(db).id,
       pregunta: siguientePregunta(db)?.id ?? null,
+      directo: (() => { const s = sesionActiva(db); return s ? { id: s.id, inicio: s.inicio, momentos: (db.prepare('SELECT COUNT(*) AS n FROM directo_momentos WHERE sesion_id = ?').get(s.id) as { n: number }).n } : null })(),
       run: (() => { const r = runActual(db); return r ? { id: r.id, estado: r.estado, marcadas: misionesDeRun(db, r.id).filter((m) => m.estado !== 'activa').length } : null })(),
       // Lo último que Mastropiero dijo solo (rutinas): la pantalla avisa cuando aparece algo nuevo.
       aviso: db.prepare(`SELECT m.id, m.texto FROM mensajes m JOIN conversaciones c ON c.id = m.conversacion_id WHERE c.modo = 'hoy' AND m.modelo = 'rutina' ORDER BY m.id DESC LIMIT 1`).get() ?? null,
@@ -330,6 +332,21 @@ const rutas: [string, RegExp, Ruta][] = [
     reponerPreguntas(db)
     return { ok: true, siguiente: siguientePregunta(db) }
   }],
+  ['GET', /^\/api\/directo$/, () => {
+    const activa = sesionActiva(db)
+    return {
+      activa: activa ? { ...activa, momentos: momentosDirecto(db, activa.id).slice(-80) } : null,
+      sesiones: listarSesiones(db, 20).filter((s) => s.estado === 'cerrada'),
+    }
+  }],
+  ['GET', /^\/api\/directo\/(\d+)$/, (_, [s]) => ({ ...leerSesion(db, id(s)), momentos: momentosDirecto(db, id(s)) })],
+  ['POST', /^\/api\/directo\/iniciar$/, (b) => iniciarDirecto(db, Array.isArray(b.fuentes) ? b.fuentes : [])],
+  ['POST', /^\/api\/directo\/(\d+)\/cerrar$/, async (_, [s]) => {
+    await colasDirecto.get(id(s)) // lo último que mandó el navegador entra al informe
+    const r = await cerrarDirecto(db, id(s))
+    if (r.informe) mensajeDeMastropiero(db, conversacionHoy(db).id, `Cerré el Directo. ${r.informe}`)
+    return r
+  }],
   ['GET', /^\/api\/menciones$/, () => catalogo(db).map((m) => ({ k: m.clave, n: m.nombre, t: m.tipo, a: m.alias.slice(0, 8), p: m.piezas }))],
   ['POST', /^\/api\/entidades\/(\d+)$/, (b, [e]) => editarEntidad(db, id(e), { nombre: b.nombre, tipo: b.tipo, notas: b.notas, alias: Array.isArray(b.alias) ? b.alias : undefined, sumarAlias: b.sumarAlias })],
   ['POST', /^\/api\/entidades\/(\d+)\/fusionar$/, (b, [e]) => fusionarEntidades(db, id(e), (b.absorbe ?? []).map(Number))],
@@ -450,6 +467,16 @@ const servidor = http.createServer(async (req, res) => {
         void enviar(db, cid, texto)
         return void res.end(JSON.stringify({ texto }))
       }
+      const crudo = req.method === 'POST' ? /^\/api\/directo\/(\d+)\/(cuadro|audio)$/.exec(url.pathname) : null
+      if (crudo) {
+        const sesion = Number(crudo[1])
+        const cuerpo = await leerCrudo(req, 25 * 1024 * 1024)
+        const desde = Number(url.searchParams.get('desde')) || undefined
+        encolarDirecto(sesion, () => crudo[2] === 'cuadro'
+          ? registrarCuadro(db, sesion, cuerpo, String(req.headers['content-type'] || 'image/jpeg'))
+          : registrarAudio(db, sesion, cuerpo, url.searchParams.get('tipo') === 'medio' ? 'medio' : 'voz', url.searchParams.get('nombre') || 'tramo.webm', { desde }))
+        return void res.end(JSON.stringify({ ok: true }))
+      }
       // La subida de una carga viaja cruda (el archivo tal cual), no como JSON.
       if (req.method === 'POST' && url.pathname === '/api/cargas') {
         const nombre = url.searchParams.get('nombre') || 'carga'
@@ -489,6 +516,20 @@ async function latido() {
   }
 }
 setInterval(latido, 60_000).unref()
+
+// El Directo: lo que llega se procesa en orden por sesión (visión y Whisper tardan), sin frenar al navegador.
+const colasDirecto = new Map<number, Promise<unknown>>()
+function encolarDirecto(sesion: number, f: () => Promise<unknown>) {
+  const previa = colasDirecto.get(sesion) ?? Promise.resolve()
+  const sigue = previa.then(f).catch((e) => console.error('  directo:', e instanceof Error ? e.message : e))
+  colasDirecto.set(sesion, sigue)
+}
+setInterval(async () => {
+  try {
+    const s = await latidoDirecto(db)
+    if (s?.informe) mensajeDeMastropiero(db, conversacionHoy(db).id, `El Directo se cortó (la pestaña se cerró), así que lo cerré yo. ${s.informe}`)
+  } catch (e) { console.error('  directo:', e instanceof Error ? e.message : e) }
+}, 60_000).unref()
 
 // Las runs las arranca él: su latido (reporte por hora, cierre de la run vencida) corre aunque las rutinas estén apagadas.
 let enRuns = false
