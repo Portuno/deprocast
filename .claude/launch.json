@@ -1,0 +1,28 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mastropiero",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "jugar",
+        "--",
+        "--sin-rutinas"
+      ],
+      "port": 7272
+    },
+    {
+      "name": "mastropiero-prueba",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "--disable-warning=ExperimentalWarning",
+        "src/servidor.ts",
+        "--db",
+        "data/prueba-ui.db",
+        "--sin-rutinas"
+      ],
+      "port": 7272
+    }
+  ]
+}

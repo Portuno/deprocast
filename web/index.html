@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mastropiero</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☿</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/estilo.css">
+  <script>
+    try { const t = localStorage.getItem('mastro-tema'); if (t) document.documentElement.dataset.tema = t } catch {}
+  </script>
+</head>
+<body>
+  <header class="hud">
+    <div class="marca"><span class="mercurio">☿</span><div><b>Mastropiero</b><small>Deprocast 1.0</small></div></div>
+    <div class="hud-stats" id="hud"></div>
+    <div class="hud-acciones">
+      <button class="btn btn-tick" id="btn-tick" title="Purga → reparte → corre (barra espaciadora)">▶ Tick</button>
+      <button class="btn btn-auto" id="btn-auto" title="Ticks automáticos">Auto</button>
+      <button class="btn btn-icono" id="btn-cronica" title="Mostrar u ocultar la crónica">☰</button>
+      <button class="btn btn-icono" id="btn-tema" title="Tema claro u oscuro">◐</button>
+    </div>
+  </header>
+
+  <nav class="nav" id="nav">
+    <small>Mastropiero</small>
+    <button data-vista="hoy" class="activo"><i>☀</i><span>Hoy</span></button>
+    <button data-vista="chat"><i>☿</i><span>Chat</span></button>
+    <button data-vista="norte"><i>✧</i><span>Norte</span></button>
+    <small>Liga</small>
+    <button data-vista="liga"><i>♛</i><span>Roster</span></button>
+    <button data-vista="forja"><i>⚒</i><span>Forja</span></button>
+    <button data-vista="misiones"><i>⇄</i><span>Misiones</span></button>
+    <button data-vista="matriz"><i>⬡</i><span>Matriz 72</span></button>
+    <button data-vista="cementerio"><i>✝</i><span>Cementerio</span></button>
+    <small>Saber</small>
+    <button data-vista="corpus"><i>❦</i><span>Corpus</span></button>
+    <button data-vista="entidades"><i>⚇</i><span>Entidades</span></button>
+  </nav>
+
+  <main class="principal" id="principal"></main>
+
+  <aside class="cronica" id="cronica">
+    <h2>Crónica</h2>
+    <div id="cronica-lista" class="cronica-lista"></div>
+  </aside>
+
+  <div class="velo" id="velo" hidden><div class="modal" id="modal"></div></div>
+  <div class="toasts" id="toasts"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "name": "depromastro",
+  "private": true,
+  "version": "1.0.0-alpha.0",
+  "description": "Deprocast 1.0 — Mastropiero, la liga de agentes omnívora",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "mastro": "node --disable-warning=ExperimentalWarning src/cli.ts",
+    "jugar": "node --disable-warning=ExperimentalWarning src/servidor.ts",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc -p tsconfig.json",
+    "doctor": "node --disable-warning=ExperimentalWarning src/cli.ts doctor"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.1",
+    "typescript": "^7.0.2"
+  }
+}
