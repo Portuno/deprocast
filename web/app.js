@@ -904,7 +904,8 @@ function modalAjustesHoy() {
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Tu día</h2>
     <p class="tenue">A qué hora hace Mastropiero cada cosa solo, cuántas primarias te propone por semana y cuánto puede gastar la liga por día (lo que le pedís vos no se frena).</p>
     <div class="form-ing"><label class="campo">Primarias por semana<input id="aj-prim" type="number" min="1" max="12" value="${esc(hoyDatos.ajustes.primarias_semana ?? 6)}"></label>
-      <label class="campo">Tope diario de la liga (tokens, 0 = sin tope)<input id="aj-tope" type="number" min="0" step="100000" value="${esc(hoyDatos.ajustes.tokens_dia_max ?? 1000000)}"></label></div>
+      <label class="campo">Tope diario de la liga (tokens, 0 = sin tope)<input id="aj-tope" type="number" min="0" step="100000" value="${esc(hoyDatos.ajustes.tokens_dia_max ?? 1000000)}"></label>
+      <label class="campo">Mastropiero piensa solo cada (horas, 0 = nunca)<input id="aj-pensar" type="number" min="0" max="24" value="${esc(hoyDatos.ajustes.pensar_cada_horas ?? 3)}"></label></div>
     <h3 class="sub">Rutinas</h3>
     ${r.map((x) => `<div class="fila" style="margin:6px 0"><label class="fila" style="gap:6px;min-width:260px"><input type="checkbox" data-rut-activa="${x.id}" ${x.activa ? 'checked' : ''}> ${esc(x.nombre)}</label>
       <input class="campo-suelto" type="time" data-rut-hora="${x.id}" value="${esc(x.hora)}" style="width:120px;margin:0"><small class="tenue">${x.dias === '0123456' ? 'todos los días' : x.dias.split('').map((d) => ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'][d]).join(', ')}</small></div>`).join('')}
@@ -916,7 +917,7 @@ function modalAjustesHoy() {
   }))
   $('#aj-guardar').onclick = async () => {
     try {
-      await api('/ajustes', { primarias_semana: $('#aj-prim').value, tokens_dia_max: $('#aj-tope').value })
+      await api('/ajustes', { primarias_semana: $('#aj-prim').value, tokens_dia_max: $('#aj-tope').value, pensar_cada_horas: $('#aj-pensar').value })
       for (const x of r) await api(`/rutinas/${x.id}`, { hora: $(`[data-rut-hora="${x.id}"]`).value, activa: $(`[data-rut-activa="${x.id}"]`).checked })
       cerrarModal()
       toast('Guardado', 'suave')

@@ -15,6 +15,7 @@ import {
   proponerPrimarias, rehacerRun, reporteSemana, runActual, semanaDe, semanaVecina, seguimientos, prepararRun, diasDeSemana, asegurarPrincipal,
 } from './misiones.ts'
 import { catalogo } from './menciones.ts'
+import { pensar } from './alertas.ts'
 import { cerrarDirecto, iniciarDirecto, latidoDirecto, leerSesion, listarSesiones, momentos as momentosDirecto, registrarAudio, registrarCuadro, sesionActiva } from './directo.ts'
 import { encolarPregunta, generandoPreguntas, generarPreguntas, listarPreguntas, reponerPreguntas, responderPregunta, siguientePregunta } from './preguntas.ts'
 import { aportes, ayudantesDe, pedirAportes, quitarAyudante, sumarAyudante } from './ayudantes.ts'
@@ -245,11 +246,11 @@ const rutas: [string, RegExp, Ruta][] = [
       reporte: listarReportes(db, { limite: 1 })[0] ?? null,
       aportes: aportes(db, { desde: Date.now() - 2 * 86_400_000, limite: 4 }),
       proximas: listarRuns(db, { desde: fechaLocal(Date.now() + 86_400_000), estados: ['propuesta'] }).map((r) => ({ ...r, misiones: misionesDeRun(db, r.id) })),
-      ajustes: { primarias_semana: ajuste(db, 'primarias_semana'), tokens_dia_max: ajuste(db, 'tokens_dia_max') },
+      ajustes: { primarias_semana: ajuste(db, 'primarias_semana'), tokens_dia_max: ajuste(db, 'tokens_dia_max'), pensar_cada_horas: ajuste(db, 'pensar_cada_horas') },
     }
   }],
   ['POST', /^\/api\/ajustes$/, (b) => {
-    for (const k of ['primarias_semana', 'tokens_dia_max']) if (b[k] != null && String(b[k]).trim()) fijarAjuste(db, k, String(b[k]).trim())
+    for (const k of ['primarias_semana', 'tokens_dia_max', 'pensar_cada_horas']) if (b[k] != null && String(b[k]).trim()) fijarAjuste(db, k, String(b[k]).trim())
     return { ok: true }
   }],
 
@@ -530,6 +531,22 @@ setInterval(async () => {
     if (s?.informe) mensajeDeMastropiero(db, conversacionHoy(db).id, `El Directo se cortó (la pestaña se cerró), así que lo cerré yo. ${s.informe}`)
   } catch (e) { console.error('  directo:', e instanceof Error ? e.message : e) }
 }, 60_000).unref()
+
+// Mastropiero proactivo: alertas y una reflexión cada tantas horas (con las rutinas; nunca en una reunión).
+let pensando = false
+async function latidoPensar() {
+  if (pensando || process.env.MASTRO_SIN_RUTINAS) return
+  pensando = true
+  try {
+    for (const t of await pensar(db)) mensajeDeMastropiero(db, conversacionHoy(db).id, t)
+  } catch (e) {
+    console.error('  pensar:', e instanceof Error ? e.message : e)
+  } finally {
+    pensando = false
+  }
+}
+setInterval(latidoPensar, 15 * 60_000).unref()
+setTimeout(latidoPensar, 60_000).unref()
 
 // Las runs las arranca él: su latido (reporte por hora, cierre de la run vencida) corre aunque las rutinas estén apagadas.
 let enRuns = false

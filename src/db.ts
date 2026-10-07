@@ -391,6 +391,12 @@ CREATE TABLE IF NOT EXISTS directo_momentos (
 );
 CREATE INDEX IF NOT EXISTS directo_momentos_sesion ON directo_momentos(sesion_id, desde);
 
+CREATE TABLE IF NOT EXISTS alertas (
+  clave TEXT PRIMARY KEY,             -- tipo:id:fecha (una por día)
+  texto TEXT NOT NULL,
+  en INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS reportes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   tipo TEXT NOT NULL,                 -- hora | run | semana
@@ -447,6 +453,7 @@ const AJUSTES_SISTEMA: Record<string, string> = {
   bloques_minutos: '12,25,50',
   primarias_semana: '6',
   tokens_dia_max: '1000000', // tokens por día para la liga (agentes); 0 = sin tope
+  pensar_cada_horas: '3', // Mastropiero piensa solo y deja una sugerencia (o nada); 0 = nunca
 }
 
 /** Fuentes de fábrica. Estructura, no contenido: el corpus arranca vacío. */
