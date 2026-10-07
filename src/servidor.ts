@@ -16,6 +16,8 @@ import {
 } from './misiones.ts'
 import { catalogo } from './menciones.ts'
 import { pensar } from './alertas.ts'
+import { buscarOportunidades, listarOportunidades, marcarOportunidad, redactarOportunidad } from './radar.ts'
+import { cuotas, hayBuscadorWeb } from './web.ts'
 import { calificarAMano, calificarDia, curva, predecirDia, prediccionesDe, textoDeCalificacion } from './gemelo.ts'
 import { cerrarDirecto, iniciarDirecto, latidoDirecto, leerSesion, listarSesiones, momentos as momentosDirecto, registrarAudio, registrarCuadro, sesionActiva } from './directo.ts'
 import { encolarPregunta, generandoPreguntas, generarPreguntas, listarPreguntas, reponerPreguntas, responderPregunta, siguientePregunta } from './preguntas.ts'
@@ -349,6 +351,13 @@ const rutas: [string, RegExp, Ruta][] = [
     if (r.informe) mensajeDeMastropiero(db, conversacionHoy(db).id, `Cerré el Directo. ${r.informe}`)
     return r
   }],
+  ['GET', /^\/api\/radar$/, () => ({
+    oportunidades: listarOportunidades(db, { estados: ['nueva', 'me_interesa', 'hecha'], limite: 200 }), cuotas: cuotas(db), conBuscador: hayBuscadorWeb(),
+    primarias: listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana: semanaDe(), estados: ['activa'] }).map((m) => ({ id: m.id, titulo: m.titulo })),
+  })],
+  ['POST', /^\/api\/radar\/buscar$/, async (b) => buscarOportunidades(db, { misionId: b.misionId ? Number(b.misionId) : null, texto: b.texto || null })],
+  ['POST', /^\/api\/radar\/(\d+)$/, (b, [o]) => marcarOportunidad(db, id(o), b.estado)],
+  ['POST', /^\/api\/radar\/(\d+)\/borrador$/, async (b, [o]) => redactarOportunidad(db, id(o), b.pedido || null)],
   ['GET', /^\/api\/gemelo$/, (_, __, q) => {
     const fecha = q.get('fecha') || fechaLocal()
     return { fecha, predicciones: prediccionesDe(db, fecha), curva: curva(db, fecha, 21), ayer: prediccionesDe(db, fechaLocal(Date.now() - 86_400_000)) }

@@ -407,6 +407,32 @@ CREATE TABLE IF NOT EXISTS predicciones (
 );
 CREATE INDEX IF NOT EXISTS predicciones_fecha ON predicciones(fecha);
 
+CREATE TABLE IF NOT EXISTS cuotas (
+  proveedor TEXT NOT NULL,            -- brave | tavily | duckduckgo
+  mes TEXT NOT NULL,                  -- YYYY-MM
+  usadas INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (proveedor, mes)
+);
+
+-- Oportunidades: lo que la liga encuentra afuera (comunidades, eventos, convocatorias, contactos, lugares para estar).
+CREATE TABLE IF NOT EXISTS oportunidades (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  titulo TEXT NOT NULL,
+  url TEXT,
+  tipo TEXT,                          -- comunidad | evento | convocatoria | beca | premio | contacto | medio | otro
+  descripcion TEXT,
+  por_que TEXT,                       -- por qué encaja con él
+  cierre TEXT,                        -- YYYY-MM-DD si tiene fecha límite
+  mision_id INTEGER,                  -- la primaria para la que se buscó
+  entidad_id INTEGER,
+  borrador TEXT,                      -- mensaje o postulación redactada
+  estado TEXT NOT NULL,               -- nueva | me_interesa | hecha | descartada
+  origen TEXT NOT NULL,               -- radar | ayudante | chat
+  creada_en INTEGER NOT NULL,
+  actualizada_en INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS oportunidades_url ON oportunidades(url);
+
 CREATE TABLE IF NOT EXISTS alertas (
   clave TEXT PRIMARY KEY,             -- tipo:id:fecha (una por día)
   texto TEXT NOT NULL,
@@ -458,6 +484,7 @@ const RUTINAS_SISTEMA = [
   { id: 'semana', nombre: 'Proponer las primarias de la semana', hora: '08:00', dias: '1', accion: 'semana' },
   { id: 'ayudantes', nombre: 'Aportes de los ayudantes', hora: '07:45', dias: '0123456', accion: 'ayudantes' },
   { id: 'prediccion', nombre: 'El gemelo predice el día', hora: '08:20', dias: '0123456', accion: 'prediccion' },
+  { id: 'radar', nombre: 'El radar sale a buscar oportunidades', hora: '09:30', dias: '14', accion: 'radar' },
   { id: 'calificacion', nombre: 'El gemelo se califica', hora: '23:40', dias: '0123456', accion: 'calificacion' },
   { id: 'reporte_semanal', nombre: 'Reporte de la semana', hora: '21:00', dias: '0', accion: 'reporte_semanal' },
 ]

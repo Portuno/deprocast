@@ -17,6 +17,8 @@ import {
 import { aportes, ayudantesDe, CLASES_AYUDANTE, pedirAportes, quitarAyudante, sumarAyudante } from '../ayudantes.ts'
 import { encolarPregunta, listarPreguntas } from '../preguntas.ts'
 import { curva, prediccionesDe } from '../gemelo.ts'
+import { buscarOportunidades, listarOportunidades, redactarOportunidad } from '../radar.ts'
+import { buscarWeb, hayBuscadorWeb, leerPagina } from '../web.ts'
 import { listarSesiones, momentos as momentosDirecto, sesionActiva } from '../directo.ts'
 import { agregarItem, editarItem, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, personaje, resolverPersonaje, TIPOS_INVENTARIO } from '../personajes.ts'
 import { asientos, especializacion } from '../auditor.ts'
@@ -612,7 +614,7 @@ export const HERRAMIENTAS: Herramienta[] = [
   {
     nombre: 'sumar_ayudante', familia: 'accion',
     descripcion: `Le suma a una primaria del jugador un ayudante de la liga que trabaja entre runs: un generativo (borradores, próximos pasos) o un buscador (lo que hay en su corpus). Uno nuevo de la clase, o uno existente por id.`,
-    parametros: S({ primaria: int('id de la primaria (activa)'), clase: str('Clase del ayudante nuevo', { enum: CLASES_AYUDANTE }), agente: str('id de un agente existente (en vez de forjar uno)') }, ['primaria']),
+    parametros: S({ primaria: int('id de la primaria (activa)'), clase: str('Rol del ayudante nuevo: generativo (borradores), buscador (su corpus) o explorador (sale a la web)', { enum: ['generativo', 'buscador', 'explorador'] }), agente: str('id de un agente existente (en vez de forjar uno)') }, ['primaria']),
     ejecutar: (a, { db }) => {
       const r = sumarAyudante(db, a.primaria, { clase: a.clase, agenteId: a.agente })
       return { ayudante: r.agente?.id, clase: r.agente?.clase, mision: r.mision.id }
@@ -691,6 +693,40 @@ export const HERRAMIENTAS: Herramienta[] = [
       const c = curva(db, f, 14)
       return { te_conozco: c.total, calificadas: c.calificadas, predicciones: prediccionesDe(db, f).map((p) => ({ texto: p.texto, probabilidad: p.probabilidad, resultado: p.resultado, estado: p.estado, nota: p.nota ?? undefined })) }
     },
+  },
+  {
+    nombre: 'buscar_web', familia: 'lectura',
+    descripcion: 'Busca en la web (para investigar algo que no está en su corpus: datos, gente, lugares, noticias). Devuelve resultados con link; para leer una página, leer_pagina.',
+    parametros: S({ consulta: str('Qué buscar'), n: int('Cuántos resultados (máx. 10)') }, ['consulta']),
+    ejecutar: async (a, { db }) => ({ con_buscador: hayBuscadorWeb(), resultados: (await buscarWeb(db, a.consulta, { n: Math.min(a.n ?? 6, 10) })).map((r) => ({ titulo: r.titulo, url: r.url, extracto: r.extracto })) }),
+    resumen: (a, r) => `buscó en la web «${recorte(a.consulta, 40)}» → ${r?.resultados?.length ?? 0}`,
+  },
+  {
+    nombre: 'leer_pagina', familia: 'lectura', descripcion: 'Lee una página web (su texto, recortado).',
+    parametros: S({ url: str('URL') }, ['url']),
+    ejecutar: async (a) => (await leerPagina(a.url, 8000)) ?? { error: 'No pude leer esa página' },
+    resumen: (a) => `leyó ${recorte(a.url, 50)}`,
+  },
+  {
+    nombre: 'buscar_oportunidades', familia: 'accion',
+    descripcion: 'El radar sale a buscar oportunidades concretas (comunidades, eventos, convocatorias, becas, medios, contactos) para una primaria o para lo que él pida, y las deja en Radar.',
+    parametros: S({ primaria: int('id de la primaria (opcional)'), pedido: str('Qué buscar, en sus palabras') }),
+    ejecutar: async (a, { db }) => {
+      const r = await buscarOportunidades(db, { misionId: a.primaria ?? null, texto: a.pedido ?? null })
+      return { nuevas: r.nuevas.map((o) => ({ id: o.id, titulo: o.titulo, tipo: o.tipo, url: o.url, por_que: o.porQue })), aviso: r.aviso }
+    },
+    resumen: (_, r) => `el radar encontró ${r?.nuevas?.length ?? 0} oportunidades`,
+  },
+  {
+    nombre: 'ver_oportunidades', familia: 'lectura', descripcion: 'Las oportunidades del radar (nuevas, las que le interesan, las hechas).',
+    parametros: S({}),
+    ejecutar: (_, { db }) => listarOportunidades(db, { estados: ['nueva', 'me_interesa', 'hecha'], limite: 40 }).map((o) => ({ id: o.id, titulo: o.titulo, tipo: o.tipo, url: o.url, estado: o.estado, cierre: o.cierre ?? undefined, tiene_borrador: !!o.borrador })),
+  },
+  {
+    nombre: 'redactar_oportunidad', familia: 'accion', descripcion: 'Le redacta, en su voz, el mensaje, post o postulación para aprovechar una oportunidad del radar. Él lo revisa y lo manda.',
+    parametros: S({ id: int('id de la oportunidad'), pedido: str('Algo que quiera en el borrador') }, ['id']),
+    ejecutar: async (a, { db }) => ({ borrador: (await redactarOportunidad(db, a.id, a.pedido)).borrador }),
+    resumen: () => 'redactó un borrador',
   },
   {
     nombre: 'ver_respuestas', familia: 'lectura', descripcion: 'Lo que ya le preguntaste al jugador y lo que contestó (o salteó).',

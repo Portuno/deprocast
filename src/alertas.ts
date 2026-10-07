@@ -10,6 +10,7 @@ import { pedirJson } from './modelo.ts'
 import { charlaReciente, conAvance, enCurso, listarMisiones, misionesParaPrompt, seguimientos, semanaDe } from './misiones.ts'
 import { directoParaPrompt } from './directo.ts'
 import { personaje } from './personajes.ts'
+import { oportunidadesQueCierran } from './radar.ts'
 
 export type Alerta = { clave: string; texto: string }
 
@@ -41,6 +42,9 @@ export function alertasPendientes(db: Db, ahora = Date.now()): Alerta[] {
     let quien = m.personaje
     try { quien = personaje(db, m.personaje).nombre } catch { /* se fue */ }
     out.push({ clave: `debe:${m.id}:${hoy}`, texto: `${quien} te debía «${m.titulo}» (vencía el ${m.vence}). ¿Le escribís, o lo doy por perdido?` })
+  }
+  for (const o of oportunidadesQueCierran(db, ahora)) {
+    out.push({ clave: `cierra:${o.id}:${hoy}`, texto: `«${o.titulo}» cierra el ${o.cierre}. ${o.borrador ? 'Ya tenés el borrador listo en Radar.' : '¿Te armo el borrador?'}` })
   }
   return out.filter((a) => !db.prepare('SELECT 1 FROM alertas WHERE clave = ?').get(a.clave))
 }

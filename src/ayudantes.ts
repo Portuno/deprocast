@@ -14,13 +14,19 @@ import { actualizarMision, crearMision, leerMision, listarMisiones, semanaDe, ty
 import { nanConfigurado, topeAlcanzado } from './nan.ts'
 import { leerHistoria, personaje } from './personajes.ts'
 import { alias, forjar, leer, type Ficha } from './roster.ts'
+import { buscarOportunidades, listarOportunidades, type Oportunidad } from './radar.ts'
 
 /** Las clases que hoy sirven de ayudante: escribir (generativo) y buscar en su corpus (buscador). */
 export const CLASES_AYUDANTE: ClaseId[] = ['generativo', 'buscador']
+/** Los roles que se pueden pedir: los de arriba más el explorador (un generativo que sale a la web). */
+export const ROLES_AYUDANTE = ['generativo', 'buscador', 'explorador'] as const
+const MARCA_EXPLORADOR = '[explorador web]'
+const esExplorador = (f: Ficha) => f.instrucciones.includes(MARCA_EXPLORADOR)
 
 const ROL: Record<string, (titulo: string) => string> = {
   generativo: (t) => `Ayudás al jugador con «${t}». Dejás aportes concretos que pueda usar ya: borradores, próximos pasos chicos, esquemas, preguntas clave. Nada de relleno ni de motivación vacía.`,
   buscador: (t) => `Ayudás al jugador con «${t}» buscando en su corpus lo que ya tiene sobre eso: notas, ideas, contactos, decisiones. Siempre con cita.`,
+  explorador: (t) => `${MARCA_EXPLORADOR} Ayudás al jugador con «${t}» saliendo a la web: encontrás lugares concretos donde actuar (comunidades, eventos, convocatorias, gente) y le proponés cómo entrar a cada uno, con borradores en su voz.`,
 }
 
 export type Ayudante = { mision: Mision; agente: Ficha | null; ultimoAporte: { id: number; en: number } | null }
@@ -47,11 +53,12 @@ export function sumarAyudante(db: Db, primariaId: number, o: { clase?: string; a
     if (!f) throw new Error(`No existe el agente ${o.agenteId}`)
     if (!CLASES_AYUDANTE.includes(f.clase)) throw new Error(`Un ${CLASES[f.clase].nombre} no sirve de ayudante (sí: ${CLASES_AYUDANTE.map((c) => CLASES[c].nombre).join(', ')})`)
   } else {
-    const clase = (o.clase ?? 'generativo') as ClaseId
-    if (!CLASES_AYUDANTE.includes(clase)) throw new Error(`Los ayudantes son ${CLASES_AYUDANTE.join(' o ')}`)
+    const rol = o.clase ?? 'generativo'
+    if (!ROLES_AYUDANTE.includes(rol as any)) throw new Error(`Los ayudantes son ${ROLES_AYUDANTE.join(', ')}`)
+    const clase = (rol === 'explorador' ? 'generativo' : rol) as ClaseId
     f = forjar(db, {
-      clase, motor: nanConfigurado() ? 'nan' : 'local', creador: 'mastropiero', instrucciones: ROL[clase](p.titulo),
-      misionPrincipal: `Ayudar a que «${p.titulo}» avance`, ahora,
+      clase, motor: nanConfigurado() ? 'nan' : 'local', creador: 'mastropiero', instrucciones: ROL[rol](p.titulo),
+      misionPrincipal: rol === 'explorador' ? `Encontrar afuera lo que haga avanzar «${p.titulo}»` : `Ayudar a que «${p.titulo}» avance`, ahora,
     })
   }
   const ya = listarMisiones(db, { personaje: `agente:${f.id}`, padreId: p.id, abiertas: true })[0]
@@ -122,7 +129,7 @@ function trabajoDelJugador(db: Db, primariaId: number): string {
   return ms.map((m) => `- ${m.titulo} [${m.estado === 'parcial' ? 'a medias' : m.estado}]${m.feedback ? ` — «${m.feedback}»` : ''}`).join('\n')
 }
 
-function encargo(db: Db, p: Mision, f: Ficha, previos: Aporte[]): Record<string, unknown> {
+function encargo(db: Db, p: Mision, f: Ficha, previos: Aporte[], afuera: Oportunidad[] = []): Record<string, unknown> {
   const jugador = personaje(db, 'jugador').nombre.split(' ')[0]
   const ent = p.entidadId ? leerEntidad(db, p.entidadId) : null
   const consulta = consultaDe(p, ent)
@@ -137,6 +144,7 @@ function encargo(db: Db, p: Mision, f: Ficha, previos: Aporte[]): Record<string,
       `Trabajás para ${jugador}. Su primaria de esta semana: «${p.titulo}»${p.detalle ? ` — ${p.detalle}` : ''}.`,
       ent ? `Se trata de ${ent.nombre} (${ent.tipo})${h?.texto || ent.notas ? `: ${(h?.texto ?? ent.notas ?? '').slice(0, 400)}` : ''}.` : '',
       fuentes.length ? `Lo que hay en su corpus sobre esto (es su material: usalo, y si tomás algo citá [#id]):\n${fuentes.map((x) => `[#${x.id}] ${x.titulo}: ${x.extracto}`).join('\n')}` : 'En su corpus no hay nada sobre esto todavía.',
+      afuera.length ? `Lo que encontraste afuera, en la web (oportunidades reales, con su link):\n${afuera.map((o) => `- ${o.titulo} (${o.tipo}) ${o.url ?? ''}: ${o.descripcion ?? ''} — ${o.porQue ?? ''}`).join('\n')}\nArmale un plan corto para entrar a los mejores 2 o 3 lugares, con un primer mensaje en su voz para cada uno.` : '',
       trabajoDelJugador(db, p.id) ? `Lo que ya trabajó en sus runs:\n${trabajoDelJugador(db, p.id)}` : 'Todavía no trabajó en esto en una run.',
       previos.length ? `Tus aportes anteriores (no los repitas, construí sobre ellos):\n${previos.map((a) => `- ${a.contenido.replace(/\s+/g, ' ').slice(0, 200)}`).join('\n')}` : '',
       'Dejale UN aporte concreto que pueda usar en su próxima run: un borrador, 3 a 5 próximos pasos chicos, un esquema o las preguntas que tiene que responder. Máximo 250 palabras, en castellano rioplatense. Si te falta información, decí qué falta en vez de inventar.',
@@ -163,10 +171,20 @@ export async function pedirAportes(db: Db, o: { primariaId?: number; ahora?: num
       const tope = topeAlcanzado(db, ahora)
       if (tope) return { aportes: nuevos, fallas, frenado: tope }
       const previos = aportes(db, { primariaId: p.id, limite: 3 }).filter((x) => x.ayudante === a.mision.id)
+      let afuera: Oportunidad[] = []
+      if (esExplorador(a.agente)) {
+        try {
+          const r = await buscarOportunidades(db, { misionId: p.id, ahora })
+          afuera = r.nuevas.length ? r.nuevas : listarOportunidades(db, { misionId: p.id, estados: ['nueva', 'me_interesa'], limite: 6 })
+          if (!afuera.length && r.aviso) fallas.push(`${alias(a.agente)}: ${r.aviso}`)
+        } catch (e) {
+          fallas.push(`${alias(a.agente)}: ${e instanceof Error ? e.message : e}`)
+        }
+      }
       try {
         const { tarea } = await encargarYa(db, a.agente.id, {
           tipo: 'aporte', publicadaPor: 'mastropiero', dominio: p.entidadId ? leerEntidad(db, p.entidadId)?.nombre ?? null : null,
-          proyectoId: a.agente.proyectoId, payload: encargo(db, p, a.agente, previos),
+          proyectoId: a.agente.proyectoId, payload: encargo(db, p, a.agente, previos, afuera),
         }, ahora)
         const r = tarea.resultado as Record<string, unknown> | null
         const contenido = typeof r?.texto === 'string' ? r.texto : typeof r?.respuesta === 'string' ? r.respuesta : null

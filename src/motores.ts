@@ -65,7 +65,7 @@ export function embeddingLocal(texto: string, dims = 64): number[] {
   return v.map((x) => Math.round((x / norma) * 1e4) / 1e4)
 }
 
-function htmlATexto(html: string): { titulo: string; texto: string } {
+export function htmlATexto(html: string): { titulo: string; texto: string } {
   const titulo = html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? ''
   const texto = html
     .replace(/<(script|style|noscript)[\s\S]*?<\/\1>/gi, ' ')

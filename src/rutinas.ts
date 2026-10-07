@@ -8,6 +8,7 @@ import { agendaDelDia } from './calendario.ts'
 import { conversacionHoy, mensajeDeMastropiero } from './chat/index.ts'
 import { pedirAportes } from './ayudantes.ts'
 import { calificarDia, predecirDia, textoDeCalificacion } from './gemelo.ts'
+import { buscarOportunidades } from './radar.ts'
 import { conAvance, listarMisiones, proponerPrimarias, reporteSemana, semanaDe, seguimientos, sideQuestsRelevantes } from './misiones.ts'
 
 export type Rutina = { id: string; nombre: string; hora: string; dias: string; accion: string; activa: boolean; ultimaFecha: string | null }
@@ -82,6 +83,12 @@ export const ACCIONES: Acciones = {
   async calificacion(db, fecha, ahora) {
     const r = await calificarDia(db, fecha, { ahora })
     return r.predicciones.length ? textoDeCalificacion(r) : null
+  },
+  /** Lunes y jueves: el radar busca oportunidades para sus metas. */
+  async radar(db, _fecha, ahora) {
+    const r = await buscarOportunidades(db, { ahora })
+    if (!r.nuevas.length) return r.aviso ? `El radar no pudo salir: ${r.aviso}` : null
+    return `El radar encontró ${r.nuevas.length} oportunidad${r.nuevas.length > 1 ? 'es' : ''}: ${r.nuevas.slice(0, 5).map((o) => o.titulo).join(' · ')}. Están en Radar, con por qué te sirven; si una te interesa, te armo el borrador.`
   },
   /** El lunes: primarias sugeridas para la semana (si no las tiene ya). */
   async semana(db, _fecha, ahora) {

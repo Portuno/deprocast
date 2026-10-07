@@ -799,6 +799,25 @@ pre.json { background: var(--panel-2); border-radius: 8px; padding: 12px; font: 
 .momento p { margin: 2px 0 0; color: var(--tenue); font-size: 12.5px; line-height: 1.45; }
 .momento.voz b { color: var(--acento-texto); }
 
+/* ─── Radar ─── */
+.radar-buscar { margin-bottom: 18px; }
+.radar-buscar .fila .campo-suelto { margin: 0; }
+.radar-buscar #rd-texto { flex: 1; min-width: 240px; }
+.radar-buscar select { width: auto; }
+.opor-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; margin-bottom: 18px; }
+.opor { background: var(--panel); border: 1px solid var(--linea); border-radius: 10px; padding: 12px 13px; display: flex; flex-direction: column; gap: 4px; }
+.opor.me_interesa { border-color: var(--acento); }
+.opor.hecha { opacity: .6; }
+.opor h3 { font-size: 15px; font-weight: 600; margin: 2px 0; line-height: 1.3; }
+.opor h3 a { color: var(--texto); text-decoration: none; }
+.opor h3 a:hover { color: var(--acento-texto); }
+.opor p { margin: 0; font-size: 13px; color: var(--tenue); line-height: 1.45; }
+.opor p.porque { color: var(--texto); }
+.opor .cierre { color: var(--aviso); }
+.borrador { margin-top: 6px; }
+.borrador summary { cursor: pointer; font-size: 12.5px; color: var(--acento-texto); }
+.borrador pre { white-space: pre-wrap; font: 13px/1.5 var(--cuerpo); background: var(--panel-2); border-radius: 8px; padding: 8px 10px; margin: 6px 0; }
+
 /* ─── El gemelo ─── */
 .conozco { font: 600 11px var(--mono); color: var(--acento-texto); text-transform: none; letter-spacing: 0; margin-left: 6px; }
 .spark { width: 100%; height: 30px; margin: 0 0 6px; }
