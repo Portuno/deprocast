@@ -433,6 +433,12 @@ CREATE TABLE IF NOT EXISTS oportunidades (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS oportunidades_url ON oportunidades(url);
 
+CREATE TABLE IF NOT EXISTS no_duplicados (
+  a INTEGER NOT NULL,
+  b INTEGER NOT NULL,
+  PRIMARY KEY (a, b)
+);
+
 CREATE TABLE IF NOT EXISTS alertas (
   clave TEXT PRIMARY KEY,             -- tipo:id:fecha (una por día)
   texto TEXT NOT NULL,

@@ -59,3 +59,18 @@ test('@menciones en acción: el chat sabe de quién hablás, la misión se vincu
   assert.deepEqual(con.run.pedido.incluir.map((e) => e.id), [proy])
   assert.match(vistos.at(-1)!, /• Corrupción Total \(proyecto\)/)
 })
+
+test('duplicados: mismo nombre o alias cruzado; «no son lo mismo» y sacar alias mal puestos', async () => {
+  const { duplicadosProbables, noSonLoMismo, quitarAliasCruzados } = await import('../src/entidades.ts')
+  const db = abrir(':memory:')
+  const v1 = asegurarEntidad(db, { tipo: 'lugar', nombre: 'Valencia', alias: ['València'] })
+  const v2 = asegurarEntidad(db, { tipo: 'lugar', nombre: 'València' })
+  const camila = asegurarEntidad(db, { tipo: 'persona', nombre: 'Camila', alias: ['España'] })
+  const espana = asegurarEntidad(db, { tipo: 'lugar', nombre: 'España' })
+  const gs = duplicadosProbables(db)
+  assert.equal(gs.length, 2)
+  assert.deepEqual(gs.find((g) => g.entidades.some((e) => e.id === v1))!.entidades.map((e) => e.id).sort(), [v1, v2].sort())
+  assert.equal(quitarAliasCruzados(db, [camila, espana]), 1)
+  noSonLoMismo(db, [v1, v2])
+  assert.equal(duplicadosProbables(db).length, 0)
+})

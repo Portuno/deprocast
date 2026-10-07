@@ -147,3 +147,75 @@ export function fusionarEntidades(db: Db, destino: number, origenes: number[]): 
   }
   return leerEntidad(db, destino)!
 }
+
+// ─── duplicados ─────────────────────────────────────────────────────────
+
+export type GrupoDuplicado = { entidades: Entidad[]; motivo: string; queda: number }
+
+const clave = (s: string) => normal(s).replace(/[^a-z0-9ñ ]+/g, ' ').replace(/\s+/g, ' ').trim()
+
+/**
+ * Entidades que parecen la misma: mismo nombre (sin tildes ni mayúsculas), o el nombre de una es alias de la otra.
+ * Propone que quede la más mencionada. Lo que él marcó como «no son lo mismo» no vuelve a aparecer.
+ */
+export function duplicadosProbables(db: Db, limite = 40): GrupoDuplicado[] {
+  const todas = listarEntidades(db, { limite: 100_000 })
+  const descartados = new Set((db.prepare('SELECT a, b FROM no_duplicados').all() as { a: number; b: number }[]).map((x) => `${Math.min(x.a, x.b)}-${Math.max(x.a, x.b)}`))
+  const padre = new Map<number, number>()
+  const raiz = (x: number): number => (padre.get(x) ?? x) === x ? x : raiz(padre.get(x)!)
+  const unir = (a: number, b: number) => {
+    if (descartados.has(`${Math.min(a, b)}-${Math.max(a, b)}`)) return
+    const ra = raiz(a), rb = raiz(b)
+    if (ra !== rb) padre.set(rb, ra)
+  }
+  const motivo = new Map<number, string>()
+  const porNombre = new Map<string, Entidad[]>()
+  for (const e of todas) {
+    const k = clave(e.nombre)
+    if (k.length < 3) continue
+    porNombre.set(k, [...(porNombre.get(k) ?? []), e])
+  }
+  for (const [, es] of porNombre) for (let i = 1; i < es.length; i++) { unir(es[0].id, es[i].id); motivo.set(es[i].id, 'mismo nombre') }
+  for (const e of todas) {
+    for (const a of e.alias) {
+      const otros = porNombre.get(clave(a)) ?? []
+      for (const o of otros) if (o.id !== e.id) { unir(e.id, o.id); motivo.set(o.id, `«${o.nombre}» es alias de «${e.nombre}»`) }
+    }
+  }
+  const grupos = new Map<number, Entidad[]>()
+  const conPadre = new Set(padre.values())
+  for (const e of todas) {
+    const r = raiz(e.id)
+    if (r === e.id && !padre.has(e.id) && !conPadre.has(e.id)) continue
+    grupos.set(r, [...(grupos.get(r) ?? []), e])
+  }
+  return [...grupos.values()].filter((g) => g.length > 1)
+    .map((g) => {
+      const orden = [...g].sort((a, b) => b.piezas - a.piezas)
+      return { entidades: orden, motivo: [...new Set(g.map((e) => motivo.get(e.id)).filter(Boolean))].join(' · ') || 'parecido', queda: orden[0].id }
+    })
+    .sort((a, b) => b.entidades.reduce((s, e) => s + e.piezas, 0) - a.entidades.reduce((s, e) => s + e.piezas, 0))
+    .slice(0, limite)
+}
+
+/** «No son lo mismo»: el par no vuelve a proponerse. */
+export function noSonLoMismo(db: Db, ids: number[]) {
+  const alta = db.prepare('INSERT OR IGNORE INTO no_duplicados (a, b) VALUES (?, ?)')
+  for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) alta.run(Math.min(ids[i], ids[j]), Math.max(ids[i], ids[j]))
+}
+
+/** Cuando el problema es un alias mal puesto («España» como alias de una persona): se lo saca, sin fusionar nada. */
+export function quitarAliasCruzados(db: Db, ids: number[]): number {
+  const es = ids.map((i) => leerEntidad(db, i)).filter((e): e is Entidad => !!e)
+  let quitados = 0
+  for (const e of es) {
+    const otros = new Set(es.filter((o) => o.id !== e.id).map((o) => clave(o.nombre)))
+    const quedan = e.alias.filter((a) => !otros.has(clave(a)))
+    if (quedan.length !== e.alias.length) {
+      quitados += e.alias.length - quedan.length
+      db.prepare('UPDATE entidades SET alias = ? WHERE id = ?').run(quedan.length ? JSON.stringify(quedan) : null, e.id)
+    }
+  }
+  noSonLoMismo(db, ids)
+  return quitados
+}

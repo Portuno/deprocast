@@ -25,7 +25,7 @@ import { asientos, especializacion } from '../auditor.ts'
 import { enEspera, leerTarea, pausarIngesta, publicar, reanudarIngesta, tareas } from '../bus.ts'
 import { asegurarFuente, buscar, esNivel, fuentes, leerPieza, listarPiezas, NIVELES, type Nivel, type Pieza } from '../corpus.ts'
 import { deshacer, listarCargas } from '../cargas/index.ts'
-import { coocurrencias, editarEntidad, entidadesPorId, fusionarEntidades, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from '../entidades.ts'
+import { coocurrencias, duplicadosProbables, editarEntidad, entidadesPorId, fusionarEntidades, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from '../entidades.ts'
 import { cronica, crearProyecto, estadoLiga, ingerir, numeroDeTick, tickUnico } from '../mastropiero.ts'
 import { tokensHoy, topeDiario, usoDelMes } from '../nan.ts'
 import {
@@ -644,6 +644,11 @@ export const HERRAMIENTAS: Herramienta[] = [
       ayudantes: a.primaria ? ayudantesDe(db, a.primaria).map((x) => ({ mision: x.mision.id, agente: x.agente?.id, clase: x.agente?.clase })) : undefined,
       aportes: aportes(db, { primariaId: a.primaria, limite: 8 }).map((x) => ({ id: x.id, de: x.autor, para: x.titulo, cuando: new Date(x.en).toLocaleString('es-AR'), texto: x.contenido.slice(0, 1200) })),
     }),
+  },
+  {
+    nombre: 'ver_duplicados', familia: 'lectura', descripcion: 'Entidades que parecen la misma (mismo nombre o una es alias de otra), con cuál convendría que quede. Para fusionarlas, fusionar_entidades con su ok.',
+    parametros: S({}),
+    ejecutar: (_, { db }) => duplicadosProbables(db, 20).map((g) => ({ motivo: g.motivo, queda: g.queda, entidades: g.entidades.map((e) => ({ id: e.id, nombre: e.nombre, tipo: e.tipo, piezas: e.piezas })) })),
   },
   {
     nombre: 'editar_entidad', familia: 'accion',

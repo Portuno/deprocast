@@ -408,6 +408,28 @@ Campos posibles:
 - excluir: lo que no quiere (texto corto); formato: cómo quiere ver las tareas (texto corto); subdescripcion: false si no quiere subdescripción.
 Forma: un objeto JSON con esos campos.`
 
+const PALABRAS_VACIAS = new Set(['tengo', 'quiero', 'una', 'un', 'de', 'en', 'y', 'con', 'run', 'para', 'hoy', 'ahora', 'me', 'dame', 'armame', 'arma', 'hace', 'hacé', 'la', 'el', 'las', 'los', 'que', 'sea', 'por', 'favor', 'bandas', 'tareas', 'misiones', 'minutos', 'min', 'horas', 'hora', 'h', 'media', 'cuarto'])
+
+/**
+ * Lo que se entiende sin modelo: duración («2 horas», «1h30», «90 minutos», «hora y media»), banda («bandas de 25»)
+ * y cantidad («10 bandas»). Si el texto no dice nada más, no hace falta llamar al modelo (ahorra 10 segundos).
+ */
+export function leerPedidoSimple(texto: string): PedidoRun | null {
+  let t = ` ${texto.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[.,;:!?]/g, ' ')} `
+  const out: PedidoRun = {}
+  const quitar = (re: RegExp, f: (m: RegExpExecArray) => void) => { const m = re.exec(t); if (m) { f(m); t = t.replace(m[0], ' ') } }
+  quitar(/\s(?:bandas?|tandas?|tramos?)\s+de\s+(\d{1,3})\s*(?:min(?:utos)?)?\s/, (m) => (out.banda = [Number(m[1])]))
+  quitar(/\s(\d{1,2})\s*h(?:oras?)?\s*(?:y\s*)?(\d{1,2})\s*(?:min(?:utos)?)?\s/, (m) => (out.duracion = Number(m[1]) * 60 + Number(m[2])))
+  if (out.duracion == null) quitar(/\s(\d{1,2})\s*(?:horas?|h)\s+y\s+media\s/, (m) => (out.duracion = Number(m[1]) * 60 + 30))
+  if (out.duracion == null) quitar(/\s(?:una\s+)?hora\s+y\s+media\s/, () => (out.duracion = 90))
+  if (out.duracion == null) quitar(/\s(\d{1,2})\s*(?:horas?|h)\s/, (m) => (out.duracion = Number(m[1]) * 60))
+  if (out.duracion == null) quitar(/\s(\d{2,3})\s*min(?:utos)?\s/, (m) => (out.duracion = Number(m[1])))
+  if (out.duracion == null) quitar(/\suna\s+hora\s/, () => (out.duracion = 60))
+  quitar(/\s(\d{1,2})\s+(?:bandas|tareas|misiones)\s/, (m) => (out.cantidad = Number(m[1])))
+  const resto = t.split(/\s+/).filter((w) => w && !PALABRAS_VACIAS.has(w) && !/^\d+$/.test(w))
+  return resto.length || !Object.keys(out).length ? null : out
+}
+
 /** Plantilla + campos + lo que dice en palabras (lo dicho manda). Las entidades nuevas se crean al vuelo. */
 export async function resolverPedido(db: Db, p: PedidoRun, ahora = Date.now()): Promise<PedidoResuelto> {
   const plantilla = plantillaDe(db, p.plantilla)
@@ -416,8 +438,12 @@ export async function resolverPedido(db: Db, p: PedidoRun, ahora = Date.now()): 
   const propios = definido({ ...p, incluir: undefined, plantilla: undefined })
   let leido: PedidoRun = {}
   if (p.texto?.trim()) {
-    const { datos } = await pedirJson<PedidoRun>({ db, clase: 'mastropiero', agenteId: 'run-pedido' }, SISTEMA_PEDIDO, p.texto.trim(), { temperatura: 0.1, maxTokens: 800 })
-    leido = definido({ ...datos, texto: undefined, plantilla: undefined }) as PedidoRun
+    const simple = leerPedidoSimple(p.texto)
+    if (simple) leido = simple
+    else {
+      const { datos } = await pedirJson<PedidoRun>({ db, clase: 'mastropiero', agenteId: 'run-pedido' }, SISTEMA_PEDIDO, p.texto.trim(), { temperatura: 0.1, maxTokens: 800 })
+      leido = definido({ ...datos, texto: undefined, plantilla: undefined }) as PedidoRun
+    }
   }
   const r: PedidoRun = { ...base, ...propios, ...leido }
   // Si cambió el largo o la banda y nadie dijo cuántas, la cantidad sale de la cuenta (o la decide el modelo, si es libre).
@@ -649,15 +675,32 @@ function guardarSecundarias(db: Db, runId: number, xs: (Propuesta & { inicio: st
  * Prepara una run a pedido: interpreta, reúne contexto (con los agentes que sirvan), genera y programa.
  * Devuelve una propuesta: se puede rehacer cuantas veces quiera antes de arrancarla.
  */
+/** En qué paso va la run que se está armando (para que la pantalla lo diga mientras espera). */
+let pasoRun: { paso: string; desde: number } | null = null
+export const pasoDeRun = () => pasoRun
+
 export async function prepararRun(db: Db, pedido: PedidoRun, o: { ahora?: number; conAgentes?: boolean } = {}): Promise<{ run: Run; misiones: Mision[]; avisos: string[] }> {
+  try {
+    return await prepararRunPasos(db, pedido, o)
+  } finally {
+    pasoRun = null
+  }
+}
+
+async function prepararRunPasos(db: Db, pedido: PedidoRun, o: { ahora?: number; conAgentes?: boolean }): Promise<{ run: Run; misiones: Mision[]; avisos: string[] }> {
+  const paso = (p: string) => (pasoRun = { paso: p, desde: Date.now() })
+  paso('entendiendo tu pedido')
   const ahora = o.ahora ?? Date.now()
   if (pedido.fecha && !/^\d{4}-\d{2}-\d{2}$/.test(pedido.fecha)) throw new Error('Fecha inválida (YYYY-MM-DD)')
   if (pedido.fecha && pedido.fecha < fechaLocal(ahora)) throw new Error('Esa fecha ya pasó')
   const fecha = pedido.fecha || fechaLocal(ahora)
   const p = await resolverPedido(db, pedido, ahora)
+  paso('mirando tu agenda')
   const { eventos, avisos } = await agendaDelDia(fecha)
   const fijos = eventosOcupados(eventos, fecha).filter((e) => aMin(e.inicio) < aMin(p.fin) && aMin(e.fin) > aMin(p.inicio))
+  paso(p.incluir.length ? 'consultando a la liga sobre lo que pediste' : 'juntando tu contexto')
   const ctx = await reunirContexto(db, p.incluir, ahora, { conAgentes: o.conAgentes })
+  paso('armando las bandas')
   // Una propuesta anterior de hoy sin arrancar queda descartada: la nueva la reemplaza.
   for (const r of listarRuns(db, { fecha, estados: ['propuesta'] })) descartarRun(db, r.id, ahora)
   const g = await generar(db, fecha, p, { desde: aMin(p.inicio), ocupado: fijos.map((f) => [aMin(f.inicio), aMin(f.fin)]), conservadas: [], contexto: ctx.texto, cantidad: p.cantidad ?? null, ahora })
@@ -1013,13 +1056,16 @@ export async function procesarJugador(db: Db, o: { ahora?: number } = {}): Promi
     `\nInventario que ya tiene (no lo repitas):\n${inventarioParaPrompt(db, 'jugador', 60) || '- nada'}`,
   ].filter(Boolean).join('\n')
   if (!memoria && !propias.length) throw new Error('Todavía no sé nada de vos: contale cosas a Mastropiero o cargá material propio, y después procesamos')
-  const [ficha, primarias] = await Promise.all([
-    pedirJson<{ historia?: { texto?: string; elementos?: string[] }; inventario?: any[]; principales?: any[] }>({ db, clase: 'mastropiero', agenteId: 'procesar' }, SISTEMA_PROCESAR, usuario, { temperatura: 0.4, maxTokens: 5000 }),
+  // Dos llamadas chicas en paralelo (historia y principales por un lado, inventario por otro): la mitad del tiempo.
+  const soloEsto = (que: string) => `${SISTEMA_PROCESAR}\nEn esta pasada devolvé SOLO ${que} (el resto, vacío).`
+  const [parteA, parteB, primarias] = await Promise.all([
+    pedirJson<{ historia?: { texto?: string; elementos?: string[] }; principales?: any[] }>({ db, clase: 'mastropiero', agenteId: 'procesar' }, soloEsto('«historia» y «principales»'), usuario, { temperatura: 0.4, maxTokens: 3000 }),
+    pedirJson<{ inventario?: any[] }>({ db, clase: 'mastropiero', agenteId: 'procesar' }, soloEsto('«inventario»'), usuario, { temperatura: 0.3, maxTokens: 3000 }),
     principalDe(db, 'jugador') || listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana: semanaDe(ahora), estados: ['activa'] }).length
       ? Promise.resolve([] as Mision[])
       : proponerPrimarias(db, semanaDe(ahora), { ahora }).catch(() => [] as Mision[]),
   ])
-  const d = ficha.datos
+  const d = { historia: parteA.datos.historia, principales: parteA.datos.principales, inventario: parteB.datos.inventario }
   let historia = false
   if (d.historia?.texto?.trim()) {
     escribirHistoria(db, 'jugador', { texto: d.historia.texto, elementos: d.historia.elementos ?? [] }, { sugerida: true, ahora })

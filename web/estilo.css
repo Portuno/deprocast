@@ -799,6 +799,10 @@ pre.json { background: var(--panel-2); border-radius: 8px; padding: 12px; font: 
 .momento p { margin: 2px 0 0; color: var(--tenue); font-size: 12.5px; line-height: 1.45; }
 .momento.voz b { color: var(--acento-texto); }
 
+.dup { border: 1px solid var(--linea); border-radius: 9px; padding: 8px 10px; margin: 8px 0; display: grid; gap: 4px; }
+.dup > small { color: var(--debil); font: 11px var(--mono); }
+.dup label { font-size: 13.5px; }
+
 /* ─── Radar ─── */
 .radar-buscar { margin-bottom: 18px; }
 .radar-buscar .fila .campo-suelto { margin: 0; }

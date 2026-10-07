@@ -526,12 +526,14 @@ let entLista = { total: 0, entidades: [] }
 
 function montarEntidades() {
   $('#principal').innerHTML = `
-    <div class="titulo"><h1>Entidades</h1><p>Personas, proyectos, agrupaciones, dominios, lugares y conceptos que aparecen en el corpus, ordenados por cuántas piezas los mencionan.</p></div>
+    <div class="titulo"><h1>Entidades</h1><p>Personas, proyectos, agrupaciones, dominios, lugares y conceptos que aparecen en el corpus, ordenados por cuántas piezas los mencionan.</p>
+      <div class="fila"><button class="btn" id="ent-duplicados" title="Entidades que parecen la misma">Duplicados</button></div></div>
     <div class="chips" id="ent-tipos"></div>
     <div class="corpus-barra"><input class="campo-suelto" id="ent-q" placeholder="Buscar por nombre o alias…" value="${esc(filtroEnt.q)}"></div>
     <div class="ent-grid"><section><div id="ent-cuenta" class="cuenta"></div><div id="ent-lista"></div><div id="ent-mas"></div></section><aside class="ent-detalle" id="ent-detalle"></aside></div>`
   let espera
   $('#ent-q').oninput = (e) => { clearTimeout(espera); espera = setTimeout(() => { filtroEnt.q = e.target.value; traerEntidades() }, 250) }
+  $('#ent-duplicados').onclick = modalDuplicados
   refrescarEntidades()
   traerEntidades()
   if (filtroEnt.sel) verEntidad(filtroEnt.sel)
@@ -566,6 +568,29 @@ async function traerEntidades(mas = false) {
     $('#ent-mas').innerHTML = entLista.entidades.length < entLista.total ? `<button class="btn" id="ent-mas-btn" style="width:100%;margin-top:8px">Ver más</button>` : ''
     const m = $('#ent-mas-btn')
     if (m) m.onclick = () => traerEntidades(true)
+  } catch (e) { error(e) }
+}
+
+async function modalDuplicados() {
+  try {
+    const gs = await api('/duplicados')
+    abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Duplicados probables</h2>
+      <p class="tenue">Entidades que parecen la misma. Elegí cuál queda: absorbe las piezas, misiones, alias y notas de las otras.</p>
+      ${gs.length ? gs.map((g, i) => `<div class="dup" data-dup="${i}"><small>${esc(g.motivo)}</small>
+        ${g.entidades.map((e) => `<label class="fila"><input type="radio" name="dup-${i}" value="${e.id}" ${e.id === g.queda ? 'checked' : ''}> ${TIPO_ENT[e.tipo]?.glifo ?? ''} <b>${esc(e.nombre)}</b> <span class="tenue">${esc(e.tipo)} · ${e.piezas} piezas</span></label>`).join('')}
+        <div class="fila"><button class="btn btn-chico btn-primario" data-fusionar>Fusionar</button>${/alias/.test(g.motivo) ? '<button class="btn btn-chico" data-alias title="El problema es un alias mal puesto: se saca y no se fusiona nada">Sacar los alias cruzados</button>' : ''}<button class="btn btn-chico" data-no>No son lo mismo</button></div></div>`).join('')
+        : '<p>No encontré duplicados.</p>'}`)
+    $$('#modal [data-dup]').forEach((el) => {
+      const g = gs[Number(el.dataset.dup)]
+      const ids = g.entidades.map((e) => e.id)
+      el.querySelector('[data-fusionar]').onclick = async () => {
+        const queda = Number(el.querySelector('input:checked').value)
+        try { await api(`/entidades/${queda}/fusionar`, { absorbe: ids.filter((x) => x !== queda) }); el.remove(); toast('Fusionadas', 'suave'); traerEntidades() } catch (e) { error(e) }
+      }
+      el.querySelector('[data-no]').onclick = async () => { try { await api('/duplicados/no', { ids }); el.remove() } catch (e) { error(e) } }
+      const al = el.querySelector('[data-alias]')
+      if (al) al.onclick = async () => { try { const r = await api('/duplicados/alias', { ids }); toast(`${r.quitados} alias sacados`, 'suave'); el.remove(); traerEntidades() } catch (e) { error(e) } }
+    })
   } catch (e) { error(e) }
 }
 

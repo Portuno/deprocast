@@ -12,7 +12,7 @@ import { leerJornada, progreso, semana } from './jornada.ts'
 import {
   actualizarMision, anotarSideQuest, arrancarRun, asignarMision, borrarPlantilla, cerrarRun, conAvance, crearMision, descartarRun, enCurso, guardarPlantilla,
   latidoRuns, leerRun, listarMisiones, listarPlantillas, listarReportes, listarRuns, marcarSecundaria, misionesDeRun, principalDe, procesarJugador,
-  proponerPrimarias, rehacerRun, reporteSemana, runActual, semanaDe, semanaVecina, seguimientos, prepararRun, diasDeSemana, asegurarPrincipal,
+  proponerPrimarias, rehacerRun, reporteSemana, runActual, semanaDe, semanaVecina, seguimientos, prepararRun, diasDeSemana, asegurarPrincipal, pasoDeRun,
 } from './misiones.ts'
 import { catalogo } from './menciones.ts'
 import { pensar } from './alertas.ts'
@@ -30,7 +30,7 @@ import { asientos, especializacion } from './auditor.ts'
 import { enEspera, leerTarea, pausarIngesta, publicar, reanudarIngesta, tareas } from './bus.ts'
 import { asegurarFuente, fuentes, leerPieza, listarPiezas, NIVELES, TIPOS } from './corpus.ts'
 import { deshacer, descartar, ejecutar as ejecutarCarga, IMPORTADORES, leerCarga, listarCargas, reetiquetar, subir } from './cargas/index.ts'
-import { contarEntidades, coocurrencias, editarEntidad, entidadesPorId, fusionarEntidades, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from './entidades.ts'
+import { contarEntidades, coocurrencias, duplicadosProbables, editarEntidad, entidadesPorId, fusionarEntidades, noSonLoMismo, quitarAliasCruzados, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from './entidades.ts'
 import {
   archivarConversacion, conversacionHoy, crearConversacion, enviar, estadoEnVivo, estaPensando, leerConversacion, listarConversaciones, listarPropuestas, mensajeDeMastropiero, mensajes, resolverPropuesta,
 } from './chat/index.ts'
@@ -264,6 +264,7 @@ const rutas: [string, RegExp, Ruta][] = [
     if (!run) throw new Error(`No existe la run ${r}`)
     return { ...run, misiones: misionesDeRun(db, run.id), reportes: listarReportes(db, { runId: run.id }) }
   }],
+  ['GET', /^\/api\/runs\/preparando$/, () => pasoDeRun()],
   ['POST', /^\/api\/runs\/preparar$/, async (b) => prepararRun(db, b.pedido ?? b)],
   ['POST', /^\/api\/runs\/(\d+)\/rehacer$/, async (b, [r]) => rehacerRun(db, id(r), String(b.cambio ?? '') || null)],
   ['POST', /^\/api\/runs\/(\d+)\/arrancar$/, (_, [r]) => arrancarRun(db, id(r))],
@@ -411,6 +412,9 @@ const rutas: [string, RegExp, Ruta][] = [
     const f = { tipo: q.get('tipo') || undefined, q: q.get('q') || undefined }
     return { total: contarEntidades(db, f), entidades: listarEntidades(db, { ...f, limite: num(q.get('limite')), desde: num(q.get('desde')) }) }
   }],
+  ['GET', /^\/api\/duplicados$/, () => duplicadosProbables(db)],
+  ['POST', /^\/api\/duplicados\/alias$/, (b) => ({ quitados: quitarAliasCruzados(db, (b.ids ?? []).map(Number)) })],
+  ['POST', /^\/api\/duplicados\/no$/, (b) => (noSonLoMismo(db, (b.ids ?? []).map(Number)), { ok: true })],
   ['GET', /^\/api\/entidades\/(\d+)$/, (_, [e], q) => {
     const entidad = leerEntidad(db, id(e))
     if (!entidad) throw new Error(`No existe la entidad ${e}`)

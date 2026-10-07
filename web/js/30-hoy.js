@@ -456,8 +456,13 @@ function modalRun(pre = {}) {
     if (!$('#r-sub').checked) p.subdescripcion = false
     return p
   }
-  $('#r-armar').onclick = () => trabajando($('#r-armar'), 'Armando… (Mastropiero y la liga)', async () => {
-    const r = await api('/runs/preparar', { pedido: pedido() })
+  $('#r-armar').onclick = () => trabajando($('#r-armar'), 'Armando…', async () => {
+    // Mientras espera, el botón dice en qué paso va.
+    const reloj = setInterval(async () => {
+      try { const p = await api('/runs/preparando'); const b = $('#r-armar'); if (p && b) b.textContent = `${p.paso[0].toUpperCase()}${p.paso.slice(1)}…` } catch { /* sigue */ }
+    }, 1200)
+    let r
+    try { r = await api('/runs/preparar', { pedido: pedido() }) } finally { clearInterval(reloj) }
     cerrarModal()
     if (r.avisos?.length) toast(esc(r.avisos.join(' ')), 'suave')
     if (r.run.agentes?.length) toast(`La armé con ${esc(r.run.agentes.map((a) => a.nombre).join(', '))}`, 'suave')
