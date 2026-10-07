@@ -8,6 +8,7 @@ const VISTAS = {
   directo: { montar: montarDirecto, refrescar: refrescarDirecto },
   radar: { montar: montarRadar, refrescar: refrescarRadar },
   taller: { montar: montarTaller, refrescar: refrescarTaller },
+  cuentas: { montar: montarCuentas, refrescar: refrescarCuentas },
   chat: { montar: montarChat, refrescar: () => pintarLado() },
   entidades: { montar: montarEntidades, refrescar: refrescarEntidades },
   liga: { montar: montarLiga, refrescar: refrescarLiga },

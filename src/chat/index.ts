@@ -56,9 +56,18 @@ export function conversacionHoy(db: Db): Conversacion {
   return r ? conv(r) : crearConversacion(db, MASTROPIERO, 'hoy')
 }
 
+/** Quienes escuchan lo que Mastropiero dice por su cuenta (por ejemplo, el canal de Telegram). */
+const oyentes: ((texto: string) => void)[] = []
+export function alDecirSolo(f: (texto: string) => void) {
+  oyentes.push(f)
+}
+
 /** Un mensaje que Mastropiero deja por su cuenta (rutinas), sin que nadie le haya hablado. */
 export function mensajeDeMastropiero(db: Db, cid: number, texto: string) {
   guardar(db, cid, { rol: 'asistente', texto, modelo: 'rutina' })
+  for (const f of oyentes) {
+    try { f(texto) } catch { /* un canal caído no frena nada */ }
+  }
 }
 
 export function leerConversacion(db: Db, id: number): Conversacion | null {

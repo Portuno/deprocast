@@ -453,6 +453,30 @@ CREATE TABLE IF NOT EXISTS artefactos (
   creado_en INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS cuentas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  red TEXT NOT NULL,                  -- Instagram, X, Telegram, WhatsApp…
+  usuario TEXT NOT NULL,
+  modo TEXT NOT NULL,                 -- lectura | redacta | libre
+  conector TEXT,                      -- manual | telegram_canal
+  reglas TEXT,                        -- JSON: temas, tono, horas, topeDia, chatId
+  activa INTEGER NOT NULL DEFAULT 1,
+  creada_en INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS publicaciones (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  cuenta_id INTEGER NOT NULL,
+  texto TEXT NOT NULL,
+  estado TEXT NOT NULL,               -- borrador | aprobada | publicada | descartada | fallo
+  programada_para INTEGER,
+  publicada_en INTEGER,
+  url TEXT,
+  origen TEXT NOT NULL,               -- mastropiero | operador | radar
+  error TEXT,
+  creada_en INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS alertas (
   clave TEXT PRIMARY KEY,             -- tipo:id:fecha (una por día)
   texto TEXT NOT NULL,

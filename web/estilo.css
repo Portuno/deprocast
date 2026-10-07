@@ -803,6 +803,17 @@ pre.json { background: var(--panel-2); border-radius: 8px; padding: 12px; font: 
 .dup > small { color: var(--debil); font: 11px var(--mono); }
 .dup label { font-size: 13.5px; }
 
+/* ─── Cuentas ─── */
+.cuenta { margin-bottom: 12px; }
+.cuenta .campo-suelto { width: 180px; margin: 0; }
+.pubs { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; margin-top: 10px; }
+.pub { border: 1px solid var(--linea); border-radius: 8px; padding: 8px 10px; }
+.pub.borrador { border-style: dashed; }
+.pub.publicada { opacity: .6; }
+.pub.fallo { border-color: var(--mal); }
+.pub small { font: 10.5px var(--mono); color: var(--debil); }
+.pub p { margin: 4px 0 6px; white-space: pre-wrap; font-size: 13.5px; }
+
 /* ─── Taller ─── */
 .taller-crear { margin-bottom: 18px; display: grid; gap: 8px; }
 .taller-crear textarea { width: 100%; margin: 0; }

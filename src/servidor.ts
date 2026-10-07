@@ -16,6 +16,8 @@ import {
 } from './misiones.ts'
 import { catalogo } from './menciones.ts'
 import { pensar } from './alertas.ts'
+import { CONECTORES, guardarCuenta, listarCuentas, listarPublicaciones, MODOS, publicarPendientes, redactarPublicaciones, resolverPublicacion } from './cuentas.ts'
+import { decir as decirPorTelegram, escucharTelegram, telegramConfigurado } from './telegram.ts'
 import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, hayFfmpeg, iterarArtefacto, listarArtefactos, VOCES } from './taller.ts'
 import { buscarOportunidades, listarOportunidades, marcarOportunidad, redactarOportunidad } from './radar.ts'
 import { cuotas, hayBuscadorWeb } from './web.ts'
@@ -33,7 +35,7 @@ import { asegurarFuente, fuentes, leerPieza, listarPiezas, NIVELES, TIPOS } from
 import { deshacer, descartar, ejecutar as ejecutarCarga, IMPORTADORES, leerCarga, listarCargas, reetiquetar, subir } from './cargas/index.ts'
 import { contarEntidades, coocurrencias, duplicadosProbables, editarEntidad, entidadesPorId, fusionarEntidades, noSonLoMismo, quitarAliasCruzados, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from './entidades.ts'
 import {
-  archivarConversacion, conversacionHoy, crearConversacion, enviar, estadoEnVivo, estaPensando, leerConversacion, listarConversaciones, listarPropuestas, mensajeDeMastropiero, mensajes, resolverPropuesta,
+  alDecirSolo, archivarConversacion, conversacionHoy, crearConversacion, enviar, estadoEnVivo, estaPensando, leerConversacion, listarConversaciones, listarPropuestas, mensajeDeMastropiero, mensajes, resolverPropuesta,
 } from './chat/index.ts'
 import { celda, DOMINIOS } from './geometria72.ts'
 import { crearProyecto, cronica, estadoLiga, ingerir, numeroDeTick, tickEnCurso, tickUnico } from './mastropiero.ts'
@@ -353,6 +355,10 @@ const rutas: [string, RegExp, Ruta][] = [
     if (r.informe) mensajeDeMastropiero(db, conversacionHoy(db).id, `Cerré el Directo. ${r.informe}`)
     return r
   }],
+  ['GET', /^\/api\/cuentas$/, () => ({ cuentas: listarCuentas(db), publicaciones: listarPublicaciones(db, { limite: 200 }), modos: MODOS, conectores: CONECTORES, telegram: telegramConfigurado() })],
+  ['POST', /^\/api\/cuentas$/, (b) => guardarCuenta(db, { id: b.id ? Number(b.id) : undefined, red: b.red, usuario: b.usuario, modo: b.modo, conector: b.conector, reglas: b.reglas, activa: b.activa })],
+  ['POST', /^\/api\/cuentas\/(\d+)\/redactar$/, async (b, [c]) => redactarPublicaciones(db, id(c), { n: Number(b.n) || 3, tema: b.tema || null })],
+  ['POST', /^\/api\/publicaciones\/(\d+)$/, (b, [p]) => resolverPublicacion(db, id(p), { accion: b.accion, texto: b.texto, cuando: b.cuando ? Number(b.cuando) : null, url: b.url || null })],
   ['GET', /^\/api\/taller$/, () => ({ artefactos: listarArtefactos(db, { limite: 80 }), voces: VOCES, ffmpeg: hayFfmpeg() })],
   // Crear corre en segundo plano (un video tarda minutos): la pantalla ve el avance en la lista.
   ['POST', /^\/api\/taller$/, (b) => {
@@ -604,6 +610,19 @@ async function latidoPensar() {
 }
 setInterval(latidoPensar, 15 * 60_000).unref()
 setTimeout(latidoPensar, 60_000).unref()
+
+// Las cuentas: lo aprobado se publica en su horario (solo con conector; «redacta» solo lo que él aprobó).
+setInterval(async () => {
+  try {
+    for (const p of await publicarPendientes(db)) if (p.estado === 'fallo') mensajeDeMastropiero(db, conversacionHoy(db).id, `No pude publicar: ${p.error}`)
+  } catch (e) { console.error('  cuentas:', e instanceof Error ? e.message : e) }
+}, 5 * 60_000).unref()
+
+// Telegram: si hay bot, escucha; y lo que Mastropiero dice solo también sale por ahí.
+if (telegramConfigurado()) {
+  escucharTelegram(db)
+  alDecirSolo((texto) => void decirPorTelegram(texto).catch(() => {}))
+}
 
 // Las runs las arranca él: su latido (reporte por hora, cierre de la run vencida) corre aunque las rutinas estén apagadas.
 let enRuns = false

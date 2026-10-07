@@ -17,6 +17,7 @@ import {
 import { aportes, ayudantesDe, CLASES_AYUDANTE, pedirAportes, quitarAyudante, sumarAyudante } from '../ayudantes.ts'
 import { encolarPregunta, listarPreguntas } from '../preguntas.ts'
 import { curva, prediccionesDe } from '../gemelo.ts'
+import { listarCuentas, listarPublicaciones, redactarPublicaciones } from '../cuentas.ts'
 import { crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, iterarArtefacto, listarArtefactos, VOCES } from '../taller.ts'
 import { buscarOportunidades, listarOportunidades, redactarOportunidad } from '../radar.ts'
 import { buscarWeb, hayBuscadorWeb, leerPagina } from '../web.ts'
@@ -756,6 +757,17 @@ export const HERRAMIENTAS: Herramienta[] = [
     nombre: 'ver_taller', familia: 'lectura', descripcion: 'Lo que hay en el Taller (juegos, imágenes, voces, personajes, videos) y en qué estado.',
     parametros: S({}),
     ejecutar: (_, { db }) => listarArtefactos(db, { limite: 30 }).map((x) => ({ id: x.id, tipo: x.tipo, titulo: x.titulo, version: x.version, estado: x.estado, progreso: x.progreso ?? undefined })),
+  },
+  {
+    nombre: 'ver_cuentas', familia: 'lectura', descripcion: 'Sus cuentas (red, usuario, modo: lectura, redacta o libre) y las publicaciones en cola o publicadas.',
+    parametros: S({}),
+    ejecutar: (_, { db }) => ({ cuentas: listarCuentas(db).map((c) => ({ id: c.id, red: c.red, usuario: c.usuario, modo: c.modo, conector: c.conector })), cola: listarPublicaciones(db, { estados: ['borrador', 'aprobada'], limite: 20 }).map((p) => ({ id: p.id, cuenta: p.cuentaId, estado: p.estado, texto: recorte(p.texto, 200) })) }),
+  },
+  {
+    nombre: 'redactar_publicaciones', familia: 'accion', descripcion: 'Redacta publicaciones en su voz para una de sus cuentas. En modo «redacta» quedan como borrador para su ok; en «libre» se programan solas. Nunca en cuentas de lectura.',
+    parametros: S({ cuenta: int('id de la cuenta'), n: int('Cuántas (1-5)'), tema: str('Sobre qué, si lo dijo') }, ['cuenta']),
+    ejecutar: async (a, { db }) => (await redactarPublicaciones(db, a.cuenta, { n: Math.min(a.n ?? 3, 5), tema: a.tema })).map((p) => ({ id: p.id, estado: p.estado, texto: p.texto })),
+    resumen: (_, r) => `redactó ${Array.isArray(r) ? r.length : 0} publicaciones`,
   },
   {
     nombre: 'ver_respuestas', familia: 'lectura', descripcion: 'Lo que ya le preguntaste al jugador y lo que contestó (o salteó).',
