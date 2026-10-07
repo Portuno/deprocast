@@ -27,6 +27,8 @@ const filtro = { clase: null, estado: null }
 const forja = { clase: null, reparto: {}, motor: '', instrucciones: '', proyectoId: '', celda: null }
 const mision = { clase: 'buscador', proyectoId: '' }
 
+/** Las vistas de la maquinaria de la liga: van agrupadas y plegadas en el menú, con su HUD propio. */
+const VISTAS_MAQUINA = new Set(['liga', 'forja', 'encargos', 'matriz', 'cementerio'])
 const claseDe = (id) => META.clases.find((c) => c.id === id)
 const colorDe = (id) => `var(--${id})`
 const ESTADOS_CORPUS = ['crudo', 'extraido', 'clasificado', 'disponible']
@@ -107,14 +109,18 @@ function renderHud() {
   const t = Object.fromEntries(E.liga.tareas.map((x) => [x.estado, x.n]))
   const tokens = E.uso.reduce((s, u) => s + u.tokens, 0)
   const stat = (k, v, extra = '') => `<div class="stat"><small>${k}</small><b>${v}</b>${extra ? `<em>${extra}</em>` : ''}</div>`
+  // Lo tuyo siempre; las cifras de la liga solo cuando estás en la máquina.
+  const maquina = VISTAS_MAQUINA.has(vista)
   $('#hud').innerHTML = [
-    stat('Hoy', E.hoy.total ? `${E.hoy.hechos}/${E.hoy.total}` : '—', E.hoy.run?.estado === 'en_curso' ? 'run en curso' : E.hoy.total ? 'bandas' : 'sin run'),
+    stat('Hoy', E.hoy.total ? `${E.hoy.hechos}/${E.hoy.total}` : '—', E.hoy.run?.estado === 'en_curso' ? 'run en curso' : E.hoy.run?.estado === 'propuesta' ? 'run propuesta' : E.hoy.total ? 'bandas' : 'sin run'),
     stat('Memoria', E.memoriaSinRevisar || '✓', E.memoriaSinRevisar ? 'por revisar' : 'al día'),
-    stat('Roster', r.length, `${cuenta('activo')} act · ${cuenta('prueba')} prueba`),
-    stat('Bus', t.pendiente ?? 0, `pend · ${t.hecha ?? 0} hechas`),
-    stat('NaN este mes', fmtTokens(tokens), 'tokens'),
+    ...(maquina ? [
+      stat('Roster', r.length, `${cuenta('activo')} act · ${cuenta('prueba')} prueba`),
+      stat('Bus', t.pendiente ?? 0, `pend · ${t.hecha ?? 0} hechas${E.enEspera ? ` · ${fmtTokens(E.enEspera)} en espera` : ''}`),
+      stat('Tick', E.nTick),
+    ] : []),
     stat('Gasto hoy', fmtTokens(E.gasto.total), E.gasto.tope ? `liga ${fmtTokens(E.gasto.liga)} de ${fmtTokens(E.gasto.tope)}` : 'sin tope'),
-    stat('Tick', E.nTick),
+    stat('NaN este mes', fmtTokens(tokens), 'tokens'),
   ].join('')
 }
 

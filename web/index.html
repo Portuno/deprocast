@@ -19,8 +19,8 @@
     <div class="hud-stats" id="hud"></div>
     <div class="hud-acciones">
       <button class="btn btn-directo" id="btn-directo" title="Prender el Directo: Mastropiero ve tu pantalla y te escucha">● Directo</button>
-      <button class="btn btn-tick" id="btn-tick" title="Purga → reparte → corre (barra espaciadora)">▶ Tick</button>
-      <button class="btn btn-auto" id="btn-auto" title="Ticks automáticos">Auto</button>
+      <button class="btn btn-tick solo-maquina" id="btn-tick" title="Purga → reparte → corre (barra espaciadora)">▶ Tick</button>
+      <button class="btn btn-auto solo-maquina" id="btn-auto" title="Ticks automáticos">Auto</button>
       <button class="btn btn-icono" id="btn-cronica" title="Mostrar u ocultar la crónica (los eventos de la liga)">☰</button>
       <button class="btn btn-icono" id="btn-tema" title="Tema claro u oscuro">◐</button>
     </div>
@@ -32,17 +32,19 @@
     <button data-vista="hoy" class="activo"><i>☀</i><span>Hoy</span></button>
     <button data-vista="chat"><i>☿</i><span>Chat</span></button>
     <button data-vista="misiones"><i>⚔</i><span>Misiones</span></button>
-    <button data-vista="jugador"><i>◉</i><span>Jugador</span></button>
     <button data-vista="directo"><i>◎</i><span>Directo</span></button>
-    <small>Liga</small>
-    <button data-vista="liga"><i>♛</i><span>Roster</span></button>
-    <button data-vista="forja"><i>⚒</i><span>Forja</span></button>
-    <button data-vista="encargos"><i>⇄</i><span>Encargos</span></button>
-    <button data-vista="matriz"><i>⬡</i><span>Matriz 72</span></button>
-    <button data-vista="cementerio"><i>✝</i><span>Cementerio</span></button>
+    <button data-vista="jugador"><i>◉</i><span>Jugador</span></button>
     <small>Saber</small>
     <button data-vista="corpus"><i>❦</i><span>Corpus</span></button>
     <button data-vista="entidades"><i>⚇</i><span>Entidades</span></button>
+    <button class="nav-grupo" id="nav-maquina" title="La liga de agentes por dentro"><i>⚙</i><span>La máquina</span><em>▸</em></button>
+    <div class="nav-sub" id="nav-sub-maquina">
+      <button data-vista="liga"><i>♛</i><span>Roster</span></button>
+      <button data-vista="forja"><i>⚒</i><span>Forja</span></button>
+      <button data-vista="encargos"><i>⇄</i><span>Encargos</span></button>
+      <button data-vista="matriz"><i>⬡</i><span>Matriz 72</span></button>
+      <button data-vista="cementerio"><i>✝</i><span>Cementerio</span></button>
+    </div>
   </nav>
 
   <main class="principal" id="principal"></main>

@@ -97,6 +97,12 @@ body.sin-cronica { grid-template-columns: var(--nav-ancho) minmax(0, 1fr) 0; }
 body.nav-mini { --nav-ancho: 56px; }
 body.nav-mini .nav button span, body.nav-mini .nav small { display: none; }
 body.nav-mini .nav button { justify-content: center; }
+.nav-grupo { margin-top: 14px; }
+.nav-grupo em { margin-left: auto; font-style: normal; color: var(--debil); font-size: 11px; }
+.nav-sub { display: none; flex-direction: column; gap: 1px; padding-left: 8px; border-left: 1px solid var(--linea); margin-left: 8px; }
+.nav-sub.abierta { display: flex; }
+body.nav-mini .nav-sub { padding-left: 0; margin-left: 0; border-left: 0; }
+body:not(.en-maquina) .solo-maquina { display: none; }
 .nav-plegar { align-self: flex-end; border: 0; background: none; color: var(--debil); cursor: pointer; font-size: 15px; padding: 0 6px; line-height: 1; }
 .nav-plegar:hover { color: var(--texto); }
 body.nav-mini .nav-plegar { align-self: center; }

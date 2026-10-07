@@ -19,11 +19,25 @@ const VISTAS = {
 
 function irA(v) {
   vista = v
+  const enMaquina = VISTAS_MAQUINA.has(v)
+  document.body.classList.toggle('en-maquina', enMaquina)
+  if (enMaquina) abrirMaquina(true)
+  if (E) renderHud()
   $('#principal').classList.toggle('lleno', v === 'chat' || v === 'hoy')
   aplicarCronica()
   $$('#nav button').forEach((b) => b.classList.toggle('activo', b.dataset.vista === (v === 'quantomos' ? 'corpus' : v)))
   VISTAS[v].montar()
   $('#principal').scrollTop = 0
+}
+/** El grupo «La máquina»: plegado por defecto; se abre solo si entrás a una de sus vistas. */
+function abrirMaquina(abierta) {
+  $('#nav-sub-maquina').classList.toggle('abierta', abierta)
+  $('#nav-maquina em').textContent = abierta ? '▾' : '▸'
+}
+$('#nav-maquina').onclick = () => {
+  const abierta = !$('#nav-sub-maquina').classList.contains('abierta')
+  abrirMaquina(abierta)
+  pref.guardar('mastro-maquina', abierta ? 'si' : 'no')
 }
 $('#nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-vista]')
@@ -87,8 +101,10 @@ function aplicarNav() {
 $('#nav-plegar').onclick = () => { navMini = !navMini; pref.guardar('mastro-nav-mini', navMini ? 'si' : 'no'); aplicarNav() }
 $('#cronica-cerrar').onclick = () => { cronicaVisible = false; pref.guardar('mastro-cronica', 'no'); aplicarCronica() }
 aplicarNav()
+abrirMaquina(pref.leer('mastro-maquina', 'no') === 'si')
 function aplicarCronica() {
-  const ver = cronicaVisible && vista !== 'chat' && vista !== 'hoy'
+  // La crónica es de la liga: se ve en la máquina (si la querés), no en tus vistas.
+  const ver = cronicaVisible && VISTAS_MAQUINA.has(vista)
   document.body.classList.toggle('sin-cronica', !ver)
   document.body.classList.toggle('con-cronica', ver)
   $('#btn-cronica').classList.toggle('on', cronicaVisible)
