@@ -17,6 +17,8 @@ import { pedirJson } from './modelo.ts'
 import { agregarItem, entidadPorNombre, escribirHistoria, inventarioParaPrompt, leerHistoria, personaje, personaPorNombre } from './personajes.ts'
 import { especializacion } from './auditor.ts'
 import { alias, leer, listar } from './roster.ts'
+import { aportesParaRun } from './ayudantes.ts'
+import { menciones, sinArrobas } from './menciones.ts'
 
 export const NIVELES_MISION = ['principal', 'primaria', 'secundaria', 'terciaria'] as const
 export type NivelMision = (typeof NIVELES_MISION)[number]
@@ -107,6 +109,11 @@ function insertarMision(db: Db, m: NuevaMision, ahora: number): Mision {
 /** Alta general. Las principales pasan por sus reglas; las primarias sin semana caen en la actual. */
 export function crearMision(db: Db, m: NuevaMision, o: { por?: string; ahora?: number } = {}): Mision {
   const ahora = o.ahora ?? Date.now()
+  const ms = menciones(db, `${m.titulo} ${m.detalle ?? ''}`)
+  if (ms.length) {
+    m = { ...m, titulo: sinArrobas(m.titulo, ms), detalle: m.detalle ? sinArrobas(m.detalle, ms) : m.detalle }
+    if (m.entidadId == null) m.entidadId = ms.find((x) => x.entidadId && x.clave !== 'jugador')?.entidadId ?? null
+  }
   if (m.nivel === 'principal') return fijarPrincipal(db, m.personaje ?? 'jugador', { titulo: m.titulo, detalle: m.detalle }, { por: o.por ?? m.creadaPor ?? 'operador', sugerida: m.estado === 'sugerida', ahora })
   const semana = m.nivel === 'primaria' ? m.semana ?? semanaDe(ahora) : m.semana ?? null
   return insertarMision(db, { ...m, semana, creadaPor: m.creadaPor ?? o.por ?? 'operador' }, ahora)
@@ -153,6 +160,11 @@ export function actualizarMision(db: Db, id: number, c: CambiosMision, o: { por?
   if (m.nivel === 'principal' && c.estado === 'activa' && m.estado !== 'activa') {
     db.prepare(`UPDATE misiones SET estado = 'descartada', feedback = COALESCE(feedback, 'reemplazada'), cerrada_en = ? WHERE personaje = ? AND nivel = 'principal' AND estado = 'activa' AND id != ?`)
       .run(ahora, m.personaje, id)
+  }
+  // Una primaria del jugador que se cierra cierra también a sus ayudantes.
+  if (m.nivel === 'primaria' && m.personaje === 'jugador' && c.estado && CERRADAS.includes(c.estado) && !CERRADAS.includes(m.estado)) {
+    db.prepare(`UPDATE misiones SET estado = ?, cerrada_en = ? WHERE padre_id = ? AND personaje LIKE 'agente:%' AND estado = 'activa'`)
+      .run(c.estado === 'hecha' ? 'hecha' : 'descartada', ahora, id)
   }
   const v = <K extends keyof CambiosMision>(k: K, actual: unknown) => (k in c ? (c[k] ?? null) : actual)
   const estado = (c.estado ?? m.estado) as EstadoMision
@@ -291,6 +303,8 @@ export async function proponerPrimarias(db: Db, semana = semanaDe(), o: { ahora?
 /** Lo que el jugador pide para una run. Todo es opcional: lo que falta lo pone la plantilla. */
 export type PedidoRun = {
   plantilla?: number | string | null
+  /** YYYY-MM-DD: una run para otro día (mañana a la mañana). Vacío = hoy. */
+  fecha?: string | null
   inicio?: string | null
   duracion?: number | null
   fin?: string | null
@@ -410,15 +424,17 @@ export async function resolverPedido(db: Db, p: PedidoRun, ahora = Date.now()): 
   const dijoCantidad = propios.cantidad != null || leido.cantidad != null
   const libre = !!(r.libre || (Array.isArray(r.banda) && !r.banda.length) || (!r.banda && !base.banda))
   const banda = libre ? null : (r.banda ?? []).map(Number).filter((n) => n >= 3 && n <= 240)
-  // Horario: hoy desde ahora (redondeado a 5), salvo que diga otra cosa.
+  // Horario: hoy desde ahora (redondeado a 5); otro día, desde el inicio de su jornada; salvo que diga otra cosa.
   const d = new Date(ahora)
-  const ahoraMin = Math.ceil((d.getHours() * 60 + d.getMinutes()) / 5) * 5
+  const otroDia = !!p.fecha && p.fecha !== fechaLocal(ahora)
+  const ahoraMin = otroDia ? aMin(ajuste(db, 'jornada_inicio') ?? '09:00') : Math.ceil((d.getHours() * 60 + d.getMinutes()) / 5) * 5
   const inicioMin = r.inicio && Number.isFinite(aMin(r.inicio)) ? aMin(r.inicio) : Math.min(ahoraMin, 23 * 60 + 30)
   let duracion = Math.round(Number(r.duracion) || 180)
   if (r.fin && Number.isFinite(aMin(r.fin)) && aMin(r.fin) > inicioMin) duracion = aMin(r.fin) - inicioMin
   duracion = Math.max(10, Math.min(duracion, 24 * 60 - 1 - inicioMin))
   const cantidad = dijoCantidad ? Math.max(1, Math.min(60, Math.round(Number(r.cantidad)))) : banda?.length === 1 ? Math.max(1, Math.floor(duracion / banda[0])) : libre ? null : r.cantidad ?? null
-  const incluir = resolverIncluidos(db, [...(p.incluir ?? []), ...((leido.incluir as any[]) ?? [])], ahora)
+  const nombrados = menciones(db, p.texto ?? '').filter((m) => m.entidadId && m.clave !== 'jugador').map((m) => m.entidadId!)
+  const incluir = resolverIncluidos(db, [...(p.incluir ?? []), ...nombrados, ...((leido.incluir as any[]) ?? [])], ahora)
   return {
     ...r, plantilla: plantilla?.id ?? null, plantillaNombre: plantilla?.nombre ?? null, inicio: aHora(inicioMin), duracion, fin: aHora(inicioMin + duracion),
     banda: banda?.length ? banda : null, libre, cantidad, cantidadDicha: dijoCantidad, incluir, texto: p.texto?.trim() || null,
@@ -453,7 +469,7 @@ async function reunirContexto(db: Db, incluidos: Incluido[], ahora: number, o: {
   const proyectos = new Map((db.prepare('SELECT id, nombre FROM proyectos').all() as { id: string; nombre: string }[]).map((p) => [p.id, norm(p.nombre)]))
   const liga = o.conAgentes === false ? [] : listar(db, { estado: 'activo' }).filter((f) => f.clase === 'generativo')
   for (const e of incluidos.slice(0, 8)) {
-    const clave = `entidad:${e.id}`
+    const clave = personaje(db, `entidad:${e.id}`).clave
     const h = leerHistoria(db, clave)
     const inv = inventarioParaPrompt(db, clave, 8)
     const abiertas = listarMisiones(db, { personaje: clave, abiertas: true, limite: 6 })
@@ -518,6 +534,8 @@ Reglas:
 - Empujá sus primarias de la semana: «primaria» es el número de la lista que empuja, o null.
 - Si una misión usa plata, poné «gasto» (número); el total no puede pasar de lo disponible. Si involucra a alguien, «con».
 - Usá la calibración: lo que suele saltear, achicalo o cambialo; lo que funciona, repetilo.
+- Si su memoria dice en qué horas rinde más y en cuáles menos, ubicá lo hondo en sus horas buenas y lo liviano, mecánico o introspectivo donde baja.
+- Por defecto, arrancá con una victoria rápida y alterná tareas chicas y concretas (que terminan con algo hecho) con otras más grandes: la run existe para que haga más, no para que se sienta en deuda.
 - Si pidió pausas o el formato lo pide, incluí misiones de categoría «pausa».
 - Una side quest abierta entra solo si encaja con dónde va a estar o lo que va a hacer.
 - Solo usá lo que está en su memoria, sus misiones, lo que dijo y el contexto. No inventes proyectos, personas ni tareas; si sabés poco, menos misiones y buenas.
@@ -598,6 +616,7 @@ async function generar(
     principal ? `\nSu misión principal: ${principal.titulo}` : '',
     primarias.length ? `\nSus primarias de la semana:\n${primarias.map((m, i) => `${i + 1}. ${m.titulo}${m.detalle ? ` — ${recorte(m.detalle, 160)}` : ''}`).join('\n')}` : '\nNo tiene primarias aceptadas esta semana.',
     o.contexto ? `\nLo que pidió meter en esta run:\n${o.contexto}` : '',
+    aportesParaRun(db, o.ahora) ? `\nLo que le dejaron sus ayudantes de la liga estos días (material: si sirve, armá bandas que lo usen y decí de quién viene):\n${aportesParaRun(db, o.ahora)}` : '',
     terciarias.length ? `\nSide quests abiertas:\n${terciarias.map((m) => `- ${m.titulo}${m.disparador ? ` (cuando: ${Object.values(m.disparador).filter(Boolean).join(', ')})` : ''}`).join('\n')}` : '',
     `\nLo que sabés de él:\n${memoriaParaPrompt(db, 40) || '- (casi nada todavía)'}`,
     charla.length ? `\nLo que te dijo en las últimas horas:\n${charla.map((c) => `- ${c}`).join('\n')}` : '',
@@ -632,7 +651,9 @@ function guardarSecundarias(db: Db, runId: number, xs: (Propuesta & { inicio: st
  */
 export async function prepararRun(db: Db, pedido: PedidoRun, o: { ahora?: number; conAgentes?: boolean } = {}): Promise<{ run: Run; misiones: Mision[]; avisos: string[] }> {
   const ahora = o.ahora ?? Date.now()
-  const fecha = fechaLocal(ahora)
+  if (pedido.fecha && !/^\d{4}-\d{2}-\d{2}$/.test(pedido.fecha)) throw new Error('Fecha inválida (YYYY-MM-DD)')
+  if (pedido.fecha && pedido.fecha < fechaLocal(ahora)) throw new Error('Esa fecha ya pasó')
+  const fecha = pedido.fecha || fechaLocal(ahora)
   const p = await resolverPedido(db, pedido, ahora)
   const { eventos, avisos } = await agendaDelDia(fecha)
   const fijos = eventosOcupados(eventos, fecha).filter((e) => aMin(e.inicio) < aMin(p.fin) && aMin(e.fin) > aMin(p.inicio))
@@ -906,13 +927,26 @@ export function sideQuestsRelevantes(db: Db, contexto: string): Mision[] {
 /** Una misión para otro personaje (una persona, un agente), asignada por el jugador. Si la persona no existe, se crea. */
 export function asignarMision(db: Db, a: { a: string; titulo: string; detalle?: string | null; vence?: string | null; por?: string; nivel?: NivelMision; crear?: boolean }, ahora = Date.now()): Mision {
   let clave: string
+  const nombrada = menciones(db, a.a.startsWith('@') ? a.a : `@${a.a}`)[0]
+  if (nombrada && a.a.trim().startsWith('@')) a = { ...a, a: nombrada.clave === 'jugador' ? 'jugador' : nombrada.clave }
   try {
     clave = a.a.includes(':') || /^\d+$/.test(a.a) ? personaje(db, /^\d+$/.test(a.a) ? `entidad:${a.a}` : a.a).clave : (leer(db, a.a) ? `agente:${leer(db, a.a)!.id}` : `entidad:${personaPorNombre(db, a.a) ?? entidadPorNombre(db, a.a) ?? (a.crear !== false ? asegurarEntidad(db, { tipo: 'persona', nombre: a.a }, ahora) : 0)}`)
-    personaje(db, clave)
+    clave = personaje(db, clave).clave // la entidad del jugador es el jugador
+    // Un alias suyo mal puesto («Amparo» entre los alias del jugador) no debe asignarle a él lo que es de otra persona.
+    if (clave === 'jugador' && !esNombreDelJugador(db, a.a)) {
+      const otra = personaPorNombre(db, a.a, { sinJugador: true })
+      if (otra) clave = `entidad:${otra}`
+    }
   } catch (e) {
     throw new Error(`No encuentro a «${a.a}»: ${e instanceof Error ? e.message : e}`)
   }
   return insertarMision(db, { personaje: clave, asignadaPor: a.por ?? 'jugador', nivel: a.nivel ?? 'primaria', titulo: a.titulo, detalle: a.detalle, vence: a.vence ?? null, estado: 'activa', creadaPor: a.por === 'mastropiero' ? 'mastropiero' : 'operador' }, ahora)
+}
+
+function esNombreDelJugador(db: Db, nombre: string): boolean {
+  const n = norm(nombre)
+  const propio = norm(personaje(db, 'jugador').nombre)
+  return n === propio || propio.startsWith(`${n} `) || n === 'jugador' || n === 'yo'
 }
 
 /** Lo que otros le deben y ya venció (o vence hoy). */
@@ -936,7 +970,10 @@ export function misionesParaPrompt(db: Db, ahora = Date.now(), mensaje = ''): st
   const nombre = (k: string) => { try { return personaje(db, k).nombre } catch { return k } }
   return [
     principal ? `Su misión principal: ${principal.titulo}${principal.detalle ? ` — ${principal.detalle}` : ''}` : `Todavía no fijó su misión principal${candidatas.length ? ` (le sugeriste: ${candidatas.map((c) => c.titulo).join(' / ')})` : ''}.`,
-    primarias.length ? `Primarias de esta semana:\n${primarias.map((p) => `- ${p.titulo} [${p.estado === 'sugerida' ? 'sugerida, sin aceptar' : `${p.avance.progreso}%, ${p.avance.bandas.hechas} bandas`}]`).join('\n')}` : 'No tiene primarias esta semana (podés proponerlas).',
+    primarias.length ? `Primarias de esta semana (el id es para tus herramientas, no se lo digas):\n${primarias.map((p) => {
+      const ayudantes = listarMisiones(db, { padreId: p.id, nivel: 'primaria', estados: ['activa'] }).filter((m) => m.personaje.startsWith('agente:')).map((m) => m.personaje.slice(7))
+      return `- (id ${p.id}) ${p.titulo} [${p.estado === 'sugerida' ? 'sugerida, sin aceptar' : `${p.avance.progreso}%, ${p.avance.bandas.hechas} bandas`}]${ayudantes.length ? ` · ayudantes: ${ayudantes.join(', ')}` : ''}`
+    }).join('\n')}` : 'No tiene primarias esta semana (podés proponerlas).',
     vivo ? `Run en curso (${vivo.run.inicio}–${vivo.run.fin}): ${vivo.actual ? `ahora toca «${vivo.actual.titulo}», le quedan ${vivo.restan} min` : 'entre bandas'}${vivo.siguientes.length ? `; después: ${vivo.siguientes.map((m) => `${m.inicio} ${m.titulo}`).join(' · ')}` : ''}.`
       : propuesta?.estado === 'propuesta' ? `Hay una run propuesta para hoy (${propuesta.inicio}–${propuesta.fin}) que todavía no arrancó.` : 'No hay run en curso.',
     terciarias.length ? `Side quests abiertas:\n${terciarias.map((m) => `- ${m.titulo}${m.disparador ? ` (se activa: ${Object.values(m.disparador).filter(Boolean).join(', ')})` : ''}`).join('\n')}` : '',

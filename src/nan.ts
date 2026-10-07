@@ -355,6 +355,32 @@ export async function nanModelos(): Promise<string[]> {
 }
 
 /** Tokens del mes en curso por modelo, contra el cupo. Cuenta solo lo que pasó por esta liga. */
+/** Tokens gastados hoy: los de la liga (agentes) y los de Mastropiero (lo que pide el operador). */
+export function tokensHoy(db: Db, ahora = Date.now()): { liga: number; mastropiero: number; total: number } {
+  const d = new Date(ahora)
+  const desde = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const filas = db.prepare(
+    `SELECT clase = 'mastropiero' AS suyo, COALESCE(SUM(tokens_in), 0) + COALESCE(SUM(tokens_out), 0) AS t FROM llamadas WHERE en >= ? GROUP BY 1`,
+  ).all(desde) as { suyo: number; t: number }[]
+  const liga = filas.find((f) => !f.suyo)?.t ?? 0
+  const mastropiero = filas.find((f) => f.suyo)?.t ?? 0
+  return { liga, mastropiero, total: liga + mastropiero }
+}
+
+/** El tope diario de la liga (ajuste `tokens_dia_max`; 0 = sin tope). Lo que el operador pide a Mastropiero no se frena. */
+export function topeDiario(db: Db): number {
+  const v = (db.prepare(`SELECT valor FROM ajustes WHERE clave = 'tokens_dia_max'`).get() as { valor: string } | undefined)?.valor
+  return Math.max(0, Number(v ?? 0) || 0)
+}
+
+/** Si la liga ya gastó su tope de hoy, el motivo; si no, null. */
+export function topeAlcanzado(db: Db, ahora = Date.now()): string | null {
+  const tope = topeDiario(db)
+  if (!tope) return null
+  const { liga } = tokensHoy(db, ahora)
+  return liga >= tope ? `gastó ${liga.toLocaleString('es-AR')} tokens hoy, el tope es ${tope.toLocaleString('es-AR')}` : null
+}
+
 export function usoDelMes(db: Db, ahora = Date.now()) {
   const d = new Date(ahora)
   const desde = new Date(d.getFullYear(), d.getMonth(), 1).getTime()

@@ -12,14 +12,18 @@ import { alias, leer, nivel } from './roster.ts'
 import { capa } from './xp.ts'
 
 export type TipoPersonaje = 'jugador' | 'mastropiero' | 'agente' | 'entidad'
-export type Personaje = { clave: string; tipo: TipoPersonaje; nombre: string; subtipo: string | null }
+/** `entidadId`: la entidad que lo encarna en el corpus (el jugador es también una persona del juego). */
+export type Personaje = { clave: string; tipo: TipoPersonaje; nombre: string; subtipo: string | null; entidadId?: number | null }
 
 export const TIPOS_INVENTARIO = ['capital', 'conexion', 'presencia', 'conocimiento', 'herramienta', 'acceso', 'recurso'] as const
 export type TipoInventario = (typeof TIPOS_INVENTARIO)[number]
 
 /** Valida una clave y dice quién es. Tira error si no existe. */
 export function personaje(db: Db, clave: string): Personaje {
-  if (clave === 'jugador') return { clave, tipo: 'jugador', nombre: nombreDelJugador(db), subtipo: null }
+  if (clave === 'jugador') {
+    const e = entidadDelJugador(db)
+    return { clave, tipo: 'jugador', nombre: e ? leerEntidad(db, e)?.nombre ?? 'Jugador' : 'Jugador', subtipo: 'persona', entidadId: e }
+  }
   if (clave === 'mastropiero') return { clave, tipo: 'mastropiero', nombre: 'Mastropiero', subtipo: null }
   const [tipo, id] = [clave.slice(0, clave.indexOf(':')), clave.slice(clave.indexOf(':') + 1)]
   if (tipo === 'agente') {
@@ -30,14 +34,48 @@ export function personaje(db: Db, clave: string): Personaje {
   if (tipo === 'entidad') {
     const e = leerEntidad(db, Number(id))
     if (!e) throw new Error(`No existe la entidad ${id}`)
-    return { clave: `entidad:${e.id}`, tipo: 'entidad', nombre: e.nombre, subtipo: e.tipo }
+    // La entidad del jugador es el jugador: una sola ficha, una sola historia, un solo inventario.
+    if (e.id === entidadDelJugador(db)) return personaje(db, 'jugador')
+    return { clave: `entidad:${e.id}`, tipo: 'entidad', nombre: e.nombre, subtipo: e.tipo, entidadId: e.id }
   }
   throw new Error(`Clave de personaje inválida: ${clave} (jugador | mastropiero | agente:ID | entidad:N)`)
 }
 
-function nombreDelJugador(db: Db): string {
-  const yo = db.prepare(`SELECT nombre FROM entidades WHERE tipo = 'persona' AND json_extract(meta, '$.operador') = 1 LIMIT 1`).get() as { nombre: string } | undefined
-  return yo?.nombre ?? 'Jugador'
+/** La persona del corpus que es el jugador (marcada como operador), si la hay. */
+export function entidadDelJugador(db: Db): number | null {
+  const yo = db.prepare(`SELECT id FROM entidades WHERE json_extract(meta, '$.operador') = 1 ORDER BY id LIMIT 1`).get() as { id: number } | undefined
+  return yo?.id ?? null
+}
+
+/**
+ * «Soy yo»: marca esa persona como el jugador (y desmarca a cualquier otra). Lo que estuviera anotado a nombre de
+ * la entidad (misiones, inventario, historia) pasa a ser del jugador.
+ */
+export function marcarJugador(db: Db, entidadId: number): Personaje {
+  const e = leerEntidad(db, entidadId)
+  if (!e) throw new Error(`No existe la entidad ${entidadId}`)
+  if (e.tipo !== 'persona') throw new Error('El jugador es una persona')
+  db.exec('BEGIN')
+  try {
+    db.prepare(`UPDATE entidades SET meta = json_remove(meta, '$.operador') WHERE json_extract(meta, '$.operador') = 1`).run()
+    db.prepare(`UPDATE entidades SET meta = json_set(COALESCE(meta, '{}'), '$.operador', json('true')) WHERE id = ?`).run(e.id)
+    unirAlJugador(db, e.id)
+    db.exec('COMMIT')
+  } catch (err) {
+    db.exec('ROLLBACK')
+    throw err
+  }
+  return personaje(db, 'jugador')
+}
+
+/** Lo anotado como `entidad:N` del jugador pasa a `jugador` (la historia solo si el jugador no tenía una). */
+export function unirAlJugador(db: Db, entidadId: number) {
+  const k = `entidad:${entidadId}`
+  db.prepare(`UPDATE misiones SET personaje = 'jugador' WHERE personaje = ?`).run(k)
+  db.prepare(`UPDATE misiones SET asignada_por = 'jugador' WHERE asignada_por = ?`).run(k)
+  db.prepare(`UPDATE inventario SET personaje = 'jugador' WHERE personaje = ?`).run(k)
+  db.prepare(`UPDATE OR IGNORE historias SET personaje = 'jugador' WHERE personaje = ?`).run(k)
+  db.prepare(`DELETE FROM historias WHERE personaje = ?`).run(k)
 }
 
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
@@ -55,7 +93,7 @@ export function resolverPersonaje(db: Db, texto: string | number | null | undefi
   const f = leer(db, t)
   if (f) return `agente:${f.id}`
   const e = entidadPorNombre(db, t)
-  if (e) return `entidad:${e}`
+  if (e) return personaje(db, `entidad:${e}`).clave
   throw new Error(`No encuentro a «${t}» entre los personajes (buscalo con listar_entidades, o creá la entidad)`)
 }
 
@@ -72,12 +110,13 @@ export function entidadPorNombre(db: Db, nombre: string): number | null {
  * Una persona por cómo la nombra él («Ana» → «Ana María López»): primero exacto; si no, la única persona
  * cuyo nombre o alias empieza así. Si hay más de una candidata, no adivina.
  */
-export function personaPorNombre(db: Db, nombre: string): number | null {
+export function personaPorNombre(db: Db, nombre: string, o: { sinJugador?: boolean } = {}): number | null {
+  const yo = o.sinJugador ? entidadDelJugador(db) : null
   const exacta = entidadPorNombre(db, nombre)
-  if (exacta) return exacta
+  if (exacta && exacta !== yo) return exacta
   const n = norm(nombre)
   if (n.length < 3) return null
-  const personas = db.prepare(`SELECT id, nombre, alias FROM entidades WHERE tipo = 'persona'`).all() as { id: number; nombre: string; alias: string | null }[]
+  const personas = (db.prepare(`SELECT id, nombre, alias FROM entidades WHERE tipo = 'persona'`).all() as { id: number; nombre: string; alias: string | null }[]).filter((p) => p.id !== yo)
   const empieza = (x: string) => norm(x) === n || norm(x).startsWith(`${n} `) || norm(x).split(' ')[0].startsWith(n)
   const cands = personas.filter((p) => empieza(p.nombre) || json<string[]>(p.alias, []).some(empieza))
   return cands.length === 1 ? cands[0].id : null

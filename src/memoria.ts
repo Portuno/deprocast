@@ -190,14 +190,15 @@ export async function escribaDeMemoria(
       const x = recordar(db, { texto: r.texto, tipo: r.tipo, horizonte: r.horizonte ?? null, origen, piezaId: o.pieza ?? null, creadaPor: 'escriba' })
       if (x.id > antes) nuevos.push(x)
     }
-    // Lo que dice que tiene y los encargos de pasada entran como sugerencia: él los acepta en su ficha y en Misiones.
+    // Lo que dice que tiene entra como sugerencia (lo acepta en su ficha); los encargos de pasada, como side quests activas:
+    // él las quiere dando vueltas aunque no las anote.
     for (const i of (datos.inventario ?? []).slice(0, 2)) {
       if (typeof i?.nombre !== 'string' || !i.nombre.trim()) continue
       try { agregarItem(db, 'jugador', i, { fuente: 'escriba', sugerido: true }) } catch { /* un ítem raro no frena nada */ }
     }
     for (const q of (o.grabacion ? [] : datos.side_quests ?? []).slice(0, 2)) {
       if (typeof q?.titulo !== 'string' || !q.titulo.trim()) continue
-      try { anotarSideQuest(db, { titulo: q.titulo, detalle: q.detalle ?? null, disparador: q.disparador ?? null, sugerida: true, creadaPor: 'escriba' }) } catch { /* idem */ }
+      try { anotarSideQuest(db, { titulo: q.titulo, detalle: q.detalle ?? null, disparador: q.disparador ?? null, creadaPor: 'escriba' }) } catch { /* idem */ }
     }
     return nuevos
   } catch {

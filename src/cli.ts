@@ -53,7 +53,7 @@ function parsearReparto(s: string | undefined): Partial<Atributos> {
 
 const ICONO: Record<Evento['tipo'], string> = {
   purga: '✝', asigna: '→', recluta: '+', vacante: '?', corre: '✓', falla: '✗',
-  nivel: '▲', bautismo: '★', promovido: '◆', banca: '⇣', retirado: '✝', publica: '↻',
+  nivel: '▲', bautismo: '★', promovido: '◆', banca: '⇣', retirado: '✝', publica: '↻', tope: '⏸',
 }
 
 function imprimirEventos(ev: Evento[]) {

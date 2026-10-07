@@ -14,22 +14,24 @@ import {
   latidoRuns, leerRun, listarMisiones, listarPlantillas, listarReportes, listarRuns, marcarSecundaria, misionesDeRun, principalDe, procesarJugador,
   proponerPrimarias, rehacerRun, reporteSemana, runActual, semanaDe, semanaVecina, seguimientos, prepararRun, diasDeSemana, asegurarPrincipal,
 } from './misiones.ts'
-import { agregarItem, editarItem, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, personaje, resolverHistoria, TIPOS_INVENTARIO } from './personajes.ts'
+import { catalogo } from './menciones.ts'
+import { aportes, ayudantesDe, pedirAportes, quitarAyudante, sumarAyudante } from './ayudantes.ts'
+import { agregarItem, editarItem, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, marcarJugador, personaje, resolverHistoria, TIPOS_INVENTARIO } from './personajes.ts'
 import { aprender, archivar, corregir, estadoAprendizaje, fuentesParaAprender, memoriaVigente, recordar, revisar } from './memoria.ts'
 import { actualizarRutina, correrRutinas, listarRutinas } from './rutinas.ts'
 import { urlsCalendario } from './calendario.ts'
 import { asientos, especializacion } from './auditor.ts'
-import { leerTarea, publicar, tareas } from './bus.ts'
+import { enEspera, leerTarea, pausarIngesta, publicar, reanudarIngesta, tareas } from './bus.ts'
 import { asegurarFuente, fuentes, leerPieza, listarPiezas, NIVELES, TIPOS } from './corpus.ts'
 import { deshacer, descartar, ejecutar as ejecutarCarga, IMPORTADORES, leerCarga, listarCargas, reetiquetar, subir } from './cargas/index.ts'
-import { contarEntidades, coocurrencias, entidadesPorId, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from './entidades.ts'
+import { contarEntidades, coocurrencias, editarEntidad, entidadesPorId, fusionarEntidades, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from './entidades.ts'
 import {
   archivarConversacion, conversacionHoy, crearConversacion, enviar, estadoEnVivo, estaPensando, leerConversacion, listarConversaciones, listarPropuestas, mensajeDeMastropiero, mensajes, resolverPropuesta,
 } from './chat/index.ts'
 import { celda, DOMINIOS } from './geometria72.ts'
 import { crearProyecto, cronica, estadoLiga, ingerir, numeroDeTick, tickEnCurso, tickUnico } from './mastropiero.ts'
 import { motoresDisponibles } from './motores.ts'
-import { cadena, nanConfigurado, nanTranscribir, usoDelMes } from './nan.ts'
+import { cadena, nanConfigurado, nanTranscribir, tokensHoy, topeDiario, usoDelMes } from './nan.ts'
 import {
   aceptarPropuesta, descartar as descartarQuantomo, leerQuantomo, linaje, listarQuantomos, pedirMejora, quantomosDePieza, resumenQuantomos, sellar,
 } from './quantomos.ts'
@@ -106,6 +108,8 @@ function estado() {
     cargas: listarCargas(db).slice(0, 20).map(({ analisis, ...c }) => ({ ...c, titulo: analisis?.titulo })),
     lapidas: lapidas(db),
     uso: usoDelMes(db),
+    gasto: { ...tokensHoy(db), tope: topeDiario(db) },
+    enEspera: enEspera(db),
     cronica: cronica(db),
     corriendo: tickEnCurso(),
     propuestasAbiertas: (db.prepare(`SELECT COUNT(*) AS n FROM propuestas WHERE estado = 'abierta'`).get() as { n: number }).n,
@@ -191,6 +195,8 @@ const rutas: [string, RegExp, Ruta][] = [
     if (listar(db).length || estadoLiga(db).proyectos.length) throw new Error('La liga ya tiene partida: el ejemplo es para arrancar de cero')
     return sembrarEjemplo(db)
   }],
+  ['POST', /^\/api\/ingesta\/pausar$/, () => ({ enEspera: pausarIngesta(db) })],
+  ['POST', /^\/api\/ingesta\/reanudar$/, (b) => ({ reanudados: reanudarIngesta(db, { limite: Math.min(Number(b.limite) || 20, 2000), soloPropias: !!b.soloPropias }), enEspera: enEspera(db) })],
   ['POST', /^\/api\/tick$/, async () => ({ eventos: await tickUnico(db), tick: numeroDeTick(db) })],
   ['POST', /^\/api\/agentes\/([^/]+)\/retirar$/, (b, [a]) => {
     const f = leer(db, decodeURIComponent(a))
@@ -233,11 +239,13 @@ const rutas: [string, RegExp, Ruta][] = [
       terciarias: listarMisiones(db, { personaje: 'jugador', nivel: 'terciaria', abiertas: true }),
       seguimientos: seguimientos(db).map((m) => ({ ...m, quien: nombreDe(m.personaje) })),
       reporte: listarReportes(db, { limite: 1 })[0] ?? null,
-      ajustes: { primarias_semana: ajuste(db, 'primarias_semana') },
+      aportes: aportes(db, { desde: Date.now() - 2 * 86_400_000, limite: 4 }),
+      proximas: listarRuns(db, { desde: fechaLocal(Date.now() + 86_400_000), estados: ['propuesta'] }).map((r) => ({ ...r, misiones: misionesDeRun(db, r.id) })),
+      ajustes: { primarias_semana: ajuste(db, 'primarias_semana'), tokens_dia_max: ajuste(db, 'tokens_dia_max') },
     }
   }],
   ['POST', /^\/api\/ajustes$/, (b) => {
-    for (const k of ['primarias_semana']) if (typeof b[k] === 'string' && b[k].trim()) fijarAjuste(db, k, b[k].trim())
+    for (const k of ['primarias_semana', 'tokens_dia_max']) if (b[k] != null && String(b[k]).trim()) fijarAjuste(db, k, String(b[k]).trim())
     return { ok: true }
   }],
 
@@ -265,7 +273,10 @@ const rutas: [string, RegExp, Ruta][] = [
       semana, desde, hasta, anterior: semanaVecina(semana, -1), siguiente: semanaVecina(semana, 1),
       principal: principalDe(db, 'jugador'),
       candidatas: listarMisiones(db, { personaje: 'jugador', nivel: 'principal', estados: ['sugerida'] }),
-      primarias: conAvance(db, listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana }).filter((m) => m.estado !== 'descartada')),
+      primarias: conAvance(db, listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana }).filter((m) => m.estado !== 'descartada')).map((m) => ({
+        ...m, ayudantes: ayudantesDe(db, m.id).map((x) => ({ mision: x.mision.id, agente: x.agente && { id: x.agente.id, nombre: x.agente.nombre, clase: x.agente.clase }, ultimoAporte: x.ultimoAporte?.en ?? null })),
+        aportes: aportes(db, { primariaId: m.id, limite: 3 }),
+      })),
       terciarias: listarMisiones(db, { personaje: 'jugador', nivel: 'terciaria', abiertas: true }),
       terciariasHechas: listarMisiones(db, { personaje: 'jugador', nivel: 'terciaria', estados: ['hecha'], limite: 10 }),
       deOtros: listarMisiones(db, { asignadaPor: 'jugador', excluirPersonaje: 'jugador', abiertas: true }).map((m) => ({ ...m, quien: nombreDe(m.personaje) })),
@@ -283,6 +294,12 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['POST', /^\/api\/misiones\/primarias$/, async (b) => proponerPrimarias(db, b.semana || semanaDe(), { texto: b.texto || undefined })],
   ['POST', /^\/api\/misiones\/(\d+)$/, (b, [m]) => actualizarMision(db, id(m), b, { por: 'operador' })],
+  ['POST', /^\/api\/misiones\/(\d+)\/ayudantes$/, (b, [m]) => {
+    const r = sumarAyudante(db, id(m), { clase: b.clase || undefined, agenteId: b.agenteId || undefined })
+    return { mision: r.mision.id, agente: r.agente?.id }
+  }],
+  ['POST', /^\/api\/ayudantes\/(\d+)\/quitar$/, (_, [m]) => (quitarAyudante(db, id(m)), { ok: true })],
+  ['POST', /^\/api\/aportes$/, async (b) => pedirAportes(db, { primariaId: b.primariaId ? Number(b.primariaId) : undefined })],
   ['POST', /^\/api\/misiones\/(\d+)\/marcar$/, (b, [m]) => marcarSecundaria(db, id(m), b.estado, b.nota ?? null)],
   ['GET', /^\/api\/reportes$/, (_, __, q) => listarReportes(db, { tipo: q.get('tipo') || undefined, limite: num(q.get('limite')) })],
   ['POST', /^\/api\/reportes\/semana$/, async (b) => reporteSemana(db, b.semana || semanaDe())],
@@ -298,6 +315,10 @@ const rutas: [string, RegExp, Ruta][] = [
     else crearMision(db, { personaje: clave, nivel: 'principal', titulo: String(b.titulo ?? ''), detalle: b.detalle || null }, { por: 'operador' })
     return fichaDe(clave)
   }],
+  ['GET', /^\/api\/menciones$/, () => catalogo(db).map((m) => ({ k: m.clave, n: m.nombre, t: m.tipo, a: m.alias.slice(0, 8), p: m.piezas }))],
+  ['POST', /^\/api\/entidades\/(\d+)$/, (b, [e]) => editarEntidad(db, id(e), { nombre: b.nombre, tipo: b.tipo, notas: b.notas, alias: Array.isArray(b.alias) ? b.alias : undefined, sumarAlias: b.sumarAlias })],
+  ['POST', /^\/api\/entidades\/(\d+)\/fusionar$/, (b, [e]) => fusionarEntidades(db, id(e), (b.absorbe ?? []).map(Number))],
+  ['POST', /^\/api\/entidades\/(\d+)\/soy-yo$/, (_, [e]) => marcarJugador(db, id(e))],
   ['POST', /^\/api\/inventario\/(\d+)$/, (b, [i]) => editarItem(db, id(i), b)],
   ['POST', /^\/api\/jugador\/procesar$/, async () => procesarJugador(db)],
   ['POST', /^\/api\/rutinas\/([a-z]+)$/, (b, [r]) => (actualizarRutina(db, r, { hora: b.hora, dias: b.dias, activa: b.activa }), listarRutinas(db))],

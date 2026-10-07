@@ -87,12 +87,21 @@ body {
   font: 14px/1.5 var(--cuerpo);
   -webkit-font-smoothing: antialiased;
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr) 300px;
+  --nav-ancho: 200px;
+  grid-template-columns: var(--nav-ancho) minmax(0, 1fr) 300px;
   grid-template-rows: auto minmax(0, 1fr);
   grid-template-areas: 'hud hud hud' 'nav main cron';
   overflow: hidden;
 }
-body.sin-cronica { grid-template-columns: 200px minmax(0, 1fr) 0; }
+body.sin-cronica { grid-template-columns: var(--nav-ancho) minmax(0, 1fr) 0; }
+body.nav-mini { --nav-ancho: 56px; }
+body.nav-mini .nav button span, body.nav-mini .nav small { display: none; }
+body.nav-mini .nav button { justify-content: center; }
+.nav-plegar { align-self: flex-end; border: 0; background: none; color: var(--debil); cursor: pointer; font-size: 15px; padding: 0 6px; line-height: 1; }
+.nav-plegar:hover { color: var(--texto); }
+body.nav-mini .nav-plegar { align-self: center; }
+.cronica h2 { display: flex; justify-content: space-between; align-items: center; }
+.cronica h2 .btn { padding: 2px 7px; font-size: 11px; }
 body.sin-cronica .cronica { display: none; }
 button, input, select, textarea { font: inherit; color: inherit; }
 ::selection { background: var(--acento-suave); }
@@ -523,9 +532,18 @@ sup.cita a:hover { background: var(--acento-suave); }
 .aviso-modelo { max-width: 760px; margin: 0 auto 10px; }
 
 /* ─── Hoy ─── */
-.hoy { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(0, 1.15fr); height: 100%; }
-.hoy-dia { overflow-y: auto; padding: 22px 24px 40px; border-right: 1px solid var(--linea); }
-.hoy-chat { min-height: 0; }
+.hoy { display: grid; grid-template-columns: minmax(0, 1fr) 5px var(--hoy-dia, 400px); height: 100%; }
+.hoy-dia { overflow-y: auto; padding: 22px 24px 40px; min-width: 0; }
+.hoy-divisor { cursor: col-resize; background: var(--linea); transition: background .15s; touch-action: none; }
+.hoy-divisor:hover, .hoy-divisor:active { background: var(--acento); }
+.hoy-chat { min-height: 0; position: relative; }
+.hoy-mostrar { display: none; position: absolute; top: 10px; right: 12px; z-index: 3; max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border: 1px solid var(--acento); background: var(--panel); color: var(--acento-texto); border-radius: 20px; padding: 4px 12px; font: 500 12px var(--mono); cursor: pointer; }
+.hoy.foco { grid-template-columns: minmax(0, 1fr) 0 0; }
+.hoy.foco .hoy-dia, .hoy.foco .hoy-divisor { display: none; }
+.hoy.foco .hoy-mostrar { display: block; }
+.hoy.foco .chat-cab { padding-top: 46px; }
+.hoy.foco .chat-col, .hoy.foco .chat-compositor form { max-width: 980px; }
 .hoy-cab { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 12px; }
 .hoy-cab small { color: var(--debil); font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; font-weight: 600; }
 .hoy-cab h1 { font-size: 21px; font-weight: 600; margin: 2px 0; text-transform: capitalize; }
@@ -746,6 +764,30 @@ pre.json { background: var(--panel-2); border-radius: 8px; padding: 12px; font: 
 .run-pasada summary { cursor: pointer; font-size: 13.5px; }
 .run-pasada .bandas, .run-pasada .md { margin-top: 8px; }
 
+.ayudantes { border-top: 1px solid var(--linea); margin-top: 8px; padding-top: 8px; }
+.ayudantes > small { color: var(--debil); font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; font-weight: 600; }
+.ayudantes .fila { margin-top: 4px; gap: 5px; }
+.ayudantes select.campo-suelto { margin: 0; padding: 3px 6px; font-size: 12px; width: auto; }
+.ayu { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--linea); border-radius: 6px; padding: 2px 4px 2px 7px; font-size: 12.5px; }
+.ayu a { color: var(--texto); text-decoration: none; }
+.ayu em { font: 10px var(--mono); font-style: normal; color: var(--debil); }
+.ayu button { border: 0; background: none; color: var(--debil); cursor: pointer; font-size: 11px; }
+.ayu button:hover { color: var(--mal); }
+.aportes { margin-top: 8px; }
+.aportes summary { cursor: pointer; font-size: 12.5px; color: var(--acento-texto); }
+.aporte { border-left: 2px solid var(--acento); padding: 4px 0 4px 10px; margin: 8px 0; font-size: 13px; }
+.aporte small { display: block; font: 10.5px var(--mono); color: var(--debil); margin-bottom: 3px; }
+
+/* ─── @menciones ─── */
+.menciones { position: fixed; z-index: 60; background: var(--panel); border: 1px solid var(--linea-2); border-radius: 10px; box-shadow: var(--sombra); padding: 4px; max-width: 440px; }
+.menciones button { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; text-align: left; border: 0; background: none; color: var(--texto); padding: 6px 8px; border-radius: 7px; cursor: pointer; font-size: 13.5px; }
+.menciones button.on, .menciones button:hover { background: var(--acento-suave); }
+.menciones button i { font-style: normal; color: var(--tenue); text-align: center; }
+.menciones button b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menciones button small { font: 10.5px var(--mono); color: var(--debil); }
+a.mencion { color: var(--acento-texto); text-decoration: none; background: var(--acento-suave); border-radius: 4px; padding: 0 3px; }
+.m-yo a.mencion { color: inherit; font-weight: 600; }
+
 /* ─── Ficha de personaje ─── */
 .ficha-sec { margin-bottom: 8px; }
 .sugerencia { border: 1px dashed var(--acento); border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; background: var(--acento-suave); }
@@ -768,13 +810,14 @@ pre.json { background: var(--panel-2); border-radius: 8px; padding: 12px; font: 
 .ficha-agente .tabs.chicas { margin-top: 4px; }
 
 @media (max-width: 1280px) {
-  body { grid-template-columns: 200px minmax(0, 1fr) 0; }
+  body { grid-template-columns: var(--nav-ancho) minmax(0, 1fr) 0; }
   .cronica { display: none; }
-  body.con-cronica { grid-template-columns: 200px minmax(0, 1fr) 280px; }
+  body.con-cronica { grid-template-columns: var(--nav-ancho) minmax(0, 1fr) 280px; }
   body.con-cronica .cronica { display: flex; }
 }
 @media (max-width: 1000px) {
   body, body.sin-cronica, body.con-cronica { grid-template-columns: 56px minmax(0, 1fr) 0; }
+  .nav-plegar { display: none; }
   .nav button span, .nav small { display: none; }
   .nav button { justify-content: center; }
   .hud-stats .stat:nth-child(n+5) { display: none; }
@@ -785,8 +828,11 @@ pre.json { background: var(--panel-2); border-radius: 8px; padding: 12px; font: 
   .ingesta-niveles { grid-template-columns: 1fr; }
   .chat { grid-template-columns: 1fr; }
   .chat-lado { display: none; }
-  .hoy { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); overflow-y: auto; }
-  .hoy-dia { border-right: 0; border-bottom: 1px solid var(--linea); overflow: visible; }
+  .hoy { grid-template-columns: 1fr; grid-template-rows: auto 0 minmax(70vh, 1fr); overflow-y: auto; }
+  .hoy-dia { order: -1; }
+  .hoy-divisor { display: none; }
+  .hoy-dia { border-bottom: 1px solid var(--linea); overflow: visible; }
+  .hoy.foco { grid-template-rows: 0 0 minmax(0, 1fr); overflow: hidden; }
   .norte-cols { grid-template-columns: 1fr; }
   .pm { grid-template-columns: minmax(0, 1fr) 60px; }
   .pm small { display: none; }

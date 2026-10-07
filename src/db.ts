@@ -393,6 +393,7 @@ const RUTINAS_SISTEMA = [
   { id: 'jornada', nombre: 'Saludo del día', hora: '08:30', dias: '0123456', accion: 'jornada' },
   { id: 'cierre', nombre: 'Cierre del día', hora: '22:30', dias: '0123456', accion: 'cierre' },
   { id: 'semana', nombre: 'Proponer las primarias de la semana', hora: '08:00', dias: '1', accion: 'semana' },
+  { id: 'ayudantes', nombre: 'Aportes de los ayudantes', hora: '07:45', dias: '0123456', accion: 'ayudantes' },
   { id: 'reporte_semanal', nombre: 'Reporte de la semana', hora: '21:00', dias: '0', accion: 'reporte_semanal' },
 ]
 /** La única plantilla de run de fábrica: genérica, sin nada del operador. */
@@ -404,6 +405,7 @@ const AJUSTES_SISTEMA: Record<string, string> = {
   jornada_fin: '23:00',
   bloques_minutos: '12,25,50',
   primarias_semana: '6',
+  tokens_dia_max: '1000000', // tokens por día para la liga (agentes); 0 = sin tope
 }
 
 /** Fuentes de fábrica. Estructura, no contenido: el corpus arranca vacío. */
@@ -446,6 +448,15 @@ function migrar(db: Db) {
   const plantilla = db.prepare('INSERT OR IGNORE INTO run_plantillas (nombre, pedido, sistema, creada_en) VALUES (?, ?, 1, ?)')
   for (const p of PLANTILLAS_SISTEMA) plantilla.run(p.nombre, JSON.stringify(p.pedido), Date.now())
   migrarJornadas(db)
+  const yo = db.prepare(`SELECT id FROM entidades WHERE json_extract(meta, '$.operador') = 1 ORDER BY id LIMIT 1`).get() as { id: number } | undefined
+  if (yo) {
+    const k = `entidad:${yo.id}`
+    db.prepare(`UPDATE misiones SET personaje = 'jugador' WHERE personaje = ?`).run(k)
+    db.prepare(`UPDATE misiones SET asignada_por = 'jugador' WHERE asignada_por = ?`).run(k)
+    db.prepare(`UPDATE inventario SET personaje = 'jugador' WHERE personaje = ?`).run(k)
+    db.prepare(`UPDATE OR IGNORE historias SET personaje = 'jugador' WHERE personaje = ?`).run(k)
+    db.prepare(`DELETE FROM historias WHERE personaje = ?`).run(k)
+  }
   const ajuste = db.prepare('INSERT OR IGNORE INTO ajustes (clave, valor) VALUES (?, ?)')
   for (const [k, v] of Object.entries(AJUSTES_SISTEMA)) ajuste.run(k, v)
 

@@ -83,14 +83,48 @@ test('prueba → activo, nivel 3 habilita el nombre, banca por racha', async () 
   assert.equal(leer(db, f.id)!.estado, 'banca')
 })
 
-test('una semana sin correr: retirado, y su nombre no se recicla', async () => {
+test('una semana de liga sin correr: retirado, y su nombre no se recicla', async () => {
   const db = abrir(':memory:')
   const f = forjar(db, { clase: 'clasificador', ahora: T0 })
-  await tick(db, { ahora: T0 + 6 * DIA_MS })
+  // Un mes sin prender la liga no mata a nadie: cuentan los días con ticks.
+  await tick(db, { ahora: T0 + 30 * DIA_MS })
   assert.ok(leer(db, f.id))
-  await tick(db, { ahora: T0 + 7 * DIA_MS + 1 })
+  for (let d = 31; d <= 35; d++) await tick(db, { ahora: T0 + d * DIA_MS })
+  assert.ok(leer(db, f.id), 'seis días de liga todavía no alcanzan')
+  await tick(db, { ahora: T0 + 36 * DIA_MS })
   assert.equal(leer(db, f.id), null)
   assert.equal(forjar(db, { clase: 'clasificador' }).id, 'CLA-0002')
+})
+
+test('ingesta en espera: no se reparte; se reanuda primero lo propio y pesado', async () => {
+  const { ingerir } = await import('../src/mastropiero.ts')
+  const { pausarIngesta, reanudarIngesta, enEspera } = await import('../src/bus.ts')
+  const db = abrir(':memory:')
+  ingerir(db, { fuente: 'web', titulo: 'ajeno', contenido: 'texto de otro' })
+  const propia = ingerir(db, { fuente: 'operador', titulo: 'mío', contenido: 'texto mío' })
+  db.prepare('UPDATE corpus SET peso = 9 WHERE id = ?').run(propia.corpusId)
+  assert.equal(pausarIngesta(db), 2)
+  await tick(db, { ahora: T0, reclutar: true })
+  assert.equal(listar(db).length, 0, 'nadie se recluta para lo que espera')
+  assert.equal(reanudarIngesta(db, { limite: 1 }), 1)
+  const vuelta = db.prepare(`SELECT corpus_id FROM tareas WHERE estado = 'pendiente'`).get() as { corpus_id: number }
+  assert.equal(vuelta.corpus_id, propia.corpusId)
+  assert.equal(enEspera(db), 1)
+})
+
+test('tope diario de tokens: la liga reparte pero no corre, y nadie falla por eso', async () => {
+  const db = abrir(':memory:')
+  db.prepare(`UPDATE ajustes SET valor = '100' WHERE clave = 'tokens_dia_max'`).run()
+  db.prepare(`INSERT INTO llamadas (motor, modelo, clase, agente_id, tokens_in, tokens_out, latencia_ms, status, en) VALUES ('nan', 'x', 'extractor', 'EXT-0001', 90, 20, 1, 200, ?)`).run(T0)
+  db.prepare(`INSERT INTO llamadas (motor, modelo, clase, agente_id, tokens_in, tokens_out, latencia_ms, status, en) VALUES ('nan', 'x', 'mastropiero', 'chat', 5000, 0, 1, 200, ?)`).run(T0)
+  const f = forjar(db, { clase: 'generativo', motor: 'local', ahora: T0 })
+  publicar(db, { clase: 'generativo', payload: { texto: 'x' }, publicadaPor: 'operador' }, T0)
+  const ev = await tick(db, { ahora: T0 + 1000, reclutar: false })
+  assert.ok(ev.some((e) => e.tipo === 'tope'))
+  assert.equal(leer(db, f.id)!.exitos + leer(db, f.id)!.fallos, 0)
+  db.prepare(`UPDATE ajustes SET valor = '0' WHERE clave = 'tokens_dia_max'`).run()
+  const ev2 = await tick(db, { ahora: T0 + 2000, reclutar: false })
+  assert.ok(ev2.some((e) => e.tipo === 'corre'), 'sin tope vuelve a correr')
 })
 
 test('el gerente reparte su proyecto, prefiere a los de la casa y gana XP', async () => {

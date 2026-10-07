@@ -267,7 +267,7 @@ test('el escriba anota lo que tiene y los encargos de pasada como sugerencias', 
   await escribaDeMemoria(db, 'Tengo un canal de video con 2000 suscriptores y cuando pase por la biblioteca devuelvo el libro', null)
   const inv = inventarioDe(db, 'jugador', { conSugeridos: true })
   assert.deepEqual(inv.map((i) => [i.nombre, i.estado, i.valor]), [['Canal de video', 'sugerido', 2000]])
-  assert.equal(listarMisiones(db, { nivel: 'terciaria' })[0].estado, 'sugerida')
+  assert.equal(listarMisiones(db, { nivel: 'terciaria' })[0].estado, 'activa', 'las side quests de lo que cuenta quedan activas')
 })
 
 test('migración: las jornadas viejas en bloques pasan a una run con sus misiones', () => {
@@ -297,4 +297,22 @@ test('personas por apodo: «Rafa» encuentra a la única que encaja; con dos can
   assert.match(asignarMision(db, { a: 'Rafa', titulo: 'Mandar algo' }).personaje, new RegExp(`entidad:${rafael}$`))
   asegurarEntidad(db, { tipo: 'persona', nombre: 'Rafaela Ruiz' })
   assert.equal(personaPorNombre(db, 'Rafa'), null)
+})
+
+test('el jugador también es una entidad: una sola ficha, y «Soy yo» une lo anotado', async () => {
+  const { marcarJugador, personaje: pj } = await import('../src/personajes.ts')
+  const db = abrir(':memory:')
+  const yo = asegurarEntidad(db, { tipo: 'persona', nombre: 'Ana Prueba' })
+  crearMision(db, { personaje: `entidad:${yo}`, nivel: 'primaria', titulo: 'Algo que le anoté a la entidad' })
+  agregarItem(db, `entidad:${yo}`, { tipo: 'conocimiento', nombre: 'Guion' })
+  assert.equal(pj(db, 'jugador').entidadId, null)
+  marcarJugador(db, yo)
+  assert.equal(pj(db, `entidad:${yo}`).clave, 'jugador', 'su entidad es el jugador')
+  assert.equal(pj(db, 'jugador').nombre, 'Ana Prueba')
+  assert.equal(resolverPersonaje(db, 'Ana Prueba'), 'jugador')
+  assert.equal(listarMisiones(db, { personaje: 'jugador', nivel: 'primaria' }).length, 1)
+  assert.equal(inventarioDe(db, 'jugador').length, 1)
+  const otra = asegurarEntidad(db, { tipo: 'persona', nombre: 'Otra Persona' })
+  marcarJugador(db, otra)
+  assert.equal(pj(db, `entidad:${yo}`).clave, `entidad:${yo}`, 'solo una persona es el jugador')
 })

@@ -14,14 +14,15 @@ import {
   leerRun, listarMisiones, listarPlantillas, listarReportes, marcarSecundaria, misionesDeRun, NIVELES_MISION, prepararRun, principalDe,
   procesarJugador, proponerPrimarias, rehacerRun, reporteSemana, runActual, semanaDe, type Mision,
 } from '../misiones.ts'
+import { aportes, ayudantesDe, CLASES_AYUDANTE, pedirAportes, quitarAyudante, sumarAyudante } from '../ayudantes.ts'
 import { agregarItem, editarItem, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, personaje, resolverPersonaje, TIPOS_INVENTARIO } from '../personajes.ts'
 import { asientos, especializacion } from '../auditor.ts'
-import { leerTarea, publicar, tareas } from '../bus.ts'
+import { enEspera, leerTarea, pausarIngesta, publicar, reanudarIngesta, tareas } from '../bus.ts'
 import { asegurarFuente, buscar, esNivel, fuentes, leerPieza, listarPiezas, NIVELES, type Nivel, type Pieza } from '../corpus.ts'
 import { deshacer, listarCargas } from '../cargas/index.ts'
-import { coocurrencias, entidadesPorId, leerEntidad, listarEntidades, resumenEntidades } from '../entidades.ts'
+import { coocurrencias, editarEntidad, entidadesPorId, fusionarEntidades, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from '../entidades.ts'
 import { cronica, crearProyecto, estadoLiga, ingerir, numeroDeTick, tickUnico } from '../mastropiero.ts'
-import { usoDelMes } from '../nan.ts'
+import { tokensHoy, topeDiario, usoDelMes } from '../nan.ts'
 import {
   aceptarPropuesta, crearQuantomo, descartar, leerQuantomo, listarQuantomos, pedirMejora, quantomosDePieza, resumenQuantomos, sellar,
 } from '../quantomos.ts'
@@ -130,6 +131,7 @@ export const HERRAMIENTAS: Herramienta[] = [
         corpus_por_nivel: l.niveles, quantomos: resumenQuantomos(db), entidades: resumenEntidades(db), caidos: l.lapidas,
         cargas: listarCargas(db).slice(0, 5).map((c) => ({ id: c.id, archivo: c.archivo, estado: c.estado, piezas: c.resumen?.piezas })),
         tokens_nan_mes: usoDelMes(db).map((u) => ({ modelo: u.modelo, tokens: u.tokens, cupo: u.cupo })),
+        tokens_hoy: { ...tokensHoy(db), tope_liga: topeDiario(db) || 'sin tope' }, ingesta_en_espera: enEspera(db),
       }
     },
   },
@@ -254,7 +256,7 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'ver_personaje', familia: 'lectura',
-    descripcion: 'La ficha de un personaje: historia, inventario y misiones. Personaje: «jugador» (el operador), «mastropiero», un agente (id o nombre) o una entidad (id o nombre exacto).',
+    descripcion: 'La ficha de un personaje: historia, inventario y misiones. Personaje: «jugador» (el operador; también es una entidad persona del corpus, con su nombre y alias), «mastropiero», un agente (id o nombre) o una entidad (id o nombre exacto).',
     parametros: S({ personaje: str('jugador | mastropiero | id o nombre de agente | id o nombre de entidad') }),
     ejecutar: (a, { db }) => {
       const k = resolverPersonaje(db, a.personaje)
@@ -545,7 +547,7 @@ export const HERRAMIENTAS: Herramienta[] = [
     nombre: 'preparar_run', familia: 'accion',
     descripcion: 'Prepara una run a su pedido: interpreta lo que dijo, reúne contexto (y consulta a los agentes que conocen los proyectos incluidos), arma las bandas y las programa. Queda como propuesta hasta que arranque. Pasale su pedido tal cual en «texto».',
     parametros: S({
-      texto: str('Su pedido en sus palabras'), plantilla: str('Nombre de plantilla (por defecto «Mañana oficina»)'), duracion: int('Minutos'), banda: { type: 'array', items: { type: 'integer' }, description: 'Minutos por banda permitidos' },
+      texto: str('Su pedido en sus palabras'), fecha: str('YYYY-MM-DD si es para otro día (por ejemplo, mañana); vacío = hoy'), inicio: str('HH:MM de arranque'), fin: str('HH:MM de fin'), plantilla: str('Nombre de plantilla (por defecto «Mañana oficina»)'), duracion: int('Minutos'), banda: { type: 'array', items: { type: 'integer' }, description: 'Minutos por banda permitidos' },
       libre: bool('Que vos elijas el largo de cada banda'), cantidad: int('Cuántas bandas'), intensidad: int('1–5'), energia: str('Cómo está'), dinero: { type: 'number', description: 'Plata disponible' },
       recursos: str('Dónde está, qué tiene, si puede salir o llamar'), incluir: { type: 'array', items: { type: 'string' }, description: 'Proyectos o personas a meter (nombre, o «persona:Nombre» para crearla)' },
       excluir: str('Lo que no quiere'), formato: str('Cómo quiere ver las tareas'),
@@ -602,6 +604,75 @@ export const HERRAMIENTAS: Herramienta[] = [
     parametros: S({}),
     ejecutar: async (_, { db }) => procesarJugador(db),
     resumen: (_, r) => (r ? `procesó al jugador: ${r.inventario} ítems, ${r.principales} principales y ${r.primarias} primarias sugeridas` : 'intentó procesar al jugador'),
+  },
+
+  {
+    nombre: 'sumar_ayudante', familia: 'accion',
+    descripcion: `Le suma a una primaria del jugador un ayudante de la liga que trabaja entre runs: un generativo (borradores, próximos pasos) o un buscador (lo que hay en su corpus). Uno nuevo de la clase, o uno existente por id.`,
+    parametros: S({ primaria: int('id de la primaria (activa)'), clase: str('Clase del ayudante nuevo', { enum: CLASES_AYUDANTE }), agente: str('id de un agente existente (en vez de forjar uno)') }, ['primaria']),
+    ejecutar: (a, { db }) => {
+      const r = sumarAyudante(db, a.primaria, { clase: a.clase, agenteId: a.agente })
+      return { ayudante: r.agente?.id, clase: r.agente?.clase, mision: r.mision.id }
+    },
+    resumen: (_, r) => (r?.ayudante ? `sumó a ${r.ayudante} como ayudante` : 'intentó sumar un ayudante'),
+  },
+  {
+    nombre: 'quitar_ayudante', familia: 'accion', descripcion: 'Saca un ayudante de una primaria (su misión de ayudante queda descartada; el agente sigue en la liga).',
+    parametros: S({ mision: int('id de la misión del ayudante') }, ['mision']),
+    ejecutar: (a, { db }) => (quitarAyudante(db, a.mision), { quitado: a.mision }),
+    resumen: () => 'sacó un ayudante',
+  },
+  {
+    nombre: 'pedir_aportes', familia: 'accion',
+    descripcion: 'Les pide ya un aporte a los ayudantes (de una primaria, o de todas las de la semana). Corre en el momento y gasta tokens de la liga, dentro del tope diario.',
+    parametros: S({ primaria: int('id de la primaria; vacío = todas') }),
+    ejecutar: async (a, { db }) => {
+      const r = await pedirAportes(db, { primariaId: a.primaria })
+      return { aportes: r.aportes.map((x) => ({ de: x.autor, para: x.titulo, texto: x.contenido.slice(0, 1500) })), fallas: r.fallas, frenado: r.frenado }
+    },
+    resumen: (_, r) => `pidió aportes: ${r?.aportes?.length ?? 0} nuevos${r?.fallas?.length ? `, ${r.fallas.length} fallaron` : ''}`,
+  },
+  {
+    nombre: 'ver_aportes', familia: 'lectura', descripcion: 'Los aportes que dejaron los ayudantes (de una primaria o de todas) y quiénes ayudan en cada primaria.',
+    parametros: S({ primaria: int('id de la primaria; vacío = todas') }),
+    ejecutar: (a, { db }) => ({
+      ayudantes: a.primaria ? ayudantesDe(db, a.primaria).map((x) => ({ mision: x.mision.id, agente: x.agente?.id, clase: x.agente?.clase })) : undefined,
+      aportes: aportes(db, { primariaId: a.primaria, limite: 8 }).map((x) => ({ id: x.id, de: x.autor, para: x.titulo, cuando: new Date(x.en).toLocaleString('es-AR'), texto: x.contenido.slice(0, 1200) })),
+    }),
+  },
+  {
+    nombre: 'editar_entidad', familia: 'accion',
+    descripcion: 'Corrige una entidad: nombre (el anterior queda como alias), tipo, notas, o suma alias. Cuando él te corrige quién o qué es algo.',
+    parametros: S({ id: int('id de la entidad'), nombre: str('Nombre correcto'), tipo: str('Tipo', { enum: [...TIPOS_ENTIDAD] }), notas: str('Notas (reemplazan las anteriores)'), sumar_alias: { type: 'array', items: { type: 'string' }, description: 'Alias a sumar' } }, ['id']),
+    ejecutar: (a, { db }) => {
+      const e = editarEntidad(db, a.id, { nombre: a.nombre, tipo: a.tipo, notas: a.notas, sumarAlias: a.sumar_alias })
+      return { id: e.id, nombre: e.nombre, tipo: e.tipo, alias: e.alias }
+    },
+    resumen: (_, r) => `corrigió la entidad ${r?.nombre ?? ''}`,
+  },
+
+  // Destructivas
+  {
+    nombre: 'fusionar_entidades', familia: 'destructiva',
+    descripcion: 'Fusiona entidades duplicadas en una (la que queda absorbe piezas, misiones, inventario, alias y notas; las otras desaparecen). Requiere confirmación.',
+    parametros: S({ queda: int('id de la entidad que queda'), absorbe: { type: 'array', items: { type: 'integer' }, description: 'ids de las duplicadas' }, confirmado: bool('true solo si el operador confirmó') }, ['queda', 'absorbe']),
+    ejecutar: (a, { db }) => exigirConfirmacion(a, `fusiona ${a.absorbe?.length ?? 0} entidades en la #${a.queda}`) ?? (() => { const e = fusionarEntidades(db, a.queda, a.absorbe ?? []); return { id: e.id, nombre: e.nombre, tipo: e.tipo, alias: e.alias } })(),
+    resumen: (a, r) => (r?.requiere_confirmacion ? 'pidió confirmación para fusionar entidades' : `fusionó ${a.absorbe?.length ?? 0} duplicadas en ${r?.nombre ?? ''}`),
+  },
+
+  {
+    nombre: 'pausar_ingesta', familia: 'accion',
+    descripcion: 'Pone en espera la ingesta masiva del bus (destilar piezas con agentes): deja de repartirse y de gastar tokens. Las piezas siguen en el corpus y se buscan igual.',
+    parametros: S({}),
+    ejecutar: (_, { db }) => ({ en_espera: pausarIngesta(db) }),
+    resumen: (_, r) => `puso en espera ${r?.en_espera ?? 0} encargos de ingesta`,
+  },
+  {
+    nombre: 'reanudar_ingesta', familia: 'accion',
+    descripcion: 'Devuelve al bus encargos de ingesta en espera: primero lo de su propia voz y lo más pesado. Con un límite chico (20–50) para no gastar de golpe.',
+    parametros: S({ limite: int('Cuántos (por defecto 20)'), solo_propias: bool('Solo piezas de su propia voz') }),
+    ejecutar: (a, { db }) => ({ reanudados: reanudarIngesta(db, { limite: Math.min(a.limite ?? 20, 500), soloPropias: a.solo_propias }), quedan_en_espera: enEspera(db) }),
+    resumen: (_, r) => `devolvió ${r?.reanudados ?? 0} encargos de ingesta al bus`,
   },
 
   // Destructivas

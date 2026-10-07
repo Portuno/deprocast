@@ -87,3 +87,63 @@ export function entidadesPorId(db: Db, ids: number[]): Entidad[] {
 export function resumenEntidades(db: Db) {
   return db.prepare('SELECT tipo, COUNT(*) AS n FROM entidades GROUP BY tipo ORDER BY n DESC').all() as { tipo: TipoEntidad; n: number }[]
 }
+
+const normal = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
+
+/** Cambia nombre, tipo, alias o notas. El nombre anterior queda como alias: nadie deja de encontrarla. */
+export function editarEntidad(
+  db: Db, id: number, c: { nombre?: string; tipo?: string; alias?: string[]; notas?: string | null; sumarAlias?: string[] },
+): Entidad {
+  const e = leerEntidad(db, id)
+  if (!e) throw new Error(`No existe la entidad ${id}`)
+  const nombre = c.nombre?.trim() || e.nombre
+  if (c.tipo && !TIPOS_ENTIDAD.includes(c.tipo as TipoEntidad)) throw new Error(`Tipo inválido: ${c.tipo}`)
+  const base = c.alias ?? e.alias
+  const alias = [...new Set([...base, ...(c.sumarAlias ?? []), ...(nombre !== e.nombre ? [e.nombre] : [])].map((a) => a.trim()).filter((a) => a && normal(a) !== normal(nombre)))]
+  db.prepare('UPDATE entidades SET nombre = ?, tipo = ?, alias = ?, notas = ? WHERE id = ?')
+    .run(nombre, c.tipo ?? e.tipo, alias.length ? JSON.stringify(alias) : null, c.notas !== undefined ? c.notas : e.notas, id)
+  return leerEntidad(db, id)!
+}
+
+/**
+ * Fusiona duplicadas en una: las piezas, misiones, inventario e historia que apuntaban a las otras pasan a la que queda;
+ * sus nombres y alias se suman como alias, y sus notas se juntan. Las otras desaparecen.
+ */
+export function fusionarEntidades(db: Db, destino: number, origenes: number[]): Entidad {
+  const d = leerEntidad(db, destino)
+  if (!d) throw new Error(`No existe la entidad ${destino}`)
+  const os = [...new Set(origenes)].filter((o) => o !== destino).map((o) => {
+    const e = leerEntidad(db, o)
+    if (!e) throw new Error(`No existe la entidad ${o}`)
+    return e
+  })
+  if (!os.length) return d
+  db.exec('BEGIN')
+  try {
+    const piezas = db.prepare(`SELECT DISTINCT c.id, c.entidades FROM corpus c, json_each(c.entidades) j WHERE j.value IN (${os.map(() => '?').join(',')})`).all(...os.map((o) => o.id)) as { id: number; entidades: string }[]
+    const upd = db.prepare('UPDATE corpus SET entidades = ? WHERE id = ?')
+    for (const p of piezas) {
+      const ids = [...new Set(json<number[]>(p.entidades, []).map((x) => (os.some((o) => o.id === x) ? destino : x)))]
+      upd.run(JSON.stringify(ids), p.id)
+    }
+    for (const o of os) {
+      const k = `entidad:${o.id}`
+      const kd = `entidad:${destino}`
+      db.prepare('UPDATE misiones SET entidad_id = ? WHERE entidad_id = ?').run(destino, o.id)
+      db.prepare('UPDATE misiones SET personaje = ? WHERE personaje = ?').run(kd, k)
+      db.prepare('UPDATE misiones SET asignada_por = ? WHERE asignada_por = ?').run(kd, k)
+      db.prepare('UPDATE inventario SET entidad_id = ? WHERE entidad_id = ?').run(destino, o.id)
+      db.prepare('UPDATE inventario SET personaje = ? WHERE personaje = ?').run(kd, k)
+      db.prepare('UPDATE OR IGNORE historias SET personaje = ? WHERE personaje = ?').run(kd, k)
+      db.prepare('DELETE FROM historias WHERE personaje = ?').run(k)
+      db.prepare('DELETE FROM entidades WHERE id = ?').run(o.id)
+    }
+    const notas = [d.notas, ...os.map((o) => o.notas)].filter((n): n is string => !!n?.trim())
+    editarEntidad(db, destino, { sumarAlias: os.flatMap((o) => [o.nombre, ...o.alias]), notas: [...new Set(notas)].join('\n\n') || null })
+    db.exec('COMMIT')
+  } catch (err) {
+    db.exec('ROLLBACK')
+    throw err
+  }
+  return leerEntidad(db, destino)!
+}

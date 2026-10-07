@@ -8,11 +8,13 @@ import { CLASES } from '../clases.ts'
 import { asientos, especializacion } from '../auditor.ts'
 import { ingerir } from '../mastropiero.ts'
 import { leerJornada, progreso, registrarCierre } from '../jornada.ts'
-import { misionesParaPrompt } from '../misiones.ts'
+import { listarMisiones, misionesParaPrompt } from '../misiones.ts'
+import { menciones } from '../menciones.ts'
+import { leerEntidad as leerEnt } from '../entidades.ts'
 import { escribaDeMemoria, memoriaParaPrompt } from '../memoria.ts'
 import { listarEntidades } from '../entidades.ts'
 import { estadoLiga, numeroDeTick } from '../mastropiero.ts'
-import { cadena, type LlamadaHerramienta } from '../nan.ts'
+import { cadena, topeAlcanzado, type LlamadaHerramienta } from '../nan.ts'
 import { llamarModelo } from '../modelo.ts'
 import { alias, leer, nivel, type Ficha } from '../roster.ts'
 import { capa } from '../xp.ts'
@@ -116,7 +118,8 @@ function foto(db: Db): string {
   const ag = l.agentes.reduce((m: Record<string, number>, a: any) => ((m[a.estado] = (m[a.estado] ?? 0) + a.n), m), {})
   const bus = Object.fromEntries(l.tareas.map((t: any) => [t.estado, t.n]))
   const piezas = l.niveles.reduce((s: number, n: any) => s + n.n, 0)
-  return `Tick ${numeroDeTick(db)} · ${ag.activo ?? 0} agentes activos y ${ag.prueba ?? 0} en prueba · ${bus.pendiente ?? 0} encargos pendientes en el bus · ${piezas} piezas en el corpus · proyectos: ${l.proyectos.map((p: any) => p.nombre).join(', ') || 'ninguno'}.`
+  const tope = topeAlcanzado(db)
+  return `Tick ${numeroDeTick(db)} · ${ag.activo ?? 0} agentes activos y ${ag.prueba ?? 0} en prueba · ${bus.pendiente ?? 0} encargos pendientes en el bus${bus.en_espera ? ` (${bus.en_espera} de ingesta en espera)` : ''} · ${piezas} piezas en el corpus · proyectos: ${l.proyectos.map((p: any) => p.nombre).join(', ') || 'ninguno'}.${tope ? ` La liga está frenada por el tope diario de tokens (${tope}); si te pide correr la liga, decíselo.` : ''}`
 }
 
 /** El día de hoy y sus misiones, como los ve Mastropiero. */
@@ -129,6 +132,17 @@ function hoy(db: Db, mensaje = ''): string {
     misionesParaPrompt(db, Date.now(), mensaje),
     j?.cierre ? `Su cierre del día: ${j.cierre}` : '',
   ].filter(Boolean).join('\n')
+}
+
+/** Lo que nombró con @ en su mensaje: quién o qué es, sin que tengas que buscarlo. */
+function mencionado(db: Db, mensaje: string): string {
+  const ms = menciones(db, mensaje)
+  if (!ms.length) return ''
+  return `Te nombró con @ (sabés exactamente de quién habla; usá estos ids en tus herramientas, no se los digas):\n${ms.map((m) => {
+    const e = m.entidadId ? leerEnt(db, m.entidadId) : null
+    const abiertas = listarMisiones(db, { abiertas: true, limite: 200 }).filter((x) => x.entidadId === m.entidadId && m.entidadId != null || x.personaje === m.clave).length
+    return `- ${m.nombre} (${m.tipo}${m.entidadId ? `, entidad ${m.entidadId}` : `, ${m.clave}`})${e?.piezas ? `, aparece en ${e.piezas} piezas` : ''}${abiertas ? `, ${abiertas} misiones abiertas` : ''}${e?.notas ? `: ${e.notas.replace(/\s+/g, ' ').slice(0, 300)}` : ''}`
+  }).join('\n')}`
 }
 
 /** Cómo suena una conversación, para Mastropiero y para cualquier agente. */
@@ -165,12 +179,14 @@ Cómo trabajás
 - Sus primarias son los focos de la semana; sus secundarias, las bandas de una run; sus side quests, encargos que dependen de dónde está o qué hace. Lo que propongas entra como sugerencia: él acepta o cambia.
 - Una run la diseña él: si te pide una («tengo dos horas, la cabeza a medias, quiero meter a X»), prepará la propuesta con su pedido tal cual y contale el sentido; si quiere cambios, rehacela; arranca cuando él dice. Si te cuenta que terminó o no pudo una banda, marcala con su nota: eso calibra las próximas.
 - Si menciona algo que tiene (plata, contactos, sitios, saberes) o un encargo de pasada («cuando pase por…»), anotalo en su inventario o como side quest. Si le encarga algo a otra persona, asignale la misión a esa persona.
+- Sus primarias pueden tener ayudantes de la liga (un generativo que hace borradores y próximos pasos, un buscador que revisa su corpus) que trabajan entre runs y dejan aportes. Si una primaria se traba o necesita material, sugerile sumar uno; los aportes llegan solos a su próxima run.
 - Ayudalo a sostener el día sin sermones.
 - Su memoria se va escribiendo sola con lo que te cuenta. Usá recordar solo si te pide explícitamente que te acuerdes de algo; corregí la memoria cuando te corrija.
 - No hables de quántomos ni de la mecánica del corpus salvo que te pregunte por eso.
 
 Ahora: ${new Date().toLocaleString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}
 ${hoy(db, mensaje)}
+${mencionado(db, mensaje)}
 
 La liga (contexto, no lo recites): ${foto(db)}
 

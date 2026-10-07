@@ -3,7 +3,8 @@
  * Ve todo, ingiere todo y en cada tick hace tres cosas: purga, reparte, corre.
  */
 import { CLASES } from './clases.ts'
-import type { Db } from './db.ts'
+import { fechaLocal, type Db } from './db.ts'
+import { topeAlcanzado } from './nan.ts'
 import { asignar, asignadasA, cerrarFallo, cerrarOk, leerTarea, publicar, type NuevaTarea, type Tarea } from './bus.ts'
 import { registrar } from './auditor.ts'
 import { construir } from './contexto.ts'
@@ -20,7 +21,7 @@ import { efectos, NIVEL_BAUTISMO, nivelDe, XP_POR_ASIGNACION, XP_POR_EXITO } fro
 export const MASTROPIERO = 'mastropiero'
 
 export type Evento = {
-  tipo: 'purga' | 'asigna' | 'recluta' | 'vacante' | 'corre' | 'falla' | 'nivel' | 'bautismo' | 'promovido' | 'banca' | 'retirado' | 'publica'
+  tipo: 'purga' | 'asigna' | 'recluta' | 'vacante' | 'corre' | 'falla' | 'nivel' | 'bautismo' | 'promovido' | 'banca' | 'retirado' | 'publica' | 'tope'
   texto: string
 }
 
@@ -82,8 +83,11 @@ export async function tick(db: Db, o: { ahora?: number; reclutar?: boolean } = {
   const ahora = o.ahora ?? Date.now()
   const ev: Evento[] = []
   purgar(db, ahora, ev)
-  repartir(db, ahora, o.reclutar ?? true, ev)
-  await correr(db, ahora, ev)
+  // Pasado el tope diario de tokens, la liga reparte pero no corre: nadie falla ni pierde racha por eso.
+  const tope = topeAlcanzado(db, ahora)
+  repartir(db, ahora, (o.reclutar ?? true) && !tope, ev)
+  if (tope) ev.push({ tipo: 'tope', texto: `la liga no corre: ${tope}` })
+  else await correr(db, ahora, ev)
   const n = numeroDeTick(db) + 1
   const alta = db.prepare('INSERT INTO cronica (tick, tipo, texto, en) VALUES (?, ?, ?, ?)')
   // Un tick sin novedades también cuenta: queda su número aunque no deje eventos.
@@ -101,13 +105,22 @@ export function cronica(db: Db, limite = 150) {
   return (db.prepare(`SELECT tick, tipo, texto, en FROM cronica WHERE tipo != 'quieto' ORDER BY id DESC LIMIT ?`).all(limite) as (Evento & { tick: number; en: number })[]).reverse()
 }
 
-/** Un agente que no corre en una semana se borra, no se mejora. */
+/**
+ * Un agente que no corre en una semana de liga se borra, no se mejora. Cuentan los días en que la liga jugó
+ * (con ticks), no los del calendario: si el operador no prendió la liga, nadie muere por no haber corrido.
+ */
 export function purgar(db: Db, ahora: number, ev: Evento[] = []) {
-  const limite = ahora - DIAS_SIN_CORRER * DIA_MS
+  const hoy = fechaLocal(ahora)
+  const dias = db.prepare(`SELECT DISTINCT date(en / 1000, 'unixepoch', 'localtime') AS d FROM cronica WHERE en > ? AND en <= ?`)
   for (const f of listar(db)) {
-    if ((f.ultimaCorrida ?? f.creadoEn) < limite) {
-      retirar(db, f.id, `${DIAS_SIN_CORRER} días sin correr`, ahora)
-      ev.push({ tipo: 'purga', texto: `${alias(f)} retirado: ${DIAS_SIN_CORRER} días sin correr` })
+    const desde = f.ultimaCorrida ?? f.creadoEn
+    if (desde >= ahora - DIAS_SIN_CORRER * DIA_MS) continue
+    const jugados = new Set((dias.all(desde, ahora) as { d: string }[]).map((r) => r.d))
+    jugados.add(hoy) // este tick también es un día de liga
+    jugados.delete(fechaLocal(desde)) // el día en que corrió no cuenta como día sin correr
+    if (jugados.size >= DIAS_SIN_CORRER) {
+      retirar(db, f.id, `${DIAS_SIN_CORRER} días de liga sin correr`, ahora)
+      ev.push({ tipo: 'purga', texto: `${alias(f)} retirado: ${DIAS_SIN_CORRER} días de liga sin correr` })
     }
   }
   return ev
@@ -266,8 +279,8 @@ function derivar(db: Db, f: Ficha, t: Tarea, salida: Salida, iniciativa: number,
   if (t.tipo === 'mejora-quantomo' && typeof salida.texto === 'string') {
     const id = registrarPropuesta(db, t, salida.texto, f.id, ahora)
     if (id) ev.push({ tipo: 'publica', texto: `${alias(f)} propone una versión del quántomo ${t.payload.quantomoId} → espera tu sello` })
-  } else if (f.clase === 'generativo' && typeof salida.texto === 'string' && salida.texto.trim()) {
-    // Lo que crean los agentes también es corpus, en su nivel: generada.
+  } else if (f.clase === 'generativo' && typeof salida.texto === 'string' && salida.texto.trim() && t.tipo !== 'aporte' && t.tipo !== 'preparar-run') {
+    // Lo que crean los agentes también es corpus, en su nivel: generada. (Los aportes de ayudantes los guarda ayudantes.ts, con su primaria.)
     const pedido = typeof t.payload.texto === 'string' ? t.payload.texto : t.tipo
     insertar(db, {
       fuente: 'agentes', nivel: 'generada', titulo: `${alias(f)} · ${pedido.slice(0, 90)}`, contenido: salida.texto,

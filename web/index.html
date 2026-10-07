@@ -20,12 +20,13 @@
     <div class="hud-acciones">
       <button class="btn btn-tick" id="btn-tick" title="Purga → reparte → corre (barra espaciadora)">▶ Tick</button>
       <button class="btn btn-auto" id="btn-auto" title="Ticks automáticos">Auto</button>
-      <button class="btn btn-icono" id="btn-cronica" title="Mostrar u ocultar la crónica">☰</button>
+      <button class="btn btn-icono" id="btn-cronica" title="Mostrar u ocultar la crónica (los eventos de la liga)">☰</button>
       <button class="btn btn-icono" id="btn-tema" title="Tema claro u oscuro">◐</button>
     </div>
   </header>
 
   <nav class="nav" id="nav">
+    <button class="nav-plegar" id="nav-plegar" title="Plegar el menú">‹</button>
     <small>Mastropiero</small>
     <button data-vista="hoy" class="activo"><i>☀</i><span>Hoy</span></button>
     <button data-vista="chat"><i>☿</i><span>Chat</span></button>
@@ -45,7 +46,7 @@
   <main class="principal" id="principal"></main>
 
   <aside class="cronica" id="cronica">
-    <h2>Crónica</h2>
+    <h2>Crónica <button class="btn btn-chico btn-icono" id="cronica-cerrar" title="Ocultar la crónica (☰ arriba la vuelve a mostrar)">✕</button></h2>
     <div id="cronica-lista" class="cronica-lista"></div>
   </aside>
 

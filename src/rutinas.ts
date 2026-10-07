@@ -6,6 +6,7 @@ import { fechaLocal, type Db } from './db.ts'
 import { aMin, asegurarJornada, fijarResumen, leerJornada, textoDeCierre } from './jornada.ts'
 import { agendaDelDia } from './calendario.ts'
 import { conversacionHoy, mensajeDeMastropiero } from './chat/index.ts'
+import { pedirAportes } from './ayudantes.ts'
 import { conAvance, listarMisiones, proponerPrimarias, reporteSemana, semanaDe, seguimientos, sideQuestsRelevantes } from './misiones.ts'
 
 export type Rutina = { id: string; nombre: string; hora: string; dias: string; accion: string; activa: boolean; ultimaFecha: string | null }
@@ -48,7 +49,7 @@ export const ACCIONES: Acciones = {
     const tocan = sideQuestsRelevantes(db, eventos.map((e) => `${e.titulo} ${e.lugar ?? ''}`).join(' '))
     const deben = seguimientos(db, ahora)
     const partes = [
-      'Buen día.',
+      new Date(ahora).getHours() < 13 ? 'Buen día.' : new Date(ahora).getHours() < 20 ? 'Buenas tardes.' : 'Buenas noches.',
       eventos.length ? `Hoy tenés ${eventos.length === 1 ? 'una cosa' : `${eventos.length} cosas`} en la agenda.` : '',
       aceptadas.length ? `Tus primarias de la semana: ${aceptadas.map((p) => `${p.titulo} (${p.avance.progreso}%)`).join(', ')}.`
         : primarias.length ? 'Te dejé primarias sugeridas para la semana: aceptalas o cambialas en Misiones.' : 'No tenés primarias esta semana; si querés te las propongo.',
@@ -64,6 +65,12 @@ export const ACCIONES: Acciones = {
     const huboRun = !!db.prepare(`SELECT 1 FROM runs WHERE fecha = ? AND estado IN ('en_curso', 'cerrada')`).get(fecha)
     if ((!j && !huboRun) || j?.cierre) return null
     return textoDeCierre(db, fecha, ahora)
+  },
+  /** Temprano: cada ayudante deja su aporte del día (si no lo dejó ya), dentro del tope de la liga. */
+  async ayudantes(db, _fecha, ahora) {
+    const r = await pedirAportes(db, { ahora, soloSinAporteHoy: true })
+    if (!r.aportes.length) return r.frenado ? `Tus ayudantes no trabajaron hoy: ${r.frenado}.` : null
+    return `Tus ayudantes te dejaron ${r.aportes.length} aporte${r.aportes.length > 1 ? 's' : ''}: ${r.aportes.map((a) => `${a.autor} para «${a.titulo.split(' · ').slice(1).join(' · ')}»`).join('; ')}. Los vas a ver en Misiones y entran como material en tu próxima run.${r.frenado ? ` (Me frené: ${r.frenado}.)` : ''}`
   },
   /** El lunes: primarias sugeridas para la semana (si no las tiene ya). */
   async semana(db, _fecha, ahora) {

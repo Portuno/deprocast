@@ -30,7 +30,7 @@ const claseDe = (id) => META.clases.find((c) => c.id === id)
 const colorDe = (id) => `var(--${id})`
 const ESTADOS_CORPUS = ['crudo', 'extraido', 'clasificado', 'disponible']
 const OFICIOS = ['Input·Cuerpo', 'Input·Mente', 'Input·Alma', 'Proc·Cuerpo', 'Proc·Mente', 'Proc·Alma', 'Output·Cuerpo', 'Output·Mente', 'Output·Alma']
-const ICONO = { purga: '✝', asigna: '→', recluta: '+', vacante: '?', corre: '✓', falla: '✗', nivel: '▲', bautismo: '★', promovido: '◆', banca: '⇣', retirado: '✝', publica: '↻' }
+const ICONO = { purga: '✝', asigna: '→', recluta: '+', vacante: '?', corre: '✓', falla: '✗', nivel: '▲', bautismo: '★', promovido: '◆', banca: '⇣', retirado: '✝', publica: '↻', tope: '⏸' }
 
 function fmtTokens(n) {
   if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M'
@@ -50,8 +50,11 @@ function toast(html, tipo = '') {
 const error = (e) => toast(esc(e.message ?? e), 'error')
 
 function abrirModal(html) {
+  document.activeElement?.blur?.()
   $('#modal').innerHTML = html
   $('#velo').hidden = false
+  // El foco va al primer campo: si se queda en el botón que abrió el modal, lo que tipeás se pierde (y la barra espaciadora lo reabre).
+  setTimeout(() => $('#modal [autofocus], #modal input:not([type=hidden]):not([type=checkbox]):not([type=range]), #modal textarea')?.focus(), 0)
 }
 function cerrarModal() {
   $('#velo').hidden = true
@@ -60,7 +63,8 @@ function cerrarModal() {
 $('#velo').addEventListener('click', (e) => { if (e.target.id === 'velo' || e.target.closest('[data-cerrar]')) cerrarModal() })
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') cerrarModal()
-  const escribiendo = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName ?? '')
+  const activo = document.activeElement
+  const escribiendo = /INPUT|TEXTAREA|SELECT|BUTTON|A/.test(activo?.tagName ?? '') || activo?.isContentEditable
   if (e.code === 'Space' && !escribiendo && $('#velo').hidden) { e.preventDefault(); hacerTick() }
 })
 
@@ -108,6 +112,7 @@ function renderHud() {
     stat('Roster', r.length, `${cuenta('activo')} act · ${cuenta('prueba')} prueba`),
     stat('Bus', t.pendiente ?? 0, `pend · ${t.hecha ?? 0} hechas`),
     stat('NaN este mes', fmtTokens(tokens), 'tokens'),
+    stat('Gasto hoy', fmtTokens(E.gasto.total), E.gasto.tope ? `liga ${fmtTokens(E.gasto.liga)} de ${fmtTokens(E.gasto.tope)}` : 'sin tope'),
     stat('Tick', E.nTick),
   ].join('')
 }
@@ -359,6 +364,7 @@ function montarMisiones() {
       </div>
       <div id="m-extra"></div>
     </div>
+    <div class="fila ingesta-barra" id="ingesta-barra"></div>
     <div class="tablero" id="tablero"></div>`
   const extra = () => {
     mision.clase = $('#m-clase').value
@@ -390,6 +396,18 @@ function montarMisiones() {
 function refrescarTablero() {
   const tab = $('#tablero')
   if (!tab) return
+  const barra = $('#ingesta-barra')
+  const ingesta = E.tareas.filter((t) => t.pipeline === 'ingesta' && (t.estado === 'pendiente' || t.estado === 'asignada')).length
+  barra.innerHTML = `<span class="tenue chico">${E.enEspera ? `${E.enEspera.toLocaleString('es-AR')} encargos de ingesta en espera (no gastan).` : 'La ingesta corre con los ticks.'}</span>
+    ${E.enEspera ? '<button class="btn btn-chico" data-ing="reanudar">Reanudar 20 (lo propio primero)</button>' : ''}
+    ${ingesta || !E.enEspera ? '<button class="btn btn-chico" data-ing="pausar">Pausar la ingesta</button>' : ''}`
+  $$('[data-ing]', barra).forEach((b) => (b.onclick = async () => {
+    try {
+      const r = b.dataset.ing === 'pausar' ? await api('/ingesta/pausar', {}) : await api('/ingesta/reanudar', { limite: 20 })
+      toast(b.dataset.ing === 'pausar' ? `${r.enEspera} encargos en espera` : `${r.reanudados} encargos de vuelta al bus`, 'suave')
+      await refrescar()
+    } catch (e) { error(e) }
+  }))
   const cols = [['pendiente', 'Pendientes'], ['asignada', 'Asignadas'], ['hecha', 'Cumplidas'], ['fallida', 'Fallidas']]
   tab.innerHTML = cols.map(([estado, titulo]) => {
     const ts = E.tareas.filter((t) => t.estado === estado)
@@ -439,12 +457,53 @@ const aMinJs = (h) => Number(h.slice(0, 2)) * 60 + Number(h.slice(3, 5))
 
 async function montarHoy() {
   $('#principal').classList.add('lleno')
-  $('#principal').innerHTML = `<div class="hoy"><section class="hoy-dia" id="hoy-dia"></section><section class="chat-main hoy-chat">${hiloHTMLBase()}</section></div>`
+  $('#principal').innerHTML = `<div class="hoy ${pref.leer('mastro-hoy-foco', 'no') === 'si' ? 'foco' : ''}" id="hoy" style="--hoy-dia:${Number(pref.leer('mastro-hoy-ancho', '400')) || 400}px">
+    <section class="chat-main hoy-chat">${hiloHTMLBase()}<button class="hoy-mostrar" id="hoy-mostrar" title="Mostrar las tareas del día">⇤ ☀ <span id="hoy-mini"></span></button></section>
+    <div class="hoy-divisor" id="hoy-divisor" title="Arrastrá para repartir el espacio entre el chat y las tareas (doble clic: ocultar las tareas)"></div>
+    <section class="hoy-dia" id="hoy-dia"></section></div>`
+  engancharSplitHoy()
   engancharCompositor()
   hoyScrolleado = false
   await traerHoy()
   await traerConversaciones()
   if (hoyDatos) await abrirConversacion(hoyDatos.conversacion)
+}
+
+/** El día y el chat comparten la pantalla: el divisor se arrastra (y se recuerda); el día se puede ocultar entero. */
+function engancharSplitHoy() {
+  const hoy = $('#hoy')
+  const div = $('#hoy-divisor')
+  const foco = (si) => {
+    hoy.classList.toggle('foco', si)
+    pref.guardar('mastro-hoy-foco', si ? 'si' : 'no')
+    pintarMiniHoy()
+  }
+  $('#hoy-mostrar').onclick = () => foco(false)
+  div.ondblclick = () => foco(true)
+  div.onpointerdown = (e) => {
+    e.preventDefault()
+    div.setPointerCapture(e.pointerId)
+    const x1 = hoy.getBoundingClientRect().right
+    const mover = (ev) => {
+      const ancho = Math.round(Math.min(Math.max(x1 - ev.clientX, 260), hoy.clientWidth * 0.7))
+      hoy.style.setProperty('--hoy-dia', `${ancho}px`)
+    }
+    div.onpointermove = mover
+    div.onpointerup = () => {
+      div.onpointermove = null
+      pref.guardar('mastro-hoy-ancho', parseInt(hoy.style.getPropertyValue('--hoy-dia')) || 400)
+    }
+  }
+  window.ocultarDia = () => foco(true)
+}
+
+/** Con el día oculto, una pastilla dice qué banda toca. */
+function pintarMiniHoy() {
+  const mini = $('#hoy-mini')
+  if (!mini || !hoyDatos) return
+  const run = hoyDatos.run
+  const actual = run?.misiones?.find((m) => m.id === hoyDatos.actual)
+  mini.textContent = actual ? `${actual.inicio}–${actual.fin} · ${actual.titulo}` : run?.estado === 'en_curso' ? `Run ${run.inicio}–${run.fin}` : run?.estado === 'propuesta' ? `Run propuesta ${run.inicio}–${run.fin}` : 'El día'
 }
 
 function refrescarHoy() {
@@ -478,14 +537,20 @@ function pintarHoy() {
       <div class="semana" title="Bandas hechas por día">${barras}</div>
     </header>
     <div class="fila hoy-acciones">
-      <button class="btn btn-chico btn-icono" id="hoy-ajustes" title="Rutinas">⚙</button>
+      <button class="btn btn-chico btn-icono" id="hoy-ajustes" title="Rutinas, plantillas y tope de gasto">⚙</button>
+      <button class="btn btn-chico" id="hoy-ocultar" title="Ocultar las tareas: el chat ocupa toda la pantalla">Ocultar tareas ⇥</button>
       ${avisoNotif ? '<button class="btn btn-chico" id="hoy-notif">Activar avisos</button>' : ''}
     </div>
     ${run?.estado === 'en_curso' ? runEnCursoHTML(run) : run?.estado === 'propuesta' ? runPropuestaHTML(run) : sinRunHTML()}
+    ${hoyDatos.proximas?.length ? `<section class="hoy-semana"><h3 class="sub">Próximas runs</h3>${hoyDatos.proximas.map((r) => `<details class="run-pasada"><summary><b>${esc(new Date(`${r.fecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric' }))}</b> ${r.inicio}–${r.fin} · ${r.misiones.length} bandas · propuesta</summary>
+      ${r.resumen ? `<p class="hoy-resumen">${esc(r.resumen)}</p>` : ''}<ol class="bandas">${r.misiones.map((m) => bandaHTML(m, { propuesta: true })).join('')}</ol>
+      <p class="tenue chico">Ese día aparece en Hoy para arrancarla (o rehacerla).</p></details>`).join('')}</section>` : ''}
     ${semanaHoyHTML()}
     ${j?.cierre ? `<div class="hoy-cierre"><small>Tu cierre</small><p>${esc(j.cierre)}</p></div>` : ''}
     ${calendarios ? '' : `<p class="hoy-nota">Para que tenga en cuenta tu agenda: en Google Calendar, Configuración del calendario → «Dirección secreta en formato iCal», y pegala en <code>.env</code> como <code>GCAL_ICS_URLS</code>.</p>`}`
   $('#hoy-ajustes').onclick = modalAjustesHoy
+  $('#hoy-ocultar').onclick = () => window.ocultarDia?.()
+  pintarMiniHoy()
   const nb = $('#hoy-notif')
   if (nb) nb.onclick = async () => { await Notification.requestPermission(); pintarHoy() }
   engancharRun(cont, run)
@@ -586,6 +651,7 @@ function semanaHoyHTML() {
         <span>⚑ ${esc(m.titulo)}${m.disparador ? `<small>${esc(Object.values(m.disparador).filter(Boolean).join(' · '))}</small>` : ''}</span>
         <button class="btn btn-chico" data-sq-hecha title="Cumplida">✓</button></div>`).join('')}` : ''}
     ${seguimientos.length ? `<h3 class="sub">Te deben</h3>${seguimientos.map((m) => `<div class="sq"><span>↻ <b>${esc(m.quien)}</b>: ${esc(m.titulo)}<small>vencía ${esc(m.vence)}</small></span></div>`).join('')}` : ''}
+    ${hoyDatos.aportes?.length ? `<h3 class="sub">De tus ayudantes</h3>${hoyDatos.aportes.map((a) => `<div class="sq"><span><a href="#" data-pieza="${a.id}">${esc(a.titulo.split(' · ').slice(1).join(' · ') || a.titulo)}</a><small>${esc(a.autor ?? a.agente)} · ${haceCuanto(a.en)}</small></span></div>`).join('')}` : ''}
     ${reporte && reporte.tipo !== 'hora' ? `<details class="hoy-reporte"><summary>Último reporte (${reporte.tipo === 'run' ? 'run' : 'semana'})</summary><div class="md">${md(reporte.texto)}</div></details>` : ''}
   </section>`
 }
@@ -785,8 +851,9 @@ function modalAjustesHoy() {
   const r = hoyDatos.rutinas
   const ps = hoyDatos.plantillas
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Tu día</h2>
-    <p class="tenue">A qué hora hace Mastropiero cada cosa solo, y cuántas primarias te propone por semana.</p>
-    <div class="form-ing"><label class="campo">Primarias por semana<input id="aj-prim" type="number" min="1" max="12" value="${esc(hoyDatos.ajustes.primarias_semana ?? 6)}"></label></div>
+    <p class="tenue">A qué hora hace Mastropiero cada cosa solo, cuántas primarias te propone por semana y cuánto puede gastar la liga por día (lo que le pedís vos no se frena).</p>
+    <div class="form-ing"><label class="campo">Primarias por semana<input id="aj-prim" type="number" min="1" max="12" value="${esc(hoyDatos.ajustes.primarias_semana ?? 6)}"></label>
+      <label class="campo">Tope diario de la liga (tokens, 0 = sin tope)<input id="aj-tope" type="number" min="0" step="100000" value="${esc(hoyDatos.ajustes.tokens_dia_max ?? 1000000)}"></label></div>
     <h3 class="sub">Rutinas</h3>
     ${r.map((x) => `<div class="fila" style="margin:6px 0"><label class="fila" style="gap:6px;min-width:260px"><input type="checkbox" data-rut-activa="${x.id}" ${x.activa ? 'checked' : ''}> ${esc(x.nombre)}</label>
       <input class="campo-suelto" type="time" data-rut-hora="${x.id}" value="${esc(x.hora)}" style="width:120px;margin:0"><small class="tenue">${x.dias === '0123456' ? 'todos los días' : x.dias.split('').map((d) => ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'][d]).join(', ')}</small></div>`).join('')}
@@ -798,7 +865,7 @@ function modalAjustesHoy() {
   }))
   $('#aj-guardar').onclick = async () => {
     try {
-      await api('/ajustes', { primarias_semana: $('#aj-prim').value })
+      await api('/ajustes', { primarias_semana: $('#aj-prim').value, tokens_dia_max: $('#aj-tope').value })
       for (const x of r) await api(`/rutinas/${x.id}`, { hora: $(`[data-rut-hora="${x.id}"]`).value, activa: $(`[data-rut-activa="${x.id}"]`).checked })
       cerrarModal()
       toast('Guardado', 'suave')
@@ -938,7 +1005,8 @@ async function traerMisiones() {
         ? `<div class="fila p-acc"><button class="btn btn-chico btn-primario" data-m-estado="activa">Aceptar</button><button class="btn btn-chico" data-m-editar>Cambiar</button><button class="btn btn-chico" data-m-estado="descartada">Descartar</button></div>`
         : `<div class="p-avance"><input type="range" min="0" max="100" step="5" value="${m.avance.progreso}" data-m-prog><b>${m.avance.progreso}%</b></div>
            <small class="tenue">${m.avance.bandas.total ? `${m.avance.bandas.hechas} bandas hechas${m.avance.bandas.parciales ? `, ${m.avance.bandas.parciales} a medias` : ''} · ${m.avance.minutos} min de foco` : 'Todavía sin bandas'}</small>
-           <div class="fila p-acc">${m.estado === 'activa' ? '<button class="btn btn-chico" data-m-estado="hecha">✓ Cumplida</button>' : '<button class="btn btn-chico" data-m-estado="activa">Reabrir</button>'}<button class="btn btn-chico" data-m-editar>✎</button><button class="btn btn-chico" data-m-estado="descartada" title="Descartar">✕</button></div>`}
+           <div class="fila p-acc">${m.estado === 'activa' ? '<button class="btn btn-chico" data-m-estado="hecha">✓ Cumplida</button>' : '<button class="btn btn-chico" data-m-estado="activa">Reabrir</button>'}<button class="btn btn-chico" data-m-editar>✎</button><button class="btn btn-chico" data-m-estado="descartada" title="Descartar">✕</button></div>
+           ${m.estado === 'activa' ? ayudantesHTML(m) : ''}`}
     </div>`
     cont.innerHTML = `
       <section class="panel mi-principal">
@@ -955,6 +1023,7 @@ async function traerMisiones() {
         <button class="btn btn-chico" id="mi-proponer">Proponer primarias</button>
         <button class="btn btn-chico" id="mi-nueva">+ Primaria</button>
         <button class="btn btn-chico" id="mi-reporte">Reporte de la semana</button>
+        ${d.primarias.some((m) => m.ayudantes?.length) ? '<button class="btn btn-chico" id="mi-aportes" title="Cada ayudante deja un aporte ahora (gasta tokens de la liga, dentro del tope)">Pedir aportes a todos</button>' : ''}
       </div>
       ${d.primarias.length ? `<div class="prim-grid">${d.primarias.map(prim).join('')}</div>` : `<div class="vacio"><div class="gran">⚔</div><h2>Sin primarias esta semana</h2><p>Hasta seis focos para la semana. Pedile a Mastropiero que te las proponga, o anotalas vos.</p></div>`}
       <div class="mi-cols">
@@ -981,8 +1050,45 @@ async function traerMisiones() {
   } catch (e) { error(e) }
 }
 
+const haceCuanto = (ms) => {
+  const min = Math.round((Date.now() - ms) / 60000)
+  return min < 60 ? `hace ${Math.max(1, min)} min` : min < 1440 ? `hace ${Math.round(min / 60)} h` : `hace ${Math.round(min / 1440)} d`
+}
+
+function ayudantesHTML(m) {
+  const ays = m.ayudantes ?? []
+  return `<div class="ayudantes">
+    <small>Ayudantes de la liga</small>
+    <div class="fila">${ays.map((a) => `<span class="ayu">${a.agente ? `<a href="#" data-ver-agente="${esc(a.agente.id)}">${claseDe(a.agente.clase)?.glifo ?? ''} ${esc(a.agente.nombre ?? a.agente.id)}</a>` : '—'}${a.ultimoAporte ? `<em>${haceCuanto(a.ultimoAporte)}</em>` : ''}<button data-quitar-ayu="${a.mision}" title="Sacar de esta primaria">✕</button></span>`).join('')}
+      <select class="campo-suelto" data-ayu-clase title="Un agente que trabaja en esto entre runs"><option value="">+ Ayudante…</option><option value="generativo">✦ Generativo: borradores y próximos pasos</option><option value="buscador">⌕ Buscador: lo que hay en tu corpus</option></select>
+      ${ays.length ? '<button class="btn btn-chico" data-pedir-aporte>Pedir aporte</button>' : ''}</div>
+    ${m.aportes?.length ? `<details class="aportes"><summary>${m.aportes.length === 3 ? 'Últimos aportes' : `${m.aportes.length} aporte${m.aportes.length > 1 ? 's' : ''}`} · ${haceCuanto(m.aportes[0].en)}</summary>
+      ${m.aportes.map((a) => `<div class="aporte"><small>${esc(a.autor ?? a.agente)} · ${new Date(a.en).toLocaleString('es-AR', { weekday: 'short', hour: '2-digit', minute: '2-digit' })} · <a href="#" class="ref" data-pieza="${a.id}">abrir</a></small><div class="md">${md(a.contenido)}</div></div>`).join('')}</details>` : ''}
+  </div>`
+}
+
 function engancharMisiones(cont, d) {
   const recargar = async () => { await refrescar(); traerMisiones() }
+  $$('[data-ayu-clase]', cont).forEach((sel) => (sel.onchange = async () => {
+    if (!sel.value) return
+    const mid = sel.closest('[data-mid]').dataset.mid
+    try {
+      const r = await api(`/misiones/${mid}/ayudantes`, { clase: sel.value })
+      toast(`${esc(r.agente)} ayuda en esta primaria<small>Nace en prueba. Pedile un aporte cuando quieras; con las rutinas prendidas, trabaja solo cada mañana.</small>`)
+      await recargar()
+    } catch (e) { error(e); sel.value = '' }
+  }))
+  $$('[data-quitar-ayu]', cont).forEach((b) => (b.onclick = async () => {
+    try { await api(`/ayudantes/${b.dataset.quitarAyu}/quitar`, {}); await recargar() } catch (e) { error(e) }
+  }))
+  const pedir = (boton, primariaId) => trabajando(boton, 'Trabajando…', async () => {
+    const r = await api('/aportes', primariaId ? { primariaId } : {})
+    toast(`${r.aportes.length} aporte${r.aportes.length === 1 ? '' : 's'} nuevo${r.aportes.length === 1 ? '' : 's'}${r.fallas.length ? `<small>${esc(r.fallas.join(' · '))}</small>` : ''}${r.frenado ? `<small>Frenado: ${esc(r.frenado)}</small>` : ''}`, r.aportes.length ? '' : 'suave')
+    await recargar()
+  })
+  $$('[data-pedir-aporte]', cont).forEach((b) => (b.onclick = () => pedir(b, Number(b.closest('[data-mid]').dataset.mid))))
+  const todos = $('#mi-aportes', cont)
+  if (todos) todos.onclick = () => pedir(todos)
   $$('[data-sem]', cont).forEach((b) => (b.onclick = () => { misSemana = b.dataset.sem; traerMisiones() }))
   $$('[data-m-estado]', cont).forEach((b) => (b.onclick = async () => {
     try { await api(`/misiones/${b.closest('[data-mid]').dataset.mid}`, { estado: b.dataset.mEstado }); await recargar() } catch (e) { error(e) }
@@ -1070,7 +1176,15 @@ function montarJugador() {
   $('#j-procesar').onclick = () => procesarme($('#j-procesar'))
   $$('#j-tabs [data-tab]').forEach((b) => (b.onclick = () => { jugTab = b.dataset.tab; montarJugador() }))
   if (jugTab === 'memoria') montarNorte($('#j-cuerpo'))
-  else fichaPersonaje($('#j-cuerpo'), 'jugador', { tabs: [jugTab], alCargar: (f) => ($('#j-nombre').textContent = f.personaje.nombre) })
+  else fichaPersonaje($('#j-cuerpo'), 'jugador', {
+    tabs: [jugTab],
+    alCargar: (f) => {
+      $('#j-nombre').textContent = f.personaje.nombre
+      const p = $('#principal .titulo p')
+      if (p && f.personaje.entidadId) p.innerHTML += ` <a href="#" class="ref" data-ref-ent="${f.personaje.entidadId}">Tu entidad en el corpus</a>`
+      else if (p && !f.personaje.entidadId) p.innerHTML += ' <span class="tenue">Todavía no sé cuál de las personas del corpus sos: buscate en Entidades y tocá «Soy yo».</span>'
+    },
+  })
 }
 
 function refrescarJugador() {
@@ -1953,7 +2067,7 @@ function hiloHTML(ms, q, vivo) {
 }
 
 function turnoHTML(t, q, vivo) {
-  let h = t.yo ? `<div class="m m-yo"><div>${esc(t.yo.texto)}</div></div>` : ''
+  let h = t.yo ? `<div class="m m-yo"><div>${conMenciones(esc(t.yo.texto))}</div></div>` : ''
   const actividad = t.herr.length ? `<details class="actividad"><summary>${esc(resumenActividad(t.herr))}</summary><ul>${t.herr.map((m) => {
     let cuerpo = m.texto ?? ''
     try { cuerpo = JSON.stringify(JSON.parse(cuerpo), null, 2) } catch {}
@@ -2105,11 +2219,12 @@ async function verEntidad(id) {
     if (!det) return
     const meta = e.meta ? Object.entries(e.meta).filter(([k, v]) => v != null && typeof v !== 'object' && k !== 'operador') : []
     det.innerHTML = `<div class="panel">
-      <div class="p-top"><span class="tipo-chip">${TIPO_ENT[e.tipo]?.glifo ?? ''} ${esc(e.tipo)}</span>${e.meta?.operador ? '<span class="nivel-badge">el operador</span>' : ''}${meta.map(([k, v]) => `<span class="tipo-chip">${esc(k)}: ${esc(v)}</span>`).join('')}</div>
+      <div class="p-top"><span class="tipo-chip">${TIPO_ENT[e.tipo]?.glifo ?? ''} ${esc(e.tipo)}</span>${e.meta?.operador ? '<span class="nivel-badge">vos · el jugador</span>' : ''}${meta.map(([k, v]) => `<span class="tipo-chip">${esc(k)}: ${esc(v)}</span>`).join('')}</div>
       <h2>${esc(e.nombre)}</h2>
       ${e.alias.length ? `<div class="tags">${e.alias.map((a) => `<span>${esc(a)}</span>`).join('')}</div>` : ''}
       ${e.notas ? `<div class="notas">${esc(e.notas)}</div>` : ''}
-      <div class="fila" style="margin:12px 0 4px"><button class="btn btn-chico btn-primario" id="ent-preguntar">☿ Preguntarle a Mastropiero</button></div>
+      <div class="fila" style="margin:12px 0 4px"><button class="btn btn-chico btn-primario" id="ent-preguntar">☿ Preguntarle a Mastropiero</button>
+        ${e.meta?.operador ? '<button class="btn btn-chico" id="ent-ficha-jugador">Tu ficha de jugador</button>' : e.tipo === 'persona' ? '<button class="btn btn-chico" id="ent-soy-yo" title="Marcar esta persona como vos: tu ficha de jugador y la suya pasan a ser una">Soy yo</button>' : ''}</div>
       <div class="tabs chicas" id="ent-tabs">${[['corpus', 'Corpus'], ['misiones', 'Misiones'], ['historia', 'Historia'], ['inventario', 'Inventario']].map(([k, n]) => `<button data-etab="${k}" class="${k === entTab ? 'on' : ''}">${n}</button>`).join('')}</div>
       <div id="ent-ficha"></div>
       <div id="ent-corpus" ${entTab === 'corpus' ? '' : 'hidden'}>
@@ -2127,6 +2242,13 @@ async function verEntidad(id) {
     }
     $$('#ent-tabs [data-etab]').forEach((b) => (b.onclick = () => { entTab = b.dataset.etab; pintarTab() }))
     pintarTab()
+    const soy = $('#ent-soy-yo')
+    if (soy) soy.onclick = async () => {
+      if (!confirm(`¿${e.nombre} sos vos? Su ficha y la tuya de jugador pasan a ser una sola.`)) return
+      try { await api(`/entidades/${e.id}/soy-yo`, {}); toast(`Listo: ${esc(e.nombre)} sos vos`, 'suave'); await refrescar(); verEntidad(e.id) } catch (err) { error(err) }
+    }
+    const fj = $('#ent-ficha-jugador')
+    if (fj) fj.onclick = () => irA('jugador')
     $('#ent-preguntar').onclick = () => preguntarAMastropiero(`Contame sobre ${e.nombre} (entidad #${e.id}): qué es, con qué aparece y qué dice el corpus.`)
     $$('[data-co]', det).forEach((b) => (b.onclick = () => verEntidad(Number(b.dataset.co))))
   } catch (err) { error(err) }
@@ -2255,6 +2377,7 @@ async function modalAgente(id) {
 document.addEventListener('click', (e) => {
   const carta = e.target.closest('[data-agente]')
   if (carta && !carta.closest('.vista-previa') && !carta.closest('.modal-agente')) return modalAgente(carta.dataset.agente)
+  if (e.target.closest('[data-ir-jugador]')) { e.preventDefault(); cerrarModal(); return irA('jugador') }
   const verAg = e.target.closest('[data-ver-agente]')
   if (verAg) { e.preventDefault(); return modalAgente(verAg.dataset.verAgente) }
   const ref = e.target.closest('[data-ref-q], [data-ref-carga], [data-ref-propuestas], [data-ref-ent]')
@@ -2318,6 +2441,15 @@ const pref = {
   guardar: (k, v) => { try { localStorage.setItem(k, v) } catch {} },
 }
 let cronicaVisible = pref.leer('mastro-cronica', 'si') === 'si'
+let navMini = pref.leer('mastro-nav-mini', 'no') === 'si'
+function aplicarNav() {
+  document.body.classList.toggle('nav-mini', navMini)
+  $('#nav-plegar').textContent = navMini ? '›' : '‹'
+  $('#nav-plegar').title = navMini ? 'Desplegar el menú' : 'Plegar el menú'
+}
+$('#nav-plegar').onclick = () => { navMini = !navMini; pref.guardar('mastro-nav-mini', navMini ? 'si' : 'no'); aplicarNav() }
+$('#cronica-cerrar').onclick = () => { cronicaVisible = false; pref.guardar('mastro-cronica', 'no'); aplicarCronica() }
+aplicarNav()
 function aplicarCronica() {
   const ver = cronicaVisible && vista !== 'chat' && vista !== 'hoy'
   document.body.classList.toggle('sin-cronica', !ver)
@@ -2343,6 +2475,137 @@ $('#btn-auto').onclick = async () => {
   }
 }
 
+
+// ─── @menciones: en cualquier lugar donde se escribe ───────────────────
+
+/** Lo que se puede nombrar con @ (entidades y agentes). Se trae una vez y se refresca cuando cambian las entidades. */
+let MENCIONABLES = []
+let mencionablesFirma = ''
+const normM = (s) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+const TIPO_GLIFO = { persona: '◐', proyecto: '◆', agrupacion: '⬡', dominio: '▦', lugar: '⌖', concepto: '✧', agente: '⚙', vos: '◉' }
+
+async function traerMencionables() {
+  const f = JSON.stringify(E?.entidades ?? []) + (E?.roster?.length ?? 0)
+  if (f === mencionablesFirma && MENCIONABLES.length) return
+  mencionablesFirma = f
+  try { MENCIONABLES = await api('/menciones') } catch { /* sin catálogo, sin sugerencias */ }
+}
+
+const menc = { el: null, desde: -1, opciones: [], i: 0 }
+const caja = document.createElement('div')
+caja.className = 'menciones'
+caja.hidden = true
+document.body.appendChild(caja)
+
+function cerrarMenciones() { caja.hidden = true; menc.el = null; menc.opciones = [] }
+
+/** La consulta después de la última @ antes del cursor (si no hay un salto de línea en el medio). */
+function consultaMencion(el) {
+  const pos = el.selectionStart ?? el.value.length
+  const antes = el.value.slice(0, pos)
+  const at = antes.lastIndexOf('@')
+  if (at < 0 || (at > 0 && /[\p{L}\p{N}_.]/u.test(antes[at - 1]))) return null
+  const q = antes.slice(at + 1)
+  if (q.length > 40 || /\n/.test(q) || /\s{2}/.test(q)) return null
+  return { desde: at, q }
+}
+
+function filtrarMenciones(q) {
+  const n = normM(q.trim())
+  const puntaje = (m) => {
+    const nombres = [m.n, ...(m.a ?? [])].map(normM)
+    if (!n) return 1
+    if (nombres.some((x) => x.startsWith(n))) return 3
+    if (nombres.some((x) => x.split(/\s+/).some((w) => w.startsWith(n)))) return 2
+    return nombres.some((x) => x.includes(n)) ? 1 : 0
+  }
+  return MENCIONABLES.map((m) => ({ m, s: puntaje(m) })).filter((x) => x.s > 0)
+    .sort((a, b) => b.s - a.s || (b.m.p ?? 0) - (a.m.p ?? 0)).slice(0, 8).map((x) => x.m)
+}
+
+function pintarMenciones() {
+  if (!menc.el || !menc.opciones.length) return void (caja.hidden = true)
+  const r = menc.el.getBoundingClientRect()
+  caja.innerHTML = menc.opciones.map((m, i) => `<button type="button" class="${i === menc.i ? 'on' : ''}" data-mi="${i}"><i>${TIPO_GLIFO[m.t] ?? '·'}</i><b>${esc(m.n)}</b><small>${esc(m.t)}${m.p ? ` · ${m.p}` : ''}</small></button>`).join('')
+  caja.hidden = false
+  const alto = caja.offsetHeight
+  const arriba = r.bottom + alto + 8 > window.innerHeight
+  caja.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - caja.offsetWidth - 8))}px`
+  caja.style.top = `${arriba ? r.top - alto - 6 : r.bottom + 6}px`
+  caja.style.minWidth = `${Math.min(Math.max(r.width * 0.5, 260), 420)}px`
+}
+
+function elegirMencion(m) {
+  const el = menc.el
+  if (!el || !m) return
+  const pos = el.selectionStart ?? el.value.length
+  const antes = el.value.slice(0, menc.desde)
+  const despues = el.value.slice(pos)
+  const insertado = `@${m.n}${despues.startsWith(' ') ? '' : ' '}`
+  el.value = antes + insertado + despues
+  const cursor = antes.length + insertado.length
+  el.setSelectionRange(cursor, cursor)
+  el.dispatchEvent(new Event('input', { bubbles: true }))
+  cerrarMenciones()
+  el.focus()
+}
+
+const escribible = (el) => el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && /^(text|search|)$/.test(el.type))) && !el.closest('[data-sin-menciones]')
+
+document.addEventListener('input', (e) => {
+  const el = e.target
+  if (!escribible(el)) return
+  const c = consultaMencion(el)
+  if (!c) return cerrarMenciones()
+  if (!MENCIONABLES.length) traerMencionables().then(() => el === document.activeElement && el.dispatchEvent(new Event('input')))
+  menc.el = el
+  menc.desde = c.desde
+  menc.opciones = filtrarMenciones(c.q)
+  menc.i = 0
+  pintarMenciones()
+})
+// Antes que los atajos del campo (Enter envía en el chat): con la lista abierta, las teclas son de la lista.
+document.addEventListener('keydown', (e) => {
+  if (caja.hidden || e.target !== menc.el) return
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault()
+    menc.i = (menc.i + (e.key === 'ArrowDown' ? 1 : -1) + menc.opciones.length) % menc.opciones.length
+    pintarMenciones()
+  } else if (e.key === 'Enter' || e.key === 'Tab') {
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    elegirMencion(menc.opciones[menc.i])
+  } else if (e.key === 'Escape') {
+    e.stopImmediatePropagation()
+    cerrarMenciones()
+  }
+}, true)
+caja.addEventListener('mousedown', (e) => {
+  const b = e.target.closest('[data-mi]')
+  if (b) { e.preventDefault(); elegirMencion(menc.opciones[Number(b.dataset.mi)]) }
+})
+document.addEventListener('focusout', (e) => { if (e.target === menc.el) setTimeout(() => { if (document.activeElement !== menc.el) cerrarMenciones() }, 120) })
+window.addEventListener('resize', () => pintarMenciones())
+
+/** En lo que escribiste, las menciones se ven como menciones (y llevan a su ficha). Recibe texto ya escapado. */
+function conMenciones(t) {
+  if (!t.includes('@') || !MENCIONABLES.length) return t
+  const nombres = MENCIONABLES.flatMap((m) => [m.n, ...(m.a ?? [])].map((n) => ({ m, n: esc(n) }))).filter((x) => x.n.length >= 2).sort((a, b) => b.n.length - a.n.length)
+  let out = ''
+  let i = 0
+  for (let at = t.indexOf('@'); at >= 0; at = t.indexOf('@', at + 1)) {
+    if (at < i || (at > 0 && /[\p{L}\p{N}_.]/u.test(t[at - 1]))) continue
+    const resto = t.slice(at + 1)
+    const hit = nombres.find((x) => normM(resto.slice(0, x.n.length)) === normM(x.n) && !/[\p{L}\p{N}]/u.test(resto[x.n.length] ?? ''))
+    if (!hit) continue
+    const k = hit.m.k
+    const attr = k.startsWith('entidad:') ? `data-ref-ent="${k.slice(8)}"` : k.startsWith('agente:') ? `data-ver-agente="${esc(k.slice(7))}"` : 'data-ir-jugador'
+    out += `${t.slice(i, at)}<a href="#" class="mencion" ${attr}>@${resto.slice(0, hit.n.length)}</a>`
+    i = at + 1 + hit.n.length
+  }
+  return out + t.slice(i)
+}
+
 // ─── arranque ───────────────────────────────────────────────────────────
 
 let firma = ''
@@ -2357,6 +2620,7 @@ async function refrescar({ forzar = true } = {}) {
   renderHud()
   renderCronica()
   avisarSiHayNovedad()
+  traerMencionables()
   VISTAS[vista].refrescar()
 }
 
@@ -2385,6 +2649,7 @@ async function iniciar() {
   renderHud()
   renderCronica()
   ultimoAviso = E.hoy.aviso?.id ?? 0
+  await traerMencionables()
   irA('hoy')
   firma = JSON.stringify(E)
   setInterval(() => { if (!tickEnCurso && $('#velo').hidden && vista !== 'forja') refrescar({ forzar: false }).catch(() => {}) }, 7000)

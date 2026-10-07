@@ -172,7 +172,9 @@ function consultaFts(texto: string): string | null {
 }
 
 /**
- * Lo que leen los agentes: piezas disponibles que matchean. Si el dominio aparece en las etiquetas, sube.
+ * Lo que leen los agentes: piezas que matchean. Lo escrito por modelos va al final (sin eco entre agentes); entre lo demás,
+ * lo ya destilado (disponible) primero, y lo crudo también se lee (con la ingesta en pausa es casi todo el corpus).
+ * Si el dominio aparece en las etiquetas, sube.
  * Se puede acotar por nivel (por ejemplo, un buscador que solo cite fuentes primarias).
  */
 export function buscar(db: Db, consulta: string, limite: number, dominio?: string | null, niveles?: Nivel[]): Pieza[] {
@@ -181,7 +183,7 @@ export function buscar(db: Db, consulta: string, limite: number, dominio?: strin
   const filas = q
     ? db.prepare(
       `SELECT c.* FROM corpus_fts JOIN corpus c ON c.id = corpus_fts.rowid
-       WHERE corpus_fts MATCH ? AND c.estado = 'disponible' ${filtroNivel} ORDER BY bm25(corpus_fts, 3.0, 1.0, 2.0, 1.0) LIMIT ?`,
+       WHERE corpus_fts MATCH ? ${filtroNivel} ORDER BY c.nivel = 'generada', c.estado = 'disponible' DESC, bm25(corpus_fts, 3.0, 1.0, 2.0, 1.0) LIMIT ?`,
     ).all(q, ...(niveles ?? []), limite * 3)
     : []
   return (filas as any[])

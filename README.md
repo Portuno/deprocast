@@ -51,6 +51,12 @@ Queda como propuesta: la podés rehacer con un cambio en palabras («más corta�
 
 **Reportes.** Cada hora de una run en curso deja un reporte corto en Hoy (sin modelo). Al cerrar la run (o 15 minutos después de que termina) se escribe su reporte, que entra al corpus y calibra la próxima. El domingo llega el reporte de la semana, con métricas: primarias, bandas, minutos de foco por categoría, side quests y lo que otros te deben.
 
+**Ayudantes de la liga** (`src/ayudantes.ts`). Cada primaria activa puede tener agentes que trabajan para ella entre runs: un **generativo** (borradores, próximos pasos, preguntas clave) o un **buscador** (lo que ya hay en tu corpus, con cita).
+- **Cómo nace:** el ayudante nace con su misión principal («Ayudar a que X avance») y una primaria propia colgada de la tuya; cuando cerrás la primaria, se cierra con ella.
+- **Qué recibe:** Mastropiero le pasa material de tu corpus (tu voz primero, nunca lo escrito por otros modelos) y lo que ya hiciste en tus runs.
+- **Qué deja:** el aporte entra como pieza generada, aparece en la tarjeta de la primaria y en Hoy, y llega como material a tu próxima run.
+- **Cuándo trabaja:** cuando se lo pedís, o cada mañana con la rutina de las 07:45. Gana XP como en el bus y respeta el tope diario de la liga.
+
 **Para otros.** Le podés asignar misiones a personas («Ana tiene que mandarme el presupuesto antes del viernes»); Mastropiero reconoce apodos si hay una sola persona que encaja. Lo vencido aparece en Hoy como seguimiento.
 
 **Conversando.** El escriba de memoria también anota lo que decís que tenés (al inventario) y los encargos de pasada (como side quests), siempre como sugerencia. «Procesarme» lee tu memoria y tu material propio y propone tu historia, tu inventario, candidatas a misión principal y las primarias de la semana.

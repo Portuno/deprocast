@@ -5,7 +5,8 @@ import type { ClaseId } from './clases.ts'
 import { esClase } from './clases.ts'
 import { json, type Db } from './db.ts'
 
-export type EstadoTarea = 'pendiente' | 'asignada' | 'hecha' | 'fallida'
+/** `en_espera`: fuera del reparto hasta que el operador la reanude (la ingesta masiva, por ejemplo). */
+export type EstadoTarea = 'pendiente' | 'asignada' | 'hecha' | 'fallida' | 'en_espera'
 
 export type Tarea = {
   id: number
@@ -86,6 +87,35 @@ export function tareas(db: Db, estado?: EstadoTarea, limite = 50): Tarea[] {
     ? db.prepare('SELECT * FROM tareas WHERE estado = ? ORDER BY id LIMIT ?').all(estado, limite)
     : db.prepare('SELECT * FROM tareas ORDER BY id DESC LIMIT ?').all(limite)
   return rows.map(deFila)
+}
+
+/**
+ * Pone en espera la ingesta que no arrancó o quedó asignada sin correr: deja de repartirse y de gastar.
+ * Las piezas siguen en el corpus y se buscan igual; solo se frena el destilado.
+ */
+export function pausarIngesta(db: Db, ahora = Date.now()): number {
+  return Number(db.prepare(
+    `UPDATE tareas SET estado = 'en_espera', asignada_a = NULL, actualizada_en = ? WHERE pipeline = 'ingesta' AND estado IN ('pendiente', 'asignada')`,
+  ).run(ahora).changes)
+}
+
+/**
+ * Devuelve al reparto hasta `limite` encargos en espera. Con `soloPropias`, primero lo de su voz y lo más pesado
+ * (nivel propia, por peso); el resto sigue esperando.
+ */
+export function reanudarIngesta(db: Db, o: { limite?: number; soloPropias?: boolean } = {}, ahora = Date.now()): number {
+  const ids = (db.prepare(
+    `SELECT t.id FROM tareas t LEFT JOIN corpus c ON c.id = t.corpus_id
+     WHERE t.estado = 'en_espera' ${o.soloPropias ? `AND c.nivel = 'propia'` : ''}
+     ORDER BY (c.nivel = 'propia') DESC, COALESCE(c.peso, 0) DESC, t.id LIMIT ?`,
+  ).all(o.limite ?? 1_000_000) as { id: number }[]).map((r) => r.id)
+  const upd = db.prepare(`UPDATE tareas SET estado = 'pendiente', actualizada_en = ? WHERE id = ?`)
+  for (const id of ids) upd.run(ahora, id)
+  return ids.length
+}
+
+export function enEspera(db: Db): number {
+  return (db.prepare(`SELECT COUNT(*) AS n FROM tareas WHERE estado = 'en_espera'`).get() as { n: number }).n
 }
 
 export function asignar(db: Db, tareaId: number, agenteId: string, por: string, ahora = Date.now()) {
