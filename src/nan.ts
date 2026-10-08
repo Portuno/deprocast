@@ -375,6 +375,13 @@ export async function nanEmbed(l: Llamada, texto: string): Promise<{ embedding: 
   return { embedding: r.json?.data?.[0]?.embedding ?? [], modelo }
 }
 
+/** Varios textos en una llamada (la API acepta una lista). */
+export async function nanEmbedLote(l: Llamada, textos: string[]): Promise<{ embeddings: number[][]; modelo: string }> {
+  const { modelo, r } = await recorrer(l, cadena('vectorizador'), (m) => pedir('POST', '/embeddings', { model: m, input: textos }))
+  const datos = [...(r.json?.data ?? [])].sort((a: any, b: any) => (a.index ?? 0) - (b.index ?? 0))
+  return { embeddings: datos.map((d: any) => d.embedding ?? []), modelo }
+}
+
 export async function nanModelos(): Promise<string[]> {
   const r = await pedir('GET', '/models')
   if (r.status !== 200) throw new Error(`NaN /models ${r.status}: ${r.body.slice(0, 200)}`)

@@ -28,6 +28,7 @@ import { agregarItem, editarItem, escribirHistoria, inventarioDe, inventarioDeri
 import { asientos, especializacion } from '../auditor.ts'
 import { enEspera, leerTarea, pausarIngesta, publicar, reanudarIngesta, tareas } from '../bus.ts'
 import { asegurarFuente, buscar, esNivel, fuentes, leerPieza, listarPiezas, NIVELES, type Nivel, type Pieza } from '../corpus.ts'
+import { buscarHibrido } from '../semantica.ts'
 import { deshacer, listarCargas } from '../cargas/index.ts'
 import { coocurrencias, duplicadosProbables, editarEntidad, entidadesPorId, fusionarEntidades, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from '../entidades.ts'
 import { cronica, crearProyecto, estadoLiga, ingerir, numeroDeTick, tickUnico } from '../mastropiero.ts'
@@ -184,13 +185,13 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'buscar_corpus', familia: 'lectura',
-    descripcion: 'Busca en el corpus (texto completo, ignora tildes). Devuelve piezas con id, nivel y extracto. Filtros opcionales por nivel, fuente o tipo.',
+    descripcion: 'Busca en el corpus por palabras y por significado (encuentra también lo que dice lo mismo con otras palabras). Devuelve piezas con id, nivel y extracto. Filtros opcionales por nivel, fuente o tipo.',
     parametros: S({ consulta: str('Qué buscar'), nivel: str('Nivel', { enum: NIVEL_ENUM }), fuente: str('id de fuente'), tipo: str('Tipo', { enum: ['materia', 'referencia', 'ficha', 'lista', 'enlace'] }), limite: int('Cuántas (máx. 20)') }, ['consulta']),
-    ejecutar: (a, { db, lecturaMax }) => {
+    ejecutar: async (a, { db, lecturaMax }) => {
       const limite = Math.min(a.limite ?? 8, lecturaMax ?? 20)
       if (!a.fuente && !a.tipo) {
-        const ps = buscar(db, a.consulta, limite, null, a.nivel && esNivel(a.nivel) ? [a.nivel as Nivel] : undefined)
-        if (ps.length) return ps.map((p) => piezaCorta(p))
+        const ps = await buscarHibrido(db, a.consulta, limite, a.nivel && esNivel(a.nivel) ? [a.nivel as Nivel] : undefined)
+        if (ps.length) return ps.map((p) => ({ ...piezaCorta(p), por: p.por }))
       }
       const r = listarPiezas(db, { q: a.consulta, nivel: a.nivel, fuente: a.fuente, tipo: a.tipo, limite })
       return { total: r.total, piezas: r.piezas.map((p) => piezaCorta(p)) }

@@ -21,6 +21,7 @@ import { CONECTORES, guardarCuenta, listarCuentas, listarPublicaciones, MODOS, p
 import { decir as decirPorTelegram, escucharTelegram, telegramConfigurado } from './telegram.ts'
 import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, hayFfmpeg, iterarArtefacto, listarArtefactos, VOCES } from './taller.ts'
 import { guardarRelacion, personas } from './personas.ts'
+import { buscarHibrido, estadoVectores, nivelesDe, vectorizarPendientes } from './semantica.ts'
 import { editarMovimiento, importarCSV, listarMovimientos, registrarMovimiento, resumenMes } from './finanzas.ts'
 import { buscarOportunidades, listarOportunidades, marcarOportunidad, redactarOportunidad } from './radar.ts'
 import { cuotas, hayBuscadorWeb } from './web.ts'
@@ -43,7 +44,7 @@ import {
 import { celda, DOMINIOS } from './geometria72.ts'
 import { crearProyecto, cronica, estadoLiga, ingerir, numeroDeTick, tickEnCurso, tickUnico } from './mastropiero.ts'
 import { motoresDisponibles } from './motores.ts'
-import { cadena, nanConfigurado, nanTranscribir, tokensHoy, topeDiario, usoDelMes } from './nan.ts'
+import { cadena, nanConfigurado, nanTranscribir, tokensHoy, topeAlcanzado, topeDiario, usoDelMes } from './nan.ts'
 import {
   aceptarPropuesta, descartar as descartarQuantomo, leerQuantomo, linaje, listarQuantomos, pedirMejora, quantomosDePieza, resumenQuantomos, sellar,
 } from './quantomos.ts'
@@ -376,6 +377,11 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['POST', /^\/api\/taller\/(\d+)\/iterar$/, (b, [a]) => { void iterarArtefacto(db, id(a), String(b.cambio ?? '')).catch((e) => console.error('  taller:', e)); return { ok: true } }],
   ['POST', /^\/api\/taller\/(\d+)\/corpus$/, (_, [a]) => ({ pieza: artefactoAlCorpus(db, id(a)) })],
+  // Búsqueda híbrida (palabras + significado)
+  ['GET', /^\/api\/buscar$/, async (_, __, q) => ({ piezas: await buscarHibrido(db, q.get('q') ?? '', num(q.get('limite')) ?? 20, nivelesDe(q.get('nivel'))), vectores: estadoVectores(db) })],
+  ['GET', /^\/api\/vectores$/, () => estadoVectores(db)],
+  ['POST', /^\/api\/vectores$/, async (b) => vectorizarPendientes(db, { limite: Math.min(Number(b.limite) || 64, 512) })],
+
   // Personas
   ['GET', /^\/api\/personas$/, (_, __, q) => personas(db, { q: q.get('q') || undefined })],
   ['POST', /^\/api\/personas\/(\d+)$/, (b, [p]) => guardarRelacion(db, id(p), b)],
@@ -661,6 +667,14 @@ async function latidoPensar() {
 }
 setInterval(latidoPensar, 15 * 60_000).unref()
 setTimeout(latidoPensar, 60_000).unref()
+
+// Vectores: de a tandas, lo que falta (lo propio primero). Barato, pero respeta el tope diario si lo hay.
+let vectorizando = false
+setInterval(async () => {
+  if (vectorizando || process.env.MASTRO_SIN_RUTINAS || topeAlcanzado(db) || ajuste(db, 'vectorizar_auto') === '0') return
+  vectorizando = true
+  try { await vectorizarPendientes(db, { limite: 48 }) } catch (e) { console.error('  vectores:', e instanceof Error ? e.message : e) } finally { vectorizando = false }
+}, 10 * 60_000).unref()
 
 // Las cuentas: lo aprobado se publica en su horario (solo con conector; «redacta» solo lo que él aprobó).
 setInterval(async () => {

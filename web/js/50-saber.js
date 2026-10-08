@@ -53,7 +53,7 @@ function montarCorpus() {
       <select class="campo-suelto" id="c-tipo"><option value="">todo tipo</option>${META.tipos.map((t) => `<option ${t === filtroCorpus.tipo ? 'selected' : ''}>${t}</option>`).join('')}</select>
     </div>
     <div class="corpus-grid">
-      <section><div id="c-cuenta" class="cuenta"></div><div id="piezas"></div><div id="c-mas"></div></section>
+      <section><div id="c-cuenta" class="cuenta"></div><div id="c-sentido"></div><div id="piezas"></div><div id="c-mas"></div></section>
       <aside class="panel"><h3>Cargas</h3><div id="c-cargas"></div></aside>
     </div>`
   $('#c-ingerir').onclick = () => modalIngesta()
@@ -105,7 +105,25 @@ async function traerPiezas(mas = false) {
     const r = await api(`/corpus?${p}`)
     corpusLista = mas ? { total: r.total, piezas: [...corpusLista.piezas, ...r.piezas] } : r
     pintarPiezas()
+    if (!mas) porSentido()
   } catch (e) { error(e) }
+}
+
+/** Además de las palabras: lo que dice lo mismo con otras (búsqueda por significado), si hay vectores. */
+async function porSentido() {
+  const cont = $('#c-sentido')
+  if (!cont) return
+  const q = filtroCorpus.q?.trim()
+  if (!q || q.length < 4) return void (cont.innerHTML = '')
+  try {
+    const r = await api(`/buscar?q=${encodeURIComponent(q)}&limite=12${filtroCorpus.nivel ? `&nivel=${filtroCorpus.nivel}` : ''}`)
+    if (filtroCorpus.q?.trim() !== q) return
+    const ya = new Set(corpusLista.piezas.map((p) => p.id))
+    const nuevas = r.piezas.filter((p) => p.por?.includes('sentido') && !ya.has(p.id)).slice(0, 6)
+    cont.innerHTML = nuevas.length ? `<div class="sentido"><b>Por sentido</b> <span class="tenue">(no dicen esas palabras, pero hablan de eso)</span>
+      ${nuevas.map((p) => `<a href="#" data-pieza="${p.id}">${esc(p.titulo.slice(0, 70))}</a>`).join('')}</div>`
+      : r.vectores && r.vectores.hechos < r.vectores.total ? `<p class="tenue chico">La búsqueda por sentido va por ${r.vectores.hechos} de ${r.vectores.total} piezas.</p>` : ''
+  } catch { cont.innerHTML = '' }
 }
 
 function piezaHTML(p) {

@@ -477,6 +477,15 @@ CREATE TABLE IF NOT EXISTS publicaciones (
   creada_en INTEGER NOT NULL
 );
 
+-- Búsqueda por significado: un vector por pieza (Float32 normalizado), aparte de los de la liga.
+CREATE TABLE IF NOT EXISTS vectores (
+  pieza_id INTEGER PRIMARY KEY,
+  modelo TEXT NOT NULL,
+  dims INTEGER NOT NULL,
+  vec BLOB NOT NULL,
+  en INTEGER NOT NULL
+);
+
 -- Personas: la relación con su gente (lo que él define; el resto se deduce).
 CREATE TABLE IF NOT EXISTS relaciones (
   entidad_id INTEGER PRIMARY KEY,
@@ -571,6 +580,7 @@ const AJUSTES_SISTEMA: Record<string, string> = {
   tokens_dia_max: '1000000', // tokens por día para la liga (agentes); 0 = sin tope
   pensar_cada_horas: '3', // Mastropiero piensa solo y deja una sugerencia (o nada); 0 = nunca
   meta_ingresos_mes: '', // su meta de ingresos por mes, en euros; vacío = sin meta
+  vectorizar_auto: '1', // calcular solos los vectores del corpus (búsqueda por significado); 0 = no
 }
 
 /** Fuentes de fábrica. Estructura, no contenido: el corpus arranca vacío. */
