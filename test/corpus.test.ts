@@ -88,7 +88,7 @@ test('respaldo de Deprocast: segmenta, entra sin duplicar y se deshace', () => {
   const c = cargar(db, 'respaldo.json', JSON.stringify(RESPALDO))
   assert.equal(c.importador, 'deprocast-respaldo')
   const seg = Object.fromEntries(c.analisis!.segmentos.map((s) => [s.id, s.cantidad]))
-  assert.deepEqual(seg, { entidades: 3, audios: 1, notas: 1, cuaderno: 1, chats: 1, criba: 1, conocimiento: 1, investigaciones: 1, informes: 1, listas: 1, quantomos: 2, enlaces: 1 })
+  assert.deepEqual(seg, { entidades: 3, audios: 1, notas: 1, cuaderno: 1, chats: 1, criba: 1, conocimiento: 1, investigaciones: 1, informes: 1, listas: 1, quantomos: 2, energia: 0, enlaces: 1 })
 
   const hecha = ejecutar(db, c.id, { pipeline: 'ninguna' })
   assert.equal(hecha.estado, 'hecha')
