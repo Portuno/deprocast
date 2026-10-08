@@ -23,6 +23,7 @@ import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, c
 import { guardarRelacion, personas } from './personas.ts'
 import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora.ts'
 import { cribar, deshacerUltima, marcador, siguiente } from './criba.ts'
+import { borrarCuaderno, charla, crearCuaderno, guia, haciendo, leerCuaderno, listarCuadernos, notas, preguntar, quitarFuente, sumarFuentes } from './cuadernos.ts'
 import { buscarHibrido, estadoVectores, nivelesDe, vectorizarPendientes } from './semantica.ts'
 import { editarMovimiento, importarCSV, listarMovimientos, registrarMovimiento, resumenMes } from './finanzas.ts'
 import { buscarOportunidades, listarOportunidades, marcarOportunidad, redactarOportunidad } from './radar.ts'
@@ -379,6 +380,26 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['POST', /^\/api\/taller\/(\d+)\/iterar$/, (b, [a]) => { void iterarArtefacto(db, id(a), String(b.cambio ?? '')).catch((e) => console.error('  taller:', e)); return { ok: true } }],
   ['POST', /^\/api\/taller\/(\d+)\/corpus$/, (_, [a]) => ({ pieza: artefactoAlCorpus(db, id(a)) })],
+  // Cuadernos
+  ['GET', /^\/api\/cuadernos$/, () => listarCuadernos(db)],
+  ['POST', /^\/api\/cuadernos$/, (b) => crearCuaderno(db, String(b.titulo ?? ''), b.descripcion || null)],
+  ['GET', /^\/api\/cuadernos\/(\d+)$/, (_, [c]) => {
+    const cu = leerCuaderno(db, id(c))
+    if (!cu) throw new Error(`No existe el cuaderno ${c}`)
+    return { ...cu, notas: notas(db, cu.id), haciendo: haciendo.get(cu.id) ?? null }
+  }],
+  ['POST', /^\/api\/cuadernos\/(\d+)\/fuentes$/, async (b, [c]) => sumarFuentes(db, id(c), b)],
+  ['POST', /^\/api\/cuadernos\/(\d+)\/quitar$/, (b, [c]) => (quitarFuente(db, id(c), Number(b.pieza)), { ok: true })],
+  ['POST', /^\/api\/cuadernos\/(\d+)\/preguntar$/, async (b, [c]) => preguntar(db, id(c), String(b.pregunta ?? ''))],
+  ['POST', /^\/api\/cuadernos\/(\d+)\/guia$/, async (_, [c]) => guia(db, id(c))],
+  ['POST', /^\/api\/cuadernos\/(\d+)\/charla$/, (_, [c]) => {
+    const n = id(c)
+    if (haciendo.has(n)) throw new Error('Ya estoy armando una charla para este cuaderno')
+    void charla(db, n).catch((e) => mensajeDeMastropiero(db, conversacionHoy(db).id, `No pude armar la charla del cuaderno: ${e instanceof Error ? e.message : e}`))
+    return { empezada: true }
+  }],
+  ['POST', /^\/api\/cuadernos\/(\d+)\/borrar$/, (_, [c]) => (borrarCuaderno(db, id(c)), { ok: true })],
+
   // Criba lúdica
   ['GET', /^\/api\/criba$/, (_, __, q) => ({ pieza: siguiente(db, { nivel: q.get('nivel') || null, saltear: (q.get('saltear') ?? '').split(',').filter(Boolean).map(Number) }), marcador: marcador(db) })],
   ['POST', /^\/api\/criba\/deshacer$/, () => deshacerUltima(db)],

@@ -154,6 +154,21 @@ export async function crearVoz(db: Db, texto: string, o: { voz?: string; ahora?:
   return leerArtefacto(db, a.id)!
 }
 
+/** Una charla grabada: cada turno con su voz, todo en un mp3 (los cuadros MP3 se pueden pegar uno tras otro). */
+export async function crearConversacion(db: Db, titulo: string, turnos: { voz: string; texto: string }[], o: { meta?: Record<string, unknown>; ahora?: number } = {}): Promise<Artefacto> {
+  const a = nuevo(db, { tipo: 'voz', titulo, pedido: titulo, meta: { conversacion: true, ...o.meta } }, o.ahora)
+  try {
+    const partes: Buffer[] = []
+    for (const [i, t] of turnos.entries()) {
+      avance(db, a.id, `grabando ${i + 1} de ${turnos.length}`)
+      partes.push(await vozNaN(t.texto, VOCES[t.voz] ? t.voz : VOZ_DEFECTO))
+    }
+    fs.writeFileSync(path.join(carpeta(a.id), 'charla.mp3'), Buffer.concat(partes))
+    terminar(db, a.id, ['charla.mp3'], { guion: turnos })
+  } catch (e) { fallar(db, a.id, e) }
+  return leerArtefacto(db, a.id)!
+}
+
 const SISTEMA_PERSONAJE = `Sos el Taller de Mastropiero y diseñás un personaje reutilizable (para juegos, videos, historias).
 Forma: {"nombre": string, "descripcion": string (2-3 oraciones), "personalidad": [string], "apariencia_prompt": string (en inglés, para un generador de imágenes: estilo, rasgos, ropa, fondo simple), "frase": string (una frase típica suya, en castellano rioplatense), "voz": "ef_dora" | "em_alex" | "em_santa"}`
 

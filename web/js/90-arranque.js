@@ -17,6 +17,7 @@ const VISTAS = {
   encargos: { montar: montarMisiones, refrescar: refrescarTablero },
   corpus: { montar: montarCorpus, refrescar: refrescarCorpus },
   criba: { montar: montarCriba, refrescar: () => {} },
+  cuadernos: { montar: montarCuadernos, refrescar: refrescarCuadernos },
   quantomos: { montar: montarQuantomos, refrescar: refrescarQuantomos },
   matriz: { montar: montarMatriz, refrescar: montarMatriz },
   cementerio: { montar: montarCementerio, refrescar: montarCementerio },

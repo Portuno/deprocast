@@ -30,6 +30,7 @@ import { enEspera, leerTarea, pausarIngesta, publicar, reanudarIngesta, tareas }
 import { asegurarFuente, buscar, esNivel, fuentes, leerPieza, listarPiezas, NIVELES, type Nivel, type Pieza } from '../corpus.ts'
 import { buscarHibrido } from '../semantica.ts'
 import { compartidas } from '../bitacora.ts'
+import { crearCuaderno, leerCuaderno, listarCuadernos, preguntar, sumarFuentes } from '../cuadernos.ts'
 import { deshacer, listarCargas } from '../cargas/index.ts'
 import { coocurrencias, duplicadosProbables, editarEntidad, entidadesPorId, fusionarEntidades, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from '../entidades.ts'
 import { cronica, crearProyecto, estadoLiga, ingerir, numeroDeTick, tickUnico } from '../mastropiero.ts'
@@ -718,6 +719,33 @@ export const HERRAMIENTAS: Herramienta[] = [
         prendido: s ? { desde: new Date(s.inicio).toLocaleTimeString('es-AR'), momentos: momentosDirecto(db, s.id).slice(-Math.min(a.momentos ?? 20, 60)).map((m) => ({ tipo: m.tipo, hora: new Date(m.desde).toLocaleTimeString('es-AR'), app: m.app ?? undefined, actividad: m.actividad ?? undefined, detalle: m.detalle ?? undefined, nota: m.nota ?? undefined, texto: m.texto ? recorte(m.texto, 600) : undefined })) } : null,
         informes: listarSesiones(db, 6).filter((x) => x.informe).map((x) => ({ cuando: new Date(x.inicio).toLocaleString('es-AR'), informe: recorte(x.informe!, 1500) })),
       }
+    },
+  },
+  {
+    nombre: 'ver_cuadernos', familia: 'lectura',
+    descripcion: 'Sus cuadernos (colecciones de fuentes para estudiar un tema) con sus fuentes y cuántas notas tienen.',
+    parametros: S({}),
+    ejecutar: (_, { db }) => listarCuadernos(db).map((c) => ({ id: c.id, titulo: c.titulo, fuentes: c.fuentes.map((f) => f.titulo), notas: c.notas })),
+  },
+  {
+    nombre: 'crear_cuaderno', familia: 'accion',
+    descripcion: 'Crea un cuaderno para estudiar un tema con fuentes elegidas: ids de piezas del corpus (buscalas antes con buscar_corpus) y/o URLs. Después se le pregunta con preguntar_cuaderno.',
+    parametros: S({ titulo: str('Nombre del cuaderno'), piezas: { type: 'array', items: { type: 'integer' }, description: 'ids de piezas' }, urls: { type: 'array', items: { type: 'string' }, description: 'Páginas web para sumar' } }, ['titulo']),
+    ejecutar: async (a, { db }) => {
+      const c = crearCuaderno(db, a.titulo)
+      await sumarFuentes(db, c.id, { piezas: a.piezas ?? [] })
+      for (const u of a.urls ?? []) await sumarFuentes(db, c.id, { url: u }).catch(() => {})
+      return leerCuaderno(db, c.id)
+    },
+    resumen: (a) => `creó el cuaderno «${recorte(a.titulo, 40)}»`,
+  },
+  {
+    nombre: 'preguntar_cuaderno', familia: 'lectura',
+    descripcion: 'Le pregunta a un cuaderno: responde solo con sus fuentes y cita de dónde sale cada cosa. Pasale su respuesta tal cual (con las citas).',
+    parametros: S({ cuaderno: int('id del cuaderno'), pregunta: str('La pregunta') }, ['cuaderno', 'pregunta']),
+    ejecutar: async (a, { db }) => {
+      const n = await preguntar(db, a.cuaderno, a.pregunta)
+      return { respuesta: n.texto, citas: n.citas.map((c) => ({ n: c.n, pieza: c.piezaId, titulo: c.titulo })) }
     },
   },
   {

@@ -477,6 +477,29 @@ CREATE TABLE IF NOT EXISTS publicaciones (
   creada_en INTEGER NOT NULL
 );
 
+-- Cuadernos: fuentes elegidas del corpus y lo que se le preguntó (con citas).
+CREATE TABLE IF NOT EXISTS cuadernos (
+  id INTEGER PRIMARY KEY,
+  titulo TEXT NOT NULL,
+  descripcion TEXT,
+  creado_en INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS cuaderno_fuentes (
+  cuaderno_id INTEGER NOT NULL,
+  pieza_id INTEGER NOT NULL,
+  PRIMARY KEY (cuaderno_id, pieza_id)
+);
+CREATE TABLE IF NOT EXISTS cuaderno_notas (
+  id INTEGER PRIMARY KEY,
+  cuaderno_id INTEGER NOT NULL,
+  tipo TEXT NOT NULL,                 -- respuesta | guia | audio
+  pregunta TEXT,
+  texto TEXT NOT NULL,
+  citas TEXT,
+  artefacto_id INTEGER,
+  creada_en INTEGER NOT NULL
+);
+
 -- Criba lúdica: cada peso que él puso (para el marcador y para deshacer).
 CREATE TABLE IF NOT EXISTS criba (
   id INTEGER PRIMARY KEY,
