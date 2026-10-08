@@ -24,6 +24,7 @@ import { guardarRelacion, personas } from './personas.ts'
 import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora.ts'
 import { cribar, deshacerUltima, marcador, siguiente } from './criba.ts'
 import { tabla as tablaEconomia, TARIFAS } from './economia.ts'
+import { exportarEstado, importarEstado } from './exportacion.ts'
 import { aplicarForja, descartarForja, forjarMejora, leerForja, listarForjas } from './fragua.ts'
 import { borrarCuaderno, charla, crearCuaderno, guia, haciendo, leerCuaderno, listarCuadernos, notas, preguntar, quitarFuente, sumarFuentes } from './cuadernos.ts'
 import { buscarHibrido, estadoVectores, nivelesDe, vectorizarPendientes } from './semantica.ts'
@@ -620,9 +621,25 @@ const servidor = http.createServer(async (req, res) => {
     res.writeHead(200, { 'content-type': TIPOS_MIME[path.extname(archivo).toLowerCase()] ?? 'application/octet-stream', 'cache-control': 'no-store', 'content-security-policy': 'sandbox allow-scripts allow-pointer-lock', 'x-content-type-options': 'nosniff' })
     return void fs.createReadStream(archivo).pipe(res)
   }
+  // Exportación de estado: se arma en data/exportaciones/ y se baja tal cual (puede pesar decenas de MB).
+  if (req.method === 'GET' && url.pathname === '/api/exportar') {
+    try {
+      const r = exportarEstado(db, { archivos: url.searchParams.get('archivos') !== '0' })
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'content-length': String(r.bytes), 'content-disposition': `attachment; filename="${path.basename(r.ruta)}"`, 'cache-control': 'no-store' })
+      return void fs.createReadStream(r.ruta).pipe(res)
+    } catch (e) {
+      return void res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }))
+    }
+  }
   if (url.pathname.startsWith('/api/')) {
     res.setHeader('content-type', 'application/json; charset=utf-8')
     try {
+      // Importar un estado exportado (crudo). Reemplaza esta base: con datos, pide forzar y respalda antes.
+      if (req.method === 'POST' && url.pathname === '/api/importar-estado') {
+        const texto = (await leerCrudo(req, MAX_CARGA)).toString('utf8')
+        const r = importarEstado(db, texto, { forzar: url.searchParams.get('forzar') === '1' })
+        return void res.end(JSON.stringify(r))
+      }
       // Un audio para el diario: se transcribe y entra como mensaje del operador.
       if (req.method === 'POST' && url.pathname === '/api/diario/audio') {
         const cid = Number(url.searchParams.get('conversacion'))

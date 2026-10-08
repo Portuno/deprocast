@@ -21,6 +21,7 @@ import {
 import { CAPAS, umbral } from './xp.ts'
 import { PREGUNTA_EJEMPLO, sembrarEjemplo } from './semilla.ts'
 import { respaldar, restaurar } from './respaldo.ts'
+import { exportarEstado, importarEstado } from './exportacion.ts'
 import { chequear, informe } from './doctor.ts'
 import { arrancarRun, cerrarRun, conAvance, enCurso, listarMisiones, misionesDeRun, prepararRun, principalDe, runActual, semanaDe } from './misiones.ts'
 
@@ -146,6 +147,8 @@ const AYUDA = `
   MUDANZA
     respaldo                        copia la base y las cargas a data/respaldos/
     restaurar <carpeta> [--forzar]  la pone en esta compu
+    exportar [--sin-archivos]       todo el estado en un JSON (data/exportaciones/)
+    importar-estado <json> [--forzar]  deja esta base igual a la exportada (respalda antes)
     doctor [--rapido]               revisa que esta compu tenga todo
 
   Niveles: ${Object.values(NIVELES).map((n) => `${n.numero} ${n.nombre}`).join(' · ')}
@@ -252,6 +255,18 @@ async function main() {
   Hecha: ${JSON.stringify(hecha.resumen)}`)
       } else console.log(`
   Analizada. Para ejecutarla: npm run mastro -- cargar ${archivo} --todo`)
+      break
+    }
+    case 'exportar': {
+      const r = exportarEstado(db, { archivos: !flags['sin-archivos'] })
+      console.log(`  Exportado en ${r.ruta} (${(r.bytes / 1024 / 1024).toFixed(1)} MB, ${r.manifiesto.files} archivos)
+  Llevalo a la otra compu con tu .env e importalo desde la pantalla (⇅) o con: npm run mastro -- importar-estado <archivo>`)
+      break
+    }
+    case 'importar-estado': {
+      if (!pos[0]) throw new Error('Falta el archivo: importar-estado <exportación.json> [--forzar]')
+      const r = importarEstado(db, fs.readFileSync(pos[0], 'utf8'), { forzar: !!flags.forzar })
+      console.log(`  Importado: ${r.filas} filas en ${r.tablas} tablas y ${r.archivos} archivos (de ${r.manifiesto.exported_at}).${r.respaldo ? `\n  Lo que había quedó respaldado en ${r.respaldo}` : ''}`)
       break
     }
     case 'respaldo': {

@@ -688,7 +688,7 @@ CREATE TRIGGER IF NOT EXISTS corpus_fts_au AFTER UPDATE OF titulo, contenido, et
 END;
 `
 
-function migrar(db: Db) {
+export function migrar(db: Db) {
   for (const [tabla, cols] of Object.entries(COLUMNAS_NUEVAS)) {
     const hay = new Set((db.prepare(`PRAGMA table_info(${tabla})`).all() as { name: string }[]).map((c) => c.name))
     for (const [col, tipo] of cols) if (!hay.has(col)) db.exec(`ALTER TABLE ${tabla} ADD COLUMN ${col} ${tipo}`)

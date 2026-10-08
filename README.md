@@ -248,7 +248,9 @@ npm run mastro -- nan uso        # tokens del mes contra el cupo
 
 ## Mudanza a otra compu
 
-La base, las cargas y la memoria viajan en un respaldo; el código, por git o copiando la carpeta. El `.env` no viaja en el respaldo porque tiene las claves: se copia a mano.
+**Lo más simple: un solo JSON.** El botón ⇅ (arriba a la derecha) → «Exportar» baja `deprocast-estado-AAAAMMDD-HHMM.json` con todo el estado: cada tabla de la base y, si lo marcás, los archivos (cargas y Taller) en base64. También queda una copia en `data/exportaciones/`. En la compu nueva: clonar el repo (`git clone`), copiar el `.env`, `npm run jugar`, ⇅ → «Importar» y elegir el archivo. Si la base de destino ya tiene datos, la reemplaza y guarda antes un respaldo en `data/respaldos/`. El índice de búsqueda se reconstruye, las rutas de las cargas se reescriben y lo cifrado de la bitácora sigue cifrado. Por consola: `npm run mastro -- exportar [--sin-archivos]` y `npm run mastro -- importar-estado <archivo> [--forzar]`.
+
+La otra forma es el respaldo en carpeta: la base, las cargas y la memoria viajan en un respaldo; el código, por git o copiando la carpeta. El `.env` no viaja en el respaldo porque tiene las claves: se copia a mano.
 
 1. En la compu de origen: `npm run mastro -- respaldo`. Deja una carpeta en `data/respaldos/AAAAMMDD-HHMM/` con `mastro.db`, los archivos de `cargas/` y un `manifiesto.json` con los conteos. Funciona con el servidor prendido.
 2. Llevar a la compu nueva la carpeta del proyecto (sin `node_modules`), esa carpeta de respaldo y el `.env`.
