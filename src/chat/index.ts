@@ -13,6 +13,7 @@ import { menciones } from '../menciones.ts'
 import { directoParaPrompt } from '../directo.ts'
 import { finanzasParaPrompt } from '../finanzas.ts'
 import { personasParaPrompt } from '../personas.ts'
+import { libreriaParaPrompt } from '../libreria.ts'
 import { leerEntidad as leerEnt } from '../entidades.ts'
 import { escribaDeMemoria, memoriaParaPrompt } from '../memoria.ts'
 import { listarEntidades } from '../entidades.ts'
@@ -204,6 +205,7 @@ ${hoy(db, mensaje)}
 ${directoParaPrompt(db)}
 ${finanzasParaPrompt(db)}
 ${personasParaPrompt(db)}
+${libreriaParaPrompt(db)}
 ${mencionado(db, mensaje)}
 
 La liga (contexto, no lo recites): ${foto(db)}

@@ -477,6 +477,28 @@ CREATE TABLE IF NOT EXISTS publicaciones (
   creada_en INTEGER NOT NULL
 );
 
+-- Librería: sus obras (libros, películas, series, videojuegos, papers, repos) como planillas.
+CREATE TABLE IF NOT EXISTS obras (
+  id INTEGER PRIMARY KEY,
+  tipo TEXT NOT NULL,
+  titulo TEXT NOT NULL,
+  autor TEXT,
+  anio INTEGER,
+  estado TEXT NOT NULL DEFAULT 'quiero',   -- quiero | en_curso | terminado | abandonado | referencia
+  valoracion INTEGER,                      -- 1..12, la escala de la criba
+  url TEXT,
+  notas TEXT,
+  etiquetas TEXT,
+  piezas TEXT,                             -- JSON: piezas del corpus donde aparece
+  origen TEXT NOT NULL,                    -- operador | mastropiero
+  revisada INTEGER NOT NULL DEFAULT 0,
+  huella TEXT NOT NULL UNIQUE,
+  creada_en INTEGER NOT NULL,
+  editada_en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS obras_tipo ON obras (tipo);
+CREATE TABLE IF NOT EXISTS libreria_leidas (pieza_id INTEGER PRIMARY KEY, en INTEGER NOT NULL);
+
 -- La Fragua: mejoras a la plataforma forjadas en su propia rama (fragua/<id>), aplicadas solo con su ok.
 CREATE TABLE IF NOT EXISTS fragua (
   id INTEGER PRIMARY KEY,

@@ -992,3 +992,13 @@ a.mencion { color: var(--acento-texto); text-decoration: none; background: var(-
 .fr-diff .mas { color: #6fbf73; }
 .fr-diff .menos { color: #d27272; }
 .fr-diff .arch { color: var(--acento); font-weight: 600; }
+
+/* Librería */
+.lib-tabla { width: 100%; border-collapse: collapse; font-size: 13px; }
+.lib-tabla th { text-align: left; font: 500 10.5px var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--debil); padding: 6px 6px; border-bottom: 1px solid var(--linea); position: sticky; top: 0; background: var(--fondo, var(--bg, #0f1012)); }
+.lib-tabla td { padding: 2px 4px; border-bottom: 1px solid var(--linea); vertical-align: middle; }
+.lib-tabla td[contenteditable] { outline: none; padding: 5px 6px; border-radius: 4px; min-width: 60px; }
+.lib-tabla td[contenteditable]:focus { background: color-mix(in srgb, var(--acento) 12%, transparent); }
+.lib-tabla tr.sin-revisar td:first-child { box-shadow: inset 3px 0 0 var(--acento); }
+.lib-tabla select { font: inherit; font-size: 12px; background: transparent; color: inherit; border: 0; }
+.lib-envoltura { overflow: auto; max-height: calc(100vh - 260px); border: 1px solid var(--linea); border-radius: 10px; }

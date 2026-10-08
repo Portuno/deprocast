@@ -25,6 +25,7 @@ import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora
 import { cribar, deshacerUltima, marcador, siguiente } from './criba.ts'
 import { tabla as tablaEconomia, TARIFAS } from './economia.ts'
 import { exportarEstado, importarEstado } from './exportacion.ts'
+import { aCsv, agregarObra, conteos as conteosLibreria, editarObra, listarObras, poblando, poblarLibreria } from './libreria.ts'
 import { aplicarForja, descartarForja, forjarMejora, leerForja, listarForjas } from './fragua.ts'
 import { borrarCuaderno, charla, crearCuaderno, guia, haciendo, leerCuaderno, listarCuadernos, notas, preguntar, quitarFuente, sumarFuentes } from './cuadernos.ts'
 import { buscarHibrido, estadoVectores, nivelesDe, vectorizarPendientes } from './semantica.ts'
@@ -383,6 +384,16 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['POST', /^\/api\/taller\/(\d+)\/iterar$/, (b, [a]) => { void iterarArtefacto(db, id(a), String(b.cambio ?? '')).catch((e) => console.error('  taller:', e)); return { ok: true } }],
   ['POST', /^\/api\/taller\/(\d+)\/corpus$/, (_, [a]) => ({ pieza: artefactoAlCorpus(db, id(a)) })],
+  // Librería
+  ['GET', /^\/api\/libreria$/, (_, __, q) => ({ obras: listarObras(db, { tipo: q.get('tipo') || null, q: q.get('q') || null, estado: q.get('estado') || null }), conteos: conteosLibreria(db), poblando: poblando.activo ? poblando.paso : null })],
+  ['POST', /^\/api\/libreria$/, (b) => agregarObra(db, { ...b, origen: 'operador' })],
+  ['POST', /^\/api\/libreria\/poblar$/, () => {
+    void poblarLibreria(db).then((r) => mensajeDeMastropiero(db, conversacionHoy(db).id, `Poblé la Librería: ${r.porUrl + r.nuevas} obras nuevas (${r.porUrl} repos y papers por su link, ${r.nuevas} leyendo ${r.leidas} piezas). Están marcadas para que las revises.`))
+      .catch((e) => console.error('  libreria:', e instanceof Error ? e.message : e))
+    return { empezada: true }
+  }],
+  ['POST', /^\/api\/libreria\/(\d+)$/, (b, [o]) => editarObra(db, id(o), b) ?? { borrada: true }],
+
   // Telegram: estado del canal y un mensaje de prueba
   ['GET', /^\/api\/telegram$/, () => ({ ...estadoTelegram(), voz: ajuste(db, 'telegram_voz'), bandas: ajuste(db, 'telegram_bandas') })],
   ['POST', /^\/api\/telegram\/probar$/, async () => {
@@ -634,6 +645,12 @@ const servidor = http.createServer(async (req, res) => {
     if (!archivo.startsWith(dirTaller()) || !fs.existsSync(archivo) || fs.statSync(archivo).isDirectory()) return void res.writeHead(404).end('No encontrado')
     res.writeHead(200, { 'content-type': TIPOS_MIME[path.extname(archivo).toLowerCase()] ?? 'application/octet-stream', 'cache-control': 'no-store', 'content-security-policy': 'sandbox allow-scripts allow-pointer-lock', 'x-content-type-options': 'nosniff' })
     return void fs.createReadStream(archivo).pipe(res)
+  }
+  // La Librería en CSV.
+  if (req.method === 'GET' && url.pathname === '/api/libreria.csv') {
+    const tipo = url.searchParams.get('tipo') || null
+    res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="libreria${tipo ? `-${tipo}` : ''}.csv"` })
+    return void res.end('\uFEFF' + aCsv(listarObras(db, { tipo })))
   }
   // Exportación de estado: se arma en data/exportaciones/ y se baja tal cual (puede pesar decenas de MB).
   if (req.method === 'GET' && url.pathname === '/api/exportar') {

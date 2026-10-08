@@ -33,6 +33,7 @@ import { compartidas } from '../bitacora.ts'
 import { crearCuaderno, leerCuaderno, listarCuadernos, preguntar, sumarFuentes } from '../cuadernos.ts'
 import { tabla as tablaEconomia } from '../economia.ts'
 import { forjarMejora } from '../fragua.ts'
+import { agregarObra, listarObras } from '../libreria.ts'
 import { deshacer, listarCargas } from '../cargas/index.ts'
 import { coocurrencias, duplicadosProbables, editarEntidad, entidadesPorId, fusionarEntidades, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from '../entidades.ts'
 import { cronica, crearProyecto, estadoLiga, ingerir, numeroDeTick, tickUnico } from '../mastropiero.ts'
@@ -733,6 +734,19 @@ export const HERRAMIENTAS: Herramienta[] = [
       return { empezada: true, aviso: 'Va a tardar unos minutos; aviso en Hoy cuando termine.' }
     },
     resumen: (a) => `llevó ${a.propuesta ? `la propuesta #${a.propuesta}` : 'una mejora'} a La Fragua`,
+  },
+  {
+    nombre: 'ver_libreria', familia: 'lectura',
+    descripcion: 'Su Librería: libros, películas, series, videojuegos, papers y repositorios, con estado (quiero, en curso, terminado…) y valoración 1–12. Para recomendarle, armarle tareas o saber qué está leyendo.',
+    parametros: S({ tipo: str('Tipo', { enum: ['libro', 'pelicula', 'serie', 'videojuego', 'paper', 'repositorio'] }), estado: str('Estado', { enum: ['quiero', 'en_curso', 'terminado', 'abandonado', 'referencia'] }), q: str('Buscar') }),
+    ejecutar: (a, { db }) => listarObras(db, { tipo: a.tipo, estado: a.estado, q: a.q, limite: 40 }).map((o) => ({ id: o.id, tipo: o.tipo, titulo: o.titulo, autor: o.autor ?? undefined, estado: o.estado, valoracion: o.valoracion ?? undefined })),
+  },
+  {
+    nombre: 'agregar_obra', familia: 'accion',
+    descripcion: 'Suma una obra a su Librería cuando él la nombra («quiero leer X», «terminé la serie Y», «este repo está bueno»).',
+    parametros: S({ tipo: str('Tipo', { enum: ['libro', 'pelicula', 'serie', 'videojuego', 'paper', 'repositorio'] }), titulo: str('Título'), autor: str('Autor, director, estudio u owner'), estado: str('Estado', { enum: ['quiero', 'en_curso', 'terminado', 'abandonado', 'referencia'] }), valoracion: int('1 a 12, si la dio'), url: str('Link'), notas: str('Lo que dijo de la obra') }, ['tipo', 'titulo']),
+    ejecutar: (a, { db }) => agregarObra(db, { ...a, origen: 'operador' }),
+    resumen: (a) => `sumó «${recorte(a.titulo, 40)}» a la Librería`,
   },
   {
     nombre: 'ver_economia', familia: 'lectura',
