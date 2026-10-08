@@ -32,6 +32,7 @@ import { buscarHibrido } from '../semantica.ts'
 import { compartidas } from '../bitacora.ts'
 import { crearCuaderno, leerCuaderno, listarCuadernos, preguntar, sumarFuentes } from '../cuadernos.ts'
 import { tabla as tablaEconomia } from '../economia.ts'
+import { forjarMejora } from '../fragua.ts'
 import { deshacer, listarCargas } from '../cargas/index.ts'
 import { coocurrencias, duplicadosProbables, editarEntidad, entidadesPorId, fusionarEntidades, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from '../entidades.ts'
 import { cronica, crearProyecto, estadoLiga, ingerir, numeroDeTick, tickUnico } from '../mastropiero.ts'
@@ -721,6 +722,17 @@ export const HERRAMIENTAS: Herramienta[] = [
         informes: listarSesiones(db, 6).filter((x) => x.informe).map((x) => ({ cuando: new Date(x.inicio).toLocaleString('es-AR'), informe: recorte(x.informe!, 1500) })),
       }
     },
+  },
+  {
+    nombre: 'forjar_mejora', familia: 'accion',
+    descripcion: 'Lleva una propuesta de mejora (o un pedido) a La Fragua: escribe el cambio en una rama aparte, corre typecheck y tests, y deja el diff para que él lo lea. No toca lo que está andando; aplicarlo es decisión suya, desde La Fragua. Tarda unos minutos y avisa al terminar.',
+    parametros: S({ propuesta: int('id de la propuesta (listar_propuestas)'), pedido: str('Si no hay propuesta: la mejora en palabras') }),
+    ejecutar: (a, { db }) => {
+      // Import dinámico: index.ts importa este archivo.
+      void forjarMejora(db, { propuestaId: a.propuesta ?? null, pedido: a.pedido ?? null }).then(async (f) => { const { mensajeDeMastropiero, conversacionHoy } = await import('./index.ts'); mensajeDeMastropiero(db, conversacionHoy(db).id, `La forja #${f.id} terminó: ${f.estado === 'lista' ? 'pasa los tests, la podés leer y aplicar en La Fragua' : f.estado === 'rota' ? 'no pasa los tests' : 'no salió'}.`) }).catch(() => {})
+      return { empezada: true, aviso: 'Va a tardar unos minutos; aviso en Hoy cuando termine.' }
+    },
+    resumen: (a) => `llevó ${a.propuesta ? `la propuesta #${a.propuesta}` : 'una mejora'} a La Fragua`,
   },
   {
     nombre: 'ver_economia', familia: 'lectura',

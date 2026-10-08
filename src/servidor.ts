@@ -24,6 +24,7 @@ import { guardarRelacion, personas } from './personas.ts'
 import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora.ts'
 import { cribar, deshacerUltima, marcador, siguiente } from './criba.ts'
 import { tabla as tablaEconomia, TARIFAS } from './economia.ts'
+import { aplicarForja, descartarForja, forjarMejora, leerForja, listarForjas } from './fragua.ts'
 import { borrarCuaderno, charla, crearCuaderno, guia, haciendo, leerCuaderno, listarCuadernos, notas, preguntar, quitarFuente, sumarFuentes } from './cuadernos.ts'
 import { buscarHibrido, estadoVectores, nivelesDe, vectorizarPendientes } from './semantica.ts'
 import { editarMovimiento, importarCSV, listarMovimientos, registrarMovimiento, resumenMes } from './finanzas.ts'
@@ -381,6 +382,19 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['POST', /^\/api\/taller\/(\d+)\/iterar$/, (b, [a]) => { void iterarArtefacto(db, id(a), String(b.cambio ?? '')).catch((e) => console.error('  taller:', e)); return { ok: true } }],
   ['POST', /^\/api\/taller\/(\d+)\/corpus$/, (_, [a]) => ({ pieza: artefactoAlCorpus(db, id(a)) })],
+  // La Fragua (forjar corre en segundo plano; aplicar es solo desde acá, con su ok)
+  ['GET', /^\/api\/fragua$/, () => ({ forjas: listarForjas(db).map(({ diff: _, ...f }) => f), propuestas: db.prepare(`SELECT id, titulo, detalle, area, prioridad, estado FROM propuestas WHERE estado = 'abierta' ORDER BY id DESC`).all() })],
+  ['GET', /^\/api\/fragua\/(\d+)$/, (_, [f]) => leerForja(db, id(f)) ?? (() => { throw new Error(`No existe la forja ${f}`) })()],
+  ['POST', /^\/api\/fragua$/, (b) => {
+    void forjarMejora(db, { propuestaId: b.propuestaId ? Number(b.propuestaId) : null, pedido: b.pedido || null }).then((f) => {
+      const que = f.estado === 'lista' ? 'pasó el typecheck y los tests: está en La Fragua para que la leas y la apliques' : f.estado === 'rota' ? 'quedó hecha pero no pasa los tests' : `no salió (${(f.salida ?? '').slice(0, 160)})`
+      mensajeDeMastropiero(db, conversacionHoy(db).id, `La forja #${f.id} ${que}.`)
+    }).catch((e) => console.error('  fragua:', e instanceof Error ? e.message : e))
+    return { empezada: true }
+  }],
+  ['POST', /^\/api\/fragua\/(\d+)\/aplicar$/, (_, [f]) => aplicarForja(db, id(f))],
+  ['POST', /^\/api\/fragua\/(\d+)\/descartar$/, (_, [f]) => descartarForja(db, id(f))],
+
   // Economía de agentes
   ['GET', /^\/api\/economia$/, (_, __, q) => ({ semana: q.get('semana') || semanaDe(), tarifas: TARIFAS, tabla: tablaEconomia(db, q.get('semana') || semanaDe()), historia: db.prepare('SELECT semana, COUNT(*) AS agentes, ROUND(SUM(neto), 1) AS neto FROM temporadas GROUP BY semana ORDER BY semana DESC LIMIT 8').all() })],
 

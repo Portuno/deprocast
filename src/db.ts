@@ -477,6 +477,21 @@ CREATE TABLE IF NOT EXISTS publicaciones (
   creada_en INTEGER NOT NULL
 );
 
+-- La Fragua: mejoras a la plataforma forjadas en su propia rama (fragua/<id>), aplicadas solo con su ok.
+CREATE TABLE IF NOT EXISTS fragua (
+  id INTEGER PRIMARY KEY,
+  propuesta_id INTEGER,
+  pedido TEXT NOT NULL,
+  rama TEXT NOT NULL,
+  estado TEXT NOT NULL,               -- haciendo | lista | rota | fallo | aplicada | descartada
+  resumen TEXT,
+  archivos TEXT,
+  diff TEXT,
+  salida TEXT,
+  creada_en INTEGER NOT NULL,
+  resuelta_en INTEGER
+);
+
 -- Economía de agentes: el monedero (asientos por temporada) y cómo terminó cada uno cada temporada.
 CREATE TABLE IF NOT EXISTS monedero (
   id INTEGER PRIMARY KEY,
