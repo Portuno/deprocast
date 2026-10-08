@@ -5,6 +5,7 @@ const VISTAS = {
   hoy: { montar: montarHoy, refrescar: refrescarHoy },
   misiones: { montar: montarMisionesVida, refrescar: refrescarMisionesVida },
   jugador: { montar: montarJugador, refrescar: refrescarJugador },
+  personas: { montar: montarPersonas, refrescar: refrescarPersonas },
   directo: { montar: montarDirecto, refrescar: refrescarDirecto },
   radar: { montar: montarRadar, refrescar: refrescarRadar },
   taller: { montar: montarTaller, refrescar: refrescarTaller },

@@ -477,6 +477,18 @@ CREATE TABLE IF NOT EXISTS publicaciones (
   creada_en INTEGER NOT NULL
 );
 
+-- Personas: la relación con su gente (lo que él define; el resto se deduce).
+CREATE TABLE IF NOT EXISTS relaciones (
+  entidad_id INTEGER PRIMARY KEY,
+  vinculo TEXT,
+  cercania INTEGER,
+  cada_dias INTEGER,
+  proxima TEXT,
+  notas TEXT,
+  ultimo_contacto TEXT,
+  actualizado_en INTEGER NOT NULL
+);
+
 -- Finanzas: sus movimientos (a mano, por chat o del CSV del banco). La huella evita repetir al reimportar.
 CREATE TABLE IF NOT EXISTS movimientos (
   id INTEGER PRIMARY KEY,

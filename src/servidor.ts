@@ -20,6 +20,7 @@ import { autorizado, cookieDeEntrada, expuesto, host, leerFormulario, PAGINA_ENT
 import { CONECTORES, guardarCuenta, listarCuentas, listarPublicaciones, MODOS, publicarPendientes, redactarPublicaciones, resolverPublicacion } from './cuentas.ts'
 import { decir as decirPorTelegram, escucharTelegram, telegramConfigurado } from './telegram.ts'
 import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, hayFfmpeg, iterarArtefacto, listarArtefactos, VOCES } from './taller.ts'
+import { guardarRelacion, personas } from './personas.ts'
 import { editarMovimiento, importarCSV, listarMovimientos, registrarMovimiento, resumenMes } from './finanzas.ts'
 import { buscarOportunidades, listarOportunidades, marcarOportunidad, redactarOportunidad } from './radar.ts'
 import { cuotas, hayBuscadorWeb } from './web.ts'
@@ -375,6 +376,10 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['POST', /^\/api\/taller\/(\d+)\/iterar$/, (b, [a]) => { void iterarArtefacto(db, id(a), String(b.cambio ?? '')).catch((e) => console.error('  taller:', e)); return { ok: true } }],
   ['POST', /^\/api\/taller\/(\d+)\/corpus$/, (_, [a]) => ({ pieza: artefactoAlCorpus(db, id(a)) })],
+  // Personas
+  ['GET', /^\/api\/personas$/, (_, __, q) => personas(db, { q: q.get('q') || undefined })],
+  ['POST', /^\/api\/personas\/(\d+)$/, (b, [p]) => guardarRelacion(db, id(p), b)],
+
   // Finanzas
   ['GET', /^\/api\/finanzas$/, (_, __, q) => {
     const mes = q.get('mes') || fechaLocal().slice(0, 7)

@@ -8,6 +8,7 @@ import path from 'node:path'
 import { ATRIBUTOS, CLASE_IDS, CLASES } from '../clases.ts'
 import { fechaLocal, fijarAjuste, type Db } from '../db.ts'
 import { CATEGORIAS, listarMovimientos, registrarMovimiento, resumenMes } from '../finanzas.ts'
+import { guardarRelacion, personas, VINCULOS } from '../personas.ts'
 import { archivar, corregir, HORIZONTES, memoriaVigente, recordar, TIPOS_MEMORIA } from '../memoria.ts'
 import { leerJornada, progreso } from '../jornada.ts'
 import {
@@ -23,7 +24,7 @@ import { crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, iterarAr
 import { buscarOportunidades, listarOportunidades, redactarOportunidad } from '../radar.ts'
 import { buscarWeb, hayBuscadorWeb, leerPagina } from '../web.ts'
 import { listarSesiones, momentos as momentosDirecto, sesionActiva } from '../directo.ts'
-import { agregarItem, editarItem, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, personaje, resolverPersonaje, TIPOS_INVENTARIO } from '../personajes.ts'
+import { agregarItem, editarItem, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, personaje, personaPorNombre, resolverPersonaje, TIPOS_INVENTARIO } from '../personajes.ts'
 import { asientos, especializacion } from '../auditor.ts'
 import { enEspera, leerTarea, pausarIngesta, publicar, reanudarIngesta, tareas } from '../bus.ts'
 import { asegurarFuente, buscar, esNivel, fuentes, leerPieza, listarPiezas, NIVELES, type Nivel, type Pieza } from '../corpus.ts'
@@ -545,6 +546,17 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `le asignó a ${a.a}: ${recorte(a.titulo, 40)}`,
   },
   {
+    nombre: 'editar_persona', familia: 'accion',
+    descripcion: 'Define o actualiza la relación con una persona de su gente: vínculo, cercanía (1–5), cada cuántos días quiere verla o hablarle, lo próximo pendiente con ella, notas; o anota que hoy hubo contacto.',
+    parametros: S({ persona: str('Nombre o id de la entidad'), vinculo: str('Vínculo', { enum: [...VINCULOS] }), cercania: int('1 a 5'), cada_dias: int('Cada cuántos días quiere contacto (0 = sin ritmo)'), proxima: str('Lo próximo con ella («devolverle el libro»)'), notas: str('Notas'), contacto: bool('true si hoy hablaron o se vieron') }, ['persona']),
+    ejecutar: (a, { db }) => {
+      const id = /^\d+$/.test(String(a.persona)) ? Number(a.persona) : personaPorNombre(db, String(a.persona), { sinJugador: true })
+      if (!id) throw new Error(`No encuentro a «${a.persona}» entre las personas`)
+      return guardarRelacion(db, id, { vinculo: a.vinculo, cercania: a.cercania, cadaDias: a.cada_dias, proxima: a.proxima, notas: a.notas, contacto: a.contacto || undefined })
+    },
+    resumen: (a) => `actualizó a ${recorte(String(a.persona), 30)}`,
+  },
+  {
     nombre: 'registrar_movimiento', familia: 'accion',
     descripcion: 'Registra un gasto (monto negativo) o un ingreso (positivo) que él cuenta («gasté 20 en el súper», «me pagaron 800 del freelance»). Euros salvo que diga otra moneda.',
     parametros: S({ monto: { type: 'number', description: 'Negativo si es gasto, positivo si es ingreso' }, descripcion: str('En qué'), categoria: str('Categoría', { enum: [...CATEGORIAS] }), fecha: str('YYYY-MM-DD; vacío = hoy'), moneda: str('EUR por defecto') }, ['monto', 'descripcion']),
@@ -705,6 +717,12 @@ export const HERRAMIENTAS: Herramienta[] = [
         informes: listarSesiones(db, 6).filter((x) => x.informe).map((x) => ({ cuando: new Date(x.inicio).toLocaleString('es-AR'), informe: recorte(x.informe!, 1500) })),
       }
     },
+  },
+  {
+    nombre: 'ver_personas', familia: 'lectura',
+    descripcion: 'Su gente: vínculo, último contacto, a quién quería ver más seguido, lo pendiente con cada una y lo que les asignó.',
+    parametros: S({ q: str('Filtrar por nombre') }),
+    ejecutar: (a, { db }) => personas(db, { q: a.q || undefined, limite: 30 }).map((p) => ({ id: p.id, nombre: p.nombre, vinculo: p.vinculo ?? undefined, ultimo: p.ultimoContacto ?? undefined, dias: p.diasSinContacto ?? undefined, vencida: p.vencida || undefined, proxima: p.proxima ?? undefined, misiones: p.misiones.length ? p.misiones : undefined })),
   },
   {
     nombre: 'ver_finanzas', familia: 'lectura',

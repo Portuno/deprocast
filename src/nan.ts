@@ -277,14 +277,21 @@ export async function nanChatHerramientasStream(
 ): ReturnType<typeof nanChatHerramientas> {
   const modelo = cadena(l.clase)[0]
   const t0 = Date.now()
+  // Se corta por silencio (90 s sin un byte), no por duración: una respuesta larga (un juego de 20K tokens) que
+  // sigue llegando no se corta. Tope total de 15 minutos.
+  const control = new AbortController()
+  let silencio: ReturnType<typeof setTimeout> | undefined
+  const vigilar = () => { clearTimeout(silencio); silencio = setTimeout(() => control.abort(new Error('stream en silencio')), 90_000) }
+  const tope = setTimeout(() => control.abort(new Error('stream demasiado largo')), 15 * 60_000)
   try {
     await turno()
     const cuerpo = { ...cuerpoChat(modelo, { ...o, json: false }), stream: true, stream_options: { include_usage: true } }
+    vigilar()
     const res = await fetch(`${base()}/chat/completions`, {
       method: 'POST',
       headers: { authorization: `Bearer ${key()}`, 'content-type': 'application/json' },
       body: JSON.stringify(cuerpo),
-      signal: AbortSignal.timeout(180_000),
+      signal: control.signal,
     })
     if (res.status !== 200 || !res.body) throw new Error(`stream ${res.status}`)
     const acc = acumuladorSSE()
@@ -292,6 +299,7 @@ export async function nanChatHerramientasStream(
     const dec = new TextDecoder()
     for (;;) {
       const { done, value } = await lector.read()
+      vigilar()
       if (done) break
       if (acc.empujar(dec.decode(value, { stream: true }))) alTexto(acc.estado.texto)
     }
@@ -310,6 +318,9 @@ export async function nanChatHerramientasStream(
   } catch {
     alTexto('')
     return nanChatHerramientas(l, o)
+  } finally {
+    clearTimeout(silencio)
+    clearTimeout(tope)
   }
 }
 

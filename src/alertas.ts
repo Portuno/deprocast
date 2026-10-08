@@ -11,6 +11,7 @@ import { charlaReciente, conAvance, enCurso, listarMisiones, misionesParaPrompt,
 import { directoParaPrompt } from './directo.ts'
 import { personaje } from './personajes.ts'
 import { oportunidadesQueCierran } from './radar.ts'
+import { aContactar } from './personas.ts'
 
 export type Alerta = { clave: string; texto: string }
 
@@ -45,6 +46,10 @@ export function alertasPendientes(db: Db, ahora = Date.now()): Alerta[] {
   }
   for (const o of oportunidadesQueCierran(db, ahora)) {
     out.push({ clave: `cierra:${o.id}:${hoy}`, texto: `«${o.titulo}» cierra el ${o.cierre}. ${o.borrador ? 'Ya tenés el borrador listo en Radar.' : '¿Te armo el borrador?'}` })
+  }
+  // Solo las que él pidió ver cada tanto (cada_dias); una por semana como mucho.
+  for (const p of aContactar(db, ahora).slice(0, 1)) {
+    out.push({ clave: `persona:${p.id}:${semanaDe(ahora)}`, texto: `Hace ${p.diasSinContacto ?? 'mucho'} días que no sabés de ${p.nombre}${p.cadaDias ? ` (querías cada ${p.cadaDias})` : ''}.${p.proxima ? ` Tenías pendiente: ${p.proxima}.` : ' ¿Le escribís?'}` })
   }
   return out.filter((a) => !db.prepare('SELECT 1 FROM alertas WHERE clave = ?').get(a.clave))
 }

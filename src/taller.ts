@@ -103,6 +103,7 @@ export async function crearJuego(db: Db, pedido: string, o: { padreId?: number |
   const a = nuevo(db, { tipo: 'juego', titulo: padre?.titulo ?? pedido.slice(0, 80), pedido, padreId: padre?.id ?? null }, o.ahora)
   try {
     avance(db, a.id, 'escribiendo el juego')
+    let escritos = 0
     const previo = padre ? fs.readFileSync(path.join(carpeta(padre.id), 'index.html'), 'utf8') : null
     const r = await llamarModelo({ db, clase: 'mastropiero', agenteId: 'taller' }, {
       mensajes: [
@@ -110,6 +111,10 @@ export async function crearJuego(db: Db, pedido: string, o: { padreId?: number |
         { role: 'user', content: previo ? `Este es el juego actual:\n\n${previo}\n\nCambio que pide: ${pedido}\n\nDevolvé el archivo completo con el cambio.` : `El juego que pide: ${pedido}` },
       ],
       herramientas: [], temperatura: 0.5, maxTokens: 16000,
+    }, (parcial) => {
+      // En streaming: el proxy no corta las respuestas largas mientras sigan llegando, y se ve el avance.
+      const k = Math.floor(parcial.length / 4000)
+      if (k > escritos) { escritos = k; avance(db, a.id, `escribiendo el juego (${(parcial.length / 1000).toFixed(0)}K caracteres)`) }
     })
     const html = (r.texto.match(/<!doctype html[\s\S]*<\/html>/i)?.[0] ?? r.texto.replace(/^```(?:html)?\s*|\s*```$/g, '')).trim()
     if (!/<html[\s>]/i.test(html)) throw new Error('El modelo no devolvió un HTML')
