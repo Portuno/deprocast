@@ -4,7 +4,8 @@
 let cribaPieza = null
 let cribaSaltear = []
 let cribaNivel = ''
-const TECLAS_PESO = { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '0': 10, q: 11, w: 12, Backspace: 0, x: 0 }
+// Con el teclado numérico: el punto (o la coma, según el teclado) es 11 y Enter es 12.
+const TECLAS_PESO = { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '0': 10, q: 11, w: 12, '.': 11, ',': 11, Decimal: 11, Enter: 12, Backspace: 0, x: 0 }
 
 function montarCriba() {
   $('#principal').innerHTML = `
@@ -18,7 +19,7 @@ function montarCriba() {
         ${Array.from({ length: 12 }, (_, i) => `<button class="btn" data-peso="${i + 1}">${i + 1}</button>`).join('')}
       </div>
       <div class="fila" style="justify-content:center"><button class="btn btn-chico" id="cr-saltear">Saltear (espacio)</button><button class="btn btn-chico" id="cr-deshacer">Deshacer (z)</button></div>
-      <p class="criba-ayuda">Teclas: 1–9, 0 = 10, q = 11, w = 12, x = descartar, espacio = saltear, z = deshacer</p>
+      <p class="criba-ayuda">Teclas: 1–9, 0 = 10, q o . = 11, w o Enter = 12, x = descartar, espacio = saltear, z = deshacer</p>
     </div>`
   $('#cr-nivel').value = cribaNivel
   $('#cr-nivel').onchange = (e) => { cribaNivel = e.target.value; cribaSaltear = []; traerCriba() }
@@ -53,6 +54,7 @@ async function traerCriba() {
 
 async function pesar(peso) {
   if (!cribaPieza) return
+  document.activeElement?.blur?.() // que Enter o espacio no vuelvan a apretar el último botón tocado
   try {
     const m = await api(`/criba/${cribaPieza.id}`, { peso })
     pintarMarcador(m)

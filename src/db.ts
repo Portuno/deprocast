@@ -660,6 +660,8 @@ const AJUSTES_SISTEMA: Record<string, string> = {
   tokens_dia_max: '1000000', // tokens por día para la liga (agentes); 0 = sin tope
   pensar_cada_horas: '3', // Mastropiero piensa solo y deja una sugerencia (o nada); 0 = nunca
   meta_ingresos_mes: '', // su meta de ingresos por mes, en euros; vacío = sin meta
+  telegram_voz: '0', // respuestas por Telegram también en audio: 0 = no, 1 = cuando él manda audio, siempre
+  telegram_bandas: '1', // cada banda de la run llega sola por Telegram, con botones
   destilar_por_dia: '15', // con la ingesta en pausa, cuántas piezas propias despierta por día la rutina «destilar»
   vectorizar_auto: '1', // calcular solos los vectores del corpus (búsqueda por significado); 0 = no
 }

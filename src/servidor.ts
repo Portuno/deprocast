@@ -18,7 +18,7 @@ import { catalogo } from './menciones.ts'
 import { pensar } from './alertas.ts'
 import { autorizado, cookieDeEntrada, expuesto, host, leerFormulario, PAGINA_ENTRAR, validarAcceso } from './acceso.ts'
 import { CONECTORES, guardarCuenta, listarCuentas, listarPublicaciones, MODOS, publicarPendientes, redactarPublicaciones, resolverPublicacion } from './cuentas.ts'
-import { decir as decirPorTelegram, escucharTelegram, telegramConfigurado } from './telegram.ts'
+import { decir as decirPorTelegram, escucharTelegram, estadoTelegram, latidoTelegram, telegramConfigurado } from './telegram.ts'
 import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, hayFfmpeg, iterarArtefacto, listarArtefactos, VOCES } from './taller.ts'
 import { guardarRelacion, personas } from './personas.ts'
 import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora.ts'
@@ -383,6 +383,20 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['POST', /^\/api\/taller\/(\d+)\/iterar$/, (b, [a]) => { void iterarArtefacto(db, id(a), String(b.cambio ?? '')).catch((e) => console.error('  taller:', e)); return { ok: true } }],
   ['POST', /^\/api\/taller\/(\d+)\/corpus$/, (_, [a]) => ({ pieza: artefactoAlCorpus(db, id(a)) })],
+  // Telegram: estado del canal y un mensaje de prueba
+  ['GET', /^\/api\/telegram$/, () => ({ ...estadoTelegram(), voz: ajuste(db, 'telegram_voz'), bandas: ajuste(db, 'telegram_bandas') })],
+  ['POST', /^\/api\/telegram\/probar$/, async () => {
+    if (!telegramConfigurado()) throw new Error('Falta TELEGRAM_BOT_TOKEN en .env (y reiniciar)')
+    const id = await decirPorTelegram('Prueba desde Mastropiero ✓ Escribime /ayuda para ver lo que sé hacer.')
+    if (!id) throw new Error('No salió: falta TELEGRAM_CHAT_ID en .env (escribile al bot y te dice cuál es)')
+    return { ok: true }
+  }],
+  ['POST', /^\/api\/telegram$/, (b) => {
+    if (b.voz != null && ['0', '1', 'siempre'].includes(String(b.voz))) fijarAjuste(db, 'telegram_voz', String(b.voz))
+    if (b.bandas != null) fijarAjuste(db, 'telegram_bandas', b.bandas ? '1' : '0')
+    return { ok: true }
+  }],
+
   // La Fragua (forjar corre en segundo plano; aplicar es solo desde acá, con su ok)
   ['GET', /^\/api\/fragua$/, () => ({ forjas: listarForjas(db).map(({ diff: _, ...f }) => f), propuestas: db.prepare(`SELECT id, titulo, detalle, area, prioridad, estado FROM propuestas WHERE estado = 'abierta' ORDER BY id DESC`).all() })],
   ['GET', /^\/api\/fragua\/(\d+)$/, (_, [f]) => leerForja(db, id(f)) ?? (() => { throw new Error(`No existe la forja ${f}`) })()],
@@ -755,6 +769,7 @@ setInterval(async () => {
 // Telegram: si hay bot, escucha; y lo que Mastropiero dice solo también sale por ahí.
 if (telegramConfigurado()) {
   escucharTelegram(db)
+  setInterval(() => void latidoTelegram(db).catch(() => {}), 60_000).unref()
   alDecirSolo((texto) => void decirPorTelegram(texto).catch(() => {}))
 }
 

@@ -14,7 +14,7 @@ const huella = (m: { fecha: string; monto: number; descripcion: string }) => cry
 
 /** Categoría por palabras (sin modelo): lo obvio se clasifica solo; el resto, «otros». */
 export function categorizar(descripcion: string, monto: number): string {
-  const d = descripcion.toLowerCase()
+  const d = descripcion.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '') // «súper» = «super»
   if (monto > 0) return 'ingresos'
   const reglas: [RegExp, string][] = [
     [/alquiler|hipoteca|comunidad|luz|agua|gas natural|iberdrola|endesa|naturgy/, 'vivienda'],

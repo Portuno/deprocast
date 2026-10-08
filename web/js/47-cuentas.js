@@ -7,9 +7,36 @@ async function montarCuentas() {
   $('#principal').innerHTML = `
     <div class="titulo"><h1>Cuentas</h1><p>Tus redes y cómo actúa Mastropiero en cada una: <b>lectura</b> (solo lee), <b>redacta</b> (prepara y espera tu ok, nunca publica solo) o <b>libre</b> (publica sola en sus horarios, con tope por día). Todo lo publicado queda registrado.</p>
       <div class="fila"><button class="btn" id="cu-nueva">+ Cuenta</button></div></div>
+    <div class="bloque" id="tg"></div>
     <div id="cu"></div>`
   $('#cu-nueva').onclick = () => modalCuenta()
   traerCuentas()
+  pintarTelegram()
+}
+
+// El canal de Telegram: Mastropiero en el celular.
+async function pintarTelegram() {
+  const cont = $('#tg')
+  if (!cont) return
+  let t
+  try { t = await api('/telegram') } catch (e) { return error(e) }
+  const listo = t.configurado && t.chat
+  cont.innerHTML = `<h3>Telegram ${listo ? (t.ultimoError ? '<span class="chip">⚠ con errores</span>' : '<span class="chip">✓ conectado</span>') : '<span class="chip">sin configurar</span>'}</h3>
+    ${listo ? `<p class="tenue">Le hablás desde el celular: texto, audios, fotos, links y archivos (un chat de WhatsApp exportado, el CSV del banco). Lo que Mastropiero dice solo te llega por ahí, y cada banda de la run con botones. Comandos: /hoy /run /gasto /ingreso /nota /bitacora /buscar /criba /pregunta /voz.${t.ultimoMensaje ? ` Último mensaje tuyo: ${new Date(t.ultimoMensaje).toLocaleString('es-AR')}.` : ''}${t.ultimoError ? `<br>Último error: ${esc(t.ultimoError)}` : ''}</p>
+      <div class="fila"><button class="btn btn-chico" id="tg-probar">Mandarme una prueba</button>
+        <label>Responder en audio <select id="tg-voz"><option value="0">no</option><option value="1">cuando le mando audio</option><option value="siempre">siempre</option></select></label>
+        <label><input type="checkbox" id="tg-bandas" ${t.bandas !== '0' ? 'checked' : ''}> avisarme cada banda de la run</label></div>`
+    : `<ol class="tenue">
+        <li>En Telegram, hablale a <b>@BotFather</b> → <code>/newbot</code> → elegí nombre y usuario. Te da un token.</li>
+        <li>Pegalo en el <code>.env</code> de Mastropiero: <code>TELEGRAM_BOT_TOKEN=…</code> y reiniciá el servidor.</li>
+        <li>Escribile cualquier cosa a tu bot: te contesta con tu número de chat. Ponelo en <code>.env</code> como <code>TELEGRAM_CHAT_ID=…</code> y reiniciá de nuevo.</li>
+        <li>Volvé acá y tocá «Mandarme una prueba». Solo te va a atender a vos.</li>
+      </ol>${t.configurado ? '<p>Ya tiene el token: falta el <code>TELEGRAM_CHAT_ID</code> (paso 3).</p>' : ''}`}`
+  if (!listo) return
+  $('#tg-voz').value = t.voz ?? '0'
+  $('#tg-voz').onchange = (e) => api('/telegram', { voz: e.target.value }).catch(error)
+  $('#tg-bandas').onchange = (e) => api('/telegram', { bandas: e.target.checked }).catch(error)
+  $('#tg-probar').onclick = async () => { try { await api('/telegram/probar', {}); toast('Mandado<small>Fijate en Telegram.</small>') } catch (e) { error(e) } }
 }
 
 let cuentasDatos = null

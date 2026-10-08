@@ -77,6 +77,10 @@ let vozNaN = async (texto: string, voz: string): Promise<Buffer> => {
   if (!r.ok) throw new Error(`Voz ${r.status}: ${(await r.text()).slice(0, 160)}`)
   return Buffer.from(await r.arrayBuffer())
 }
+/** La voz de kokoro, para quien la necesite fuera del Taller (las respuestas por Telegram). */
+export const sintetizar = (texto: string, voz = VOZ_DEFECTO_PUBLICA) => vozNaN(texto, voz)
+const VOZ_DEFECTO_PUBLICA = 'em_alex'
+
 export function _probarTaller(o: { imagen?: typeof imagenNaN; voz?: typeof vozNaN }) {
   if (o.imagen) imagenNaN = o.imagen
   if (o.voz) vozNaN = o.voz
