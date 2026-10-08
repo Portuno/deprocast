@@ -19,6 +19,7 @@ import { especializacion } from './auditor.ts'
 import { alias, leer, listar } from './roster.ts'
 import { aportesParaRun } from './ayudantes.ts'
 import { menciones, sinArrobas } from './menciones.ts'
+import { perfilDeRendimiento, textoDeRendimiento } from './rendimiento.ts'
 
 export const NIVELES_MISION = ['principal', 'primaria', 'secundaria', 'terciaria'] as const
 export type NivelMision = (typeof NIVELES_MISION)[number]
@@ -561,6 +562,7 @@ Reglas:
 - Si una misión usa plata, poné «gasto» (número); el total no puede pasar de lo disponible. Si involucra a alguien, «con».
 - Usá la calibración: lo que suele saltear, achicalo o cambialo; lo que funciona, repetilo.
 - Si su memoria dice en qué horas rinde más y en cuáles menos, ubicá lo hondo en sus horas buenas y lo liviano, mecánico o introspectivo donde baja.
+- Si hay datos de «cómo rinde según sus runs», mandan sobre la intuición: en las franjas que termina poco, bandas más cortas y livianas; si pidió que elijas el largo, preferí el largo que más termina.
 - Por defecto, arrancá con una victoria rápida y alterná tareas chicas y concretas (que terminan con algo hecho) con otras más grandes: la run existe para que haga más, no para que se sienta en deuda.
 - Si pidió pausas o el formato lo pide, incluí misiones de categoría «pausa».
 - Una side quest abierta entra solo si encaja con dónde va a estar o lo que va a hacer.
@@ -647,6 +649,7 @@ async function generar(
     `\nLo que sabés de él:\n${memoriaParaPrompt(db, 40) || '- (casi nada todavía)'}`,
     charla.length ? `\nLo que te dijo en las últimas horas:\n${charla.map((c) => `- ${c}`).join('\n')}` : '',
     `\n${calibracion(db, o.ahora) || 'Todavía no hay runs anteriores para calibrar.'}`,
+    textoDeRendimiento(perfilDeRendimiento(db, o.ahora)) ? `\nCómo rinde según sus runs (datos, no opiniones):\n${textoDeRendimiento(perfilDeRendimiento(db, o.ahora))}` : '',
   ].filter(Boolean).join('\n')
   const { datos, modelo } = await pedirJson<{ resumen?: string; misiones?: any[] }>({ db, clase: 'mastropiero', agenteId: 'run' }, SISTEMA_RUN, usuario, { temperatura: 0.6, maxTokens: 6000 })
   const ps = (datos.misiones ?? []).map(deModelo).filter((x): x is Propuesta => !!x)

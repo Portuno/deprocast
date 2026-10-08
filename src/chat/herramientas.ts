@@ -34,6 +34,10 @@ import { crearCuaderno, leerCuaderno, listarCuadernos, preguntar, sumarFuentes }
 import { tabla as tablaEconomia } from '../economia.ts'
 import { forjarMejora } from '../fragua.ts'
 import { agregarObra, listarObras } from '../libreria.ts'
+import { brujulaDelDia, leerBrujula } from '../brujula.ts'
+import { perfilDeRendimiento, textoDeRendimiento } from '../rendimiento.ts'
+import { recomendar } from '../mentor.ts'
+import { proponerPuentes } from '../puentes.ts'
 import { deshacer, listarCargas } from '../cargas/index.ts'
 import { coocurrencias, duplicadosProbables, editarEntidad, entidadesPorId, fusionarEntidades, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from '../entidades.ts'
 import { cronica, crearProyecto, estadoLiga, ingerir, numeroDeTick, tickUnico } from '../mastropiero.ts'
@@ -734,6 +738,29 @@ export const HERRAMIENTAS: Herramienta[] = [
       return { empezada: true, aviso: 'Va a tardar unos minutos; aviso en Hoy cuando termine.' }
     },
     resumen: (a) => `llevó ${a.propuesta ? `la propuesta #${a.propuesta}` : 'una mejora'} a La Fragua`,
+  },
+  {
+    nombre: 'ver_brujula', familia: 'lectura',
+    descripcion: 'La brújula de hoy (tridente Cuerpo · Mente · Alma y el foco) y cómo rinde según sus runs (franjas, largo de bandas). Si te pregunta por dónde arrancar o cuándo rinde más.',
+    parametros: S({ rehacer: bool('true para armarla de nuevo con lo último') }),
+    ejecutar: async (a, { db }) => {
+      const b = a.rehacer ? await brujulaDelDia(db, { forzar: true }) : leerBrujula(db) ?? await brujulaDelDia(db)
+      return { brujula: b, rendimiento: textoDeRendimiento(perfilDeRendimiento(db)) || 'todavía sin datos suficientes' }
+    },
+  },
+  {
+    nombre: 'recomendar_lectura', familia: 'accion',
+    descripcion: 'El Mentor: de su Librería, qué leer, ver, jugar o estudiar ahora para lo que está empujando, ya convertido en banda o side quest. Quedan como sugerencias para que acepte.',
+    parametros: S({}),
+    ejecutar: async (_, { db }) => (await recomendar(db)).map((r) => ({ id: r.id, obra: r.titulo, accion: r.accion, por_que: r.porQue, como: r.como })),
+    resumen: () => 'le pidió recomendaciones al Mentor',
+  },
+  {
+    nombre: 'proponer_puentes', familia: 'accion',
+    descripcion: 'Puentes con su gente: a quiénes presentar entre sí y con quién retomar (con motivo real y un borrador). Quedan como sugerencias en Personas; nada se manda solo.',
+    parametros: S({}),
+    ejecutar: async (_, { db }) => (await proponerPuentes(db)).map((p) => ({ id: p.id, tipo: p.tipo, personas: p.personas.map((x) => x.nombre), motivo: p.motivo, mensaje: p.mensaje })),
+    resumen: () => 'propuso puentes con su gente',
   },
   {
     nombre: 'ver_libreria', familia: 'lectura',

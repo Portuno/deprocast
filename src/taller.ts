@@ -4,6 +4,7 @@
  * presentación HTML si no hay ffmpeg). Cada pedido de cambio es una versión nueva. Los archivos viven en data/taller/<id>/.
  */
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { json, resolverRuta, type Db } from './db.ts'
@@ -158,7 +159,24 @@ export async function crearVoz(db: Db, texto: string, o: { voz?: string; ahora?:
   return leerArtefacto(db, a.id)!
 }
 
-/** Una charla grabada: cada turno con su voz, todo en un mp3 (los cuadros MP3 se pueden pegar uno tras otro). */
+/**
+ * Varios mp3 en uno. Pegarlos tal cual deja la cabecera del primero mandando (duración incluida) y muchos
+ * reproductores y decodificadores cortan ahí: con ffmpeg se unen bien; sin ffmpeg, pegados (mejor que nada).
+ */
+export function unirMp3(partes: Buffer[]): Buffer {
+  if (partes.length < 2 || !hayFfmpeg()) return Buffer.concat(partes)
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mastro-mp3-'))
+  try {
+    partes.forEach((p, i) => fs.writeFileSync(path.join(dir, `p${String(i).padStart(3, '0')}.mp3`), p))
+    fs.writeFileSync(path.join(dir, 'lista.txt'), partes.map((_, i) => `file 'p${String(i).padStart(3, '0')}.mp3'`).join('\n'))
+    const r = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', 'lista.txt', '-c:a', 'libmp3lame', '-q:a', '4', 'todo.mp3'], { cwd: dir, encoding: 'utf8' })
+    return r.status === 0 && fs.existsSync(path.join(dir, 'todo.mp3')) ? fs.readFileSync(path.join(dir, 'todo.mp3')) : Buffer.concat(partes)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/** Una charla grabada: cada turno con su voz, todo en un mp3. */
 export async function crearConversacion(db: Db, titulo: string, turnos: { voz: string; texto: string }[], o: { meta?: Record<string, unknown>; ahora?: number } = {}): Promise<Artefacto> {
   const a = nuevo(db, { tipo: 'voz', titulo, pedido: titulo, meta: { conversacion: true, ...o.meta } }, o.ahora)
   try {
@@ -167,7 +185,7 @@ export async function crearConversacion(db: Db, titulo: string, turnos: { voz: s
       avance(db, a.id, `grabando ${i + 1} de ${turnos.length}`)
       partes.push(await vozNaN(t.texto, VOCES[t.voz] ? t.voz : VOZ_DEFECTO))
     }
-    fs.writeFileSync(path.join(carpeta(a.id), 'charla.mp3'), Buffer.concat(partes))
+    fs.writeFileSync(path.join(carpeta(a.id), 'charla.mp3'), unirMp3(partes))
     terminar(db, a.id, ['charla.mp3'], { guion: turnos })
   } catch (e) { fallar(db, a.id, e) }
   return leerArtefacto(db, a.id)!

@@ -82,7 +82,7 @@ test('rutinas: corren una vez por día a su hora y dejan el mensaje en Hoy; el c
   assert.equal(pendientes(db, ahora).length, 0, 'antes de las 07:45 nada')
   const nueve = new Date(2026, 9, 7, 9, 0).getTime()
   const r = await correrRutinas(db, nueve)
-  assert.deepEqual(r.map((x) => [x.id, x.ok]), [['ayudantes', true], ['prediccion', true], ['jornada', true]])
+  assert.deepEqual(r.map((x) => [x.id, x.ok]), [['ayudantes', true], ['brujula', false], ['prediccion', true], ['jornada', true]]) // la brújula falla sin romper: el modelo falso no devuelve JSON
   assert.equal((await correrRutinas(db, nueve + 60_000)).length, 0, 'una vez por día')
   const hoy = conversacionHoy(db)
   assert.match(mensajes(db, hoy.id).at(-1)!.texto!, /Buen día.*No tenés primarias.*arrancamos una run/)

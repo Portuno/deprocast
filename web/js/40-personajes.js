@@ -95,9 +95,25 @@ function montarMisionesVida() {
   $('#principal').innerHTML = `
     <div class="titulo"><h1>Misiones</h1><p>Tu misión principal, las primarias de la semana, tus side quests y lo que les encargaste a otros. Lo que propone Mastropiero aparece como sugerencia: vos decidís.</p>
       <div class="fila"><button class="btn" id="mi-procesar" title="Lee tu memoria y tu material propio y propone historia, inventario, candidatas a misión principal y primarias">Procesarme</button></div></div>
+    <details class="panel" id="mi-rinde"><summary><b>Cómo rendís</b> <span class="tenue">según tus runs: franjas, largo de bandas y días (lo usa la próxima run)</span></summary><div id="mi-rinde-cuerpo"></div></details>
     <div id="mis"></div>`
   $('#mi-procesar').onclick = () => procesarme($('#mi-procesar'))
+  $('#mi-rinde').ontoggle = (e) => { if (e.target.open) pintarRendimiento() }
   traerMisiones()
+}
+
+async function pintarRendimiento() {
+  const cont = $('#mi-rinde-cuerpo')
+  if (!cont) return
+  let p
+  try { p = await api('/rendimiento') } catch (e) { return error(e) }
+  if (p.bandas < 3) return void (cont.innerHTML = '<p class="tenue">Todavía hay pocas bandas marcadas para sacar conclusiones. Marcá las de tus runs (hecha, a medias, no) y esto se llena solo.</p>')
+  const fila = (g) => `<div class="cu-fuente"><span style="width:9em">${esc(g.clave)}</span><span class="barrita" style="flex:1"><b style="width:${Math.round(g.tasa * 100)}%"></b></span><span>${Math.round(g.tasa * 100)} %</span><small class="tenue">${g.n} bandas</small></div>`
+  cont.innerHTML = `<p>${esc(p.texto.split('\n')[0])}</p>
+    <h4>Por franja horaria</h4>${p.porFranja.map(fila).join('')}
+    <h4>Por largo de banda</h4>${p.porLargo.map(fila).join('')}
+    <h4>Por día</h4>${p.porDia.map(fila).join('')}
+    <p class="tenue">Con menos de 3 bandas en un grupo, no se saca conclusión. Hecha = 100 %, a medias = 50 %.</p>`
 }
 
 function refrescarMisionesVida() {

@@ -96,6 +96,9 @@ function pintarHoy() {
       <button class="btn btn-chico" id="hoy-ocultar" title="Ocultar las tareas: el chat ocupa toda la pantalla">Ocultar tareas ⇥</button>
       ${avisoNotif ? '<button class="btn btn-chico" id="hoy-notif">Activar avisos</button>' : ''}
     </div>
+    ${hoyDatos.brujula ? `<details class="brujula" ${pref.leer('mastro-brujula', 'si') === 'si' ? 'open' : ''}><summary>🧭 La brújula de hoy</summary>
+      <p><b>Cuerpo:</b> ${esc(hoyDatos.brujula.cuerpo)}</p><p><b>Mente:</b> ${esc(hoyDatos.brujula.mente)}</p><p><b>Alma:</b> ${esc(hoyDatos.brujula.alma)}</p>
+      <p class="brujula-foco"><b>Si hacés una sola cosa:</b> ${esc(hoyDatos.brujula.foco)}</p></details>` : '<button class="btn btn-chico" id="hoy-brujula">🧭 Armar la brújula de hoy</button>'}
     <div id="pregunta-caja"></div>
     ${run?.estado === 'en_curso' ? runEnCursoHTML(run) : run?.estado === 'propuesta' ? runPropuestaHTML(run) : sinRunHTML()}
     ${hoyDatos.proximas?.length ? `<section class="hoy-semana"><h3 class="sub">Próximas runs</h3>${hoyDatos.proximas.map((r) => `<details class="run-pasada"><summary><b>${esc(new Date(`${r.fecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric' }))}</b> ${r.inicio}–${r.fin} · ${r.misiones.length} bandas · propuesta</summary>
@@ -106,6 +109,10 @@ function pintarHoy() {
     ${j?.cierre ? `<div class="hoy-cierre"><small>Tu cierre</small><p>${esc(j.cierre)}</p></div>` : ''}
     ${calendarios ? '' : `<p class="hoy-nota">Para que tenga en cuenta tu agenda: en Google Calendar, Configuración del calendario → «Dirección secreta en formato iCal», y pegala en <code>.env</code> como <code>GCAL_ICS_URLS</code>.</p>`}`
   $('#hoy-ajustes').onclick = modalAjustesHoy
+  const bru = $('#hoy-brujula')
+  if (bru) bru.onclick = async () => { bru.disabled = true; bru.textContent = 'Mirando cómo venís…'; try { await api('/brujula', {}); traerHoy() } catch (e) { error(e); bru.disabled = false } }
+  const det = $('#hoy-dia details.brujula')
+  if (det) det.ontoggle = () => pref.guardar('mastro-brujula', det.open ? 'si' : 'no')
   $('#hoy-ocultar').onclick = () => window.ocultarDia?.()
   pintarMiniHoy()
   const nb = $('#hoy-notif')

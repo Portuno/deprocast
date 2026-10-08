@@ -43,7 +43,7 @@ export async function pedirJson<T = any>(
 }
 
 /** El objeto JSON de una respuesta: tal cual, dentro de un bloque de código, o el tramo entre la primera { y la última }. */
-function leerJson<T>(texto: string): T | null {
+export function leerJson<T>(texto: string): T | null {
   const candidatos = [texto.trim(), texto.match(/```(?:json)?\s*([\s\S]*?)```/)?.[1], texto.match(/\{[\s\S]*\}/)?.[0]]
   for (const c of candidatos) {
     if (!c) continue

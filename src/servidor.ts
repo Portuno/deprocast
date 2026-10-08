@@ -25,6 +25,11 @@ import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora
 import { cribar, deshacerUltima, marcador, siguiente } from './criba.ts'
 import { tabla as tablaEconomia, TARIFAS } from './economia.ts'
 import { exportarEstado, importarEstado } from './exportacion.ts'
+import { encolar as encolarTanda, listarTandas, procesarTandas, reintentar as reintentarTanda, retomarTandas } from './tandas.ts'
+import { brujulaDelDia, leerBrujula } from './brujula.ts'
+import { perfilDeRendimiento, textoDeRendimiento } from './rendimiento.ts'
+import { listarRecomendaciones, recomendar, resolverRecomendacion } from './mentor.ts'
+import { listarPuentes, proponerPuentes, resolverPuente } from './puentes.ts'
 import { aCsv, agregarObra, conteos as conteosLibreria, editarObra, listarObras, poblando, poblarLibreria } from './libreria.ts'
 import { aplicarForja, descartarForja, forjarMejora, leerForja, listarForjas } from './fragua.ts'
 import { borrarCuaderno, charla, crearCuaderno, guia, haciendo, leerCuaderno, listarCuadernos, notas, preguntar, quitarFuente, sumarFuentes } from './cuadernos.ts'
@@ -263,6 +268,7 @@ const rutas: [string, RegExp, Ruta][] = [
       reporte: listarReportes(db, { limite: 1 })[0] ?? null,
       aportes: aportes(db, { desde: Date.now() - 2 * 86_400_000, limite: 4 }),
       proximas: listarRuns(db, { desde: fechaLocal(Date.now() + 86_400_000), estados: ['propuesta'] }).map((r) => ({ ...r, misiones: misionesDeRun(db, r.id) })),
+      brujula: leerBrujula(db, fecha),
       ajustes: { primarias_semana: ajuste(db, 'primarias_semana'), tokens_dia_max: ajuste(db, 'tokens_dia_max'), pensar_cada_horas: ajuste(db, 'pensar_cada_horas'), meta_ingresos_mes: ajuste(db, 'meta_ingresos_mes') },
     }
   }],
@@ -384,6 +390,23 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['POST', /^\/api\/taller\/(\d+)\/iterar$/, (b, [a]) => { void iterarArtefacto(db, id(a), String(b.cambio ?? '')).catch((e) => console.error('  taller:', e)); return { ok: true } }],
   ['POST', /^\/api\/taller\/(\d+)\/corpus$/, (_, [a]) => ({ pieza: artefactoAlCorpus(db, id(a)) })],
+  // Tandas (notas de voz y páginas de cuadernos): la subida va cruda, más abajo
+  ['GET', /^\/api\/tandas$/, () => listarTandas(db)],
+  ['POST', /^\/api\/tandas\/(\d+)\/reintentar$/, (_, [t]) => { reintentarTanda(db, id(t)); void procesarTandas(db); return { ok: true } }],
+
+  // Brújula del día y cómo rinde
+  ['GET', /^\/api\/brujula$/, () => leerBrujula(db)],
+  ['POST', /^\/api\/brujula$/, async () => brujulaDelDia(db, { forzar: true })],
+  ['GET', /^\/api\/rendimiento$/, () => { const p = perfilDeRendimiento(db); return { ...p, texto: textoDeRendimiento(p) } }],
+
+  // Mentor y Puentes
+  ['GET', /^\/api\/mentor$/, () => listarRecomendaciones(db)],
+  ['POST', /^\/api\/mentor$/, async () => recomendar(db)],
+  ['POST', /^\/api\/mentor\/(\d+)$/, (b, [r]) => resolverRecomendacion(db, id(r), !!b.aceptar) ?? { descartada: true }],
+  ['GET', /^\/api\/puentes$/, () => listarPuentes(db)],
+  ['POST', /^\/api\/puentes$/, async () => proponerPuentes(db)],
+  ['POST', /^\/api\/puentes\/(\d+)$/, (b, [p]) => resolverPuente(db, id(p), b.estado === 'hecho' ? 'hecho' : 'descartado')],
+
   // Librería
   ['GET', /^\/api\/libreria$/, (_, __, q) => ({ obras: listarObras(db, { tipo: q.get('tipo') || null, q: q.get('q') || null, estado: q.get('estado') || null }), conteos: conteosLibreria(db), poblando: poblando.activo ? poblando.paso : null })],
   ['POST', /^\/api\/libreria$/, (b) => agregarObra(db, { ...b, origen: 'operador' })],
@@ -665,6 +688,13 @@ const servidor = http.createServer(async (req, res) => {
   if (url.pathname.startsWith('/api/')) {
     res.setHeader('content-type', 'application/json; charset=utf-8')
     try {
+      // Una nota de voz o una página de cuaderno (cruda, de a un archivo; el navegador manda varias seguidas).
+      if (req.method === 'POST' && url.pathname === '/api/tandas') {
+        const q = url.searchParams
+        const r = encolarTanda(db, { tipo: (q.get('tipo') as any) || undefined, nombre: q.get('nombre') || 'archivo', datos: await leerCrudo(req, 300 * 1024 * 1024), fecha: q.get('fecha') || null, cuaderno: q.get('cuaderno') || null, hoja: q.get('hoja') ? Number(q.get('hoja')) : null })
+        void procesarTandas(db).catch((e) => console.error('  tandas:', e instanceof Error ? e.message : e))
+        return void res.end(JSON.stringify(r))
+      }
       // Importar un estado exportado (crudo). Reemplaza esta base: con datos, pide forzar y respalda antes.
       if (req.method === 'POST' && url.pathname === '/api/importar-estado') {
         const texto = (await leerCrudo(req, MAX_CARGA)).toString('utf8')
@@ -786,6 +816,8 @@ setInterval(async () => {
 // Telegram: si hay bot, escucha; y lo que Mastropiero dice solo también sale por ahí.
 if (telegramConfigurado()) {
   escucharTelegram(db)
+  retomarTandas(db)
+  void procesarTandas(db).catch(() => {})
   setInterval(() => void latidoTelegram(db).catch(() => {}), 60_000).unref()
   alDecirSolo((texto) => void decirPorTelegram(texto).catch(() => {}))
 }

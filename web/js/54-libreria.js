@@ -11,7 +11,8 @@ let libEspera = null
 function montarLibreria() {
   $('#principal').innerHTML = `
     <div class="titulo"><h1>Librería</h1><p>Lo que leés, mirás, jugás y estudiás, como planillas. Editás tocando la celda. Las filas con raya a la izquierda las cargó Mastropiero desde tu corpus: cuando las tocás quedan revisadas. Después las usamos para expandir el corpus y recomendarte tareas.</p>
-      <div class="fila"><button class="btn" id="lib-poblar" title="Repos y papers por su link; el resto, leyendo lo que dijiste o guardaste">✦ Poblar desde el corpus</button><a class="btn" id="lib-csv" href="#">⇩ CSV</a></div></div>
+      <div class="fila"><button class="btn btn-primario" id="lib-mentor" title="Qué leer, ver o estudiar ahora para lo que estás empujando">🧭 Mentor</button><button class="btn" id="lib-poblar" title="Repos y papers por su link; el resto, leyendo lo que dijiste o guardaste">✦ Poblar desde el corpus</button><a class="btn" id="lib-csv" href="#">⇩ CSV</a></div></div>
+    <div id="lib-recos"></div>
     <div class="tabs" id="lib-tabs"></div>
     <div class="fila" style="margin:10px 0">
       <form class="fila" id="lib-nueva" style="flex:1"><input name="titulo" placeholder="Título" required style="flex:2" autocomplete="off"><input name="autor" placeholder="Autor" style="flex:1" autocomplete="off"><input name="anio" placeholder="Año" style="width:5em"><button class="btn btn-primario">＋ Sumar</button></form>
@@ -19,6 +20,13 @@ function montarLibreria() {
     </div>
     <p class="pensando" id="lib-poblando" hidden></p>
     <div class="lib-envoltura"><table class="lib-tabla" id="lib-tabla"></table></div>`
+  $('#lib-mentor').onclick = async () => {
+    const b = $('#lib-mentor')
+    b.disabled = true
+    b.textContent = 'Pensando qué te sirve…'
+    try { await api('/mentor', {}); pintarMentor() } catch (e) { error(e) } finally { b.disabled = false; b.textContent = '🧭 Mentor' }
+  }
+  pintarMentor()
   $('#lib-poblar').onclick = async () => { try { await api('/libreria/poblar', {}); toast('Poblando<small>Te aviso en Hoy cuando termine.</small>'); refrescarLibreria() } catch (e) { error(e) } }
   $('#lib-nueva').onsubmit = async (ev) => {
     ev.preventDefault()
@@ -28,6 +36,20 @@ function montarLibreria() {
   let t
   $('#lib-q').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { libFiltro = e.target.value; refrescarLibreria() }, 250) }
   refrescarLibreria()
+}
+
+async function pintarMentor() {
+  const cont = $('#lib-recos')
+  if (!cont) return
+  let rs
+  try { rs = await api('/mentor') } catch { return }
+  cont.innerHTML = rs.length ? `<div class="bloque"><h3>🧭 El Mentor recomienda</h3>${rs.map((r) => `<div class="cu-fuente" data-reco="${r.id}"><span style="white-space:normal"><b>${esc(r.accion)}</b>${r.minutos ? ` <small class="tenue">${r.minutos} min</small>` : ''}<br><small class="tenue">${esc(r.porQue)}</small></span>
+    <button class="btn btn-chico btn-primario" data-si title="${r.como === 'banda' ? 'Queda para la próxima run' : 'Queda como side quest'}">${r.como === 'banda' ? 'A la próxima run' : 'Side quest'}</button><button class="btn btn-chico" data-no>✕</button></div>`).join('')}</div>` : ''
+  $$('[data-reco]', cont).forEach((el) => {
+    const id = el.dataset.reco
+    $('[data-si]', el).onclick = async () => { try { await api(`/mentor/${id}`, { aceptar: true }); toast('Anotado<small>Quedó como side quest y la obra pasó a «en curso».</small>'); pintarMentor(); refrescarLibreria() } catch (e) { error(e) } }
+    $('[data-no]', el).onclick = async () => { try { await api(`/mentor/${id}`, { aceptar: false }); pintarMentor() } catch (e) { error(e) } }
+  })
 }
 
 async function refrescarLibreria() {

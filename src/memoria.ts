@@ -4,7 +4,7 @@
  */
 import { fechaLocal, type Db } from './db.ts'
 import { pedirJson } from './modelo.ts'
-import { agregarItem } from './personajes.ts'
+import { agregarItem, entidadDelJugador, personaje } from './personajes.ts'
 import { anotarSideQuest } from './misiones.ts'
 
 export const TIPOS_MEMORIA = ['hecho', 'meta', 'preferencia', 'sueño', 'vision', 'correccion'] as const
@@ -124,6 +124,34 @@ Forma: {"recuerdos": [{"texto": string, "tipo": string, "horizonte": string | nu
 
 export type FuenteDeMemoria = { texto: string; origen: number | null; pieza: number | null; grabacion: boolean }
 
+/** Los nombres con los que aparece él en chats y grabaciones: su nombre de jugador, el de su entidad y sus alias. */
+export function nombresDelOperador(db: Db): string[] {
+  const out = new Set<string>()
+  try { out.add(personaje(db, 'jugador').nombre) } catch { /* sin jugador todavía */ }
+  const id = entidadDelJugador(db)
+  if (id) {
+    const e = db.prepare('SELECT nombre, alias FROM entidades WHERE id = ?').get(id) as any
+    if (e) { out.add(e.nombre); for (const a of e.alias ? JSON.parse(e.alias) : []) out.add(a) }
+  }
+  return [...out].map((x) => x.trim()).filter((x) => x.length >= 3)
+}
+
+const normNombre = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+
+/**
+ * De un chat importado («[14:05] Ana: hola») o una grabación con voces marcadas («[Lautaro] …», «[Voz B] …»), deja solo
+ * las líneas de él. Devuelve null si el texto no tiene ese formato (no es un chat), y '' si es un chat donde él no habla.
+ */
+export function soloSuVoz(texto: string, nombres: string[]): string | null {
+  const lineas = texto.split('\n')
+  const marca = /^\[(?:\d{1,2}:\d{2}\]\s*([^:\]]{1,60}):|([^\]]{1,60})\])\s?(.*)$/
+  const marcadas = lineas.map((l) => marca.exec(l)).filter(Boolean) as RegExpExecArray[]
+  if (marcadas.length < Math.max(2, lineas.filter((l) => l.trim()).length * 0.6)) return null
+  const mios = nombres.map(normNombre)
+  const esEl = (quien: string) => { const q = normNombre(quien); return !!q && mios.some((n) => n === q || n.split(' ')[0] === q || q.split(' ')[0] === n.split(' ')[0] && q.split(' ')[0].length >= 4) }
+  return marcadas.filter((m) => esEl(m[1] ?? m[2] ?? '')).map((m) => m[3]).join('\n').trim()
+}
+
 /** Lo suyo que ya está cargado: charlas con Mastropiero y piezas propias (de las más pesadas a las más nuevas). */
 export function fuentesParaAprender(db: Db, limite: number): FuenteDeMemoria[] {
   const chats = db.prepare(
@@ -134,11 +162,16 @@ export function fuentesParaAprender(db: Db, limite: number): FuenteDeMemoria[] {
     `SELECT id, contenido AS texto FROM corpus WHERE nivel = 'propia' AND tipo = 'materia' AND length(contenido) > 200
      ORDER BY COALESCE(peso, 0) DESC, COALESCE(fecha, '') DESC LIMIT ?`,
   ).all(limite - chats.length) as { id: number; texto: string }[]
-  return [
-    ...chats.map((c) => ({ texto: c.texto, origen: c.origen, pieza: null, grabacion: false })),
-    // Una transcripción o un chat con otros no es toda su voz: el escriba la lee con otro cuidado.
-    ...propias.map((p) => ({ texto: p.texto, origen: null, pieza: p.id, grabacion: /\[Speaker \d+\]|^\[\d{4}-\d{2}-\d{2}T/m.test(p.texto) })),
-  ]
+  const nombres = nombresDelOperador(db)
+  const deEl: FuenteDeMemoria[] = []
+  for (const p of propias) {
+    // Un chat o una grabación con voces marcadas: solo lo que dijo él (si no habla, no hay nada que aprender ahí).
+    const suyo = soloSuVoz(p.texto, nombres)
+    if (suyo !== null) { if (suyo.length > 40) deEl.push({ texto: suyo, origen: null, pieza: p.id, grabacion: false }); continue }
+    // Una transcripción sin marcas de quién habla: el escriba la lee con otro cuidado.
+    deEl.push({ texto: p.texto, origen: null, pieza: p.id, grabacion: /\[Speaker \d+\]|^\[\d{4}-\d{2}-\d{2}T/m.test(p.texto) })
+  }
+  return [...chats.map((c) => ({ texto: c.texto, origen: c.origen, pieza: null, grabacion: false })), ...deEl]
 }
 
 export type Aprendizaje = { hechos: number; total: number; nuevos: number; terminado: boolean }

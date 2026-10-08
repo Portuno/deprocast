@@ -1002,3 +1002,9 @@ a.mencion { color: var(--acento-texto); text-decoration: none; background: var(-
 .lib-tabla tr.sin-revisar td:first-child { box-shadow: inset 3px 0 0 var(--acento); }
 .lib-tabla select { font: inherit; font-size: 12px; background: transparent; color: inherit; border: 0; }
 .lib-envoltura { overflow: auto; max-height: calc(100vh - 260px); border: 1px solid var(--linea); border-radius: 10px; }
+
+/* Brújula del día */
+.brujula { border: 1px solid var(--linea); border-radius: 10px; padding: 8px 12px; margin: 8px 0; font-size: 13.5px; }
+.brujula summary { cursor: pointer; font-weight: 600; }
+.brujula p { margin: 6px 0; }
+.brujula-foco { border-top: 1px solid var(--linea); padding-top: 6px; }

@@ -477,6 +477,62 @@ CREATE TABLE IF NOT EXISTS publicaciones (
   creada_en INTEGER NOT NULL
 );
 
+-- Tandas: notas de voz y páginas de cuadernos que entran de a muchas (cola de a una).
+CREATE TABLE IF NOT EXISTS tandas (
+  id INTEGER PRIMARY KEY,
+  tipo TEXT NOT NULL,                      -- audio | pagina
+  archivo TEXT NOT NULL,
+  ruta TEXT NOT NULL,
+  bytes INTEGER NOT NULL,
+  huella TEXT NOT NULL UNIQUE,
+  fecha TEXT,                              -- YYYY-MM-DD[ HH:MM], del nombre o del archivo
+  cuaderno TEXT,
+  hoja INTEGER,
+  estado TEXT NOT NULL,                    -- pendiente | procesando | hecha | fallo
+  pieza_id INTEGER,
+  error TEXT,
+  creada_en INTEGER NOT NULL,
+  hecha_en INTEGER
+);
+
+-- La brújula del día: el tridente Cuerpo · Mente · Alma.
+CREATE TABLE IF NOT EXISTS brujulas (
+  fecha TEXT PRIMARY KEY,
+  cuerpo TEXT NOT NULL,
+  mente TEXT NOT NULL,
+  alma TEXT NOT NULL,
+  foco TEXT NOT NULL,
+  pregunta TEXT,
+  datos TEXT,
+  creada_en INTEGER NOT NULL
+);
+
+-- El Mentor: qué leer, ver o estudiar ahora, de la Librería.
+CREATE TABLE IF NOT EXISTS mentor (
+  id INTEGER PRIMARY KEY,
+  obra_id INTEGER NOT NULL,
+  por_que TEXT NOT NULL,
+  accion TEXT NOT NULL,
+  como TEXT NOT NULL,                      -- banda | side_quest
+  minutos INTEGER,
+  estado TEXT NOT NULL,                    -- sugerida | aceptada | descartada
+  creada_en INTEGER NOT NULL,
+  resuelta_en INTEGER
+);
+
+-- Puentes entre personas: presentar a dos, retomar con una.
+CREATE TABLE IF NOT EXISTS puentes (
+  id INTEGER PRIMARY KEY,
+  tipo TEXT NOT NULL,                      -- presentar | retomar
+  personas TEXT NOT NULL,                  -- JSON: ids de entidades
+  clave TEXT NOT NULL,
+  motivo TEXT NOT NULL,
+  mensaje TEXT,
+  estado TEXT NOT NULL,                    -- sugerido | hecho | descartado
+  creado_en INTEGER NOT NULL,
+  resuelto_en INTEGER
+);
+
 -- Librería: sus obras (libros, películas, series, videojuegos, papers, repos) como planillas.
 CREATE TABLE IF NOT EXISTS obras (
   id INTEGER PRIMARY KEY,
@@ -667,6 +723,9 @@ const RUTINAS_SISTEMA = [
   { id: 'radar', nombre: 'El radar sale a buscar oportunidades', hora: '09:30', dias: '14', accion: 'radar' },
   { id: 'calificacion', nombre: 'El gemelo se califica', hora: '23:40', dias: '0123456', accion: 'calificacion' },
   { id: 'reporte_semanal', nombre: 'Reporte de la semana', hora: '21:00', dias: '0', accion: 'reporte_semanal' },
+  { id: 'brujula', nombre: 'La brújula del día', hora: '08:10', dias: '0123456', accion: 'brujula' },
+  { id: 'mentor', nombre: 'El Mentor recomienda qué leer o ver', hora: '08:05', dias: '1', accion: 'mentor' },
+  { id: 'puentes', nombre: 'Puentes con tu gente', hora: '11:00', dias: '0', accion: 'puentes' },
   { id: 'temporada', nombre: 'Cierre de temporada de la liga', hora: '07:30', dias: '1', accion: 'temporada' },
   { id: 'destilar', nombre: 'Destilar unas piezas tuyas en espera', hora: '10:15', dias: '0123456', accion: 'destilar' },
 ]

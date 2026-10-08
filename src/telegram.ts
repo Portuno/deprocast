@@ -21,6 +21,8 @@ import { cribar, marcador, siguiente } from './criba.ts'
 import { responderPregunta, siguientePregunta } from './preguntas.ts'
 import { descartar, ejecutar, leerCarga, subir } from './cargas/index.ts'
 import { sintetizar } from './taller.ts'
+import { brujulaDelDia, textoDeBrujula } from './brujula.ts'
+import { recomendar } from './mentor.ts'
 
 const api = (metodo: string) => `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/${metodo}`
 
@@ -192,7 +194,7 @@ async function mandarPregunta(db: Db) {
 export const COMANDOS = [
   ['hoy', 'Cómo viene el día'], ['run', 'La banda que toca ahora (o arrancar la propuesta)'], ['gasto', 'Anotar un gasto: /gasto 12,5 súper'],
   ['ingreso', 'Anotar un ingreso: /ingreso 800 freelance'], ['nota', 'Guardar algo sin charlar'], ['bitacora', 'Escribir en tu bitácora (privada)'],
-  ['buscar', 'Buscar en tu corpus'], ['criba', 'Pesar piezas con botones'], ['pregunta', 'Que Mastropiero te pregunte algo'], ['voz', 'Respuestas también en audio: sí / no'], ['ayuda', 'Qué sé hacer'],
+  ['brujula', 'El tridente del día'], ['mentor', 'Qué leer o ver ahora'], ['buscar', 'Buscar en tu corpus'], ['criba', 'Pesar piezas con botones'], ['pregunta', 'Que Mastropiero te pregunte algo'], ['voz', 'Respuestas también en audio: sí / no'], ['ayuda', 'Qué sé hacer'],
 ] as const
 
 function resumenHoy(db: Db): string {
@@ -245,6 +247,11 @@ async function comando(db: Db, cmd: string, resto: string) {
       return decir(ps.map((p) => `**#${p.id} ${p.titulo}**\n${p.contenido.replace(/\s+/g, ' ').slice(0, 160)}…`).join('\n\n'))
     }
     case '/criba': { const c = cartaCriba(db); return decir(c.texto, c.botones) }
+    case '/brujula': return decir(textoDeBrujula(await brujulaDelDia(db, { forzar: /^(de nuevo|otra|rehacer)/i.test(resto) })))
+    case '/mentor': {
+      const rs = await recomendar(db)
+      return decir(rs.length ? `🧭 **El Mentor**\n${rs.map((r) => `• **${r.accion}**\n  ${r.porQue}`).join('\n')}` : 'No encontré nada en tu Librería que empuje lo de esta semana.')
+    }
     case '/pregunta': case '/preguntas': return mandarPregunta(db)
     case '/voz': {
       const v = /^(no|off|0|apag)/i.test(resto) ? '0' : /^siempre/i.test(resto) ? 'siempre' : (ajuste(db, 'telegram_voz') ?? '0') === '0' || /^(s[ií]|on|1)/i.test(resto) ? '1' : '0'

@@ -12,6 +12,9 @@ import { buscarOportunidades } from './radar.ts'
 import { enEspera, reanudarIngesta } from './bus.ts'
 import { tickUnico } from './mastropiero.ts'
 import { cerrarTemporada } from './economia.ts'
+import { brujulaDelDia, textoDeBrujula } from './brujula.ts'
+import { recomendar } from './mentor.ts'
+import { proponerPuentes } from './puentes.ts'
 import { topeAlcanzado } from './nan.ts'
 import { conAvance, listarMisiones, proponerPrimarias, reporteSemana, semanaDe, seguimientos, sideQuestsRelevantes } from './misiones.ts'
 
@@ -118,6 +121,24 @@ export const ACCIONES: Acciones = {
       ticks++
     }
     return null // trabajo de fondo: no hace falta avisarle en Hoy (queda en la crónica de la liga)
+  },
+  /** Cada mañana: el tridente del día (no una lista de tareas). */
+  async brujula(db, _fecha, ahora) {
+    return textoDeBrujula(await brujulaDelDia(db, { ahora }))
+  },
+  /** Lunes: qué leer, ver o estudiar esta semana, de su Librería, para sus primarias. */
+  async mentor(db, _fecha, ahora) {
+    if (!(db.prepare('SELECT 1 FROM obras LIMIT 1').get())) return null
+    const rs = await recomendar(db, ahora)
+    if (!rs.length) return null
+    return `🧭 El Mentor, para esta semana:\n${rs.map((r) => `• **${r.accion}** — ${r.porQue}`).join('\n')}\nEstán en Librería → Mentor: aceptá las que quieras y las anoto.`
+  },
+  /** Domingo: puentes con su gente (presentar a dos, retomar con alguien), si hay razones reales. */
+  async puentes(db, _fecha, ahora) {
+    let ps
+    try { ps = await proponerPuentes(db, ahora) } catch { return null }
+    if (!ps.length) return null
+    return `🌉 Puentes para esta semana:\n${ps.map((p) => `• ${p.tipo === 'presentar' ? `Presentar a ${p.personas.map((x) => x.nombre).join(' y ')}` : `Retomar con ${p.personas[0]?.nombre}`}: ${p.motivo}`).join('\n')}\nEn Personas tenés el borrador de cada uno.`
   },
   /** Lunes temprano: cierra la temporada de la semana que terminó (la liga se arregla sola). Queda en la crónica. */
   async temporada(db, _fecha, ahora) {

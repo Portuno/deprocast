@@ -10,12 +10,34 @@ function montarPersonas() {
     <div class="titulo"><h1>Personas</h1><p>Tu gente. Definí el vínculo y cada cuánto querés saber de cada una: Mastropiero te avisa cuando se pasa (nunca en reuniones). El último contacto se deduce de lo que cargás y de lo que le contás; también lo podés marcar a mano.</p>
       <div class="fila"><input id="per-q" placeholder="Buscar…" value="${esc(perFiltro)}">
         <select id="per-solo"><option value="todas">Todas</option><option value="definidas">Con relación definida</option><option value="vencidas">A contactar</option></select></div></div>
+    <div id="per-puentes"></div>
     <div class="per-grid" id="per-grid"></div>`
   $('#per-solo').value = perSolo
   let t
   $('#per-q').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { perFiltro = e.target.value; refrescarPersonas() }, 250) }
   $('#per-solo').onchange = (e) => { perSolo = e.target.value; refrescarPersonas() }
   refrescarPersonas()
+  pintarPuentes()
+}
+
+async function pintarPuentes() {
+  const cont = $('#per-puentes')
+  if (!cont) return
+  let ps
+  try { ps = await api('/puentes') } catch { return }
+  cont.innerHTML = `<div class="bloque"><div class="fila"><h3 style="margin:0">🌉 Puentes</h3><span class="tenue" style="flex:1">A quiénes presentar entre sí y con quién retomar, con un motivo real. Nada se manda solo.</span><button class="btn btn-chico" id="pu-proponer">Proponer puentes</button></div>
+    ${ps.map((p) => `<div class="per" data-puente="${p.id}"><div class="per-cab"><span class="chip">${p.tipo === 'presentar' ? 'presentar' : 'retomar'}</span><b>${p.personas.map((x) => `<a href="#" class="ref" data-ref-ent="${x.id}">${esc(x.nombre)}</a>`).join(' ↔ ')}</b></div>
+      <div>${esc(p.motivo)}</div>${p.mensaje ? `<details><summary class="tenue">Borrador</summary><p>${esc(p.mensaje)}</p><button class="btn btn-chico" data-copiar>Copiar</button></details>` : ''}
+      <div class="fila"><button class="btn btn-chico" data-hecho>Hecho</button><button class="btn btn-chico" data-descartar>Descartar</button></div></div>`).join('') || '<p class="tenue">Ninguno pendiente.</p>'}</div>`
+  $('#pu-proponer').onclick = async (e) => { e.target.disabled = true; e.target.textContent = 'Mirando tu gente…'; try { await api('/puentes', {}); pintarPuentes() } catch (err) { error(err); e.target.disabled = false; e.target.textContent = 'Proponer puentes' } }
+  $$('[data-puente]', cont).forEach((el) => {
+    const p = ps.find((x) => x.id === Number(el.dataset.puente))
+    const marcar = async (estado) => { try { await api(`/puentes/${p.id}`, { estado }); pintarPuentes(); refrescarPersonas() } catch (e) { error(e) } }
+    $('[data-hecho]', el).onclick = () => marcar('hecho')
+    $('[data-descartar]', el).onclick = () => marcar('descartado')
+    const c = $('[data-copiar]', el)
+    if (c) c.onclick = () => navigator.clipboard?.writeText(p.mensaje).then(() => toast('Copiado'), () => {})
+  })
 }
 
 async function refrescarPersonas() {
