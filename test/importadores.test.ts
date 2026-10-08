@@ -111,3 +111,26 @@ Dale, ahí estoy.
   assert.equal(ps.find((p) => p.contenido === 'Dale, ahí estoy.')!.nivel, 'propia')
   assert.equal(ps.find((p) => p.contenido === 'Nos vemos mañana.')!.nivel, 'primaria')
 })
+
+test('respaldo 0.7: el predictor de energía entra opcional, un día por pieza, con frentes nombrados y resultado', async () => {
+  const db = abrir(':memory:')
+  const respaldo = {
+    format: 'deprocast-backup', version: 3, include_media: false, run: {},
+    tables: {
+      projects: [{ id: 'pr1', title: 'Telar' }], persons: [{ id: 'pe1', name: 'Ada', status: 'active' }],
+      energia_predictions: [
+        { id: 'e1', day_key: '2026-09-15', front_kind: 'project', front_id: 'pr1', predicted_kind: 'captura_audio', confidence: 0.57, status: 'resolved', created_at: '2026-09-15T10:00:00Z' },
+        { id: 'e2', day_key: '2026-09-15', front_kind: 'person', front_id: 'pe1', predicted_kind: 'dialogo', confidence: 0.3, status: 'expired', created_at: '2026-09-15T09:00:00Z' },
+      ],
+      energia_resolutions: [{ prediction_id: 'e1', outcome: 'match' }],
+    },
+  }
+  const c = subir(db, 'respaldo.json', JSON.stringify(respaldo))
+  const seg = c.analisis!.segmentos.find((s) => s.id === 'energia')!
+  assert.equal(seg.porDefecto, false)
+  assert.equal(seg.cantidad, 1)
+  ejecutar(db, c.id, { segmentos: ['energia'], pipeline: 'ninguna' })
+  const p = listarPiezas(db, { limite: 5 }).piezas.find((x) => x.titulo === 'Predictor de energía · 2026-09-15')!
+  assert.equal(p.nivel, 'generada')
+  assert.equal(p.contenido, '2 predicciones; de las medidas, 1 de 1 acertaron.\n- 09:00 · dialogo en «Ada» (30%) → expired\n- 10:00 · captura_audio en «Telar» (57%) → acertó')
+})

@@ -54,6 +54,7 @@ function tablas(j: any) {
       ...t('entries').filter((e) => e.source_type === 'agente' && e.content_raw).map((r) => ({ tipo: 'agente', r })),
     ],
     listas: t('ama_lists'),
+    energia: t('energia_predictions').filter((p) => p.day_key),
     enlaces: [...new Map(t('link_harvest').map((l) => [l.url_norm || l.url_cruda, l])).values()],
     quantomos: t('quantomos'),
     candidatos: t('quantomo_candidates').filter((c) => c.status !== 'rejected'),
@@ -88,11 +89,12 @@ function analizarRespaldo(d: Datos): Analisis {
     seg({ id: 'informes', nombre: 'Informes del sistema', descripcion: 'Resumidor, bitácoras de Directo y salidas de agentes.', nivel: 'generada', destino: 'corpus', cantidad: x.informes.length, porDefecto: true }),
     seg({ id: 'listas', nombre: 'Listas AmazonA', descripcion: 'Tridentes y Lista6 con sus elementos.', nivel: 'propia', destino: 'corpus', cantidad: x.listas.length, porDefecto: true }),
     seg({ id: 'quantomos', nombre: 'Quántomos', descripcion: `${x.quantomos.length} quántomos (con sello L72 y haikus como facetas) y ${x.candidatos.length} candidatos que esperaban Aduana, como proto.`, nivel: null, destino: 'quantomos', cantidad: x.quantomos.length + x.candidatos.length, porDefecto: true, nota: 'Se enlazan a la pieza de la que salieron si esa pieza entra en esta carga.' }),
+    seg({ id: 'energia', nombre: 'Predictor de energía (0.7)', descripcion: `Lo que el predictor de la 0.7 apostó que ibas a hacer y si pasó: una pieza por día (${new Set(x.energia.map((p) => p.day_key)).size} días, ${x.energia.length} predicciones). Historia para el gemelo de ahora.`, nivel: 'generada', destino: 'corpus', cantidad: new Set(x.energia.map((p) => p.day_key)).size, porDefecto: false }),
     seg({ id: 'enlaces', nombre: 'Enlaces por traer', descripcion: 'URLs cosechadas de chats, entradas y bookmarks, sin repetir. Entran como pendientes: materia para crawlers.', nivel: 'primaria', destino: 'corpus', cantidad: x.enlaces.length, porDefecto: false, nota: 'No pasan por la pipeline hasta que un crawler las traiga.' }),
   ]
   const avisos: string[] = []
   if (j.include_media === false) avisos.push('El respaldo no incluye medios: audios e imágenes quedan como texto y metadatos.')
-  avisos.push('No entran: embeddings (otro modelo, se recalculan), colas, simulaciones de calendario, energía ni estado de pantalla.')
+  avisos.push('No entran: embeddings (otro modelo, se recalculan), colas, simulaciones de calendario ni estado de pantalla. El predictor de energía es opcional.')
   return {
     importador: 'deprocast-respaldo',
     titulo: `Respaldo de ${j.run?.operator_name ?? 'Deprocast'} · ${String(j.exported_at ?? '').slice(0, 10)}`,
@@ -278,6 +280,26 @@ function ejecutarRespaldo(d: Datos, ctx: Contexto) {
           : tipo === 'directo' ? [`Directo · ${String(r.generated_at).slice(0, 10)}`, r.summary, r.generated_at, r.session_id]
             : [r.title, r.content_raw, r.created_at, r.id]
       ctx.pieza('informes', { titulo, contenido, fecha, etiquetas: [tipo], meta: { modelo: r.model ?? undefined }, origenId: ORIGEN(`informe-${tipo}`, id) })
+    }
+  }
+  if (ctx.quiere('energia')) {
+    // Los «frentes» (proyecto o persona) se nombran por su título; lo que se apostó, con su confianza y cómo salió.
+    const nombres = new Map<string, string>([...x.T('projects').map((p) => [p.id, p.title] as [string, string]), ...x.T('persons').map((p) => [p.id, p.name] as [string, string])])
+    const salida = new Map(x.T('energia_resolutions').map((r) => [r.prediction_id, r.outcome]))
+    const OUT: Record<string, string> = { match: 'acertó', near: 'cerca', mismatch: 'falló', ignored: 'no se midió' }
+    const dias = new Map<string, any[]>()
+    for (const p of x.energia) dias.set(p.day_key, [...(dias.get(p.day_key) ?? []), p])
+    for (const [dia, ps] of dias) {
+      const medidas = ps.map((p) => salida.get(p.id)).filter((o) => o && o !== 'ignored')
+      const aciertos = medidas.filter((o) => o === 'match').length
+      const lineas = ps.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))).map((p) => {
+        const frente = nombres.get(p.front_id) ?? p.front_kind
+        return `- ${String(p.created_at).slice(11, 16)} · ${p.predicted_kind}${p.predicted_view ? `/${p.predicted_view}` : ''} en «${frente}» (${Math.round((p.confidence ?? 0) * 100)}%) → ${OUT[salida.get(p.id) ?? ''] ?? p.status}`
+      })
+      ctx.pieza('energia', {
+        titulo: `Predictor de energía · ${dia}`, contenido: [`${ps.length} predicciones; de las medidas, ${aciertos} de ${medidas.length} acertaron.`, ...lineas].join('\n'),
+        fecha: dia, etiquetas: ['energia', 'prediccion'], origenId: ORIGEN('energia-dia', dia),
+      })
     }
   }
   if (ctx.quiere('listas')) {
