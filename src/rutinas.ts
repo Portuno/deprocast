@@ -2,13 +2,16 @@
  * Rutinas: lo que Mastropiero hace solo, a su hora. Corren mientras el servidor está prendido;
  * si al arrancar ya pasó la hora de una rutina de hoy, se pone al día. Una rutina corre una vez por día.
  */
-import { fechaLocal, type Db } from './db.ts'
+import { ajuste, fechaLocal, type Db } from './db.ts'
 import { aMin, asegurarJornada, fijarResumen, leerJornada, textoDeCierre } from './jornada.ts'
 import { agendaDelDia } from './calendario.ts'
 import { conversacionHoy, mensajeDeMastropiero } from './chat/index.ts'
 import { pedirAportes } from './ayudantes.ts'
 import { calificarDia, predecirDia, textoDeCalificacion } from './gemelo.ts'
 import { buscarOportunidades } from './radar.ts'
+import { enEspera, reanudarIngesta } from './bus.ts'
+import { tickUnico } from './mastropiero.ts'
+import { topeAlcanzado } from './nan.ts'
 import { conAvance, listarMisiones, proponerPrimarias, reporteSemana, semanaDe, seguimientos, sideQuestsRelevantes } from './misiones.ts'
 
 export type Rutina = { id: string; nombre: string; hora: string; dias: string; accion: string; activa: boolean; ultimaFecha: string | null }
@@ -97,6 +100,23 @@ export const ACCIONES: Acciones = {
     const ps = await proponerPrimarias(db, semana, { ahora })
     if (!ps.length) return null
     return `Arranca la semana. Te propongo ${ps.length} primarias: ${ps.map((p) => p.titulo).join(' · ')}. Aceptalas, cambialas o descartalas en Misiones; son tuyas.`
+  },
+  /**
+   * Con la ingesta en pausa: cada mañana despierta unas pocas piezas suyas (las más pesadas) y la liga las procesa,
+   * de a poco y sin quemar tokens en masa. Con la ingesta andando, no hace nada.
+   */
+  async destilar(db, _fecha, ahora) {
+    const n = Number(ajuste(db, 'destilar_por_dia') ?? 15)
+    if (!n || !enEspera(db)) return null
+    const despiertas = reanudarIngesta(db, { limite: n, soloPropias: true }, ahora)
+    if (!despiertas) return null
+    let ticks = 0
+    const quedan = () => (db.prepare(`SELECT COUNT(*) AS n FROM tareas WHERE pipeline = 'ingesta' AND estado IN ('pendiente', 'asignada')`).get() as { n: number }).n
+    while (quedan() && ticks < 3 * 4 && !topeAlcanzado(db)) {
+      try { await tickUnico(db) } catch { break } // otro tick en curso: que siga él
+      ticks++
+    }
+    return null // trabajo de fondo: no hace falta avisarle en Hoy (queda en la crónica de la liga)
   },
   /** El domingo a la noche: el reporte de la semana que termina. */
   async reporte_semanal(db, _fecha, ahora) {

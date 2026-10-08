@@ -611,6 +611,7 @@ const RUTINAS_SISTEMA = [
   { id: 'radar', nombre: 'El radar sale a buscar oportunidades', hora: '09:30', dias: '14', accion: 'radar' },
   { id: 'calificacion', nombre: 'El gemelo se califica', hora: '23:40', dias: '0123456', accion: 'calificacion' },
   { id: 'reporte_semanal', nombre: 'Reporte de la semana', hora: '21:00', dias: '0', accion: 'reporte_semanal' },
+  { id: 'destilar', nombre: 'Destilar unas piezas tuyas en espera', hora: '10:15', dias: '0123456', accion: 'destilar' },
 ]
 /** La única plantilla de run de fábrica: genérica, sin nada del operador. */
 const PLANTILLAS_SISTEMA = [
@@ -624,6 +625,7 @@ const AJUSTES_SISTEMA: Record<string, string> = {
   tokens_dia_max: '1000000', // tokens por día para la liga (agentes); 0 = sin tope
   pensar_cada_horas: '3', // Mastropiero piensa solo y deja una sugerencia (o nada); 0 = nunca
   meta_ingresos_mes: '', // su meta de ingresos por mes, en euros; vacío = sin meta
+  destilar_por_dia: '15', // con la ingesta en pausa, cuántas piezas propias despierta por día la rutina «destilar»
   vectorizar_auto: '1', // calcular solos los vectores del corpus (búsqueda por significado); 0 = no
 }
 
