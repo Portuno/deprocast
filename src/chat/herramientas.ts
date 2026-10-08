@@ -6,7 +6,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { ATRIBUTOS, CLASE_IDS, CLASES } from '../clases.ts'
-import { fechaLocal, type Db } from '../db.ts'
+import { fechaLocal, fijarAjuste, type Db } from '../db.ts'
+import { CATEGORIAS, listarMovimientos, registrarMovimiento, resumenMes } from '../finanzas.ts'
 import { archivar, corregir, HORIZONTES, memoriaVigente, recordar, TIPOS_MEMORIA } from '../memoria.ts'
 import { leerJornada, progreso } from '../jornada.ts'
 import {
@@ -544,6 +545,20 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `le asignó a ${a.a}: ${recorte(a.titulo, 40)}`,
   },
   {
+    nombre: 'registrar_movimiento', familia: 'accion',
+    descripcion: 'Registra un gasto (monto negativo) o un ingreso (positivo) que él cuenta («gasté 20 en el súper», «me pagaron 800 del freelance»). Euros salvo que diga otra moneda.',
+    parametros: S({ monto: { type: 'number', description: 'Negativo si es gasto, positivo si es ingreso' }, descripcion: str('En qué'), categoria: str('Categoría', { enum: [...CATEGORIAS] }), fecha: str('YYYY-MM-DD; vacío = hoy'), moneda: str('EUR por defecto') }, ['monto', 'descripcion']),
+    ejecutar: (a, { db }) => registrarMovimiento(db, { ...a, origen: 'chat' }) ?? { repetido: true },
+    resumen: (a) => `anotó ${a.monto} € (${recorte(a.descripcion, 40)})`,
+  },
+  {
+    nombre: 'fijar_meta_mes', familia: 'accion',
+    descripcion: 'Fija su meta de ingresos por mes (en euros), cuando él la dice.',
+    parametros: S({ euros: int('Euros por mes') }, ['euros']),
+    ejecutar: (a, { db }) => (fijarAjuste(db, 'meta_ingresos_mes', String(Math.max(0, Math.round(Number(a.euros) || 0)))), resumenMes(db)),
+    resumen: (a) => `fijó la meta del mes en ${a.euros} €`,
+  },
+  {
     nombre: 'anotar_side_quest', familia: 'accion',
     descripcion: 'Anota una side quest: un encargo chico que depende de dónde esté o qué haga («si pasás por una tienda de regalos, comprale X a Y»). El disparador es lo que la activa.',
     parametros: S({ titulo: str('Qué hacer'), detalle: str('Detalle'), lugar: str('Un lugar concreto'), zona: str('Barrio o zona'), actividad: str('Actividad que la habilita: caminar, salir, viajar…'), cuando: str('Momento: fin de semana, a la tarde…'), vence: str('YYYY-MM-DD') }, ['titulo']),
@@ -689,6 +704,15 @@ export const HERRAMIENTAS: Herramienta[] = [
         prendido: s ? { desde: new Date(s.inicio).toLocaleTimeString('es-AR'), momentos: momentosDirecto(db, s.id).slice(-Math.min(a.momentos ?? 20, 60)).map((m) => ({ tipo: m.tipo, hora: new Date(m.desde).toLocaleTimeString('es-AR'), app: m.app ?? undefined, actividad: m.actividad ?? undefined, detalle: m.detalle ?? undefined, nota: m.nota ?? undefined, texto: m.texto ? recorte(m.texto, 600) : undefined })) } : null,
         informes: listarSesiones(db, 6).filter((x) => x.informe).map((x) => ({ cuando: new Date(x.inicio).toLocaleString('es-AR'), informe: recorte(x.informe!, 1500) })),
       }
+    },
+  },
+  {
+    nombre: 'ver_finanzas', familia: 'lectura',
+    descripcion: 'Sus números de un mes: ingresos, gastos, por categoría, avance hacia su meta y los últimos movimientos.',
+    parametros: S({ mes: str('YYYY-MM; vacío = este mes') }),
+    ejecutar: (a, { db }) => {
+      const mes = a.mes || fechaLocal().slice(0, 7)
+      return { ...resumenMes(db, mes), ultimos: listarMovimientos(db, { mes, limite: 15 }).map((m) => ({ fecha: m.fecha, monto: m.monto, categoria: m.categoria, descripcion: m.descripcion })) }
     },
   },
   {

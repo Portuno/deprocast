@@ -296,11 +296,12 @@ function montarJugador() {
   $('#principal').innerHTML = `
     <div class="titulo"><h1 id="j-nombre">Jugador</h1><p>Tu ficha de personaje: tu historia, tu inventario y lo que Mastropiero sabe de vos. Se escribe sola con lo que le contás; acá la corregís.</p>
       <div class="fila"><button class="btn" id="j-procesar" title="Lee tu memoria y tu material propio y propone historia, inventario, candidatas a misión principal y primarias">Procesarme</button></div></div>
-    <div class="tabs" id="j-tabs">${[['historia', 'Historia'], ['inventario', 'Inventario'], ['memoria', 'Memoria']].map(([k, n]) => `<button data-tab="${k}" class="${jugTab === k ? 'on' : ''}">${n}</button>`).join('')}</div>
+    <div class="tabs" id="j-tabs">${[['historia', 'Historia'], ['inventario', 'Inventario'], ['memoria', 'Memoria'], ['plata', 'Plata']].map(([k, n]) => `<button data-tab="${k}" class="${jugTab === k ? 'on' : ''}">${n}</button>`).join('')}</div>
     <div id="j-cuerpo"></div>`
   $('#j-procesar').onclick = () => procesarme($('#j-procesar'))
   $$('#j-tabs [data-tab]').forEach((b) => (b.onclick = () => { jugTab = b.dataset.tab; montarJugador() }))
   if (jugTab === 'memoria') montarNorte($('#j-cuerpo'))
+  else if (jugTab === 'plata') montarPlata($('#j-cuerpo'))
   else fichaPersonaje($('#j-cuerpo'), 'jugador', {
     tabs: [jugTab],
     alCargar: (f) => {
@@ -310,6 +311,55 @@ function montarJugador() {
       else if (p && !f.personaje.entidadId) p.innerHTML += ' <span class="tenue">Todavía no sé cuál de las personas del corpus sos: buscate en Entidades y tocá «Soy yo».</span>'
     },
   })
+}
+
+// Plata: sus números del mes, contra su meta. Movimientos a mano, por el chat o del CSV del banco.
+
+let plataMes = new Date().toISOString().slice(0, 7)
+const eur = (n) => `${Number(n).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} €`
+
+async function montarPlata(cont) {
+  let d, h
+  try { [d, h] = await Promise.all([api(`/finanzas?mes=${plataMes}`), api('/hoy')]) } catch (e) { return error(e) }
+  const r = d.resumen
+  const meta = h.ajustes?.meta_ingresos_mes || ''
+  const cats = Object.entries(r.porCategoria)
+  const max = Math.max(1, ...cats.map(([, v]) => v))
+  cont.innerHTML = `
+    <div class="fila"><button class="btn btn-chico" id="pl-ant">‹</button><b>${esc(plataMes)}</b><button class="btn btn-chico" id="pl-sig">›</button>
+      <span class="tenue">Meta del mes</span><input id="pl-meta" type="number" min="0" step="50" value="${esc(meta)}" placeholder="€" style="width:7em"><button class="btn btn-chico" id="pl-meta-ok">Guardar</button></div>
+    <div class="plata-stats">
+      <div class="stat"><b>${eur(r.ingresos)}</b><small>entró</small></div>
+      <div class="stat"><b>${eur(r.gastos)}</b><small>salió</small></div>
+      <div class="stat"><b>${eur(r.neto)}</b><small>neto</small></div>
+      ${r.meta ? `<div class="stat"><b>${r.avanceMeta}%</b><small>de la meta (${eur(r.meta)})</small></div>` : ''}
+    </div>
+    ${cats.length ? `<div class="bloque"><h3>En qué se fue</h3>${cats.map(([k, v]) => `<div class="fila"><span style="width:9em">${esc(k)}</span><span class="barrita" style="flex:1"><b style="width:${Math.round((v / max) * 100)}%"></b></span><span>${eur(v)}</span></div>`).join('')}</div>` : ''}
+    <div class="bloque"><h3>Anotar</h3>
+      <form class="fila" id="pl-form"><input name="monto" type="number" step="0.01" placeholder="-20 o 800" required style="width:8em"><input name="descripcion" placeholder="En qué" required style="flex:1"><input name="fecha" type="date"><button class="btn">Anotar</button></form>
+      <p class="tenue">O contáselo a Mastropiero en el chat («gasté 20 en el súper»), o subí el extracto del banco: <label class="btn btn-chico">CSV del banco<input type="file" accept=".csv,.txt,text/csv" hidden id="pl-csv"></label></p></div>
+    <div class="bloque"><h3>Movimientos (${d.movimientos.length})</h3>
+      ${d.movimientos.length ? d.movimientos.map((m) => `<div class="fila item"><span class="tenue">${esc(m.fecha)}</span><span style="flex:1">${esc(m.descripcion)}</span><span class="chip">${esc(m.categoria)}</span><b style="color:${m.monto > 0 ? 'var(--ok, #6c6)' : 'inherit'}">${eur(m.monto)}</b><button class="btn btn-chico" data-borrar="${m.id}" title="Borrar">✕</button></div>`).join('') : '<p class="vacio">Nada este mes todavía.</p>'}
+    </div>`
+  const otro = (n) => { const [a, m] = plataMes.split('-').map(Number); const f = new Date(a, m - 1 + n, 1); plataMes = `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}`; montarPlata(cont) }
+  $('#pl-ant').onclick = () => otro(-1)
+  $('#pl-sig').onclick = () => otro(1)
+  $('#pl-meta-ok').onclick = async () => { try { await api('/ajustes', { meta_ingresos_mes: $('#pl-meta').value }); montarPlata(cont) } catch (e) { error(e) } }
+  $('#pl-form').onsubmit = async (ev) => {
+    ev.preventDefault()
+    const f = Object.fromEntries(new FormData(ev.target))
+    try { const m = await api('/finanzas', { ...f, monto: Number(f.monto), fecha: f.fecha || undefined }); if (m.repetido) toast('Ya estaba anotado'); montarPlata(cont) } catch (e) { error(e) }
+  }
+  $('#pl-csv').onchange = async (ev) => {
+    const a = ev.target.files[0]
+    if (!a) return
+    try {
+      const r2 = await fetch('/api/finanzas/csv', { method: 'POST', body: a }).then(async (x) => { const j = await x.json(); if (!x.ok) throw new Error(j.error); return j })
+      toast(`Extracto leído<small>${r2.nuevos} nuevos · ${r2.repetidos} ya estaban · ${r2.ignorados} filas sin monto</small>`)
+      montarPlata(cont)
+    } catch (e) { error(e) }
+  }
+  $$('[data-borrar]', cont).forEach((b) => (b.onclick = async () => { try { await api(`/finanzas/${b.dataset.borrar}`, { borrar: true }); montarPlata(cont) } catch (e) { error(e) } }))
 }
 
 function refrescarJugador() {

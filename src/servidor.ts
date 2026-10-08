@@ -20,6 +20,7 @@ import { autorizado, cookieDeEntrada, expuesto, host, leerFormulario, PAGINA_ENT
 import { CONECTORES, guardarCuenta, listarCuentas, listarPublicaciones, MODOS, publicarPendientes, redactarPublicaciones, resolverPublicacion } from './cuentas.ts'
 import { decir as decirPorTelegram, escucharTelegram, telegramConfigurado } from './telegram.ts'
 import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, hayFfmpeg, iterarArtefacto, listarArtefactos, VOCES } from './taller.ts'
+import { editarMovimiento, importarCSV, listarMovimientos, registrarMovimiento, resumenMes } from './finanzas.ts'
 import { buscarOportunidades, listarOportunidades, marcarOportunidad, redactarOportunidad } from './radar.ts'
 import { cuotas, hayBuscadorWeb } from './web.ts'
 import { calificarAMano, calificarDia, curva, predecirDia, prediccionesDe, textoDeCalificacion } from './gemelo.ts'
@@ -253,11 +254,12 @@ const rutas: [string, RegExp, Ruta][] = [
       reporte: listarReportes(db, { limite: 1 })[0] ?? null,
       aportes: aportes(db, { desde: Date.now() - 2 * 86_400_000, limite: 4 }),
       proximas: listarRuns(db, { desde: fechaLocal(Date.now() + 86_400_000), estados: ['propuesta'] }).map((r) => ({ ...r, misiones: misionesDeRun(db, r.id) })),
-      ajustes: { primarias_semana: ajuste(db, 'primarias_semana'), tokens_dia_max: ajuste(db, 'tokens_dia_max'), pensar_cada_horas: ajuste(db, 'pensar_cada_horas') },
+      ajustes: { primarias_semana: ajuste(db, 'primarias_semana'), tokens_dia_max: ajuste(db, 'tokens_dia_max'), pensar_cada_horas: ajuste(db, 'pensar_cada_horas'), meta_ingresos_mes: ajuste(db, 'meta_ingresos_mes') },
     }
   }],
   ['POST', /^\/api\/ajustes$/, (b) => {
     for (const k of ['primarias_semana', 'tokens_dia_max', 'pensar_cada_horas']) if (b[k] != null && String(b[k]).trim()) fijarAjuste(db, k, String(b[k]).trim())
+    if (b.meta_ingresos_mes != null) fijarAjuste(db, 'meta_ingresos_mes', String(b.meta_ingresos_mes).trim())
     return { ok: true }
   }],
 
@@ -373,6 +375,14 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['POST', /^\/api\/taller\/(\d+)\/iterar$/, (b, [a]) => { void iterarArtefacto(db, id(a), String(b.cambio ?? '')).catch((e) => console.error('  taller:', e)); return { ok: true } }],
   ['POST', /^\/api\/taller\/(\d+)\/corpus$/, (_, [a]) => ({ pieza: artefactoAlCorpus(db, id(a)) })],
+  // Finanzas
+  ['GET', /^\/api\/finanzas$/, (_, __, q) => {
+    const mes = q.get('mes') || fechaLocal().slice(0, 7)
+    return { resumen: resumenMes(db, mes), movimientos: listarMovimientos(db, { mes }) }
+  }],
+  ['POST', /^\/api\/finanzas$/, (b) => registrarMovimiento(db, b) ?? { repetido: true }],
+  ['POST', /^\/api\/finanzas\/(\d+)$/, (b, [m]) => (editarMovimiento(db, id(m), b), { ok: true })],
+
   ['GET', /^\/api\/radar$/, () => ({
     oportunidades: listarOportunidades(db, { estados: ['nueva', 'me_interesa', 'hecha'], limite: 200 }), cuotas: cuotas(db), conBuscador: hayBuscadorWeb(),
     primarias: listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana: semanaDe(), estados: ['activa'] }).map((m) => ({ id: m.id, titulo: m.titulo })),
@@ -569,6 +579,13 @@ const servidor = http.createServer(async (req, res) => {
           ? registrarCuadro(db, sesion, cuerpo, String(req.headers['content-type'] || 'image/jpeg'))
           : registrarAudio(db, sesion, cuerpo, url.searchParams.get('tipo') === 'medio' ? 'medio' : 'voz', url.searchParams.get('nombre') || 'tramo.webm', { desde }))
         return void res.end(JSON.stringify({ ok: true }))
+      }
+      // El extracto del banco, crudo.
+      if (req.method === 'POST' && url.pathname === '/api/finanzas/csv') {
+        const crudo = await leerCrudo(req, 10 * 1024 * 1024)
+        const utf = crudo.toString('utf8')
+        const texto = utf.includes('\uFFFD') ? crudo.toString('latin1') : utf // los bancos españoles suelen exportar en Latin-1
+        return void res.end(JSON.stringify(importarCSV(db, texto, { cuenta: url.searchParams.get('cuenta') || null })))
       }
       // La subida de una carga viaja cruda (el archivo tal cual), no como JSON.
       if (req.method === 'POST' && url.pathname === '/api/cargas') {

@@ -477,6 +477,21 @@ CREATE TABLE IF NOT EXISTS publicaciones (
   creada_en INTEGER NOT NULL
 );
 
+-- Finanzas: sus movimientos (a mano, por chat o del CSV del banco). La huella evita repetir al reimportar.
+CREATE TABLE IF NOT EXISTS movimientos (
+  id INTEGER PRIMARY KEY,
+  fecha TEXT NOT NULL,
+  monto REAL NOT NULL,
+  moneda TEXT NOT NULL DEFAULT 'EUR',
+  categoria TEXT NOT NULL DEFAULT 'otros',
+  descripcion TEXT NOT NULL DEFAULT '',
+  cuenta TEXT,
+  origen TEXT NOT NULL DEFAULT 'manual',
+  huella TEXT NOT NULL UNIQUE,
+  creado_en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS movimientos_fecha ON movimientos (fecha);
+
 CREATE TABLE IF NOT EXISTS alertas (
   clave TEXT PRIMARY KEY,             -- tipo:id:fecha (una por día)
   texto TEXT NOT NULL,
@@ -543,6 +558,7 @@ const AJUSTES_SISTEMA: Record<string, string> = {
   primarias_semana: '6',
   tokens_dia_max: '1000000', // tokens por día para la liga (agentes); 0 = sin tope
   pensar_cada_horas: '3', // Mastropiero piensa solo y deja una sugerencia (o nada); 0 = nunca
+  meta_ingresos_mes: '', // su meta de ingresos por mes, en euros; vacío = sin meta
 }
 
 /** Fuentes de fábrica. Estructura, no contenido: el corpus arranca vacío. */

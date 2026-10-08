@@ -14,9 +14,10 @@ import { deprocastQuantomos, deprocastRespaldo } from './deprocast.ts'
 import { deprocastFicha } from './deprocast-ficha.ts'
 import { csv } from './csv.ts'
 import { texto } from './texto.ts'
+import { claude, correo, gemini, instagram, whatsapp } from './mensajes.ts'
 
 /** En orden: los formatos reconocibles antes que el texto genérico. */
-export const IMPORTADORES: Importador[] = [deprocastRespaldo, deprocastQuantomos, deprocastFicha, csv, texto]
+export const IMPORTADORES: Importador[] = [deprocastRespaldo, deprocastQuantomos, deprocastFicha, whatsapp, instagram, claude, gemini, correo, csv, texto]
 
 export function dirCargas(): string {
   return path.resolve(process.env.MASTRO_CARGAS ?? path.join(process.cwd(), 'data', 'cargas'))
@@ -37,7 +38,7 @@ function leerDatos(nombre: string, ruta: string): Datos {
 
 function importadorDe(d: Datos): Importador {
   const imp = IMPORTADORES.find((i) => i.detectar(d))
-  if (!imp) throw new Error(`No sé leer "${d.nombre}". Formatos: respaldo y fichas de Deprocast, CSV, texto y Markdown.`)
+  if (!imp) throw new Error(`No sé leer "${d.nombre}". Formatos: respaldo y fichas de Deprocast, chats de WhatsApp e Instagram, Claude, Gemini, correo (.mbox/.eml), CSV, texto y Markdown.`)
   return imp
 }
 

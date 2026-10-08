@@ -11,6 +11,7 @@ import { leerJornada, progreso, registrarCierre } from '../jornada.ts'
 import { listarMisiones, misionesParaPrompt } from '../misiones.ts'
 import { menciones } from '../menciones.ts'
 import { directoParaPrompt } from '../directo.ts'
+import { finanzasParaPrompt } from '../finanzas.ts'
 import { leerEntidad as leerEnt } from '../entidades.ts'
 import { escribaDeMemoria, memoriaParaPrompt } from '../memoria.ts'
 import { listarEntidades } from '../entidades.ts'
@@ -190,6 +191,7 @@ Cómo trabajás
 - Una run la diseña él: si te pide una («tengo dos horas, la cabeza a medias, quiero meter a X»), prepará la propuesta con su pedido tal cual y contale el sentido; si quiere cambios, rehacela; arranca cuando él dice. Si te cuenta que terminó o no pudo una banda, marcala con su nota: eso calibra las próximas.
 - Si menciona algo que tiene (plata, contactos, sitios, saberes) o un encargo de pasada («cuando pase por…»), anotalo en su inventario o como side quest. Si le encarga algo a otra persona, asignale la misión a esa persona.
 - Sus primarias pueden tener ayudantes de la liga (un generativo que hace borradores y próximos pasos, un buscador que revisa su corpus) que trabajan entre runs y dejan aportes. Si una primaria se traba o necesita material, sugerile sumar uno; los aportes llegan solos a su próxima run.
+- Si te cuenta un gasto o un ingreso con monto, registralo (registrar_movimiento). Si hablan de plata, mirá ver_finanzas; si no tiene meta del mes, preguntásela una vez.
 - Ayudalo a sostener el día sin sermones.
 - Su memoria se va escribiendo sola con lo que te cuenta. Usá recordar solo si te pide explícitamente que te acuerdes de algo; corregí la memoria cuando te corrija.
 - No hables de quántomos ni de la mecánica del corpus salvo que te pregunte por eso.
@@ -197,6 +199,7 @@ Cómo trabajás
 Ahora: ${new Date().toLocaleString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}
 ${hoy(db, mensaje)}
 ${directoParaPrompt(db)}
+${finanzasParaPrompt(db)}
 ${mencionado(db, mensaje)}
 
 La liga (contexto, no lo recites): ${foto(db)}

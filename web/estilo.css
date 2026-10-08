@@ -942,3 +942,8 @@ a.mencion { color: var(--acento-texto); text-decoration: none; background: var(-
   .banda .b-acc { grid-column: 2; opacity: 1; }
   .mi-cols { grid-template-columns: 1fr; }
 }
+
+/* Plata */
+.plata-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 12px 0; }
+.plata-stats .stat { background: var(--panel, transparent); border: 1px solid var(--linea); border-radius: 9px; padding: 10px 12px; }
+.plata-stats .stat b { font-size: 18px; }
