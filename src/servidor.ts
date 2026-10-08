@@ -22,6 +22,7 @@ import { decir as decirPorTelegram, escucharTelegram, telegramConfigurado } from
 import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, hayFfmpeg, iterarArtefacto, listarArtefactos, VOCES } from './taller.ts'
 import { guardarRelacion, personas } from './personas.ts'
 import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora.ts'
+import { cribar, deshacerUltima, marcador, siguiente } from './criba.ts'
 import { buscarHibrido, estadoVectores, nivelesDe, vectorizarPendientes } from './semantica.ts'
 import { editarMovimiento, importarCSV, listarMovimientos, registrarMovimiento, resumenMes } from './finanzas.ts'
 import { buscarOportunidades, listarOportunidades, marcarOportunidad, redactarOportunidad } from './radar.ts'
@@ -378,6 +379,11 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['POST', /^\/api\/taller\/(\d+)\/iterar$/, (b, [a]) => { void iterarArtefacto(db, id(a), String(b.cambio ?? '')).catch((e) => console.error('  taller:', e)); return { ok: true } }],
   ['POST', /^\/api\/taller\/(\d+)\/corpus$/, (_, [a]) => ({ pieza: artefactoAlCorpus(db, id(a)) })],
+  // Criba lúdica
+  ['GET', /^\/api\/criba$/, (_, __, q) => ({ pieza: siguiente(db, { nivel: q.get('nivel') || null, saltear: (q.get('saltear') ?? '').split(',').filter(Boolean).map(Number) }), marcador: marcador(db) })],
+  ['POST', /^\/api\/criba\/deshacer$/, () => deshacerUltima(db)],
+  ['POST', /^\/api\/criba\/(\d+)$/, (b, [p]) => cribar(db, id(p), Number(b.peso))],
+
   // Bitácora íntima (la clave viaja en el cuerpo, se usa y se olvida)
   ['GET', /^\/api\/bitacora$/, () => ({ disparador: disparadorDe(), entradas: leerBitacora(db) })],
   ['POST', /^\/api\/bitacora$/, (b) => escribir(db, b)],

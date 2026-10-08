@@ -958,3 +958,16 @@ a.mencion { color: var(--acento-texto); text-decoration: none; background: var(-
 .sentido { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; padding: 8px 10px; margin: 0 0 10px; border: 1px dashed var(--linea); border-radius: 9px; font-size: 13px; }
 .sentido a { color: var(--acento); text-decoration: none; }
 .sentido a:hover { text-decoration: underline; }
+
+/* Criba lúdica */
+.criba { max-width: 720px; margin: 0 auto; display: grid; gap: 14px; }
+.criba-marcador { display: flex; gap: 18px; flex-wrap: wrap; font: 500 13px var(--mono); color: var(--tenue); }
+.criba-marcador b { color: var(--texto, inherit); font-size: 18px; margin-right: 4px; }
+.criba-carta { border: 1px solid var(--linea); border-radius: 14px; padding: 18px; min-height: 220px; display: grid; gap: 8px; align-content: start; }
+.criba-carta h2 { margin: 0; font-size: 19px; }
+.criba-carta .cuerpo { white-space: pre-wrap; max-height: 42vh; overflow: auto; font-size: 14px; line-height: 1.5; }
+.criba-pesos { display: grid; grid-template-columns: repeat(13, 1fr); gap: 4px; }
+.criba-pesos button { padding: 10px 0; font: 600 14px var(--mono); }
+.criba-pesos button[data-peso="0"] { color: var(--malo, #d27272); }
+.criba-ayuda { font-size: 12px; color: var(--tenue); text-align: center; }
+@media (max-width: 640px) { .criba-pesos { grid-template-columns: repeat(7, 1fr); } }

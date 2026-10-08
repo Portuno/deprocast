@@ -183,7 +183,7 @@ export function buscar(db: Db, consulta: string, limite: number, dominio?: strin
   const filas = q
     ? db.prepare(
       `SELECT c.* FROM corpus_fts JOIN corpus c ON c.id = corpus_fts.rowid
-       WHERE corpus_fts MATCH ? ${filtroNivel} ORDER BY c.nivel = 'generada', c.estado = 'disponible' DESC, bm25(corpus_fts, 3.0, 1.0, 2.0, 1.0) LIMIT ?`,
+       WHERE corpus_fts MATCH ? ${filtroNivel} ORDER BY c.nivel = 'generada', c.peso IS 0, c.estado = 'disponible' DESC, bm25(corpus_fts, 3.0, 1.0, 2.0, 1.0) - COALESCE(c.peso, 0) * 0.15 LIMIT ?`,
     ).all(q, ...(niveles ?? []), limite * 3)
     : []
   return (filas as any[])

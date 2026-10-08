@@ -477,6 +477,15 @@ CREATE TABLE IF NOT EXISTS publicaciones (
   creada_en INTEGER NOT NULL
 );
 
+-- Criba lúdica: cada peso que él puso (para el marcador y para deshacer).
+CREATE TABLE IF NOT EXISTS criba (
+  id INTEGER PRIMARY KEY,
+  pieza_id INTEGER NOT NULL,
+  peso INTEGER NOT NULL,
+  fecha TEXT NOT NULL,
+  en INTEGER NOT NULL
+);
+
 -- Bitácora íntima: fuera del corpus; texto cifrado (v1:sal:iv:tag:datos) si cifrada = 1.
 CREATE TABLE IF NOT EXISTS bitacora (
   id INTEGER PRIMARY KEY,
