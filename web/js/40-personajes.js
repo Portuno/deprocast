@@ -296,12 +296,13 @@ function montarJugador() {
   $('#principal').innerHTML = `
     <div class="titulo"><h1 id="j-nombre">Jugador</h1><p>Tu ficha de personaje: tu historia, tu inventario y lo que Mastropiero sabe de vos. Se escribe sola con lo que le contás; acá la corregís.</p>
       <div class="fila"><button class="btn" id="j-procesar" title="Lee tu memoria y tu material propio y propone historia, inventario, candidatas a misión principal y primarias">Procesarme</button></div></div>
-    <div class="tabs" id="j-tabs">${[['historia', 'Historia'], ['inventario', 'Inventario'], ['memoria', 'Memoria'], ['plata', 'Plata']].map(([k, n]) => `<button data-tab="${k}" class="${jugTab === k ? 'on' : ''}">${n}</button>`).join('')}</div>
+    <div class="tabs" id="j-tabs">${[['historia', 'Historia'], ['inventario', 'Inventario'], ['memoria', 'Memoria'], ['bitacora', 'Bitácora'], ['plata', 'Plata']].map(([k, n]) => `<button data-tab="${k}" class="${jugTab === k ? 'on' : ''}">${n}</button>`).join('')}</div>
     <div id="j-cuerpo"></div>`
   $('#j-procesar').onclick = () => procesarme($('#j-procesar'))
   $$('#j-tabs [data-tab]').forEach((b) => (b.onclick = () => { jugTab = b.dataset.tab; montarJugador() }))
   if (jugTab === 'memoria') montarNorte($('#j-cuerpo'))
   else if (jugTab === 'plata') montarPlata($('#j-cuerpo'))
+  else if (jugTab === 'bitacora') montarBitacora($('#j-cuerpo'))
   else fichaPersonaje($('#j-cuerpo'), 'jugador', {
     tabs: [jugTab],
     alCargar: (f) => {
@@ -310,6 +311,68 @@ function montarJugador() {
       if (p && f.personaje.entidadId) p.innerHTML += ` <a href="#" class="ref" data-ref-ent="${f.personaje.entidadId}">Tu entidad en el corpus</a>`
       else if (p && !f.personaje.entidadId) p.innerHTML += ' <span class="tenue">Todavía no sé cuál de las personas del corpus sos: buscate en Entidades y tocá «Soy yo».</span>'
     },
+  })
+}
+
+// Bitácora íntima: su diario. Fuera del corpus; Mastropiero solo ve lo que él comparte; lo cifrado, nadie sin su clave.
+
+let bitClave = null // vive solo en esta pestaña, mientras la tenga abierta
+
+async function montarBitacora(cont) {
+  let d
+  try { d = bitClave ? await api('/bitacora/abrir', { clave: bitClave }) : await api('/bitacora') } catch (e) { return error(e) }
+  const cifradas = d.entradas.filter((e) => e.cifrada).length
+  const cerradas = d.entradas.filter((e) => e.cifrada && e.texto == null).length
+  cont.innerHTML = `
+    <p class="tenue">Tu diario. No entra al corpus, ni a la liga, ni a ningún modelo: Mastropiero solo lee las entradas que marcás «compartir». Si la cifrás, ni el respaldo ni quien abra la base la puede leer sin tu clave (que no se guarda: si la olvidás, se pierde).</p>
+    <form id="bit-form" class="bloque">
+      <textarea name="texto" rows="6" placeholder="${esc(d.disparador)}" style="width:100%"></textarea>
+      <div class="fila">
+        <span class="tenue">Ánimo</span>${[1, 2, 3, 4, 5].map((n) => `<label class="chip"><input type="radio" name="animo" value="${n}" hidden>${['😞', '😕', '😐', '🙂', '😄'][n - 1]}</label>`).join('')}
+        <label><input type="checkbox" name="compartida"> compartir con Mastropiero</label>
+        <label><input type="checkbox" name="cifrar"> cifrar</label>
+        <input type="password" name="clave" placeholder="clave (6+)" hidden autocomplete="new-password" style="width:9em">
+        <button class="btn btn-primario">Guardar</button>
+      </div>
+    </form>
+    ${cifradas ? `<div class="fila">${cerradas ? `<span class="tenue">🔒 ${cerradas} cifrada${cerradas > 1 ? 's' : ''}</span><input type="password" id="bit-clave" placeholder="tu clave" autocomplete="current-password" style="width:9em"><button class="btn btn-chico" id="bit-abrir">Abrir</button>` : `<button class="btn btn-chico" id="bit-cerrar">🔒 Volver a cerrar</button>`}</div>` : ''}
+    <div id="bit-lista">${d.entradas.map((e) => `
+      <div class="bloque bit" data-id="${e.id}">
+        <div class="fila"><b>${esc(e.fecha)}</b>${e.animo ? `<span>${['😞', '😕', '😐', '🙂', '😄'][e.animo - 1]}</span>` : ''}${e.cifrada ? '<span class="chip">🔒 cifrada</span>' : ''}${e.compartida ? '<span class="chip">compartida</span>' : ''}
+          <span style="flex:1"></span>${e.cifrada ? '' : `<button class="btn btn-chico" data-compartir="${e.compartida ? 0 : 1}">${e.compartida ? 'Dejar de compartir' : 'Compartir'}</button>`}<button class="btn btn-chico" data-borrar title="Borrar para siempre">✕</button></div>
+        <div class="md">${e.texto == null ? '<span class="tenue">(cifrada)</span>' : esc(e.texto).replace(/\n/g, '<br>')}</div>
+      </div>`).join('') || '<p class="vacio">Todavía nada. Arriba tenés una pregunta por si no sabés por dónde empezar.</p>'}</div>`
+  const f = $('#bit-form')
+  $$('input[name=animo]', f).forEach((r) => (r.onchange = () => $$('input[name=animo]', f).forEach((x) => x.parentElement.classList.toggle('on', x.checked))))
+  f.cifrar.onchange = () => { f.clave.hidden = !f.cifrar.checked; if (f.cifrar.checked) { f.compartida.checked = false; f.clave.value = bitClave ?? '' } }
+  f.compartida.onchange = () => { if (f.compartida.checked) { f.cifrar.checked = false; f.clave.hidden = true } }
+  f.onsubmit = async (ev) => {
+    ev.preventDefault()
+    const clave = f.cifrar.checked ? f.clave.value : null
+    try {
+      await api('/bitacora', { texto: f.texto.value, animo: f.animo.value || null, compartida: f.compartida.checked, clave })
+      if (clave) bitClave = clave
+      montarBitacora(cont)
+    } catch (e) { error(e) }
+  }
+  if ($('#bit-abrir')) $('#bit-abrir').onclick = async () => {
+    const c = $('#bit-clave').value
+    try {
+      const r = await api('/bitacora/abrir', { clave: c })
+      if (r.entradas.some((e) => e.cifrada && e.texto == null)) { toast('Esa clave no abre todas<small>Las que no abrió quedan cerradas.</small>') }
+      bitClave = c
+      montarBitacora(cont)
+    } catch (e) { error(e) }
+  }
+  if ($('#bit-cerrar')) $('#bit-cerrar').onclick = () => { bitClave = null; montarBitacora(cont) }
+  $$('.bit', cont).forEach((el) => {
+    const id = el.dataset.id
+    const c = $('[data-compartir]', el)
+    if (c) c.onclick = async () => { try { await api(`/bitacora/${id}`, { compartida: c.dataset.compartir === '1' }); montarBitacora(cont) } catch (e) { error(e) } }
+    $('[data-borrar]', el).onclick = async () => {
+      if (!confirm('¿Borrar esta entrada para siempre?')) return
+      try { await api(`/bitacora/${id}`, { borrar: true }); montarBitacora(cont) } catch (e) { error(e) }
+    }
   })
 }
 

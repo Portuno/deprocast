@@ -212,10 +212,10 @@ export type LlamadaHerramienta = { id: string; nombre: string; argumentos: strin
 /** Chat con herramientas (tool calling estilo OpenAI). Devuelve texto y/o pedidos de herramienta. */
 export async function nanChatHerramientas(
   l: Llamada,
-  o: { mensajes: Record<string, unknown>[]; herramientas: unknown[]; temperatura: number; maxTokens: number },
+  o: { mensajes: Record<string, unknown>[]; herramientas: unknown[]; temperatura: number; maxTokens: number; razonarPoco?: boolean },
 ): Promise<{ texto: string; llamadas: LlamadaHerramienta[]; razonamiento: string | null; modelo: string; tokens: number }> {
   const { modelo, r } = await recorrer(l, cadena(l.clase), (m, razonarPoco) =>
-    pedir('POST', '/chat/completions', cuerpoChat(m, { ...o, json: false, razonarPoco })))
+    pedir('POST', '/chat/completions', cuerpoChat(m, { ...o, json: false, razonarPoco: o.razonarPoco || razonarPoco })))
   const msg = r.json?.choices?.[0]?.message ?? {}
   return {
     texto: typeof msg.content === 'string' ? msg.content.trim() : '',
@@ -272,7 +272,7 @@ export function acumuladorSSE() {
  */
 export async function nanChatHerramientasStream(
   l: Llamada,
-  o: { mensajes: Record<string, unknown>[]; herramientas: unknown[]; temperatura: number; maxTokens: number },
+  o: { mensajes: Record<string, unknown>[]; herramientas: unknown[]; temperatura: number; maxTokens: number; razonarPoco?: boolean },
   alTexto: (parcial: string) => void,
 ): ReturnType<typeof nanChatHerramientas> {
   const modelo = cadena(l.clase)[0]

@@ -29,6 +29,7 @@ import { asientos, especializacion } from '../auditor.ts'
 import { enEspera, leerTarea, pausarIngesta, publicar, reanudarIngesta, tareas } from '../bus.ts'
 import { asegurarFuente, buscar, esNivel, fuentes, leerPieza, listarPiezas, NIVELES, type Nivel, type Pieza } from '../corpus.ts'
 import { buscarHibrido } from '../semantica.ts'
+import { compartidas } from '../bitacora.ts'
 import { deshacer, listarCargas } from '../cargas/index.ts'
 import { coocurrencias, duplicadosProbables, editarEntidad, entidadesPorId, fusionarEntidades, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from '../entidades.ts'
 import { cronica, crearProyecto, estadoLiga, ingerir, numeroDeTick, tickUnico } from '../mastropiero.ts'
@@ -718,6 +719,12 @@ export const HERRAMIENTAS: Herramienta[] = [
         informes: listarSesiones(db, 6).filter((x) => x.informe).map((x) => ({ cuando: new Date(x.inicio).toLocaleString('es-AR'), informe: recorte(x.informe!, 1500) })),
       }
     },
+  },
+  {
+    nombre: 'ver_bitacora', familia: 'lectura',
+    descripcion: 'Las entradas de su bitácora íntima que él eligió compartir con vos (las demás son privadas y no las ves). Solo si él te pide que las leas o habla de lo que escribió.',
+    parametros: S({ n: int('Cuántas (máx. 10)') }),
+    ejecutar: (a, { db }) => compartidas(db, Math.min(a.n ?? 5, 10)).map((e) => ({ fecha: e.fecha, animo: e.animo ?? undefined, texto: e.texto })),
   },
   {
     nombre: 'ver_personas', familia: 'lectura',

@@ -95,6 +95,7 @@ const SISTEMA_JUEGO = `Sos el programador del Taller de Mastropiero. Escribís U
 - Que se pueda jugar ya: instrucciones breves en pantalla, controles de teclado y también táctiles o con mouse, reiniciar, puntaje si corresponde.
 - Que se vea bien en oscuro, que escale al tamaño del iframe, y que no tenga errores de consola.
 - Textos del juego en castellano rioplatense.
+- Compacto: código claro y sin repetir, menos de 500 líneas en total.
 Respondé SOLO con el archivo HTML completo, empezando por <!doctype html>. Nada más.`
 
 /** Un juego: el modelo escribe el HTML; con `padreId`, es una versión nueva del anterior con el cambio pedido. */
@@ -110,7 +111,8 @@ export async function crearJuego(db: Db, pedido: string, o: { padreId?: number |
         { role: 'system', content: SISTEMA_JUEGO },
         { role: 'user', content: previo ? `Este es el juego actual:\n\n${previo}\n\nCambio que pide: ${pedido}\n\nDevolvé el archivo completo con el cambio.` : `El juego que pide: ${pedido}` },
       ],
-      herramientas: [], temperatura: 0.5, maxTokens: 16000,
+      // Razonar poco: en DeepSeek el razonamiento come del mismo tope, y un juego necesita los tokens para el código.
+      herramientas: [], temperatura: 0.5, maxTokens: 32000, razonarPoco: true,
     }, (parcial) => {
       // En streaming: el proxy no corta las respuestas largas mientras sigan llegando, y se ve el avance.
       const k = Math.floor(parcial.length / 4000)

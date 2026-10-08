@@ -21,6 +21,7 @@ import { CONECTORES, guardarCuenta, listarCuentas, listarPublicaciones, MODOS, p
 import { decir as decirPorTelegram, escucharTelegram, telegramConfigurado } from './telegram.ts'
 import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, hayFfmpeg, iterarArtefacto, listarArtefactos, VOCES } from './taller.ts'
 import { guardarRelacion, personas } from './personas.ts'
+import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora.ts'
 import { buscarHibrido, estadoVectores, nivelesDe, vectorizarPendientes } from './semantica.ts'
 import { editarMovimiento, importarCSV, listarMovimientos, registrarMovimiento, resumenMes } from './finanzas.ts'
 import { buscarOportunidades, listarOportunidades, marcarOportunidad, redactarOportunidad } from './radar.ts'
@@ -377,6 +378,12 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['POST', /^\/api\/taller\/(\d+)\/iterar$/, (b, [a]) => { void iterarArtefacto(db, id(a), String(b.cambio ?? '')).catch((e) => console.error('  taller:', e)); return { ok: true } }],
   ['POST', /^\/api\/taller\/(\d+)\/corpus$/, (_, [a]) => ({ pieza: artefactoAlCorpus(db, id(a)) })],
+  // Bitácora íntima (la clave viaja en el cuerpo, se usa y se olvida)
+  ['GET', /^\/api\/bitacora$/, () => ({ disparador: disparadorDe(), entradas: leerBitacora(db) })],
+  ['POST', /^\/api\/bitacora$/, (b) => escribir(db, b)],
+  ['POST', /^\/api\/bitacora\/abrir$/, (b) => ({ disparador: disparadorDe(), entradas: leerBitacora(db, { clave: String(b.clave ?? '') || null }) })],
+  ['POST', /^\/api\/bitacora\/(\d+)$/, (b, [e]) => (cambiarEntrada(db, id(e), b), { ok: true })],
+
   // Búsqueda híbrida (palabras + significado)
   ['GET', /^\/api\/buscar$/, async (_, __, q) => ({ piezas: await buscarHibrido(db, q.get('q') ?? '', num(q.get('limite')) ?? 20, nivelesDe(q.get('nivel'))), vectores: estadoVectores(db) })],
   ['GET', /^\/api\/vectores$/, () => estadoVectores(db)],

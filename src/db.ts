@@ -477,6 +477,18 @@ CREATE TABLE IF NOT EXISTS publicaciones (
   creada_en INTEGER NOT NULL
 );
 
+-- Bitácora íntima: fuera del corpus; texto cifrado (v1:sal:iv:tag:datos) si cifrada = 1.
+CREATE TABLE IF NOT EXISTS bitacora (
+  id INTEGER PRIMARY KEY,
+  fecha TEXT NOT NULL,
+  texto TEXT NOT NULL,
+  cifrada INTEGER NOT NULL DEFAULT 0,
+  compartida INTEGER NOT NULL DEFAULT 0,
+  animo INTEGER,
+  creada_en INTEGER NOT NULL,
+  editada_en INTEGER NOT NULL
+);
+
 -- Búsqueda por significado: un vector por pieza (Float32 normalizado), aparte de los de la liga.
 CREATE TABLE IF NOT EXISTS vectores (
   pieza_id INTEGER PRIMARY KEY,
