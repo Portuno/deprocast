@@ -477,6 +477,25 @@ CREATE TABLE IF NOT EXISTS publicaciones (
   creada_en INTEGER NOT NULL
 );
 
+-- Economía de agentes: el monedero (asientos por temporada) y cómo terminó cada uno cada temporada.
+CREATE TABLE IF NOT EXISTS monedero (
+  id INTEGER PRIMARY KEY,
+  agente_id TEXT NOT NULL,
+  monto REAL NOT NULL,
+  motivo TEXT NOT NULL,
+  temporada TEXT NOT NULL,
+  en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS monedero_agente ON monedero (agente_id);
+CREATE TABLE IF NOT EXISTS temporadas (
+  semana TEXT NOT NULL,
+  agente_id TEXT NOT NULL,
+  neto REAL NOT NULL,
+  estado_al_cierre TEXT NOT NULL,
+  en INTEGER NOT NULL,
+  PRIMARY KEY (semana, agente_id)
+);
+
 -- Cuadernos: fuentes elegidas del corpus y lo que se le preguntó (con citas).
 CREATE TABLE IF NOT EXISTS cuadernos (
   id INTEGER PRIMARY KEY,
@@ -611,6 +630,7 @@ const RUTINAS_SISTEMA = [
   { id: 'radar', nombre: 'El radar sale a buscar oportunidades', hora: '09:30', dias: '14', accion: 'radar' },
   { id: 'calificacion', nombre: 'El gemelo se califica', hora: '23:40', dias: '0123456', accion: 'calificacion' },
   { id: 'reporte_semanal', nombre: 'Reporte de la semana', hora: '21:00', dias: '0', accion: 'reporte_semanal' },
+  { id: 'temporada', nombre: 'Cierre de temporada de la liga', hora: '07:30', dias: '1', accion: 'temporada' },
   { id: 'destilar', nombre: 'Destilar unas piezas tuyas en espera', hora: '10:15', dias: '0123456', accion: 'destilar' },
 ]
 /** La única plantilla de run de fábrica: genérica, sin nada del operador. */

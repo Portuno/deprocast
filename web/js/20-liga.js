@@ -7,10 +7,23 @@ function montarLiga() {
       <p>Las cartas vivas. Un agente que no corre en ${R.DIAS_SIN_CORRER} días se borra, no se mejora.</p>
       <div class="fila"><button class="btn" id="nuevo-proyecto">+ Proyecto</button><button class="btn btn-primario" id="ir-forja">⚒ Forjar</button></div>
     </div>
-    <div id="liga-dyn"></div>`
+    <div id="liga-dyn"></div>
+    <details class="panel" id="liga-eco"><summary><b>Economía · temporada</b> <span class="tenue">quién gana y quién pierde esta semana</span></summary><div id="eco-cuerpo"></div></details>`
+  $('#liga-eco').ontoggle = (e) => { if (e.target.open) pintarEconomia() }
   $('#ir-forja').onclick = () => irA('forja')
   $('#nuevo-proyecto').onclick = modalProyecto
   refrescarLiga()
+}
+
+async function pintarEconomia() {
+  const cont = $('#eco-cuerpo')
+  if (!cont) return
+  let e
+  try { e = await api('/economia') } catch (err) { return error(err) }
+  const t = e.tarifas
+  cont.innerHTML = `<p class="tenue">Temporada ${esc(e.semana)}. Cobran +${t.tarea} por tarea y +${t.aporte} por aporte a una primaria; pagan ${t.fallo} por fallo y ${t.milTokens} cada mil tokens. El lunes: pérdida → banca (dos seguidas → se retira); el mejor de una clase con trabajo acumulado se clona.</p>
+    <div class="cu-fuentes">${e.tabla.map((x) => `<div class="cu-fuente" title="${esc(x.detalle.join(' · '))}"><span>${esc(x.nombre)} <small class="tenue">${esc(x.clase)} · ${esc(x.estado)}</small></span><b style="color:${x.temporada < 0 ? 'var(--malo, #d27272)' : 'inherit'}">${x.temporada > 0 ? '+' : ''}${x.temporada}</b><small class="tenue">saldo ${x.saldo}</small></div>`).join('') || '<p class="tenue">Sin agentes que cobren.</p>'}</div>
+    ${e.historia.length ? `<p class="tenue">Temporadas: ${e.historia.map((h) => `${esc(h.semana)} (${h.neto > 0 ? '+' : ''}${h.neto})`).join(' · ')}</p>` : ''}`
 }
 
 function refrescarLiga() {

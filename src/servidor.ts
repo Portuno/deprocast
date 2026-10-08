@@ -23,6 +23,7 @@ import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, c
 import { guardarRelacion, personas } from './personas.ts'
 import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora.ts'
 import { cribar, deshacerUltima, marcador, siguiente } from './criba.ts'
+import { tabla as tablaEconomia, TARIFAS } from './economia.ts'
 import { borrarCuaderno, charla, crearCuaderno, guia, haciendo, leerCuaderno, listarCuadernos, notas, preguntar, quitarFuente, sumarFuentes } from './cuadernos.ts'
 import { buscarHibrido, estadoVectores, nivelesDe, vectorizarPendientes } from './semantica.ts'
 import { editarMovimiento, importarCSV, listarMovimientos, registrarMovimiento, resumenMes } from './finanzas.ts'
@@ -380,6 +381,9 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['POST', /^\/api\/taller\/(\d+)\/iterar$/, (b, [a]) => { void iterarArtefacto(db, id(a), String(b.cambio ?? '')).catch((e) => console.error('  taller:', e)); return { ok: true } }],
   ['POST', /^\/api\/taller\/(\d+)\/corpus$/, (_, [a]) => ({ pieza: artefactoAlCorpus(db, id(a)) })],
+  // Economía de agentes
+  ['GET', /^\/api\/economia$/, (_, __, q) => ({ semana: q.get('semana') || semanaDe(), tarifas: TARIFAS, tabla: tablaEconomia(db, q.get('semana') || semanaDe()), historia: db.prepare('SELECT semana, COUNT(*) AS agentes, ROUND(SUM(neto), 1) AS neto FROM temporadas GROUP BY semana ORDER BY semana DESC LIMIT 8').all() })],
+
   // Cuadernos
   ['GET', /^\/api\/cuadernos$/, () => listarCuadernos(db)],
   ['POST', /^\/api\/cuadernos$/, (b) => crearCuaderno(db, String(b.titulo ?? ''), b.descripcion || null)],

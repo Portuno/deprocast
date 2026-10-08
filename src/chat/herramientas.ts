@@ -31,6 +31,7 @@ import { asegurarFuente, buscar, esNivel, fuentes, leerPieza, listarPiezas, NIVE
 import { buscarHibrido } from '../semantica.ts'
 import { compartidas } from '../bitacora.ts'
 import { crearCuaderno, leerCuaderno, listarCuadernos, preguntar, sumarFuentes } from '../cuadernos.ts'
+import { tabla as tablaEconomia } from '../economia.ts'
 import { deshacer, listarCargas } from '../cargas/index.ts'
 import { coocurrencias, duplicadosProbables, editarEntidad, entidadesPorId, fusionarEntidades, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from '../entidades.ts'
 import { cronica, crearProyecto, estadoLiga, ingerir, numeroDeTick, tickUnico } from '../mastropiero.ts'
@@ -720,6 +721,12 @@ export const HERRAMIENTAS: Herramienta[] = [
         informes: listarSesiones(db, 6).filter((x) => x.informe).map((x) => ({ cuando: new Date(x.inicio).toLocaleString('es-AR'), informe: recorte(x.informe!, 1500) })),
       }
     },
+  },
+  {
+    nombre: 'ver_economia', familia: 'lectura',
+    descripcion: 'La economía de la liga: cuánto ganó y gastó cada agente esta temporada (semana) y su saldo. Al cierre (lunes), los que pierden van a la banca y el mejor de una clase con trabajo acumulado se clona.',
+    parametros: S({}),
+    ejecutar: (_, { db }) => tablaEconomia(db).slice(0, 25).map((x) => ({ agente: x.nombre, clase: x.clase, estado: x.estado, temporada: x.temporada, saldo: x.saldo })),
   },
   {
     nombre: 'ver_cuadernos', familia: 'lectura',

@@ -11,6 +11,7 @@ import { calificarDia, predecirDia, textoDeCalificacion } from './gemelo.ts'
 import { buscarOportunidades } from './radar.ts'
 import { enEspera, reanudarIngesta } from './bus.ts'
 import { tickUnico } from './mastropiero.ts'
+import { cerrarTemporada } from './economia.ts'
 import { topeAlcanzado } from './nan.ts'
 import { conAvance, listarMisiones, proponerPrimarias, reporteSemana, semanaDe, seguimientos, sideQuestsRelevantes } from './misiones.ts'
 
@@ -117,6 +118,11 @@ export const ACCIONES: Acciones = {
       ticks++
     }
     return null // trabajo de fondo: no hace falta avisarle en Hoy (queda en la crónica de la liga)
+  },
+  /** Lunes temprano: cierra la temporada de la semana que terminó (la liga se arregla sola). Queda en la crónica. */
+  async temporada(db, _fecha, ahora) {
+    cerrarTemporada(db, semanaDe(ahora - 86_400_000), ahora)
+    return null
   },
   /** El domingo a la noche: el reporte de la semana que termina. */
   async reporte_semanal(db, _fecha, ahora) {
