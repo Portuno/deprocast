@@ -7,7 +7,9 @@ import { abrir } from '../src/db.ts'
 import { insertar } from '../src/corpus.ts'
 import { _probarModelo } from '../src/modelo.ts'
 import { _probarTaller } from '../src/taller.ts'
-import { charla, crearCuaderno, fragmentosPara, guia, leerCuaderno, notas, preguntar, quitarFuente, sumarFuentes } from '../src/cuadernos.ts'
+import { charla, componentesDeEntidad, crearCuaderno, fragmentosPara, guia, leerCuaderno, notas, preguntar, quitarFuente, sumarFuentes } from '../src/cuadernos.ts'
+import { asegurarEntidad } from '../src/entidades.ts'
+import { crearQuantomo } from '../src/quantomos.ts'
 
 process.env.MASTRO_TALLER = fs.mkdtempSync(path.join(os.tmpdir(), 'mastro-cuad-'))
 
@@ -53,4 +55,29 @@ test('cuadernos: fuentes, fragmentos relevantes, respuesta con citas reales, gu�
 
   quitarFuente(db, c.id, b)
   assert.equal(leerCuaderno(db, c.id)!.fuentes.length, 2)
+})
+
+test('cuaderno: de una entidad se suman quántomos elegidos o todos, y no los descartados', async () => {
+  const db = abrir(':memory:')
+  const e = asegurarEntidad(db, { tipo: 'proyecto', nombre: 'Faro' })
+  const pieza = insertar(db, { fuente: 'operador', titulo: 'Bitácora del faro', contenido: 'El faro se apaga de noche.', nivel: 'primaria', entidades: [e], origenId: 't:bit' })!
+  const q1 = crearQuantomo(db, { texto: 'El faro se apaga de noche.', titulo: 'Apagón', piezaId: pieza, etapa: 'sellado', peso: 8 })!
+  const q2 = crearQuantomo(db, { texto: 'La linterna es de aceite.', titulo: 'Aceite', piezaId: pieza, etapa: 'sellado', peso: 3 })!
+  crearQuantomo(db, { texto: 'Esto se descartó.', titulo: 'No', piezaId: pieza, etapa: 'descartado' })
+  const c = crearCuaderno(db, 'Faro')
+  const comp = componentesDeEntidad(db, e)
+  assert.deepEqual(comp.quantomos.map((q) => q.titulo), ['Apagón', 'Aceite'])
+  assert.deepEqual(comp.piezas.map((p) => p.titulo), ['Bitácora del faro'])
+
+  await sumarFuentes(db, c.id, { quantomos: [q1] })
+  assert.deepEqual(leerCuaderno(db, c.id)!.fuentes.map((f) => [f.titulo, f.esQuantomo]), [['Apagón', true]])
+
+  const todos = await sumarFuentes(db, c.id, { entidad: e, todo: 'quantomos' })
+  assert.equal(todos.recorte, undefined)
+  assert.deepEqual(leerCuaderno(db, c.id)!.fuentes.map((f) => f.titulo).sort(), ['Aceite', 'Apagón'])
+  assert.equal((db.prepare(`SELECT COUNT(*) AS n FROM corpus WHERE origen_id LIKE 'quantomo:%'`).get() as { n: number }).n, 2, 'no duplica el quántomo ya sumado')
+
+  await sumarFuentes(db, c.id, { entidad: e, todo: 'piezas' })
+  assert.ok(leerCuaderno(db, c.id)!.fuentes.some((f) => f.titulo === 'Bitácora del faro'))
+  await assert.rejects(sumarFuentes(db, c.id, { quantomos: [999] }), /no se pueden sumar/)
 })

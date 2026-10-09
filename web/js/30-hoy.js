@@ -62,7 +62,7 @@ function pintarMiniHoy() {
 function refrescarHoy() {
   const f = JSON.stringify(E.hoy)
   // Mientras escribís en el panel del día (una respuesta, una nota), no se redibuja: se pondría al día después.
-  const escribiendo = document.activeElement?.closest?.('#hoy-dia') && /INPUT|TEXTAREA/.test(document.activeElement.tagName)
+  const escribiendo = document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName) && document.activeElement.closest('#hoy-dia, #modal')
   if (f !== hoyFirma && !escribiendo) { hoyFirma = f; traerHoy() }
 }
 
@@ -96,15 +96,15 @@ function pintarHoy() {
       <button class="btn btn-chico" id="hoy-ocultar" title="Ocultar las tareas: el chat ocupa toda la pantalla">Ocultar tareas ⇥</button>
       ${avisoNotif ? '<button class="btn btn-chico" id="hoy-notif">Activar avisos</button>' : ''}
     </div>
-    ${hoyDatos.brujula ? `<details class="brujula" ${pref.leer('mastro-brujula', 'si') === 'si' ? 'open' : ''}><summary>🧭 La brújula de hoy</summary>
-      <p><b>Cuerpo:</b> ${esc(hoyDatos.brujula.cuerpo)}</p><p><b>Mente:</b> ${esc(hoyDatos.brujula.mente)}</p><p><b>Alma:</b> ${esc(hoyDatos.brujula.alma)}</p>
-      <p class="brujula-foco"><b>Si hacés una sola cosa:</b> ${esc(hoyDatos.brujula.foco)}</p></details>` : '<button class="btn btn-chico" id="hoy-brujula">🧭 Armar la brújula de hoy</button>'}
-    <div id="pregunta-caja"></div>
-    ${run?.estado === 'en_curso' ? runEnCursoHTML(run) : run?.estado === 'propuesta' ? runPropuestaHTML(run) : sinRunHTML()}
+    <div class="hoy-cola" id="hoy-cola">
+      <button type="button" class="cola-item" data-dia="pregunta" id="cola-pregunta"><small>Pregunta</small><b>Mirando…</b><em>Abrir</em></button>
+      ${colaRunHTML()}
+      <button type="button" class="cola-item" data-dia="gemelo" id="cola-gemelo"><small>Gemelo</small><b>Mirando el día…</b><em>Abrir</em></button>
+    </div>
+    ${brujulaHTML()}
     ${hoyDatos.proximas?.length ? `<section class="hoy-semana"><h3 class="sub">Próximas runs</h3>${hoyDatos.proximas.map((r) => `<details class="run-pasada"><summary><b>${esc(new Date(`${r.fecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric' }))}</b> ${r.inicio}–${r.fin} · ${r.misiones.length} bandas · propuesta</summary>
       ${r.resumen ? `<p class="hoy-resumen">${esc(r.resumen)}</p>` : ''}<ol class="bandas">${r.misiones.map((m) => bandaHTML(m, { propuesta: true })).join('')}</ol>
       <p class="tenue chico">Ese día aparece en Hoy para arrancarla (o rehacerla).</p></details>`).join('')}</section>` : ''}
-    <section class="hoy-semana" id="gemelo-caja"></section>
     ${semanaHoyHTML()}
     ${j?.cierre ? `<div class="hoy-cierre"><small>Tu cierre</small><p>${esc(j.cierre)}</p></div>` : ''}
     ${calendarios ? '' : `<p class="hoy-nota">Para que tenga en cuenta tu agenda: en Google Calendar, Configuración del calendario → «Dirección secreta en formato iCal», y pegala en <code>.env</code> como <code>GCAL_ICS_URLS</code>.</p>`}`
@@ -112,19 +112,76 @@ function pintarHoy() {
   const bru = $('#hoy-brujula')
   if (bru) bru.onclick = async () => { bru.disabled = true; bru.textContent = 'Mirando cómo venís…'; try { await api('/brujula', {}); traerHoy() } catch (e) { error(e); bru.disabled = false } }
   const det = $('#hoy-dia details.brujula')
-  if (det) det.ontoggle = () => pref.guardar('mastro-brujula', det.open ? 'si' : 'no')
+  if (det) det.ontoggle = () => pref.guardar('mastro-brujula-caja', det.open ? 'si' : 'no')
   $('#hoy-ocultar').onclick = () => window.ocultarDia?.()
   pintarMiniHoy()
   const nb = $('#hoy-notif')
   if (nb) nb.onclick = async () => { await Notification.requestPermission(); pintarHoy() }
-  engancharRun(cont, run)
+  engancharCola(cont)
   engancharSemanaHoy(cont)
   traerPregunta()
-  traerGemelo()
+  traerGemelo(hoyDatos.fecha)
+  if (diaAbierto && $('#modal .dia-modal') && !focoEnCampo()) pintarDiaModal()
   if (!hoyScrolleado) {
     hoyScrolleado = true
     $('.banda.ahora', cont)?.scrollIntoView({ block: 'center' })
   }
+}
+
+const corto = (s, n = 110) => (s && s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s || '')
+
+function brujulaHTML() {
+  const b = hoyDatos.brujula
+  if (!b) return '<button type="button" class="btn btn-chico" id="hoy-brujula">Armar la brújula de hoy</button>'
+  return `<details class="brujula" ${pref.leer('mastro-brujula-caja', 'no') === 'si' ? 'open' : ''}>
+    <summary><small>Si hacés una sola cosa</small><b>${esc(b.foco)}</b></summary>
+    <p><b>Cuerpo.</b> ${esc(b.cuerpo)}</p>
+    <p><b>Mente.</b> ${esc(b.mente)}</p>
+    <p><b>Alma.</b> ${esc(b.alma)}</p>
+  </details>`
+}
+
+function colaRunHTML() {
+  const run = hoyDatos.run
+  if (run?.estado === 'en_curso') {
+    const ms = run.misiones
+    const actual = ms.find((m) => m.id === hoyDatos.actual)
+    const hechas = ms.filter((m) => m.estado === 'hecha').length
+    const titulo = actual ? actual.titulo : minutosAhora() < aMinJs(run.inicio) ? `Arranca a las ${run.inicio}` : 'Entre bandas'
+    return `<div class="cola-bloque">
+      <button type="button" class="cola-item" data-dia="run">
+        <small>Run · ${run.inicio}–${run.fin}</small>
+        <b>${esc(titulo)}</b>
+        <em>Abrir</em>
+      </button>
+      <div class="cola-pie">
+        <i class="cola-barra" title="${hechas} de ${ms.length}"><b style="width:${ms.length ? Math.round((hechas / ms.length) * 100) : 0}%"></b></i>
+        <span>${hechas}/${ms.length}</span>
+        ${actual ? `<span class="cola-marcas">${[['hecha', '✓ Hecha'], ['parcial', '◐'], ['no', '✗']].map(([e, g]) => `<button type="button" data-cola-marcar="${e}" data-mid="${actual.id}" class="${actual.estado === e ? 'on' : ''}">${g}</button>`).join('')}</span>` : ''}
+      </div>
+    </div>`
+  }
+  if (run?.estado === 'propuesta') {
+    return `<button type="button" class="cola-item pendiente" data-dia="run">
+      <small>Run propuesta · ${run.inicio}–${run.fin}</small>
+      <b>${esc(corto(run.resumen || `${run.misiones.length} bandas listas`, 120))}</b>
+      <em>Abrir</em>
+    </button>`
+  }
+  return `<button type="button" class="cola-item" data-dia="run"><small>Run</small><b>Sin run. Cuando quieras, la armamos.</b><em>Arrancar</em></button>`
+}
+
+function engancharCola(cont) {
+  $$('[data-dia]', cont).forEach((b) => (b.onclick = () => abrirDia(b.dataset.dia)))
+  $$('[data-cola-marcar]', cont).forEach((b) => (b.onclick = async () => {
+    const m = hoyDatos.run?.misiones?.find((x) => x.id === Number(b.dataset.mid))
+    if (!m) return
+    try {
+      await api(`/misiones/${m.id}/marcar`, { estado: m.estado === b.dataset.colaMarcar ? 'activa' : b.dataset.colaMarcar })
+      await refrescar()
+      await traerHoy()
+    } catch (e) { error(e) }
+  }))
 }
 
 const MARCA = { hecha: '✓', parcial: '◐', no: '✗' }
@@ -222,76 +279,332 @@ function semanaHoyHTML() {
   </section>`
 }
 
-// El gemelo: lo que predijo del día (sellado), cómo le fue y cuánto te conoce
+// Pregunta, run y gemelo: el panel muestra tres tarjetas; se responden en un modal y se pasa de una a la otra.
 
-async function traerGemelo() {
-  const caja = $('#gemelo-caja')
-  if (!caja) return
-  try {
-    const g = await api('/gemelo')
-    const pend = [...g.ayer, ...g.predicciones].filter((p) => p.estado === 'para_el_jugador')
-    const pts = g.curva.puntos.filter((p) => p.conocimiento != null)
-    const spark = pts.length > 1 ? `<svg class="spark" viewBox="0 0 ${(pts.length - 1) * 10} 30" preserveAspectRatio="none"><polyline points="${pts.map((p, i) => `${i * 10},${30 - (p.conocimiento / 100) * 28 - 1}`).join(' ')}"/></svg>` : ''
-    const pred = (p, conMarcas) => `<div class="pred ${p.resultado === 1 ? 'si' : p.resultado === 0 ? 'no' : ''}" data-pred="${p.id}">
-      <span class="prob">${Math.round(p.probabilidad * 100)}%</span><span>${esc(p.texto)}${p.nota ? `<small>${esc(p.nota)}</small>` : ''}</span>
-      ${conMarcas ? '<span class="fila"><button class="btn btn-chico" data-paso="1" title="Pasó">✓</button><button class="btn btn-chico" data-paso="0" title="No pasó">✗</button></span>' : p.resultado != null ? `<span class="res">${p.resultado ? '✓' : '✗'}</span>` : ''}</div>`
-    caja.innerHTML = `<h3 class="sub">El gemelo ${g.curva.total != null ? `<span class="conozco">te conozco ${g.curva.total}%</span>` : ''}</h3>
-      ${spark}
-      ${pend.length ? `<p class="tenue chico">No puedo saber solo si pasaron: ¿sí o no?</p>${pend.map((p) => pred(p, true)).join('')}` : ''}
-      ${g.predicciones.length ? `<details class="sellado"><summary>${g.predicciones.length} predicciones para hoy ${g.predicciones.every((p) => p.estado === 'abierta') ? '(selladas: abrilas solo si querés)' : ''}</summary>${g.predicciones.filter((p) => p.estado !== 'para_el_jugador').map((p) => pred(p, false)).join('')}</details>`
-        : '<p class="tenue chico">Todavía no predije hoy. <a href="#" class="ref" id="gemelo-predecir">Predecí mi día</a></p>'}`
-    $$('[data-paso]', caja).forEach((b) => (b.onclick = async () => {
-      try { await api(`/gemelo/${b.closest('[data-pred]').dataset.pred}`, { paso: b.dataset.paso === '1' }); traerGemelo() } catch (e) { error(e) }
-    }))
-    const pr = $('#gemelo-predecir', caja)
-    if (pr) pr.onclick = (e) => { e.preventDefault(); trabajando(null, '', async () => { await api('/gemelo/predecir', {}); toast('Predicciones selladas<small>A la noche me califico.</small>', 'suave'); traerGemelo() }) }
-  } catch { caja.innerHTML = '' }
+const DIA_PARTES = ['pregunta', 'run', 'gemelo']
+const DIA_NOMBRE = { pregunta: 'Pregunta', run: 'Run', gemelo: 'Gemelo' }
+let diaAbierto = null
+let preguntaVista = null
+let gemeloCache = {}
+let gemeloDia = null
+let gemeloAuto = {}
+let predCursor = 0
+let predPreferida = null
+let gemeloInfoAbierta = false
+
+const focoEnCampo = () => {
+  const a = document.activeElement
+  return !!(a && /INPUT|TEXTAREA/.test(a.tagName) && a.closest('#modal, #hoy-dia'))
+}
+const fechaMas = (iso, delta) => {
+  const [y, m, d] = iso.split('-').map(Number)
+  const dt = new Date(y, m - 1, d + delta)
+  const p = (n) => String(n).padStart(2, '0')
+  return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`
+}
+const fechaLinda = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })
+
+function abrirDia(cual) {
+  diaAbierto = cual
+  if (cual === 'gemelo') {
+    const pend = gemeloCache[hoyDatos?.fecha]?.pendientes ?? []
+    if (!gemeloDia || !gemeloCache[gemeloDia]) gemeloDia = pend[0]?.fecha || hoyDatos.fecha
+    predCursor = 0
+    gemeloInfoAbierta = false
+    if (!gemeloCache[gemeloDia]) traerGemelo(gemeloDia)
+  }
+  pintarDiaModal(true)
 }
 
-// Mastropiero pregunta: una por vez, se contesta con un toque o una línea
+function moverDia(delta) {
+  const i = DIA_PARTES.indexOf(diaAbierto)
+  diaAbierto = DIA_PARTES[(i + delta + DIA_PARTES.length) % DIA_PARTES.length]
+  pintarDiaModal(true)
+}
 
-let preguntaActual = null
+function pintarDiaModal(foco = false) {
+  if (!diaAbierto || !hoyDatos) return
+  const g = gemeloCache[hoyDatos.fecha]
+  const pendGem = g?.pendientes?.length ?? 0
+  const marcas = { pregunta: !!preguntaVista?.pregunta, run: hoyDatos.run?.estado === 'propuesta', gemelo: pendGem > 0 }
+  const cuerpo = diaAbierto === 'pregunta' ? cuerpoPregunta() : diaAbierto === 'run' ? cuerpoRun() : cuerpoGemelo()
+  abrirModal(`<div class="dia-modal">
+    <header class="dia-top">
+      <nav class="dia-tabs">${DIA_PARTES.map((k) => `<button type="button" data-dia-tab="${k}" class="${diaAbierto === k ? 'on' : ''} ${marcas[k] ? 'pendiente' : ''}">${DIA_NOMBRE[k]}</button>`).join('')}</nav>
+      <button type="button" class="btn btn-chico cerrar" data-cerrar>✕</button>
+    </header>
+    <div class="dia-cuerpo">${cuerpo}</div>
+    <footer class="dia-pie">
+      <button type="button" data-dia-nav="-1">‹ Anterior</button>
+      <small>← →</small>
+      <button type="button" data-dia-nav="1">Siguiente ›</button>
+    </footer>
+  </div>`)
+  engancharDiaModal()
+  if (foco) setTimeout(() => {
+    if (!$('#modal .dia-modal')) return
+    if (diaAbierto === 'pregunta') $('#p-resp')?.focus()
+    else if (document.activeElement?.closest('#modal') && /INPUT|TEXTAREA/.test(document.activeElement.tagName) && document.activeElement.dataset.sinFoco != null) document.activeElement.blur()
+  }, 30)
+}
+
+function engancharDiaModal() {
+  const raiz = $('#modal')
+  $$('[data-dia-tab]', raiz).forEach((b) => (b.onclick = () => { diaAbierto = b.dataset.diaTab; pintarDiaModal(true) }))
+  $$('[data-dia-nav]', raiz).forEach((b) => (b.onclick = () => moverDia(Number(b.dataset.diaNav))))
+  if (diaAbierto === 'pregunta') engancharPreguntaModal(raiz)
+  if (diaAbierto === 'run') engancharRun(raiz, hoyDatos.run)
+  if (diaAbierto === 'gemelo') engancharGemeloModal(raiz)
+}
+
+document.addEventListener('keydown', (e) => {
+  if (!diaAbierto || $('#velo').hidden || !$('#modal .dia-modal')) return
+  if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName ?? '')) return
+  if (e.key === 'ArrowRight') { e.preventDefault(); moverDia(1) }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); moverDia(-1) }
+})
+
+const _cerrarModalDia = cerrarModal
+cerrarModal = () => { diaAbierto = null; clearInterval(cuentaRegresiva); _cerrarModalDia() }
+
+// ─── pregunta ───────────────────────────────────────────────────────────
+
 async function traerPregunta() {
-  const caja = $('#pregunta-caja')
-  if (!caja) return
   try {
     const r = await api('/preguntas/siguiente')
-    preguntaActual = r.pregunta
-    pintarPregunta(r)
-  } catch { caja.innerHTML = '' }
+    preguntaVista = r
+    pintarTarjetaPregunta(r)
+    if (r.generando && !r.pregunta) setTimeout(() => vista === 'hoy' && traerPregunta(), 6000)
+    if (diaAbierto === 'pregunta' && $('#modal .dia-modal') && !focoEnCampo()) pintarDiaModal()
+  } catch { /* la tarjeta se queda en lo último que tuvo */ }
 }
 
-function pintarPregunta(r) {
-  const caja = $('#pregunta-caja')
-  if (!caja) return
-  const p = r.pregunta
+function pintarTarjetaPregunta(r) {
+  const el = $('#cola-pregunta')
+  if (!el) return
+  const p = r?.pregunta
+  el.querySelector('b').textContent = p ? corto(p.texto, 120) : r?.generando ? 'Pensando qué preguntarte…' : 'Nada por ahora'
+  el.querySelector('em').textContent = p ? 'Responder' : 'Abrir'
+  el.classList.toggle('pendiente', !!p)
+}
+
+function cuerpoPregunta() {
+  const r = preguntaVista
+  const p = r?.pregunta
   if (!p) {
-    caja.innerHTML = r.generando ? '<div class="pregunta vacia"><small>Mastropiero pregunta</small><p class="tenue">Pensando qué preguntarte…</p></div>' : ''
-    if (r.generando) setTimeout(() => vista === 'hoy' && traerPregunta(), 6000)
-    return
+    return `<div class="dia-vacio"><small>Mastropiero pregunta</small><h2>${r?.generando ? 'Pensando qué preguntarte…' : 'Nada pendiente'}</h2><p class="tenue">${r?.generando ? 'En un rato aparece acá. Podés pasar a la run o al gemelo.' : 'Cuando tenga algo que no sabe de vos, va a estar acá.'}</p></div>`
   }
-  caja.innerHTML = `<div class="pregunta" data-pregunta="${p.id}">
+  return `<div class="pregunta" data-pregunta="${p.id}">
     <small>Mastropiero pregunta${r.respondidas ? ` · ${r.respondidas} respondidas` : ''}</small>
     <p class="p-texto">${esc(p.texto)}</p>
     ${p.porQue ? `<p class="p-porque">${esc(p.porQue)}</p>` : ''}
-    ${p.tipo === 'opciones' ? `<div class="chips">${p.opciones.map((o) => `<button class="chip" data-opcion="${esc(o)}">${esc(o)}</button>`).join('')}</div>` : ''}
+    ${p.tipo === 'opciones' ? `<div class="chips">${p.opciones.map((o) => `<button type="button" class="chip" data-opcion="${esc(o)}">${esc(o)}</button>`).join('')}</div>` : ''}
     <div class="fila p-resp">
-      <input class="campo-suelto" id="p-resp" ${p.tipo === 'numero' ? 'inputmode="decimal"' : ''} placeholder="${p.tipo === 'opciones' ? 'O escribí otra cosa…' : 'Tu respuesta…'}">
-      <button class="btn btn-chico btn-primario" id="p-enviar">Responder</button>
-      <button class="btn btn-chico" id="p-saltar" title="Ahora no">Saltear</button>
+      <input class="campo-suelto" id="p-resp" ${p.tipo === 'numero' ? 'inputmode="decimal"' : ''} placeholder="${p.tipo === 'opciones' ? 'O escribí otra cosa…' : 'Tu respuesta…'}" autofocus>
+      <button type="button" class="btn btn-primario" id="p-enviar">Responder</button>
+      <button type="button" class="btn" id="p-saltar">Saltear</button>
     </div>
   </div>`
+}
+
+function engancharPreguntaModal(raiz) {
+  const p = preguntaVista?.pregunta
+  if (!p) return
   const responder = async (respuesta) => {
     try {
       const r2 = await api(`/preguntas/${p.id}`, { respuesta })
       if (respuesta) toast('Anotado<small>Lo guardo en lo que sé de vos.</small>', 'suave')
-      pintarPregunta({ pregunta: r2.siguiente, generando: !r2.siguiente, respondidas: (r.respondidas ?? 0) + (respuesta ? 1 : 0) })
+      preguntaVista = { pregunta: r2.siguiente, generando: !r2.siguiente, respondidas: (preguntaVista.respondidas ?? 0) + (respuesta ? 1 : 0) }
+      pintarTarjetaPregunta(preguntaVista)
+      if (!r2.siguiente) setTimeout(() => vista === 'hoy' && traerPregunta(), 6000)
+      if (diaAbierto === 'pregunta') pintarDiaModal(true)
     } catch (e) { error(e) }
   }
-  $$('[data-opcion]', caja).forEach((b) => (b.onclick = () => responder(b.dataset.opcion)))
-  $('#p-enviar').onclick = () => { const v = $('#p-resp').value.trim(); if (v) responder(v) }
-  $('#p-resp').onkeydown = (e) => { if (e.key === 'Enter' && $('#p-resp').value.trim()) responder($('#p-resp').value.trim()) }
-  $('#p-saltar').onclick = () => responder(null)
+  $$('[data-opcion]', raiz).forEach((b) => (b.onclick = () => responder(b.dataset.opcion)))
+  const enviar = $('#p-enviar', raiz)
+  const campo = $('#p-resp', raiz)
+  if (enviar && campo) {
+    enviar.onclick = () => { const v = campo.value.trim(); if (v) responder(v) }
+    campo.onkeydown = (e) => { if (e.key === 'Enter' && campo.value.trim()) responder(campo.value.trim()) }
+  }
+  const saltar = $('#p-saltar', raiz)
+  if (saltar) saltar.onclick = () => responder(null)
+}
+
+// ─── run dentro del modal ───────────────────────────────────────────────
+
+function cuerpoRun() {
+  const run = hoyDatos.run
+  if (run?.estado === 'en_curso') return runEnCursoHTML(run)
+  if (run?.estado === 'propuesta') return runPropuestaHTML(run)
+  return sinRunHTML()
+}
+
+// ─── gemelo: día por día, validar, agregar info, mandar predicciones ──
+
+async function traerGemelo(fecha) {
+  const f = fecha || hoyDatos?.fecha
+  if (!f) return
+  try {
+    const g = await api(`/gemelo?${new URLSearchParams({ fecha: f })}`)
+    gemeloCache[f] = g
+    if (f === hoyDatos.fecha) pintarTarjetaGemelo(g)
+    if (f === hoyDatos.fecha && !g.predicciones.length && !gemeloAuto[f]) {
+      gemeloAuto[f] = 'pidiendo'
+      pintarTarjetaGemelo(g, true)
+      if (diaAbierto === 'gemelo' && gemeloDia === f) pintarDiaModal()
+      try {
+        await api('/gemelo/predecir', { fecha: f })
+        gemeloAuto[f] = 'listo'
+        return traerGemelo(f)
+      } catch (e) {
+        gemeloAuto[f] = 'fallo'
+        pintarTarjetaGemelo(gemeloCache[f], false, true)
+        error(e)
+      }
+    }
+    if (diaAbierto === 'gemelo' && gemeloDia === f && $('#modal .dia-modal') && !focoEnCampo()) pintarDiaModal()
+  } catch (e) {
+    const b = $('#cola-gemelo b')
+    if (f === hoyDatos?.fecha && b) b.textContent = 'No pude mirar el gemelo'
+  }
+}
+
+function pintarTarjetaGemelo(g, prediciendo = false, fallo = false) {
+  const el = $('#cola-gemelo')
+  if (!el || !g) return
+  const pend = g.pendientes?.length ?? 0
+  const n = g.predicciones?.length ?? 0
+  const pct = g.curva?.total
+  el.querySelector('small').textContent = `Gemelo${pct != null ? ` · ${pct}%` : ''}`
+  el.querySelector('b').textContent = fallo ? 'No pude predecir. Abrí para reintentar.' : prediciendo ? 'Prediciendo el día…' : pend ? `${pend} ${pend === 1 ? 'predicción para validar' : 'predicciones para validar'}` : n ? `${n} ${n === 1 ? 'predicción de hoy' : 'predicciones de hoy'}` : 'Todavía sin predicciones'
+  el.querySelector('em').textContent = pend ? 'Validar' : 'Abrir'
+  el.classList.toggle('pendiente', pend > 0)
+}
+
+function ordenPredicciones(lista) {
+  const peso = { para_el_jugador: 0, abierta: 1, calificada: 2 }
+  return [...lista].sort((a, b) => (peso[a.estado] ?? 9) - (peso[b.estado] ?? 9) || a.id - b.id)
+}
+
+function cuerpoGemelo() {
+  const f = gemeloDia || hoyDatos.fecha
+  const g = gemeloCache[f]
+  const hoy = f === hoyDatos.fecha
+  const puedeDespues = f < hoyDatos.fecha
+  const pct = g?.curva?.total
+  const nav = `<div class="gem-fecha">
+    <button type="button" id="gem-antes" title="Día anterior">‹</button>
+    <div><b>${esc(fechaLinda(f))}</b><small>${hoy ? 'hoy' : ''}${pct != null ? `${hoy ? ' · ' : ''}te conozco ${pct}%` : ''}${g ? ` · ${g.predicciones.length} predicciones` : ''}</small></div>
+    <button type="button" id="gem-despues" title="Día siguiente" ${puedeDespues ? '' : 'disabled'}>›</button>
+  </div>`
+  if (!g) return `${nav}<div class="dia-vacio"><h2>Mirando ese día…</h2></div>`
+  const lista = ordenPredicciones(g.predicciones)
+  if (predPreferida === 'siguiente') {
+    const i = lista.findIndex((x) => x.estado === 'para_el_jugador')
+    predCursor = i >= 0 ? i : Math.min(predCursor, Math.max(0, lista.length - 1))
+    predPreferida = null
+  } else if (typeof predPreferida === 'number') {
+    const i = lista.findIndex((x) => x.id === predPreferida)
+    if (i >= 0) predCursor = i
+    predPreferida = null
+  }
+  if (predCursor >= lista.length) predCursor = Math.max(0, lista.length - 1)
+  const p = lista[predCursor]
+  const prediciendo = gemeloAuto[f] === 'pidiendo'
+  const carta = !lista.length
+    ? `<div class="dia-vacio"><h2>${prediciendo ? 'Prediciendo el día…' : gemeloAuto[f] === 'fallo' ? 'No pude predecir' : 'Este día no tiene predicciones'}</h2><p class="tenue">${prediciendo ? 'Las dejo selladas y a la noche me califico. Si ya sabés algo, mandame una.' : 'Mandame una, o pedime que prediga en base a lo que pasó.'}</p></div>`
+    : `<article class="gem-carta ${p.resultado === 1 ? 'si' : p.resultado === 0 ? 'no' : ''}" data-pred="${p.id}">
+        <div class="gem-carta-top"><small>${predCursor + 1} de ${lista.length}${p.estado === 'para_el_jugador' ? ' · para validar' : p.estado === 'calificada' ? ' · calificada' : ' · todavía abierta'}${p.tipo === 'jugador' ? ' · tuya' : ''}</small><b class="prob">${Math.round(p.probabilidad * 100)}%</b></div>
+        <p class="texto">${esc(p.texto)}</p>
+        ${p.nota ? `<p class="gem-nota">${esc(p.nota)}</p>` : ''}
+        ${p.resultado != null ? `<p class="gem-res">${p.resultado ? 'Pasó' : 'No pasó'}${p.calificadaPor ? ` · ${esc(p.calificadaPor)}` : ''}</p>` : ''}
+        <div class="gem-acc">
+          <button type="button" class="si ${p.resultado === 1 ? 'on' : ''}" data-gem-paso="1">✓ Pasó</button>
+          <button type="button" class="no ${p.resultado === 0 ? 'on' : ''}" data-gem-paso="0">✗ No pasó</button>
+          <button type="button" id="gem-info" class="${gemeloInfoAbierta ? 'on' : ''}">＋ Info</button>
+        </div>
+        ${gemeloInfoAbierta ? `<div class="gem-info"><textarea id="gem-nota" data-sin-foco rows="3" placeholder="Qué pasó de verdad, un detalle, una corrección…">${esc(p.nota ?? '')}</textarea><button type="button" class="btn" id="gem-guardar-info">Guardar info</button></div>` : ''}
+        ${lista.length > 1 ? `<div class="gem-pasar"><button type="button" id="gem-prev">‹</button><button type="button" id="gem-next">Siguiente predicción ›</button></div>` : ''}
+      </article>`
+  return `${nav}${g.curva ? sparkDe(g) : ''}${carta}
+    <form class="gem-nueva" id="gem-nueva">
+      <label>Sobre este día<textarea id="gem-texto" data-sin-foco rows="2" placeholder="Va a cerrar el acuerdo antes de las 18…"></textarea></label>
+      <div class="gem-prob"><span>Si la mandás vos</span><input id="gem-prob" data-sin-foco type="range" min="5" max="95" value="60"><b id="gem-prob-n">60%</b></div>
+      <div class="fila">
+        <button type="submit" class="btn btn-primario">Enviar la mía</button>
+        <button type="button" class="btn" id="gem-sumar">Que prediga en base a esto</button>
+      </div>
+      <p class="tenue chico">Vacío, «que prediga» mira el día y suma algunas. Con texto, predice a partir de lo que contás. «Enviar la mía» la anota tal cual, para este día.</p>
+    </form>`
+}
+
+function sparkDe(g) {
+  const pts = (g.curva?.puntos ?? []).filter((p) => p.conocimiento != null)
+  if (pts.length < 2) return ''
+  return `<svg class="spark" viewBox="0 0 ${(pts.length - 1) * 10} 28" preserveAspectRatio="none"><polyline points="${pts.map((p, i) => `${i * 10},${28 - (p.conocimiento / 100) * 26 - 1}`).join(' ')}"/></svg>`
+}
+
+function engancharGemeloModal(raiz) {
+  const f = gemeloDia || hoyDatos.fecha
+  const g = gemeloCache[f]
+  const ir = (fecha) => {
+    if (fecha > hoyDatos.fecha) return
+    gemeloDia = fecha
+    predCursor = 0
+    gemeloInfoAbierta = false
+    if (!gemeloCache[fecha]) pintarDiaModal()
+    traerGemelo(fecha)
+  }
+  const antes = $('#gem-antes', raiz)
+  const despues = $('#gem-despues', raiz)
+  if (antes) antes.onclick = () => ir(fechaMas(f, -1))
+  if (despues) despues.onclick = () => ir(fechaMas(f, 1))
+  const lista = g ? ordenPredicciones(g.predicciones) : []
+  const p = lista[predCursor]
+  const notaCampo = () => $('#gem-nota', raiz)?.value.trim() || null
+  const marcar = async (paso) => {
+    if (!p) return
+    try {
+      await api(`/gemelo/${p.id}`, { paso, nota: notaCampo() })
+      gemeloInfoAbierta = false
+      predPreferida = paso == null ? p.id : 'siguiente'
+      await traerGemelo(f)
+    } catch (e) { error(e) }
+  }
+  $$('[data-gem-paso]', raiz).forEach((b) => (b.onclick = () => marcar(b.dataset.gemPaso === '1')))
+  const info = $('#gem-info', raiz)
+  if (info) info.onclick = () => { gemeloInfoAbierta = !gemeloInfoAbierta; pintarDiaModal(); $('#gem-nota')?.focus() }
+  const guardar = $('#gem-guardar-info', raiz)
+  if (guardar) guardar.onclick = () => marcar(null)
+  const prev = $('#gem-prev', raiz)
+  const next = $('#gem-next', raiz)
+  if (prev) prev.onclick = () => { predCursor = (predCursor - 1 + lista.length) % lista.length; gemeloInfoAbierta = false; pintarDiaModal() }
+  if (next) next.onclick = () => { predCursor = (predCursor + 1) % lista.length; gemeloInfoAbierta = false; pintarDiaModal() }
+  const rango = $('#gem-prob', raiz)
+  const rangoN = $('#gem-prob-n', raiz)
+  if (rango && rangoN) rango.oninput = () => { rangoN.textContent = `${rango.value}%` }
+  const form = $('#gem-nueva', raiz)
+  if (form) form.onsubmit = (e) => {
+    e.preventDefault()
+    const texto = $('#gem-texto', raiz).value.trim()
+    if (!texto) return
+    const probabilidad = Number($('#gem-prob', raiz).value) / 100
+    trabajando($('[type=submit]', form), 'Enviando…', async () => {
+      await api('/gemelo/nueva', { fecha: f, texto, probabilidad })
+      toast('Predicción anotada<small>La califico con las de ese día.</small>', 'suave')
+      predCursor = 0
+      await traerGemelo(f)
+    })
+  }
+  const sumar = $('#gem-sumar', raiz)
+  if (sumar) sumar.onclick = () => trabajando(sumar, 'Prediciendo…', async () => {
+    const pista = $('#gem-texto', raiz).value.trim()
+    await api('/gemelo/sumar', { fecha: f, pista: pista || null })
+    toast(pista ? 'Predije en base a eso' : 'Sumé predicciones del día', 'suave')
+    predCursor = 0
+    await traerGemelo(f)
+  })
 }
 
 function engancharSemanaHoy(cont) {

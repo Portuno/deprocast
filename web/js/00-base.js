@@ -57,7 +57,7 @@ function abrirModal(html) {
   $('#modal').innerHTML = html
   $('#velo').hidden = false
   // El foco va al primer campo: si se queda en el botón que abrió el modal, lo que tipeás se pierde (y la barra espaciadora lo reabre).
-  setTimeout(() => $('#modal [autofocus], #modal input:not([type=hidden]):not([type=checkbox]):not([type=range]), #modal textarea')?.focus(), 0)
+  setTimeout(() => $('#modal [autofocus], #modal input:not([type=hidden]):not([type=checkbox]):not([type=range]):not([data-sin-foco]), #modal textarea:not([data-sin-foco])')?.focus(), 0)
 }
 function cerrarModal() {
   $('#velo').hidden = true

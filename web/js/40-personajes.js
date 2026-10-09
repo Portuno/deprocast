@@ -93,7 +93,7 @@ const fmtSemana = (d) => `${new Date(`${d.desde}T12:00:00`).toLocaleDateString('
 
 function montarMisionesVida() {
   $('#principal').innerHTML = `
-    <div class="titulo"><h1>Misiones</h1><p>Tu misión principal, las primarias de la semana, tus side quests y lo que les encargaste a otros. Lo que propone Mastropiero aparece como sugerencia: vos decidís.</p>
+    <div class="cabecera"><div class="cabecera-texto"><h1>Misiones</h1><p>La principal, las de la semana y lo que encargaste.</p></div>
       <div class="fila"><button class="btn" id="mi-procesar" title="Lee tu memoria y tu material propio y propone historia, inventario, candidatas a misión principal y primarias">Procesarme</button></div></div>
     <details class="panel" id="mi-rinde"><summary><b>Cómo rendís</b> <span class="tenue">según tus runs: franjas, largo de bandas y días (lo usa la próxima run)</span></summary><div id="mi-rinde-cuerpo"></div></details>
     <div id="mis"></div>`
@@ -140,7 +140,7 @@ async function traerMisiones() {
     const prim = (m) => `<div class="prim ${m.estado}" data-mid="${m.id}">
       <div class="p-top">${m.categoria ? `<span class="tipo-chip">${esc(m.categoria)}</span>` : ''}${m.estado === 'sugerida' ? '<span class="nivel-badge">sugerida</span>' : m.estado !== 'activa' ? `<span class="tipo-chip">${esc(m.estado)}</span>` : ''}</div>
       <h3>${esc(m.titulo)}</h3>
-      ${m.detalle ? `<p>${esc(m.detalle)}</p>` : ''}
+      ${m.detalle ? `<p class="recorte">${esc(m.detalle)}</p>` : ''}
       ${m.entidadId ? `<a href="#" class="ref" data-ref-ent="${m.entidadId}">ver el proyecto</a>` : ''}
       ${m.estado === 'sugerida'
         ? `<div class="fila p-acc"><button class="btn btn-chico btn-primario" data-m-estado="activa">Aceptar</button><button class="btn btn-chico" data-m-editar>Cambiar</button><button class="btn btn-chico" data-m-estado="descartada">Descartar</button></div>`
@@ -152,8 +152,8 @@ async function traerMisiones() {
     cont.innerHTML = `
       <section class="panel mi-principal">
         <small>Misión principal</small>
-        ${d.principal ? `<h2>◎ ${esc(d.principal.titulo)}</h2>${d.principal.detalle ? `<p>${esc(d.principal.detalle)}</p>` : ''}` : '<h2 class="tenue">Sin fijar</h2><p class="tenue">Tu objetivo de vida, en una frase. Solo vos la fijás.</p>'}
-        ${d.candidatas.length ? `<div class="candidatas"><small>Mastropiero sugiere:</small>${d.candidatas.map((c) => `<div class="fila"><span>${esc(c.titulo)}${c.detalle ? ` <small class="tenue">— ${esc(c.detalle)}</small>` : ''}</span><button class="btn btn-chico" data-elegir="${c.id}">Elegir esta</button></div>`).join('')}</div>` : ''}
+        ${d.principal ? `<h2>◎ ${esc(d.principal.titulo)}</h2>${d.principal.detalle ? `<p class="recorte">${esc(d.principal.detalle)}</p>` : ''}` : '<h2 class="tenue">Sin fijar</h2><p class="tenue">Tu objetivo de vida, en una frase. Solo vos la fijás.</p>'}
+        ${d.candidatas.length ? `<div class="candidatas"><small>Mastropiero sugiere:</small>${d.candidatas.map((c) => `<div class="fila"><span class="cand-txt"><b>${esc(c.titulo)}</b>${c.detalle ? `<small class="tenue recorte una">${esc(c.detalle)}</small>` : ''}</span><button class="btn btn-chico" data-elegir="${c.id}">Elegir esta</button></div>`).join('')}</div>` : ''}
         <div class="fila"><button class="btn btn-chico" id="mi-fijar">${d.principal ? 'Cambiar' : 'Fijarla'}</button></div>
       </section>
       <div class="mi-semana-cab">
@@ -274,6 +274,23 @@ function engancharMisiones(cont, d) {
     if (!quien || !que) return toast('Decime quién y qué', 'error')
     try { await api('/misiones', { asignarA: quien, titulo: que, vence: $('#ot-vence').value || null }); await recargar() } catch (e) { error(e) }
   }
+  engancharRecortes(cont)
+}
+
+function engancharRecortes(raiz) {
+  $$('.recorte:not(.una)', raiz).forEach((p) => {
+    const largo = (p.textContent || '').trim().length > 140
+    if (!largo && p.scrollHeight <= p.clientHeight + 2) return
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.className = 'btn-link'
+    b.textContent = 'ver más'
+    b.onclick = () => {
+      const abierto = p.classList.toggle('abierto')
+      b.textContent = abierto ? 'ver menos' : 'ver más'
+    }
+    p.after(b)
+  })
 }
 
 function modalMision(m, luego) {
@@ -310,7 +327,7 @@ let jugTab = 'historia'
 
 function montarJugador() {
   $('#principal').innerHTML = `
-    <div class="titulo"><h1 id="j-nombre">Jugador</h1><p>Tu ficha de personaje: tu historia, tu inventario y lo que Mastropiero sabe de vos. Se escribe sola con lo que le contás; acá la corregís.</p>
+    <div class="cabecera"><div class="cabecera-texto"><h1 id="j-nombre">Jugador</h1><p>Tu historia y lo que Mastropiero sabe de vos.</p></div>
       <div class="fila"><button class="btn" id="j-procesar" title="Lee tu memoria y tu material propio y propone historia, inventario, candidatas a misión principal y primarias">Procesarme</button></div></div>
     <div class="tabs" id="j-tabs">${[['historia', 'Historia'], ['inventario', 'Inventario'], ['memoria', 'Memoria'], ['bitacora', 'Bitácora'], ['plata', 'Plata']].map(([k, n]) => `<button data-tab="${k}" class="${jugTab === k ? 'on' : ''}">${n}</button>`).join('')}</div>
     <div id="j-cuerpo"></div>`
@@ -323,7 +340,7 @@ function montarJugador() {
     tabs: [jugTab],
     alCargar: (f) => {
       $('#j-nombre').textContent = f.personaje.nombre
-      const p = $('#principal .titulo p')
+      const p = $('#principal .cabecera p')
       if (p && f.personaje.entidadId) p.innerHTML += ` <a href="#" class="ref" data-ref-ent="${f.personaje.entidadId}">Tu entidad en el corpus</a>`
       else if (p && !f.personaje.entidadId) p.innerHTML += ' <span class="tenue">Todavía no sé cuál de las personas del corpus sos: buscate en Entidades y tocá «Soy yo».</span>'
     },
@@ -447,6 +464,13 @@ function refrescarJugador() {
 
 // Ficha de personaje: la misma para el jugador, las entidades, los agentes y Mastropiero
 
+function elementosHTML(xs) {
+  if (!xs?.length) return ''
+  const corte = 8
+  const mas = xs.length > corte
+  return `<div class="elementos"><small>Elementos</small><div class="elementos-chips${mas ? ' cerrado' : ''}">${xs.map((x, i) => `<span${i >= corte ? ' class="elementos-extra"' : ''}>${esc(x)}</span>`).join('')}${mas ? `<button type="button" class="btn btn-chico" data-elementos-mas data-n="${xs.length}">ver todos (${xs.length})</button>` : ''}</div></div>`
+}
+
 const TIPO_INV = { capital: 'Capital', conexion: 'Conexiones', presencia: 'Presencia digital', conocimiento: 'Conocimiento', herramienta: 'Herramientas', acceso: 'Accesos', recurso: 'Recursos' }
 const NIVEL_MIS = { principal: 'Principal', primaria: 'Primarias', secundaria: 'Secundarias', terciaria: 'Side quests' }
 
@@ -458,10 +482,10 @@ async function fichaPersonaje(cont, clave, { tabs = ['misiones', 'historia', 'in
   const h = f.historia
   const secciones = {
     historia: () => `<div class="ficha-sec">
-      ${h.sugerencia ? `<div class="sugerencia"><small>Mastropiero sugiere</small><p>${esc(h.sugerencia.texto)}</p>${h.sugerencia.elementos?.length ? `<div class="tags">${h.sugerencia.elementos.map((x) => `<span>${esc(x)}</span>`).join('')}</div>` : ''}
+      ${h.sugerencia ? `<div class="sugerencia"><small>Mastropiero sugiere</small><p>${esc(h.sugerencia.texto)}</p>${elementosHTML(h.sugerencia.elementos)}
         <div class="fila"><button class="btn btn-chico btn-primario" data-hist="aceptar">Aceptar</button><button class="btn btn-chico" data-hist="descartar">Descartar</button></div></div>` : ''}
       ${h.texto ? `<div class="historia">${md(h.texto)}</div>` : h.derivada ? `<p class="tenue historia-derivada">${esc(h.derivada)}</p>` : `<p class="tenue">Sin historia todavía.${clave === 'jugador' ? ' «Procesarme» propone una a partir de lo que sabe de vos.' : ''}</p>`}
-      ${h.elementos?.length ? `<div class="tags">${h.elementos.map((x) => `<span>${esc(x)}</span>`).join('')}</div>` : ''}
+      ${elementosHTML(h.elementos)}
       <div class="fila" style="margin-top:8px"><button class="btn btn-chico" data-hist-editar>✎ Escribirla</button></div></div>`,
     inventario: () => {
       const porTipo = Object.keys(TIPO_INV).map((t) => [t, [...f.inventario.filter((i) => i.tipo === t), ...f.derivado.filter((i) => i.tipo === t).map((i) => ({ ...i, derivado: true }))]]).filter(([, xs]) => xs.length)
@@ -495,6 +519,10 @@ async function fichaPersonaje(cont, clave, { tabs = ['misiones', 'historia', 'in
   }
   cont.innerHTML = `${tabs.length > 1 ? `<div class="tabs chicas">${tabs.map((t) => `<button data-ftab="${t}" class="${t === tab ? 'on' : ''}">${{ historia: 'Historia', inventario: 'Inventario', misiones: 'Misiones' }[t]}</button>`).join('')}</div>` : ''}${secciones[tab]()}`
   $$('[data-ftab]', cont).forEach((b) => (b.onclick = () => fichaPersonaje(cont, clave, { tabs, tab: b.dataset.ftab, alCargar })))
+  $$('[data-elementos-mas]', cont).forEach((b) => (b.onclick = () => {
+    const cerrado = b.parentElement.classList.toggle('cerrado')
+    b.textContent = cerrado ? `ver todos (${b.dataset.n})` : 'ver menos'
+  }))
   const k = encodeURIComponent(clave)
   const accion = async (fn) => { try { await fn(); await refrescar(); otra() } catch (e) { error(e) } }
   $$('[data-hist]', cont).forEach((b) => (b.onclick = () => accion(() => api(`/personajes/${k}/historia/${b.dataset.hist}`, {}))))

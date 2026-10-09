@@ -7,7 +7,7 @@ let perSolo = 'todas'
 
 function montarPersonas() {
   $('#principal').innerHTML = `
-    <div class="titulo"><h1>Personas</h1><p>Tu gente. Definí el vínculo y cada cuánto querés saber de cada una: Mastropiero te avisa cuando se pasa (nunca en reuniones). El último contacto se deduce de lo que cargás y de lo que le contás; también lo podés marcar a mano.</p>
+    <div class="cabecera"><div class="cabecera-texto"><h1>Personas</h1><p>Tu gente, el vínculo y cada cuánto querés saber de cada una.</p></div>
       <div class="fila"><input id="per-q" placeholder="Buscar…" value="${esc(perFiltro)}">
         <select id="per-solo"><option value="todas">Todas</option><option value="definidas">Con relación definida</option><option value="vencidas">A contactar</option></select></div></div>
     <div id="per-puentes"></div>
@@ -25,10 +25,11 @@ async function pintarPuentes() {
   if (!cont) return
   let ps
   try { ps = await api('/puentes') } catch { return }
-  cont.innerHTML = `<div class="bloque"><div class="fila"><h3 style="margin:0">🌉 Puentes</h3><span class="tenue" style="flex:1">A quiénes presentar entre sí y con quién retomar, con un motivo real. Nada se manda solo.</span><button class="btn btn-chico" id="pu-proponer">Proponer puentes</button></div>
-    ${ps.map((p) => `<div class="per" data-puente="${p.id}"><div class="per-cab"><span class="chip">${p.tipo === 'presentar' ? 'presentar' : 'retomar'}</span><b>${p.personas.map((x) => `<a href="#" class="ref" data-ref-ent="${x.id}">${esc(x.nombre)}</a>`).join(' ↔ ')}</b></div>
+  const tarjetas = ps.map((p) => `<div class="per" data-puente="${p.id}"><div class="per-cab"><span class="chip">${p.tipo === 'presentar' ? 'presentar' : 'retomar'}</span><b>${p.personas.map((x) => `<a href="#" class="ref" data-ref-ent="${x.id}">${esc(x.nombre)}</a>`).join(' ↔ ')}</b></div>
       <div>${esc(p.motivo)}</div>${p.mensaje ? `<details><summary class="tenue">Borrador</summary><p>${esc(p.mensaje)}</p><button class="btn btn-chico" data-copiar>Copiar</button></details>` : ''}
-      <div class="fila"><button class="btn btn-chico" data-hecho>Hecho</button><button class="btn btn-chico" data-descartar>Descartar</button></div></div>`).join('') || '<p class="tenue">Ninguno pendiente.</p>'}</div>`
+      <div class="fila"><button class="btn btn-chico" data-hecho>Hecho</button><button class="btn btn-chico" data-descartar>Descartar</button></div></div>`).join('')
+  cont.innerHTML = `<div class="puentes"><div class="puentes-cab"><div><h3>Puentes</h3><p>A quién presentar o con quién retomar. Nada se manda solo.</p></div><button class="btn btn-chico" id="pu-proponer">Proponer puentes</button></div>
+    <div class="puentes-lista">${tarjetas || '<p class="tenue">Ninguno pendiente.</p>'}</div></div>`
   $('#pu-proponer').onclick = async (e) => { e.target.disabled = true; e.target.textContent = 'Mirando tu gente…'; try { await api('/puentes', {}); pintarPuentes() } catch (err) { error(err); e.target.disabled = false; e.target.textContent = 'Proponer puentes' } }
   $$('[data-puente]', cont).forEach((el) => {
     const p = ps.find((x) => x.id === Number(el.dataset.puente))
@@ -54,7 +55,7 @@ async function refrescarPersonas() {
       <div class="tenue">${p.ultimoContacto ? `Último contacto: ${esc(p.ultimoContacto)} (hace ${p.diasSinContacto} d)` : 'Sin contacto registrado'}${p.cadaDias ? ` · quería cada ${p.cadaDias} d` : ''} · ${p.menciones} piezas</div>
       ${p.proxima ? `<div>Próximo: ${esc(p.proxima)}</div>` : ''}
       ${p.misiones.length ? `<div class="tenue">Le asignaste: ${p.misiones.map((m) => esc(m.titulo)).join(' · ')}</div>` : ''}
-      ${p.notas ? `<div class="tenue">${esc(p.notas)}</div>` : ''}
+      ${p.notas ? `<div class="tenue recorte">${esc(p.notas)}</div>` : ''}
       <div class="fila"><button class="btn btn-chico" data-contacto>Hablamos hoy</button><button class="btn btn-chico" data-editar>Editar</button></div>
     </div>`).join('')
   $$('.per', cont).forEach((el) => {

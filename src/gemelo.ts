@@ -31,6 +31,13 @@ export function prediccionesDe(db: Db, fecha: string): Prediccion[] {
   return db.prepare('SELECT * FROM predicciones WHERE fecha = ? ORDER BY id').all(fecha).map(deFila)
 }
 
+/** Las que quedaron para que él diga sí, no, o agregue info. De los últimos días, la más vieja primero. */
+export function paraElJugador(db: Db, dias = 14, hasta = fechaLocal()): Prediccion[] {
+  const [a, mo, d] = hasta.split('-').map(Number)
+  const desde = fechaLocal(new Date(a, mo - 1, d - (dias - 1)).getTime())
+  return db.prepare(`SELECT * FROM predicciones WHERE estado = 'para_el_jugador' AND fecha >= ? AND fecha <= ? ORDER BY fecha, id`).all(desde, hasta).map(deFila)
+}
+
 const inicioDia = (fecha: string) => new Date(`${fecha}T00:00:00`).getTime()
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
 
@@ -113,17 +120,16 @@ const SISTEMA_PREDECIR = `Sos el gemelo predictivo del jugador: Mastropiero pred
 - «texto» en una oración, en tercera persona, concreta («Va a hacer al menos 6 bandas antes de las 12»).
 Forma: {"predicciones": [{"texto": string, "probabilidad": number, "tipo": string, "criterio": object | null}]}`
 
-/** Predice el día (si ya hay predicciones de ese día, no las repite). */
-export async function predecirDia(db: Db, fecha = fechaLocal(), ahora = Date.now()): Promise<Prediccion[]> {
-  const ya = prediccionesDe(db, fecha)
-  if (ya.length) return ya
+const fechaValida = (f: string) => /^\d{4}-\d{2}-\d{2}$/.test(f)
+
+async function contextoDelDia(db: Db, fecha: string, ahora: number): Promise<string> {
   const { eventos } = await agendaDelDia(fecha).catch(() => ({ eventos: [] as { titulo: string; inicio: number; todoElDia: boolean }[] }))
   const primarias = conAvance(db, listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana: semanaDe(ahora), estados: ['activa'] }))
   const runs = listarRuns(db, { fecha, estados: ['propuesta', 'en_curso'] })
   const historia = curva(db, fecha, 14)
   const errores = (db.prepare(`SELECT texto, probabilidad, resultado FROM predicciones WHERE resultado IS NOT NULL ORDER BY id DESC LIMIT 20`).all() as any[])
     .map((p) => `- «${p.texto}» (${Math.round(p.probabilidad * 100)}%) → ${p.resultado ? 'pasó' : 'no pasó'}`)
-  const usuario = [
+  return [
     `Hoy: ${new Date(`${fecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}.`,
     eventos.length ? `Su agenda: ${eventos.map((e) => `${e.todoElDia ? 'todo el día' : new Date(e.inicio).toTimeString().slice(0, 5)} ${e.titulo}`).join(' · ')}` : 'Agenda vacía.',
     runs.length ? `Runs propuestas para hoy: ${runs.map((r) => `${r.inicio}–${r.fin}, ${misionesDeRun(db, r.id).length} bandas`).join(' · ')}` : 'No tiene run propuesta.',
@@ -133,15 +139,63 @@ export async function predecirDia(db: Db, fecha = fechaLocal(), ahora = Date.now
     errores.length ? `Tus últimas predicciones calificadas:\n${errores.join('\n')}` : '',
     `Lo que sabés de él:\n${memoriaParaPrompt(db, 60)}`,
   ].filter(Boolean).join('\n')
-  const { datos } = await pedirJson<{ predicciones?: any[] }>({ db, clase: 'mastropiero', agenteId: 'gemelo' }, SISTEMA_PREDECIR, usuario, { temperatura: 0.5, maxTokens: 2500 })
+}
+
+function guardarPredicciones(db: Db, fecha: string, lista: any[], ahora: number, tope: number, ya: Prediccion[] = []) {
+  const tengo = new Set(ya.map((p) => norm(p.texto)))
   const alta = db.prepare(`INSERT INTO predicciones (fecha, texto, probabilidad, tipo, criterio, estado, creada_en) VALUES (?, ?, ?, ?, ?, 'abierta', ?)`)
-  for (const p of (datos.predicciones ?? []).slice(0, 8)) {
+  for (const p of lista.slice(0, tope)) {
     if (typeof p?.texto !== 'string' || !p.texto.trim()) continue
+    const texto = p.texto.trim().slice(0, 300)
+    if (tengo.has(norm(texto))) continue
+    tengo.add(norm(texto))
     const prob = Math.min(0.97, Math.max(0.03, Number(p.probabilidad) || 0.5))
     const c = criterioValido(p.criterio)
-    alta.run(fecha, p.texto.trim().slice(0, 300), prob, String(p.tipo ?? 'otro').slice(0, 30), c ? JSON.stringify(c) : null, ahora)
+    alta.run(fecha, texto, prob, String(p.tipo ?? 'otro').slice(0, 30), c ? JSON.stringify(c) : null, ahora)
   }
+}
+
+/** Predice el día (si ya hay predicciones de ese día, no las repite). */
+export async function predecirDia(db: Db, fecha = fechaLocal(), ahora = Date.now()): Promise<Prediccion[]> {
+  const ya = prediccionesDe(db, fecha)
+  if (ya.length) return ya
+  const usuario = await contextoDelDia(db, fecha, ahora)
+  const { datos } = await pedirJson<{ predicciones?: any[] }>({ db, clase: 'mastropiero', agenteId: 'gemelo' }, SISTEMA_PREDECIR, usuario, { temperatura: 0.5, maxTokens: 2500 })
+  guardarPredicciones(db, fecha, datos.predicciones ?? [], ahora, 8)
   return prediccionesDe(db, fecha)
+}
+
+const SISTEMA_SUMAR = `Sos el gemelo predictivo del jugador y SUMÁS predicciones nuevas sobre un día que ya está en curso.
+- Entre 2 y 4 predicciones NUEVAS: no repitas las que ya están. Si él te pasó una pista, predecí en base a eso.
+- «probabilidad» de 0 a 1 bien calibrada (si dudás, cerca de 0,5; nada de 0 ni 1).
+- Si se puede verificar con datos, agregá «criterio» con los mismos tipos de siempre (bandas_hechas, run_arrancada, primaria_avanza, habla_de, directo_prendido). Si no, criterio null.
+- «texto» en una oración, en tercera persona, concreta.
+Forma: {"predicciones": [{"texto": string, "probabilidad": number, "tipo": string, "criterio": object | null}]}`
+
+/** Suma predicciones a un día que ya tiene (o arranca el día si no tiene ninguna). La pista es lo que él cuenta de ese día. */
+export async function sumarPredicciones(db: Db, fecha = fechaLocal(), pista?: string | null, ahora = Date.now()): Promise<Prediccion[]> {
+  if (!fechaValida(fecha)) throw new Error('Fecha inválida')
+  const ya = prediccionesDe(db, fecha)
+  const pistaLimpia = pista?.trim().slice(0, 800) || ''
+  if (!ya.length && !pistaLimpia) return predecirDia(db, fecha, ahora)
+  const usuario = [
+    await contextoDelDia(db, fecha, ahora),
+    ya.length ? `Ya predijiste esto, no lo repitas:\n${ya.map((p) => `- ${p.texto}`).join('\n')}` : '',
+    pistaLimpia ? `El jugador suma esto sobre el día. Predicí en base a eso:\n${pistaLimpia}` : 'Sumá predicciones nuevas sobre lo que queda del día.',
+  ].filter(Boolean).join('\n\n')
+  const { datos } = await pedirJson<{ predicciones?: any[] }>({ db, clase: 'mastropiero', agenteId: 'gemelo' }, SISTEMA_SUMAR, usuario, { temperatura: 0.5, maxTokens: 1800 })
+  guardarPredicciones(db, fecha, datos.predicciones ?? [], ahora, 4, ya)
+  return prediccionesDe(db, fecha)
+}
+
+/** Una predicción que manda él, sobre un día concreto. A la noche se califica como las otras. */
+export function anotarPrediccion(db: Db, fecha: string, texto: string, probabilidad = 0.55, ahora = Date.now()): Prediccion {
+  if (!fechaValida(fecha)) throw new Error('Fecha inválida')
+  const t = texto.trim().replace(/\s+/g, ' ')
+  if (t.length < 3) throw new Error('La predicción es muy corta')
+  const prob = Math.min(0.97, Math.max(0.03, Number(probabilidad) || 0.55))
+  const r = db.prepare(`INSERT INTO predicciones (fecha, texto, probabilidad, tipo, criterio, estado, creada_en, calificada_por) VALUES (?, ?, ?, 'jugador', null, 'abierta', ?, 'jugador')`).run(fecha, t.slice(0, 300), prob, ahora)
+  return deFila(db.prepare('SELECT * FROM predicciones WHERE id = ?').get(Number(r.lastInsertRowid)))
 }
 
 // ─── calificar ──────────────────────────────────────────────────────────
@@ -162,7 +216,7 @@ export async function calificarDia(db: Db, fecha = fechaLocal(), o: { ahora?: nu
   for (const p of ps) {
     const r = p.criterio ? verificar(p.criterio, ev) : null
     if (r == null) resto.push(p)
-    else upd.run(r, 'calificada', 'datos', null, ahora, p.id)
+    else upd.run(r, 'calificada', 'datos', p.nota, ahora, p.id)
   }
   let aprendizajes: string[] = []
   if (resto.length && o.conModelo !== false) {
@@ -176,12 +230,13 @@ export async function calificarDia(db: Db, fecha = fechaLocal(), o: { ahora?: nu
     ].filter(Boolean).join('\n')
     try {
       const { datos } = await pedirJson<{ calificaciones?: any[]; aprendizajes?: string[] }>({ db, clase: 'mastropiero', agenteId: 'gemelo' }, SISTEMA_CALIFICAR,
-        `Predicciones:\n${resto.map((p) => `#${p.id} «${p.texto}» (${Math.round(p.probabilidad * 100)}%)`).join('\n')}\n\nEvidencia del día:\n${evText}`, { temperatura: 0.2, maxTokens: 2000 })
+        `Predicciones:\n${resto.map((p) => `#${p.id} «${p.texto}» (${Math.round(p.probabilidad * 100)}%)${p.nota ? ` · él anotó: ${p.nota}` : ''}`).join('\n')}\n\nEvidencia del día:\n${evText}`, { temperatura: 0.2, maxTokens: 2000 })
       for (const c of datos.calificaciones ?? []) {
         const p = resto.find((x) => x.id === Number(c?.id))
         if (!p) continue
-        if (c.resultado === 1 || c.resultado === 0) upd.run(c.resultado, 'calificada', 'mastropiero', typeof c.nota === 'string' ? c.nota.slice(0, 300) : null, ahora, p.id)
-        else upd.run(null, 'para_el_jugador', null, typeof c.nota === 'string' ? c.nota.slice(0, 300) : null, ahora, p.id)
+        const notaModelo = typeof c.nota === 'string' ? c.nota.slice(0, 300) : null
+        if (c.resultado === 1 || c.resultado === 0) upd.run(c.resultado, 'calificada', 'mastropiero', p.nota || notaModelo, ahora, p.id)
+        else upd.run(null, 'para_el_jugador', null, p.nota || notaModelo, ahora, p.id)
       }
       aprendizajes = (datos.aprendizajes ?? []).filter((x) => typeof x === 'string' && x.trim()).slice(0, 2)
       for (const a of aprendizajes) recordar(db, { texto: a, tipo: 'preferencia', creadaPor: 'gemelo' }, ahora)
@@ -195,12 +250,27 @@ export async function calificarDia(db: Db, fecha = fechaLocal(), o: { ahora?: nu
   return { predicciones: todas, brier: b, conocimiento: conocimiento(b), aprendizajes }
 }
 
-/** Él califica lo que el gemelo no pudo: ✓ pasó, ✗ no pasó. */
-export function calificarAMano(db: Db, id: number, paso: boolean, ahora = Date.now()): Prediccion {
-  const r = db.prepare('SELECT * FROM predicciones WHERE id = ?').get(id)
-  if (!r) throw new Error(`No existe la predicción ${id}`)
-  db.prepare(`UPDATE predicciones SET resultado = ?, estado = 'calificada', calificada_por = 'jugador', calificada_en = ? WHERE id = ?`).run(paso ? 1 : 0, ahora, id)
-  return deFila(db.prepare('SELECT * FROM predicciones WHERE id = ?').get(id))
+/**
+ * Él cierra lo que el gemelo no pudo.
+ * paso true/false marca si pasó; null solo agrega info (la nota queda, el estado no cambia).
+ * Una nota con sustancia entra a la memoria para que el día siguiente prediga con eso.
+ */
+export function calificarAMano(db: Db, idPred: number, paso: boolean | null, nota?: string | null, ahora = Date.now()): Prediccion {
+  const r = db.prepare('SELECT * FROM predicciones WHERE id = ?').get(idPred)
+  if (!r) throw new Error(`No existe la predicción ${idPred}`)
+  const notaLimpia = typeof nota === 'string' && nota.trim() ? nota.trim().replace(/\s+/g, ' ').slice(0, 500) : null
+  if (paso == null) {
+    if (!notaLimpia) throw new Error('Decime si pasó, o agregá qué pasó')
+    db.prepare('UPDATE predicciones SET nota = ? WHERE id = ?').run(notaLimpia, idPred)
+  } else {
+    db.prepare(`UPDATE predicciones SET resultado = ?, estado = 'calificada', calificada_por = 'jugador', calificada_en = ?, nota = COALESCE(?, nota) WHERE id = ?`)
+      .run(paso ? 1 : 0, ahora, notaLimpia, idPred)
+  }
+  const hecha = deFila(db.prepare('SELECT * FROM predicciones WHERE id = ?').get(idPred))
+  if (notaLimpia && notaLimpia.length >= 8) {
+    recordar(db, { texto: `Sobre «${hecha.texto}» (${hecha.fecha}): ${notaLimpia}`.slice(0, 400), tipo: 'hecho', creadaPor: 'jugador', revisada: true, fecha: hecha.fecha }, ahora)
+  }
+  return hecha
 }
 
 /** El texto que deja en Hoy a la noche. */

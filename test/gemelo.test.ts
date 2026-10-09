@@ -5,7 +5,7 @@ import { _probarModelo } from '../src/modelo.ts'
 import { _probarCalendario } from '../src/calendario.ts'
 import { crearConversacion } from '../src/chat/index.ts'
 import { actualizarMision, arrancarRun, crearMision, marcarSecundaria, misionesDeRun, prepararRun } from '../src/misiones.ts'
-import { brier, calificarAMano, calificarDia, conocimiento, curva, predecirDia, prediccionesDe } from '../src/gemelo.ts'
+import { anotarPrediccion, brier, calificarAMano, calificarDia, conocimiento, curva, paraElJugador, predecirDia, prediccionesDe, sumarPredicciones } from '../src/gemelo.ts'
 
 process.env.GCAL_ICS_URLS = 'https://calendario.falso/ics'
 _probarCalendario(async () => 'BEGIN:VCALENDAR\r\nEND:VCALENDAR')
@@ -25,6 +25,10 @@ test('el gemelo predice (sellado), se califica solo con datos y con evidencia, y
   const p = crearMision(db, { nivel: 'primaria', titulo: 'Escribir el reglamento', estado: 'activa' }, { ahora: T })
   _probarModelo(async (_l, o) => {
     const s = String(o.mensajes[0].content)
+    if (s.includes('SUMÁS')) return { texto: JSON.stringify({ predicciones: [
+      { texto: 'Va a escribirle a Federico', probabilidad: 0.4, tipo: 'charla', criterio: null },
+      { texto: 'Va a hacer al menos 2 bandas', probabilidad: 0.5, tipo: 'bandas', criterio: null },
+    ] }), llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }
     if (s.includes('gemelo predictivo')) return { texto: JSON.stringify({ predicciones: [
       { texto: 'Va a hacer al menos 2 bandas', probabilidad: 0.8, tipo: 'bandas', criterio: { tipo: 'bandas_hechas', op: '>=', valor: 2 } },
       { texto: 'Va a mover el reglamento', probabilidad: 0.6, tipo: 'primaria', criterio: { tipo: 'primaria_avanza', primaria: 'Escribir el reglamento' } },
@@ -63,6 +67,7 @@ test('el gemelo predice (sellado), se califica solo con datos y con evidencia, y
   assert.equal(por['Va a prender el Directo'].resultado, 0)
   assert.equal(por['Va a terminar el día cansado'].calificadaPor, 'mastropiero')
   assert.equal(por['Va a soñar con dragones'].estado, 'para_el_jugador')
+  assert.equal(paraElJugador(db, 14, '2026-10-07').some((x) => x.id === por['Va a soñar con dragones'].id), true)
   calificarAMano(db, por['Va a soñar con dragones'].id, false)
   assert.equal(prediccionesDe(db, '2026-10-07').filter((x) => x.resultado == null).length, 0)
   const cv = curva(db, '2026-10-07', 3)
@@ -70,4 +75,17 @@ test('el gemelo predice (sellado), se califica solo con datos y con evidencia, y
   assert.equal(cv.total, 0, 'el 97% a los dragones lo hunde: peor que una moneda')
   assert.ok(Math.abs(cv.puntos.at(-1)!.brier! - 0.2935) < 0.001)
   assert.ok(db.prepare(`SELECT 1 FROM memoria WHERE texto LIKE 'Suele terminar%'`).get(), 'lo aprendido va a la memoria')
+
+  const sumadas = await sumarPredicciones(db, '2026-10-07', 'hoy escribe', T)
+  assert.equal(sumadas.length, 7, 'suma la nueva y no repite la de las bandas')
+  assert.ok(sumadas.some((x) => x.texto === 'Va a escribirle a Federico'))
+  const mia = anotarPrediccion(db, '2026-10-07', 'Va a mandar el presupuesto', 0.66, T)
+  assert.equal(mia.tipo, 'jugador')
+  assert.equal(mia.probabilidad, 0.66)
+  const conNota = calificarAMano(db, mia.id, null, 'Lo mandó a la tarde, con un anexo')
+  assert.equal(conNota.resultado, null)
+  assert.equal(conNota.estado, 'abierta')
+  assert.match(conNota.nota ?? '', /anexo/)
+  assert.ok(db.prepare(`SELECT 1 FROM memoria WHERE texto LIKE '%anexo%'`).get(), 'la info entra a la memoria')
+  assert.equal(calificarAMano(db, mia.id, true).resultado, 1)
 })

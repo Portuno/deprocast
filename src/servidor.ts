@@ -32,12 +32,12 @@ import { listarRecomendaciones, recomendar, resolverRecomendacion } from './ment
 import { listarPuentes, proponerPuentes, resolverPuente } from './puentes.ts'
 import { aCsv, agregarObra, conteos as conteosLibreria, editarObra, listarObras, poblando, poblarLibreria } from './libreria.ts'
 import { aplicarForja, descartarForja, forjarMejora, leerForja, listarForjas } from './fragua.ts'
-import { borrarCuaderno, charla, crearCuaderno, guia, haciendo, leerCuaderno, listarCuadernos, notas, preguntar, quitarFuente, sumarFuentes } from './cuadernos.ts'
+import { borrarCuaderno, charla, componentesDeEntidad, crearCuaderno, guia, haciendo, leerCuaderno, listarCuadernos, notas, preguntar, quitarFuente, sumarFuentes } from './cuadernos.ts'
 import { buscarHibrido, estadoVectores, nivelesDe, vectorizarPendientes } from './semantica.ts'
 import { editarMovimiento, importarCSV, listarMovimientos, registrarMovimiento, resumenMes } from './finanzas.ts'
 import { buscarOportunidades, listarOportunidades, marcarOportunidad, redactarOportunidad } from './radar.ts'
 import { cuotas, hayBuscadorWeb } from './web.ts'
-import { calificarAMano, calificarDia, curva, predecirDia, prediccionesDe, textoDeCalificacion } from './gemelo.ts'
+import { anotarPrediccion, calificarAMano, calificarDia, curva, paraElJugador, predecirDia, prediccionesDe, sumarPredicciones, textoDeCalificacion } from './gemelo.ts'
 import { cerrarDirecto, iniciarDirecto, latidoDirecto, leerSesion, listarSesiones, momentos as momentosDirecto, registrarAudio, registrarCuadro, sesionActiva } from './directo.ts'
 import { encolarPregunta, generandoPreguntas, generarPreguntas, listarPreguntas, reponerPreguntas, responderPregunta, siguientePregunta } from './preguntas.ts'
 import { aportes, ayudantesDe, pedirAportes, quitarAyudante, sumarAyudante } from './ayudantes.ts'
@@ -504,14 +504,19 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/radar\/(\d+)\/borrador$/, async (b, [o]) => redactarOportunidad(db, id(o), b.pedido || null)],
   ['GET', /^\/api\/gemelo$/, (_, __, q) => {
     const fecha = q.get('fecha') || fechaLocal()
-    return { fecha, predicciones: prediccionesDe(db, fecha), curva: curva(db, fecha, 21), ayer: prediccionesDe(db, fechaLocal(Date.now() - 86_400_000)) }
+    return { fecha, predicciones: prediccionesDe(db, fecha), curva: curva(db, fecha, 21), ayer: prediccionesDe(db, fechaLocal(Date.now() - 86_400_000)), pendientes: paraElJugador(db) }
   }],
   ['POST', /^\/api\/gemelo\/predecir$/, async (b) => predecirDia(db, b.fecha || fechaLocal())],
+  ['POST', /^\/api\/gemelo\/sumar$/, async (b) => sumarPredicciones(db, b.fecha || fechaLocal(), b.pista || null)],
+  ['POST', /^\/api\/gemelo\/nueva$/, (b) => anotarPrediccion(db, b.fecha || fechaLocal(), String(b.texto ?? ''), b.probabilidad)],
   ['POST', /^\/api\/gemelo\/calificar$/, async (b) => {
     const r = await calificarDia(db, b.fecha || fechaLocal())
     return { ...r, texto: textoDeCalificacion(r) }
   }],
-  ['POST', /^\/api\/gemelo\/(\d+)$/, (b, [p]) => calificarAMano(db, id(p), !!b.paso)],
+  ['POST', /^\/api\/gemelo\/(\d+)$/, (b, [p]) => {
+    const paso = b.paso === true || b.paso === 1 ? true : b.paso === false || b.paso === 0 ? false : null
+    return calificarAMano(db, id(p), paso, typeof b.nota === 'string' ? b.nota : null)
+  }],
   ['GET', /^\/api\/menciones$/, () => catalogo(db).map((m) => ({ k: m.clave, n: m.nombre, t: m.tipo, a: m.alias.slice(0, 8), p: m.piezas }))],
   ['POST', /^\/api\/entidades\/(\d+)$/, (b, [e]) => editarEntidad(db, id(e), { nombre: b.nombre, tipo: b.tipo, notas: b.notas, alias: Array.isArray(b.alias) ? b.alias : undefined, sumarAlias: b.sumarAlias })],
   ['POST', /^\/api\/entidades\/(\d+)\/fusionar$/, (b, [e]) => fusionarEntidades(db, id(e), (b.absorbe ?? []).map(Number))],
@@ -558,6 +563,7 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/duplicados$/, () => duplicadosProbables(db)],
   ['POST', /^\/api\/duplicados\/alias$/, (b) => ({ quitados: quitarAliasCruzados(db, (b.ids ?? []).map(Number)) })],
   ['POST', /^\/api\/duplicados\/no$/, (b) => (noSonLoMismo(db, (b.ids ?? []).map(Number)), { ok: true })],
+  ['GET', /^\/api\/entidades\/(\d+)\/componentes$/, (_, [e]) => componentesDeEntidad(db, id(e))],
   ['GET', /^\/api\/entidades\/(\d+)$/, (_, [e], q) => {
     const entidad = leerEntidad(db, id(e))
     if (!entidad) throw new Error(`No existe la entidad ${e}`)

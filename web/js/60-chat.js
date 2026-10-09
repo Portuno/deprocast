@@ -87,6 +87,7 @@ const hiloHTMLBase = () => `
   <div class="chat-hilo" id="hilo"><div class="chat-col" id="hilo-col"></div></div>
   <div class="chat-compositor">
     ${E.chatConModelo ? '' : '<div class="aviso aviso-modelo">Sin modelo: Mastropiero necesita NAN_API_KEY en .env para conversar.</div>'}
+    <div class="chat-acciones" id="chat-acciones" hidden></div>
     <form id="chat-form">
       <label class="btn btn-icono" id="chat-audio" title="Subir un audio: se transcribe y entra como lo que contás" hidden>🎙<input type="file" accept="audio/*" hidden id="chat-audio-in"></label>
       <textarea id="chat-txt" rows="1" placeholder="Escribile a Mastropiero…"></textarea><button class="btn btn-primario" id="chat-enviar">Enviar</button>
@@ -190,19 +191,46 @@ async function abrirConversacion(id) {
   } catch (e) { error(e) }
 }
 
+function sugerenciasDe(c) {
+  if (c?.modo === 'diario' || c?.modo === 'hoy') return []
+  if (c && c.con !== 'mastropiero') return SUGERENCIAS_AGENTE
+  return SUGERENCIAS_MASTRO
+}
+
+function ultimaRespuesta() {
+  for (let i = chat.mensajes.length - 1; i >= 0; i--) {
+    const m = chat.mensajes[i]
+    if (m.rol === 'asistente' && m.texto?.trim()) return m.texto
+  }
+  return ''
+}
+
 function pintarChat() {
   const c = chat.actual
   const q = quienEs(c ?? { con: 'mastropiero' })
-  $('#chat-cab').innerHTML = `<span class="avatar" style="--c:${q.color}">${q.glifo}</span><div><b>${esc(q.nombre)}</b><small>${esc(q.sub)}</small></div>
-    <div class="fila">${c ? `<button class="btn btn-chico" id="chat-archivar" title="Sacar de la lista">Archivar</button>` : ''}</div>`
+  const copiable = ultimaRespuesta()
+  $('#chat-cab').innerHTML = `<span class="avatar" style="--c:${q.color}">${q.glifo}</span><div class="chat-quien"><b>${esc(q.nombre)}</b><small>${esc(q.sub)}</small></div>
+    <div class="fila">${copiable ? '<button class="btn btn-chico" id="chat-copiar" type="button" title="Copiar la última respuesta">Copiar</button>' : ''}${c ? `<button class="btn btn-chico" id="chat-archivar" type="button" title="Sacar de la lista">Archivar</button>` : ''}</div>`
   const ar = $('#chat-archivar')
   if (ar) ar.onclick = async () => { await api(`/chat/${c.id}/archivar`, {}); chat.actual = null; await traerConversaciones(); pintarChat() }
+  const copiar = $('#chat-copiar')
+  if (copiar) copiar.onclick = async () => {
+    try { await navigator.clipboard.writeText(copiable); toast('Respuesta copiada', 'suave') } catch (e) { error(e) }
+  }
   $('#chat-txt').placeholder = c && c.con !== 'mastropiero' ? `Escribile a ${q.nombre}…` : 'Escribile a Mastropiero…'
   const col = $('#hilo-col')
-  $('#chat-audio').hidden = c?.modo !== 'diario'
+  const audio = $('#chat-audio')
+  if (audio) audio.hidden = c?.modo !== 'diario'
   if (c?.modo === 'diario') $('#chat-txt').placeholder = 'Contá lo que quieras…'
+  const sug = sugerenciasDe(c)
+  const hayHilo = chat.mensajes.some((m) => m.rol === 'operador' || m.rol === 'asistente')
+  const acc = $('#chat-acciones')
+  if (acc) {
+    acc.hidden = !hayHilo || !sug.length
+    acc.innerHTML = hayHilo ? sug.map((s) => `<button type="button" data-acc="${esc(s)}" ${chat.pensando ? 'disabled' : ''}>${esc(s)}</button>`).join('') : ''
+    $$('[data-acc]', acc).forEach((b) => (b.onclick = () => { if (chat.pensando) return; $('#chat-txt').value = b.dataset.acc; enviarChat() }))
+  }
   if (!c || !chat.mensajes.length) {
-    const sug = c?.modo === 'diario' || c?.modo === 'hoy' ? [] : c && c.con !== 'mastropiero' ? SUGERENCIAS_AGENTE : SUGERENCIAS_MASTRO
     const texto = c?.modo === 'diario'
       ? 'Un espacio para contar tus cosas, escrito o en audio (🎙). Mastropiero escucha y pregunta poco; lo que contás queda como tu voz en el corpus y alimenta lo que sabe de vos.'
       : c?.modo === 'hoy'

@@ -4,12 +4,14 @@
  * clave, preguntas) y una charla en audio entre dos voces para escucharla caminando.
  */
 import { type Db } from './db.ts'
-import { insertar, leerPieza, type Pieza } from './corpus.ts'
+import { insertar, leerPieza, listarPiezas, type Pieza } from './corpus.ts'
+import { leerEntidad } from './entidades.ts'
 import { llamarModelo, pedirJson } from './modelo.ts'
+import { leerQuantomo } from './quantomos.ts'
 import { leerPagina } from './web.ts'
 import { crearConversacion, type Artefacto } from './taller.ts'
 
-export type Cuaderno = { id: number; titulo: string; descripcion: string | null; creadoEn: number; fuentes: { id: number; titulo: string; nivel: string; largo: number }[] }
+export type Cuaderno = { id: number; titulo: string; descripcion: string | null; creadoEn: number; fuentes: { id: number; titulo: string; nivel: string; largo: number; esQuantomo: boolean }[] }
 export type Nota = { id: number; tipo: 'respuesta' | 'guia' | 'audio'; pregunta: string | null; texto: string; citas: Cita[]; artefactoId: number | null; creadaEn: number }
 export type Cita = { n: number; piezaId: number; titulo: string; extracto: string }
 
@@ -25,7 +27,8 @@ export function crearCuaderno(db: Db, titulo: string, descripcion: string | null
 export function leerCuaderno(db: Db, id: number): Cuaderno | null {
   const c = db.prepare('SELECT * FROM cuadernos WHERE id = ?').get(id) as any
   if (!c) return null
-  const fuentes = (db.prepare(`SELECT p.id, p.titulo, p.nivel, length(p.contenido) AS largo FROM cuaderno_fuentes f JOIN corpus p ON p.id = f.pieza_id WHERE f.cuaderno_id = ? ORDER BY f.rowid`).all(id) as any[])
+  const fuentes = (db.prepare(`SELECT p.id, p.titulo, p.nivel, length(p.contenido) AS largo, p.origen_id FROM cuaderno_fuentes f JOIN corpus p ON p.id = f.pieza_id WHERE f.cuaderno_id = ? ORDER BY f.rowid`).all(id) as any[])
+    .map((r) => ({ id: r.id, titulo: r.titulo, nivel: r.nivel, largo: r.largo, esQuantomo: String(r.origen_id ?? '').startsWith('quantomo:') }))
   return { id: c.id, titulo: c.titulo, descripcion: c.descripcion, creadoEn: c.creado_en, fuentes }
 }
 
@@ -41,10 +44,77 @@ export function borrarCuaderno(db: Db, id: number) {
   db.prepare('DELETE FROM cuadernos WHERE id = ?').run(id)
 }
 
-/** Suma fuentes: ids de piezas, un texto pegado (entra al corpus como tuyo) o una URL (se lee y entra como primaria). */
-export async function sumarFuentes(db: Db, id: number, f: { piezas?: number[]; texto?: { titulo?: string; contenido: string }; url?: string }): Promise<Cuaderno> {
+const TOPE_QUANTOMOS = 80
+const TOPE_PIEZAS = 40
+
+export type SumaFuentes = {
+  piezas?: number[]
+  texto?: { titulo?: string; contenido: string }
+  url?: string
+  /** Quántomos concretos: cada uno entra como fuente propia (el texto atómico), sin duplicar si ya se sumó. */
+  quantomos?: number[]
+  /** Con `todo`, suma las piezas o los quántomos de esa entidad (hasta un tope, los de más peso). */
+  entidad?: number
+  todo?: 'piezas' | 'quantomos' | 'ambos'
+}
+
+/** Lo que una entidad aporta al cuaderno: las piezas que la mencionan y los quántomos destilados de esas piezas. */
+export function componentesDeEntidad(db: Db, entidadId: number, topePiezas = 24, topeQuantomos = 40) {
+  const entidad = leerEntidad(db, entidadId)
+  if (!entidad) throw new Error(`No existe la entidad ${entidadId}`)
+  const piezas = piezasDeEntidad(db, entidadId, topePiezas)
+  const quantomos = quantomosDeEntidad(db, entidadId, topeQuantomos)
+  return {
+    entidad: { id: entidad.id, nombre: entidad.nombre, tipo: entidad.tipo },
+    piezas: piezas.piezas, piezasTotal: piezas.total,
+    quantomos: quantomos.quantomos, quantomosTotal: quantomos.total,
+  }
+}
+
+function piezasDeEntidad(db: Db, entidadId: number, limite: number) {
+  const { total, piezas } = listarPiezas(db, { entidad: entidadId, limite })
+  return { total, piezas: piezas.map((p) => ({ id: p.id, titulo: p.titulo, nivel: p.nivel })) }
+}
+
+function quantomosDeEntidad(db: Db, entidadId: number, limite: number) {
+  const donde = `q.etapa NOT IN ('superado', 'descartado') AND q.pieza_id IS NOT NULL
+    AND EXISTS (SELECT 1 FROM corpus c, json_each(c.entidades) j WHERE c.id = q.pieza_id AND j.value = ?)`
+  const total = (db.prepare(`SELECT COUNT(*) AS n FROM quantomos q WHERE ${donde}`).get(entidadId) as { n: number }).n
+  const filas = db.prepare(
+    `SELECT q.id, q.titulo, q.texto, q.etapa, q.peso, q.pieza_id AS piezaId FROM quantomos q WHERE ${donde} ORDER BY q.peso IS NULL, q.peso DESC, q.id DESC LIMIT ?`,
+  ).all(entidadId, limite) as { id: number; titulo: string | null; texto: string; etapa: string; peso: number | null; piezaId: number }[]
+  return { total, quantomos: filas }
+}
+
+/** El quántomo se vuelve una pieza citable. Si ya se sumó antes, se reutiliza. */
+function piezaDeQuantomo(db: Db, quantomoId: number): number | null {
+  const q = leerQuantomo(db, quantomoId)
+  if (!q || q.etapa === 'superado' || q.etapa === 'descartado') return null
+  const origen = `quantomo:${q.id}`
+  const ya = db.prepare('SELECT id FROM corpus WHERE origen_id = ?').get(origen) as { id: number } | undefined
+  if (ya) return ya.id
+  const padre = q.piezaId ? leerPieza(db, q.piezaId) : null
+  const titulo = (q.titulo?.trim() || q.texto.replace(/\s+/g, ' ').trim().slice(0, 90) || 'Quántomo')
+  const id = insertar(db, {
+    fuente: 'operador', nivel: padre?.nivel ?? 'propia', estado: 'disponible', titulo, contenido: q.texto.trim(),
+    etiquetas: ['cuaderno', 'quantomo'], entidades: padre?.entidades, origenId: origen,
+    datos: { quantomoId: q.id, piezaId: q.piezaId },
+  })
+  return id ?? (db.prepare('SELECT id FROM corpus WHERE origen_id = ?').get(origen) as { id: number } | undefined)?.id ?? null
+}
+
+/** Suma fuentes: piezas del corpus, un texto pegado, una URL, o quántomos (elegidos, o todos los de una entidad). */
+export async function sumarFuentes(db: Db, id: number, f: SumaFuentes): Promise<Cuaderno & { recorte?: string }> {
   if (!leerCuaderno(db, id)) throw new Error(`No existe el cuaderno ${id}`)
-  const ids: number[] = [...(f.piezas ?? [])]
+  const ids: number[] = [...(f.piezas ?? []).map(Number).filter((n) => n > 0)]
+  const recortes: string[] = []
+  if (f.entidad && (f.todo === 'piezas' || f.todo === 'ambos')) {
+    if (!leerEntidad(db, Number(f.entidad))) throw new Error(`No existe la entidad ${f.entidad}`)
+    const pack = piezasDeEntidad(db, Number(f.entidad), TOPE_PIEZAS)
+    if (!pack.piezas.length && f.todo === 'piezas') throw new Error('Esta entidad no tiene piezas para sumar')
+    if (pack.total > pack.piezas.length) recortes.push(`Sumé ${pack.piezas.length} de ${pack.total} piezas`)
+    ids.push(...pack.piezas.map((p) => p.id))
+  }
   if (f.texto?.contenido?.trim()) {
     // Directo al corpus, ya disponible: no dispara la pipeline de la liga.
     const p = insertar(db, { fuente: 'operador', nivel: 'propia', estado: 'disponible', titulo: f.texto.titulo?.trim() || `Nota para el cuaderno ${id}`, contenido: f.texto.contenido.trim(), etiquetas: ['cuaderno'] })
@@ -61,9 +131,27 @@ export async function sumarFuentes(db: Db, id: number, f: { piezas?: number[]; t
       if (p) ids.push(p)
     }
   }
+  const qIds = [...new Set((f.quantomos ?? []).map(Number).filter((n) => n > 0))]
+  if (f.entidad && (f.todo === 'quantomos' || f.todo === 'ambos')) {
+    if (!leerEntidad(db, Number(f.entidad))) throw new Error(`No existe la entidad ${f.entidad}`)
+    const pack = quantomosDeEntidad(db, Number(f.entidad), TOPE_QUANTOMOS)
+    if (!pack.quantomos.length && f.todo === 'quantomos' && !qIds.length) throw new Error('Esta entidad no tiene quántomos para sumar')
+    if (pack.total > pack.quantomos.length) recortes.push(`Sumé ${pack.quantomos.length} de ${pack.total} quántomos, los de más peso`)
+    for (const q of pack.quantomos) qIds.push(q.id)
+  }
+  const unicos = [...new Set(qIds)]
+  if (unicos.length) {
+    let sumados = 0
+    for (const q of unicos) {
+      const p = piezaDeQuantomo(db, q)
+      if (p) { ids.push(p); sumados++ }
+    }
+    if (!sumados) throw new Error('Esos quántomos no se pueden sumar')
+  }
   const ins = db.prepare('INSERT OR IGNORE INTO cuaderno_fuentes (cuaderno_id, pieza_id) VALUES (?, ?)')
   for (const p of ids) if (leerPieza(db, p)) ins.run(id, p)
-  return leerCuaderno(db, id)!
+  const cu = leerCuaderno(db, id)!
+  return recortes.length ? { ...cu, recorte: recortes.join('. ') } : cu
 }
 
 export function quitarFuente(db: Db, id: number, piezaId: number) {
