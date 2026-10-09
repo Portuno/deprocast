@@ -118,7 +118,7 @@ function exigirConfirmacion(a: { confirmado?: boolean }, que: string) {
 
 // ─── lineamientos ───────────────────────────────────────────────────────
 
-const RAIZ = path.resolve(import.meta.dirname, '..', '..')
+const RAIZ = [path.resolve(import.meta.dirname, '..', '..'), process.cwd()].find((d) => fs.existsSync(path.join(d, 'README.md'))) ?? path.resolve(import.meta.dirname, '..', '..')
 
 export function lineamientos(seccion?: string) {
   const readme = fs.existsSync(path.join(RAIZ, 'README.md')) ? fs.readFileSync(path.join(RAIZ, 'README.md'), 'utf8') : ''

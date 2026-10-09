@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "server.ts": {
+      "maxDuration": 300,
+      "includeFiles": "{web,src}/**/*,README.md,package.json"
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/latido",
+      "schedule": "30 6 * * *"
+    }
+  ]
+}

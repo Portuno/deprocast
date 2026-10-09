@@ -7,16 +7,22 @@ import type http from 'node:http'
 import crypto from 'node:crypto'
 
 export const host = () => (process.env.MASTRO_HOST ?? '127.0.0.1').trim()
-export const expuesto = () => !['127.0.0.1', 'localhost', '::1'].includes(host())
+/** En Vercel el pedido llega por un puerto interno: la IP parece local, pero el sitio es público. */
+export const enVercel = () => process.env.VERCEL === '1'
+export const expuesto = () => enVercel() || !['127.0.0.1', 'localhost', '::1'].includes(host())
 const clave = () => process.env.MASTRO_CLAVE?.trim() ?? ''
 
 /** Si se expone a la red sin clave, mejor no arrancar. */
 export function validarAcceso(): string | null {
-  if (expuesto() && clave().length < 8) return `MASTRO_HOST=${host()} expone Mastropiero a la red: poné MASTRO_CLAVE (8 caracteres o más) en .env.`
+  if (expuesto() && clave().length < 8) {
+    return enVercel()
+      ? 'En Vercel hace falta MASTRO_CLAVE (8 caracteres o más).'
+      : `MASTRO_HOST=${host()} expone Mastropiero a la red: poné MASTRO_CLAVE (8 caracteres o más) en .env.`
+  }
   return null
 }
 
-const local = (req: http.IncomingMessage) => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress ?? '')
+const local = (req: http.IncomingMessage) => !enVercel() && ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress ?? '')
 const huella = (s: string) => crypto.createHash('sha256').update(`mastro:${s}`).digest('hex')
 
 function cookies(req: http.IncomingMessage): Record<string, string> {
@@ -32,7 +38,8 @@ export function autorizado(req: http.IncomingMessage): boolean {
 
 export function cookieDeEntrada(ingresada: string): string | null {
   if (!clave() || ingresada !== clave()) return null
-  return `mastro=${huella(clave())}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${60 * 60 * 24 * 180}`
+  const secure = enVercel() ? '; Secure' : ''
+  return `mastro=${huella(clave())}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${60 * 60 * 24 * 180}${secure}`
 }
 
 export const PAGINA_ENTRAR = (error = false) => `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mastropiero</title>

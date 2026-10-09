@@ -1,4 +1,5 @@
 node_modules
 .env
+.vercel
 # Todo lo que genera el uso (base, cargas, respaldos, taller, bitácora) queda fuera: el sistema viaja en blanco.
 data/

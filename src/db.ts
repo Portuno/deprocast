@@ -10,6 +10,15 @@ import path from 'node:path'
 
 export type Db = DatabaseSync
 
+/** En Vercel el disco del proyecto es de solo lectura. Todo lo que se escribe va a /tmp. */
+if (process.env.VERCEL) {
+  const raiz = '/tmp/deprocast'
+  fs.mkdirSync(raiz, { recursive: true })
+  if (!(process.env.MASTRO_DB ?? '').trim()) process.env.MASTRO_DB = path.join(raiz, 'mastro.db')
+  if (!(process.env.MASTRO_CARGAS ?? '').trim()) process.env.MASTRO_CARGAS = path.join(raiz, 'cargas')
+  if (!(process.env.MASTRO_BITACORA ?? '').trim()) process.env.MASTRO_BITACORA = path.join(raiz, 'bitacora.md')
+}
+
 export function resolverRuta(): string {
   const raw = (process.env.MASTRO_DB ?? '').trim()
   return raw ? path.resolve(raw) : path.resolve(process.cwd(), 'data', 'mastro.db')

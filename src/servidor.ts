@@ -4,6 +4,7 @@
  * Todo vive en la base (data/mastro.db): cerrar el servidor no pierde nada.
  */
 import http from 'node:http'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { ATRIBUTO_MAX, ATRIBUTOS, CLASE_IDS, CLASES, PUNTOS_LIBRES } from './clases.ts'
@@ -16,7 +17,8 @@ import {
 } from './misiones.ts'
 import { catalogo } from './menciones.ts'
 import { pensar } from './alertas.ts'
-import { autorizado, cookieDeEntrada, expuesto, host, leerFormulario, PAGINA_ENTRAR, validarAcceso } from './acceso.ts'
+import { autorizado, cookieDeEntrada, enVercel, expuesto, host, leerFormulario, PAGINA_ENTRAR, validarAcceso } from './acceso.ts'
+import { alGuardar, bajarNube, esperarSubida, subirAhora } from './nube.ts'
 import { CONECTORES, guardarCuenta, listarCuentas, listarPublicaciones, MODOS, publicarPendientes, redactarPublicaciones, resolverPublicacion } from './cuentas.ts'
 import { decir as decirPorTelegram, escucharTelegram, estadoTelegram, latidoTelegram, telegramConfigurado } from './telegram.ts'
 import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, hayFfmpeg, iterarArtefacto, listarArtefactos, VOCES } from './taller.ts'
@@ -82,10 +84,17 @@ if (iPuerto > 0 && process.argv[iPuerto + 1]) process.env.MASTRO_PUERTO = proces
 // `--sin-rutinas` para levantar sin que Mastropiero haga cosas solo (pruebas, o hasta decidir).
 if (process.argv.includes('--sin-rutinas')) process.env.MASTRO_SIN_RUTINAS = '1'
 
-const WEB = path.resolve(import.meta.dirname, '..', 'web')
+if (enVercel()) await bajarNube()
+
+function dirWeb(): string {
+  const candidatos = [path.resolve(import.meta.dirname, '..', 'web'), path.resolve(process.cwd(), 'web')]
+  return candidatos.find((d) => fs.existsSync(path.join(d, 'index.html'))) ?? candidatos[0]
+}
+const WEB = dirWeb()
 const PUERTO = Number(process.env.MASTRO_PUERTO ?? 7272)
 const MAX_CARGA = 1024 * 1024 * 1024
 const db = abrir()
+alGuardar(() => { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)') } catch { /* todavía no */ } })
 
 function vista(db: Db, f: Ficha) {
   const n = nivel(f)
@@ -613,13 +622,16 @@ function origenPermitido(req: http.IncomingMessage): boolean {
 }
 
 function leerCrudo(req: http.IncomingMessage, max: number): Promise<Buffer> {
+  if (enVercel()) max = Math.min(max, 4 * 1024 * 1024)
   return new Promise((ok, mal) => {
     let largo = 0
     const partes: Buffer[] = []
     req.on('data', (c: Buffer) => {
       largo += c.length
       if (largo > max) {
-        mal(new Error(`Demasiado grande (máximo ${Math.round(max / 1024 / 1024)} MB)`))
+        mal(new Error(enVercel()
+          ? 'Demasiado grande: en Vercel un pedido no puede pasar de 4 MB'
+          : `Demasiado grande (máximo ${Math.round(max / 1024 / 1024)} MB)`))
         req.destroy()
       } else partes.push(c)
     })
@@ -639,6 +651,26 @@ async function leerCuerpo(req: http.IncomingMessage): Promise<any> {
 
 const servidor = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost')
+  if (enVercel() && url.pathname === '/api/latido' && req.method === 'GET') {
+    const secreto = process.env.CRON_SECRET?.trim() ?? ''
+    const auth = String(req.headers.authorization ?? '')
+    const esperado = `Bearer ${secreto}`
+    const ok = secreto.length > 0 && auth.length === esperado.length && crypto.timingSafeEqual(Buffer.from(auth), Buffer.from(esperado))
+    if (!ok) return void res.writeHead(401).end('no')
+    try {
+      await latido()
+      await latidoDeRuns()
+      await latidoPensar()
+      await subirAhora()
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify({ ok: true }))
+    } catch (e) {
+      if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' })
+      res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }))
+    }
+    return
+  }
+  if (enVercel()) latidoSiToca()
+  if (enVercel() && req.method && !['GET', 'HEAD'].includes(req.method)) esperarSubida(res)
   // Expuesto a la red: primero la clave (salvo desde esta misma compu).
   if (url.pathname === '/entrar') {
     if (req.method === 'POST') {
@@ -774,6 +806,16 @@ async function latido() {
 }
 setInterval(latido, 60_000).unref()
 
+// En Vercel el proceso se duerme entre pedidos: con la pantalla abierta, esto pone al día las rutinas.
+let ultimoLatido = 0
+function latidoSiToca() {
+  const ahora = Date.now()
+  if (ahora - ultimoLatido < 30_000) return
+  ultimoLatido = ahora
+  void latido()
+  void latidoDeRuns()
+}
+
 // El Directo: lo que llega se procesa en orden por sesión (visión y Whisper tardan), sin frenar al navegador.
 const colasDirecto = new Map<number, Promise<unknown>>()
 function encolarDirecto(sesion: number, f: () => Promise<unknown>) {
@@ -820,7 +862,8 @@ setInterval(async () => {
 }, 5 * 60_000).unref()
 
 // Telegram: si hay bot, escucha; y lo que Mastropiero dice solo también sale por ahí.
-if (telegramConfigurado()) {
+// En Vercel no hay proceso siempre prendido: el long polling pelearía con el de la compu y se cortaría.
+if (telegramConfigurado() && !enVercel()) {
   escucharTelegram(db)
   retomarTandas(db)
   void procesarTandas(db).catch(() => {})
@@ -845,10 +888,14 @@ setInterval(latidoDeRuns, 60_000).unref()
 setTimeout(latido, 3_000).unref()
 
 const problemaDeAcceso = validarAcceso()
-if (problemaDeAcceso) {
-  console.error(`\n  ✗ ${problemaDeAcceso}\n`)
-  process.exit(1)
+if (!enVercel()) {
+  if (problemaDeAcceso) {
+    console.error(`\n  ✗ ${problemaDeAcceso}\n`)
+    process.exit(1)
+  }
+  servidor.listen(PUERTO, host(), () => {
+    console.log(`\n  ☿ Mastropiero en http://${host() === '0.0.0.0' ? '127.0.0.1' : host()}:${PUERTO}${expuesto() ? '   (expuesto a la red: pide clave)' : ''}   (base: ${process.env.MASTRO_DB ?? 'data/mastro.db'} · motor de reclutas: ${MOTOR_DEFECTO()})\n`)
+  })
 }
-servidor.listen(PUERTO, host(), () => {
-  console.log(`\n  ☿ Mastropiero en http://${host() === '0.0.0.0' ? '127.0.0.1' : host()}:${PUERTO}${expuesto() ? '   (expuesto a la red: pide clave)' : ''}   (base: ${process.env.MASTRO_DB ?? 'data/mastro.db'} · motor de reclutas: ${MOTOR_DEFECTO()})\n`)
-})
+
+export { servidor }
