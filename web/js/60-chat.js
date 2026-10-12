@@ -313,7 +313,7 @@ function hiloHTML(ms, q, vivo) {
 
 function turnoHTML(t, q, vivo) {
   let h = t.yo ? `<div class="m m-yo"><div>${conMenciones(esc(t.yo.texto))}</div></div>` : ''
-  const actividad = t.herr.length ? `<details class="actividad"><summary>${esc(resumenActividad(t.herr))}</summary><ul>${t.herr.map((m) => {
+  const actividad = t.herr.length ? `<details class="actividad"><summary><span>${esc(resumenActividad(t.herr))}</span></summary><ul>${t.herr.map((m) => {
     let cuerpo = m.texto ?? ''
     try { cuerpo = JSON.stringify(JSON.parse(cuerpo), null, 2) } catch {}
     const falla = /^\{"error"/.test(m.texto ?? '') || /falló|no existe/.test(m.resumen ?? '')

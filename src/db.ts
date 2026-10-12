@@ -315,6 +315,7 @@ CREATE TABLE IF NOT EXISTS misiones (
   estado TEXT NOT NULL,               -- sugerida | activa | hecha | parcial | no | descartada
   progreso INTEGER NOT NULL DEFAULT 0,
   feedback TEXT,
+  armado TEXT,                        -- secundarias: bien | mal. Cómo estuvo armada la banda, para calibrar la próxima
   semana TEXT,                        -- primarias: 2026-W41
   run_id INTEGER,                     -- secundarias
   inicio TEXT,                        -- secundarias: HH:MM
@@ -344,6 +345,7 @@ CREATE TABLE IF NOT EXISTS runs (
   agentes TEXT,                       -- JSON: quiénes ayudaron a armarla
   resumen TEXT,
   reporte TEXT,
+  comentario TEXT,                    -- lo que el jugador dice de la run entera
   modelo TEXT,
   ultima_hora INTEGER NOT NULL DEFAULT 0,
   creada_en INTEGER NOT NULL,
@@ -716,6 +718,12 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   ],
   conversaciones: [
     ['modo', "TEXT NOT NULL DEFAULT 'chat'"], // chat | hoy | diario
+  ],
+  misiones: [
+    ['armado', 'TEXT'], // bien | mal: si la banda estuvo bien armada
+  ],
+  runs: [
+    ['comentario', 'TEXT'], // lo que dijo de la run entera
   ],
   memoria: [
     ['pieza_id', 'INTEGER'], // la pieza del corpus de la que salió, si salió de una

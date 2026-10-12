@@ -11,8 +11,8 @@ import { ATRIBUTO_MAX, ATRIBUTOS, CLASE_IDS, CLASES, PUNTOS_LIBRES } from './cla
 import { abrir, ajuste, fechaLocal, fijarAjuste, type Db } from './db.ts'
 import { leerJornada, progreso, semana } from './jornada.ts'
 import {
-  actualizarMision, anotarSideQuest, arrancarRun, asignarMision, borrarPlantilla, cerrarRun, conAvance, crearMision, descartarRun, enCurso, guardarPlantilla,
-  latidoRuns, leerRun, listarMisiones, listarPlantillas, listarReportes, listarRuns, marcarSecundaria, misionesDeRun, principalDe, procesarJugador,
+  actualizarMision, ajustarMinutos, anotarSideQuest, arrancarRun, asignarMision, borrarPlantilla, cerrarRun, comentarRun, conAvance, crearMision, descartarRun, enCurso, guardarPlantilla,
+  latidoRuns, leerRun, listarMisiones, listarPlantillas, listarReportes, listarRuns, marcarSecundaria, misionesDeRun, opinarArmado, pasarASiguiente, principalDe, procesarJugador,
   proponerPrimarias, rehacerRun, reporteSemana, runActual, semanaDe, semanaVecina, seguimientos, prepararRun, diasDeSemana, asegurarPrincipal, pasoDeRun,
 } from './misiones.ts'
 import { catalogo } from './menciones.ts'
@@ -300,6 +300,9 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/runs\/(\d+)\/arrancar$/, (_, [r]) => arrancarRun(db, id(r))],
   ['POST', /^\/api\/runs\/(\d+)\/cerrar$/, async (_, [r]) => cerrarRun(db, id(r))],
   ['POST', /^\/api\/runs\/(\d+)\/descartar$/, (_, [r]) => (descartarRun(db, id(r)), { ok: true })],
+  ['POST', /^\/api\/runs\/(\d+)\/comentario$/, (b, [r]) => comentarRun(db, id(r), b.comentario ?? null)],
+  ['POST', /^\/api\/runs\/(\d+)\/minutos$/, (b, [r]) => ajustarMinutos(db, id(r), Number(b.mision), Number(b.minutos))],
+  ['POST', /^\/api\/runs\/(\d+)\/pasar$/, (_, [r]) => pasarASiguiente(db, id(r))],
   ['GET', /^\/api\/plantillas$/, () => listarPlantillas(db)],
   ['POST', /^\/api\/plantillas$/, (b) => guardarPlantilla(db, String(b.nombre ?? ''), b.pedido ?? {})],
   ['POST', /^\/api\/plantillas\/(\d+)\/borrar$/, (_, [p]) => (borrarPlantilla(db, id(p)), { ok: true })],
@@ -340,6 +343,7 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/ayudantes\/(\d+)\/quitar$/, (_, [m]) => (quitarAyudante(db, id(m)), { ok: true })],
   ['POST', /^\/api\/aportes$/, async (b) => pedirAportes(db, { primariaId: b.primariaId ? Number(b.primariaId) : undefined })],
   ['POST', /^\/api\/misiones\/(\d+)\/marcar$/, (b, [m]) => marcarSecundaria(db, id(m), b.estado, b.nota ?? null)],
+  ['POST', /^\/api\/misiones\/(\d+)\/armado$/, (b, [m]) => opinarArmado(db, id(m), b.armado ?? null, 'porQue' in b ? b.porQue : undefined)],
   ['GET', /^\/api\/reportes$/, (_, __, q) => listarReportes(db, { tipo: q.get('tipo') || undefined, limite: num(q.get('limite')) })],
   ['POST', /^\/api\/reportes\/semana$/, async (b) => reporteSemana(db, b.semana || semanaDe())],
 

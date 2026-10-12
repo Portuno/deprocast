@@ -499,15 +499,16 @@ input[type=range] { accent-color: var(--acento); width: 100%; margin-top: 8px; }
 .m-el .md { font-size: 15px; line-height: 1.7; }
 .m-el .md p { margin: 0 0 12px; }
 .m-yo div { font-size: 14.5px; line-height: 1.55; }
-.m-el:hover .m-meta { opacity: 1; }
 .m-meta { opacity: 0; transition: opacity .15s; }
-.actividad { margin: 2px 0 10px; font-size: 12.5px; color: var(--debil); }
-.actividad > summary { cursor: pointer; list-style: none; display: inline-flex; gap: 6px; align-items: center; padding: 1px 0; user-select: none; }
+.m-meta:hover { opacity: 1; }
+.actividad { margin: 2px 0 10px; font-size: 12.5px; color: var(--debil); min-width: 0; }
+.actividad > summary { cursor: pointer; list-style: none; display: flex; gap: 6px; align-items: baseline; padding: 1px 0; user-select: none; max-width: 100%; min-width: 0; }
 .actividad > summary::-webkit-details-marker { display: none; }
-.actividad > summary::before { content: '◦'; color: var(--debil); }
+.actividad > summary::before { content: '◦'; color: var(--debil); flex: none; }
+.actividad > summary span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .actividad > summary:hover { color: var(--tenue); }
 .actividad[open] > summary::before { content: '•'; }
-.actividad ul { list-style: none; margin: 6px 0 4px; padding: 0 0 0 12px; border-left: 1px solid var(--linea); }
+.actividad ul { list-style: none; margin: 6px 0 4px; padding: 0 0 0 12px; border-left: 1px solid var(--linea); max-height: 220px; overflow: auto; }
 .actividad li { margin: 2px 0; }
 .actividad li.falla { color: var(--mal); }
 .actividad li summary { cursor: pointer; }
@@ -647,6 +648,7 @@ sup.cita a:hover { background: var(--acento-suave); }
 
 /* ─── Modal y toasts ─── */
 .velo { position: fixed; inset: 0; background: rgba(0, 0, 0, .5); display: grid; place-items: center; z-index: 20; padding: 20px; }
+.velo:has(.dia-modal) { align-items: start; padding-top: 28px; }
 :root[data-tema='claro'] .velo { background: rgba(30, 28, 24, .3); }
 .velo[hidden] { display: none; }
 .modal { background: var(--panel); border: 1px solid var(--linea); border-radius: 12px; width: min(940px, 100%); max-height: 90vh; overflow: auto; padding: 22px; box-shadow: var(--sombra); }
@@ -694,7 +696,7 @@ pre.json { background: var(--panel-2); border-radius: 8px; padding: 12px; font: 
 .ma-top { display: flex; justify-content: space-between; font: 500 12px var(--mono); color: var(--acento-texto); }
 .ma-cuenta { font-size: 20px; font-weight: 600; letter-spacing: .02em; }
 .foco { padding: 6px 2px 0; }
-.foco-cuenta { display: block; font: 600 64px/0.9 var(--mono); letter-spacing: -0.03em; margin: 4px 0 18px; }
+.foco-cuenta { display: block; font: 600 48px/0.9 var(--mono); letter-spacing: -0.03em; margin: 0 0 12px; }
 .foco h2 { font-size: 28px; font-weight: 600; line-height: 1.25; margin: 0 0 10px; }
 .foco-detalle { margin: 0 0 22px; font-size: 16.5px; line-height: 1.5; }
 .foco.entre h2 { font-size: 22px; margin-top: 4px; }
@@ -945,15 +947,16 @@ button.cola-item { border: 1px solid var(--linea); }
 .cola-marcas button { border: 1px solid var(--linea); background: var(--panel-2); color: var(--tenue); border-radius: 8px; padding: 4px 8px; cursor: pointer; font-size: 12px; }
 .cola-marcas button:hover, .cola-marcas button.on { border-color: var(--acento); color: var(--acento-texto); background: var(--acento-suave); }
 
-.modal:has(.dia-modal) { width: min(560px, 100%); padding: 0; overflow: hidden; display: flex; flex-direction: column; }
-.dia-modal { display: flex; flex-direction: column; min-height: 420px; max-height: min(86vh, 760px); }
+.modal:has(.dia-modal) { width: min(560px, 100%); padding: 0; overflow: hidden; display: flex; flex-direction: column; max-height: calc(100vh - 56px); }
+.dia-modal { display: flex; flex-direction: column; min-height: 0; max-height: calc(100vh - 56px); overflow: hidden; }
 .dia-top { display: flex; align-items: center; gap: 10px; padding: 14px 14px 12px; border-bottom: 1px solid var(--linea); }
 .dia-top .cerrar { float: none; margin-left: auto; }
 .dia-tabs { display: flex; gap: 4px; background: var(--fondo); padding: 4px; border-radius: 11px; }
 .dia-tabs button { border: 0; background: none; color: var(--tenue); padding: 7px 14px; border-radius: 8px; cursor: pointer; font: 600 13px var(--cuerpo); position: relative; }
 .dia-tabs button.on { background: var(--panel-2); color: var(--texto); }
 .dia-tabs button.pendiente::after { content: ''; position: absolute; top: 6px; right: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--acento); }
-.dia-cuerpo { overflow: auto; padding: 18px 20px 20px; flex: 1; }
+.dia-cuerpo { overflow: auto; padding: 18px 20px 20px; flex: 1 1 auto; min-height: 0; }
+.dia-cuerpo .run-pie { position: sticky; bottom: 0; z-index: 1; margin: 14px -20px -20px; padding: 12px 20px 16px; background: var(--panel); border-top: 1px solid var(--linea); }
 .dia-cuerpo .run { border: 0; padding: 0; background: none; margin: 0; }
 .dia-cuerpo .pregunta { border: 0; background: none; padding: 0; margin: 0; }
 .dia-cuerpo .pregunta .p-texto { font-size: 20px; line-height: 1.35; font-weight: 600; margin: 8px 0 6px; }

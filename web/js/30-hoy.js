@@ -279,7 +279,7 @@ function runPropuestaHTML(run) {
     ${run.fijos?.length ? `<p class="run-agentes">Respeta tu agenda: ${run.fijos.map((f) => `${f.inicio} ${esc(f.titulo)}`).join(' · ')}.</p>` : ''}
     <ol class="bandas">${ms.map((m) => bandaHTML(m, { propuesta: true })).join('')}</ol>
     <div class="run-iterar">
-      <input class="campo-suelto" id="run-cambio" placeholder="¿Algo para cambiar? «más corta», «sacá lo de X», «más creativas»…">
+      <input class="campo-suelto" id="run-cambio" data-sin-foco placeholder="¿Algo para cambiar? «más corta», «sacá lo de X», «más creativas»…">
       <button class="btn" id="run-rehacer">Rehacer</button>
     </div>
     <div class="fila run-pie">
@@ -393,11 +393,14 @@ function pintarDiaModal(foco = false) {
     if (!$('#modal .dia-modal')) return
     if (diaAbierto === 'pregunta') $('#p-resp')?.focus()
     else if (document.activeElement?.closest('#modal') && /INPUT|TEXTAREA/.test(document.activeElement.tagName) && document.activeElement.dataset.sinFoco != null) document.activeElement.blur()
+    if (diaAbierto === 'run') { const c = $('#modal .dia-cuerpo'); if (c) c.scrollTop = 0 }
   }, 30)
 }
 
 function pintarRunEnCurso() {
   const run = hoyDatos.run
+  const previo = $('#modal .run-modal .dia-cuerpo')
+  const scroll = previo?.scrollTop ?? 0
   const cuerpo = gestionarRun ? runGestionHTML(run) : runFocoHTML(run)
   abrirModal(`<div class="dia-modal run-modal ${gestionarRun ? 'gestion' : 'foco-run'}">
     <header class="dia-top">
@@ -407,6 +410,9 @@ function pintarRunEnCurso() {
     <div class="dia-cuerpo">${cuerpo}</div>
   </div>`)
   engancharRun($('#modal'), run)
+  const dejar = () => { const c = $('#modal .run-modal .dia-cuerpo'); if (c) c.scrollTop = scroll }
+  dejar()
+  setTimeout(dejar, 40)
 }
 
 function engancharDiaModal() {
