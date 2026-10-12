@@ -134,10 +134,13 @@ export function fusionarEntidades(db: Db, destino: number, origenes: number[]): 
       db.prepare('UPDATE misiones SET asignada_por = ? WHERE asignada_por = ?').run(kd, k)
       db.prepare('UPDATE inventario SET entidad_id = ? WHERE entidad_id = ?').run(destino, o.id)
       db.prepare('UPDATE inventario SET personaje = ? WHERE personaje = ?').run(kd, k)
+      db.prepare('UPDATE conexiones SET a = ? WHERE a = ?').run(destino, o.id)
+      db.prepare('UPDATE conexiones SET b = ? WHERE b = ?').run(destino, o.id)
       db.prepare('UPDATE OR IGNORE historias SET personaje = ? WHERE personaje = ?').run(kd, k)
       db.prepare('DELETE FROM historias WHERE personaje = ?').run(k)
       db.prepare('DELETE FROM entidades WHERE id = ?').run(o.id)
     }
+    db.prepare('DELETE FROM conexiones WHERE a = b').run()
     const notas = [d.notas, ...os.map((o) => o.notas)].filter((n): n is string => !!n?.trim())
     editarEntidad(db, destino, { sumarAlias: os.flatMap((o) => [o.nombre, ...o.alias]), notas: [...new Set(notas)].join('\n\n') || null })
     db.exec('COMMIT')
@@ -218,4 +221,39 @@ export function quitarAliasCruzados(db: Db, ids: number[]): number {
   }
   noSonLoMismo(db, ids)
   return quitados
+}
+
+export type Conexion = { id: number; otra: number; nombre: string; tipo: TipoEntidad; relacion: string | null }
+
+/** La que ya existe con ese nombre o alias; si no, la crea. */
+export function asegurarPorNombre(db: Db, nombre: string, tipo: TipoEntidad = 'persona', ahora = Date.now()): number {
+  const n = nombre.trim()
+  if (!n) throw new Error('Una entidad sin nombre no se anota')
+  const t = TIPOS_ENTIDAD.includes(tipo) ? tipo : 'concepto'
+  const directa = db.prepare('SELECT id FROM entidades WHERE nombre = ? COLLATE NOCASE').get(n) as { id: number } | undefined
+  if (directa) return directa.id
+  const k = normal(n)
+  const porAlias = (db.prepare('SELECT id, alias FROM entidades WHERE alias IS NOT NULL').all() as { id: number; alias: string }[])
+    .find((r) => json<string[]>(r.alias, []).some((a) => normal(a) === k))
+  if (porAlias) return porAlias.id
+  return asegurarEntidad(db, { tipo: t, nombre: n }, ahora)
+}
+
+/** Un vínculo que él aceptó. El mismo par con la misma relación no se duplica. */
+export function anotarConexion(db: Db, c: { a: number; b: number; relacion?: string | null; nota?: string | null; origen?: string | null }, ahora = Date.now()): number {
+  if (c.a === c.b) throw new Error('Una conexión necesita dos entidades distintas')
+  const relacion = c.relacion?.trim().slice(0, 160) || null
+  const ya = db.prepare(`SELECT id FROM conexiones WHERE a = ? AND b = ? AND COALESCE(relacion, '') = COALESCE(?, '')`).get(c.a, c.b, relacion) as { id: number } | undefined
+  if (ya) return ya.id
+  const r = db.prepare('INSERT INTO conexiones (a, b, relacion, nota, origen, creada_en) VALUES (?, ?, ?, ?, ?, ?)').run(c.a, c.b, relacion, c.nota?.trim().slice(0, 300) || null, c.origen ?? null, ahora)
+  return Number(r.lastInsertRowid)
+}
+
+/** Con quién la anotó él, en cualquiera de los dos lados. */
+export function conexionesDe(db: Db, id: number): Conexion[] {
+  return (db.prepare(
+    `SELECT c.id, c.relacion, CASE WHEN c.a = ? THEN c.b ELSE c.a END AS otra, e.nombre, e.tipo
+     FROM conexiones c JOIN entidades e ON e.id = CASE WHEN c.a = ? THEN c.b ELSE c.a END
+     WHERE c.a = ? OR c.b = ? ORDER BY c.id DESC LIMIT 24`,
+  ).all(id, id, id, id) as any[]).map((r) => ({ id: r.id, otra: r.otra, nombre: r.nombre, tipo: r.tipo, relacion: r.relacion }))
 }

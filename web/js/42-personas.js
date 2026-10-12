@@ -54,6 +54,8 @@ async function refrescarPersonas() {
       <div class="per-cab"><b><a href="#" class="ref" data-ref-ent="${p.id}">${esc(p.nombre)}</a></b>${p.vinculo ? `<span class="chip">${esc(p.vinculo)}</span>` : ''}${p.cercania ? `<span class="tenue">${'●'.repeat(p.cercania)}${'○'.repeat(5 - p.cercania)}</span>` : ''}</div>
       <div class="tenue">${p.ultimoContacto ? `Último contacto: ${esc(p.ultimoContacto)} (hace ${p.diasSinContacto} d)` : 'Sin contacto registrado'}${p.cadaDias ? ` · quería cada ${p.cadaDias} d` : ''} · ${p.menciones} piezas</div>
       ${p.proxima ? `<div>Próximo: ${esc(p.proxima)}</div>` : ''}
+      ${p.con?.length ? `<div class="tenue">Aparece con: ${p.con.map((c) => esc(c.nombre)).join(', ')}</div>` : ''}
+      ${p.accion ? `<div>Acción: ${esc(p.accion)}</div>` : ''}
       ${p.misiones.length ? `<div class="tenue">Le asignaste: ${p.misiones.map((m) => esc(m.titulo)).join(' · ')}</div>` : ''}
       ${p.notas ? `<div class="tenue recorte">${esc(p.notas)}</div>` : ''}
       <div class="fila"><button class="btn btn-chico" data-contacto>Hablamos hoy</button><button class="btn btn-chico" data-editar>Editar</button></div>

@@ -6,9 +6,13 @@
  */
 import { fechaLocal, json, type Db } from './db.ts'
 import { agendaDelDia } from './calendario.ts'
+import { compartidas } from './bitacora.ts'
+import { progreso, semana } from './jornada.ts'
 import { memoriaParaPrompt, recordar } from './memoria.ts'
 import { pedirJson } from './modelo.ts'
 import { calibracion, conAvance, listarMisiones, listarRuns, misionesDeRun, semanaDe } from './misiones.ts'
+import { personasParaPrompt } from './personas.ts'
+import { perfilDeRendimiento, textoDeRendimiento } from './rendimiento.ts'
 
 export type Criterio =
   | { tipo: 'bandas_hechas'; op: '>=' | '<='; valor: number }
@@ -107,8 +111,10 @@ export function curva(db: Db, hasta: string, dias = 21) {
 // ─── predecir ───────────────────────────────────────────────────────────
 
 const SISTEMA_PREDECIR = `Sos el gemelo predictivo del jugador: Mastropiero predice su día antes de que pase, para conocerlo cada vez mejor.
-- Entre 5 y 8 predicciones sobre HOY, con «probabilidad» de 0 a 1 bien calibrada (si dudás, cerca de 0,5; nada de 0 ni 1).
-- Variá los tipos: qué va a hacer y qué no, cuántas bandas, qué primaria va a mover o va a dejar quieta, su energía y su ánimo, de qué te va a hablar, si cambia de plan, algo inesperado.
+- Entre 5 y 8 predicciones sobre HOY. Cada una nombra algo concreto que está en los datos: una banda, una primaria, una persona, un proyecto, una franja horaria o un día de la semana. Prohibido el molde («va a trabajar», «va a estar cansado», «va a tener un día normal») si no lo atás a un nombre, un número o una hora que salga de su historia.
+- «probabilidad» de 0 a 1 calibrada con cómo le fue de verdad: si en esa franja o ese día de la semana termina poco, no le pongas 0,8 a una banda honda ahí. Si dudás y no hay tasa, cerca de 0,5. Nada de 0 ni 1.
+- Al menos cuatro con criterio verificable. Incluí al menos una de algo que probablemente NO haga, dicha con el nombre de eso.
+- Variá: una banda o una primaria nombrada, una persona o un pendiente, una franja en la que rinde o no, de qué te va a hablar, si cambia de plan.
 - Si se puede verificar con datos, agregá «criterio», de estos tipos exactos:
   {"tipo": "bandas_hechas", "op": ">=" | "<=", "valor": número} (bandas de run marcadas como hechas en el día)
   {"tipo": "run_arrancada", "valor": true | false}
@@ -116,24 +122,45 @@ const SISTEMA_PREDECIR = `Sos el gemelo predictivo del jugador: Mastropiero pred
   {"tipo": "habla_de", "texto": "palabra o nombre que va a aparecer en lo que te diga"}
   {"tipo": "directo_prendido", "valor": true | false}
   Si no es verificable con datos, criterio null (lo juzga la evidencia o él).
-- Usá lo que sabés: su curva de energía, su historia de aciertos y errores, su agenda, su run, sus primarias. Aprendé de cómo te fue antes.
-- «texto» en una oración, en tercera persona, concreta («Va a hacer al menos 6 bandas antes de las 12»).
+- Usá su rendimiento por franja y por día, lo que hizo los días anteriores, su agenda, las bandas de la run, sus primarias, su gente y tus errores de antes. No repitas una predicción que ya falló con el mismo objeto.
+- «texto» en una oración, en tercera persona, concreta («Va a mover el contrato de Ana entre las 9 y las 11», no «va a trabajar en la mañana»).
 Forma: {"predicciones": [{"texto": string, "probabilidad": number, "tipo": string, "criterio": object | null}]}`
 
 const fechaValida = (f: string) => /^\d{4}-\d{2}-\d{2}$/.test(f)
+
+function diaPrevio(fecha: string): string {
+  const [a, m, d] = fecha.split('-').map(Number)
+  return fechaLocal(new Date(a, m - 1, d - 1).getTime())
+}
 
 async function contextoDelDia(db: Db, fecha: string, ahora: number): Promise<string> {
   const { eventos } = await agendaDelDia(fecha).catch(() => ({ eventos: [] as { titulo: string; inicio: number; todoElDia: boolean }[] }))
   const primarias = conAvance(db, listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana: semanaDe(ahora), estados: ['activa'] }))
   const runs = listarRuns(db, { fecha, estados: ['propuesta', 'en_curso'] })
+  const ayer = diaPrevio(fecha)
+  const pAyer = progreso(db, ayer)
+  const cierreAyer = (db.prepare('SELECT cierre FROM jornadas WHERE fecha = ?').get(ayer) as { cierre: string | null } | undefined)?.cierre ?? null
+  const racha = semana(db, ayer, 7).filter((d) => d.total)
+  const lado = listarMisiones(db, { personaje: 'jugador', nivel: 'terciaria', abiertas: true, limite: 5 })
+  const animo = compartidas(db, 4)
+  const rinde = textoDeRendimiento(perfilDeRendimiento(db, ahora))
+  const gente = personasParaPrompt(db, ahora)
   const historia = curva(db, fecha, 14)
   const errores = (db.prepare(`SELECT texto, probabilidad, resultado FROM predicciones WHERE resultado IS NOT NULL ORDER BY id DESC LIMIT 20`).all() as any[])
     .map((p) => `- «${p.texto}» (${Math.round(p.probabilidad * 100)}%) → ${p.resultado ? 'pasó' : 'no pasó'}`)
+  const dia = (f: string) => new Date(`${f}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long' })
   return [
     `Hoy: ${new Date(`${fecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}.`,
     eventos.length ? `Su agenda: ${eventos.map((e) => `${e.todoElDia ? 'todo el día' : new Date(e.inicio).toTimeString().slice(0, 5)} ${e.titulo}`).join(' · ')}` : 'Agenda vacía.',
-    runs.length ? `Runs propuestas para hoy: ${runs.map((r) => `${r.inicio}–${r.fin}, ${misionesDeRun(db, r.id).length} bandas`).join(' · ')}` : 'No tiene run propuesta.',
+    runs.length ? `Runs de hoy: ${runs.map((r) => { const bs = misionesDeRun(db, r.id); return `${r.inicio}–${r.fin}: ${bs.map((b) => b.titulo).join(', ') || 'sin bandas'}` }).join(' · ')}` : 'No tiene run propuesta.',
     primarias.length ? `Primarias de la semana: ${primarias.map((p) => `${p.titulo} (${p.avance.progreso}%, ${p.avance.bandas.hechas} bandas)`).join(' · ')}` : '',
+    lado.length ? `Side quests abiertas: ${lado.map((m) => m.titulo).join(' · ')}` : '',
+    pAyer.total ? `Ayer (${dia(ayer)}): ${pAyer.hechos} hechas, ${pAyer.parciales} a medias, ${pAyer.saltados} no, de ${pAyer.total}.` : 'Ayer no hubo run.',
+    cierreAyer ? `Su cierre de ayer: ${cierreAyer.slice(0, 400)}` : '',
+    racha.length ? `Runs de los días anteriores: ${racha.map((d) => `${dia(d.fecha)} ${d.hechos}/${d.total}`).join(', ')}.` : '',
+    rinde ? `Cómo rinde según sus runs:\n${rinde}` : '',
+    gente,
+    animo.length ? `Lo que compartió de su bitácora: ${animo.map((e) => `${e.fecha}${e.animo ? ` (ánimo ${e.animo}/5)` : ''}: ${String(e.texto).slice(0, 180)}`).join(' | ')}` : '',
     `Cómo le viene yendo en las runs:\n${calibracion(db, ahora) || '- sin datos todavía'}`,
     historia.calificadas ? `Tu puntería hasta ahora: «te conozco» ${historia.total}% en ${historia.calificadas} predicciones calificadas.` : 'Es tu primer día prediciendo.',
     errores.length ? `Tus últimas predicciones calificadas:\n${errores.join('\n')}` : '',
@@ -167,6 +194,7 @@ export async function predecirDia(db: Db, fecha = fechaLocal(), ahora = Date.now
 
 const SISTEMA_SUMAR = `Sos el gemelo predictivo del jugador y SUMÁS predicciones nuevas sobre un día que ya está en curso.
 - Entre 2 y 4 predicciones NUEVAS: no repitas las que ya están. Si él te pasó una pista, predecí en base a eso.
+- Cada una nombra algo concreto de los datos (una persona, una banda, una primaria, una hora). Nada del molde «va a trabajar» o «va a estar cansado».
 - «probabilidad» de 0 a 1 bien calibrada (si dudás, cerca de 0,5; nada de 0 ni 1).
 - Si se puede verificar con datos, agregá «criterio» con los mismos tipos de siempre (bandas_hechas, run_arrancada, primaria_avanza, habla_de, directo_prendido). Si no, criterio null.
 - «texto» en una oración, en tercera persona, concreta.

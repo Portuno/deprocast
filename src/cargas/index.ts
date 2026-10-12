@@ -15,16 +15,19 @@ import { deprocastFicha } from './deprocast-ficha.ts'
 import { csv } from './csv.ts'
 import { texto } from './texto.ts'
 import { claude, correo, gemini, instagram, whatsapp } from './mensajes.ts'
+import { pdf } from './pdf.ts'
 
 /** En orden: los formatos reconocibles antes que el texto genérico. */
-export const IMPORTADORES: Importador[] = [deprocastRespaldo, deprocastQuantomos, deprocastFicha, whatsapp, instagram, claude, gemini, correo, csv, texto]
+export const IMPORTADORES: Importador[] = [deprocastRespaldo, deprocastQuantomos, deprocastFicha, whatsapp, instagram, claude, gemini, correo, csv, pdf, texto]
 
 export function dirCargas(): string {
   return path.resolve(process.env.MASTRO_CARGAS ?? path.join(process.cwd(), 'data', 'cargas'))
 }
 
 function leerDatos(nombre: string, ruta: string): Datos {
-  const t = fs.readFileSync(ruta, 'utf8').replace(/^﻿/, '')
+  const buf = fs.readFileSync(ruta)
+  if (buf.subarray(0, 5).toString('latin1') === '%PDF-') return { nombre, texto: '', bin: buf }
+  const t = buf.toString('utf8').replace(/^\uFEFF/, '')
   let j: unknown
   if (/\.json$/i.test(nombre) || /^\s*[{[]/.test(t.slice(0, 64))) {
     try {
@@ -38,7 +41,7 @@ function leerDatos(nombre: string, ruta: string): Datos {
 
 function importadorDe(d: Datos): Importador {
   const imp = IMPORTADORES.find((i) => i.detectar(d))
-  if (!imp) throw new Error(`No sé leer "${d.nombre}". Formatos: respaldo y fichas de Deprocast, chats de WhatsApp e Instagram, Claude, Gemini, correo (.mbox/.eml), CSV, texto y Markdown.`)
+  if (!imp) throw new Error(`No sé leer "${d.nombre}". Formatos: respaldo y fichas de Deprocast, chats de WhatsApp e Instagram, Claude, Gemini, correo (.mbox/.eml), CSV, PDF, texto y Markdown.`)
   return imp
 }
 

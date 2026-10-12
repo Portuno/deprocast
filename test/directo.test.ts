@@ -3,9 +3,11 @@ import assert from 'node:assert/strict'
 import { abrir } from '../src/db.ts'
 import { _probarModelo } from '../src/modelo.ts'
 import { listarPiezas } from '../src/corpus.ts'
-import { listarMisiones } from '../src/misiones.ts'
+import { listarMisiones, anotarSideQuest } from '../src/misiones.ts'
+import { conexionesDe, listarEntidades } from '../src/entidades.ts'
+import { memoriaVigente } from '../src/memoria.ts'
 import {
-  _probarDirecto, cerrarDirecto, directoParaPrompt, esRuido, iniciarDirecto, latidoDirecto, metricas, momentos, registrarAudio, registrarCuadro, sesionActiva,
+  _probarDirecto, avisoDeCierre, cerrarDirecto, directoParaPrompt, esRuido, iniciarDirecto, latidoDirecto, metricas, momentos, propuestasPendientes, registrarAudio, registrarCuadro, resolverPropuestas, sesionActiva,
 } from '../src/directo.ts'
 
 const T = new Date(2026, 9, 7, 10).getTime()
@@ -42,20 +44,44 @@ test('Directo: anota lo que ve (estirando lo que no cambia), transcribe voz y me
   assert.equal(met.consumido[0].titulo, 'Cómo diseñar juegos de mesa')
   assert.match(directoParaPrompt(db), /YouTube · mirando video · Cómo diseñar juegos de mesa[\s\S]*llamar a Ana/)
 
+  const quest = anotarSideQuest(db, { titulo: 'Revisar el mail de Namecheap' }, T)
   _probarModelo(async () => ({
     texto: JSON.stringify({
       texto: 'Programaste 20 minutos y después miraste un video sobre diseño de juegos.', ideas: ['El diseño empieza por la mecánica central'],
-      tareas: ['Llamar a Ana por el presupuesto'], consumido: [{ titulo: 'Cómo diseñar juegos de mesa', tipo: 'Video', resumen: 'Mecánicas primero', relacion: 'Corruptopolis' }], bandas: [],
+      tareas: ['Llamar a Ana por el presupuesto'], cumplidas: [quest.id],
+      entidades: [{ nombre: 'Ana', tipo: 'persona', nota: 'el presupuesto', alias: [] }, { nombre: 'Instagram', tipo: 'concepto', nota: 'el feed' }],
+      conexiones: [{ de: 'Ana', con: 'Pedro', relacion: 'le pasa el presupuesto', tipoDe: 'persona', tipoCon: 'persona' }],
+      consumido: [{ titulo: 'Cómo diseñar juegos de mesa', tipo: 'Video', resumen: 'Mecánicas primero', relacion: 'Corruptopolis' }], bandas: [],
     }), llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1,
   }))
   const c = await cerrarDirecto(db, s.id, { ahora: min(30), escriba: false })
   assert.equal(c.estado, 'cerrada')
-  assert.match(c.informe!, /Programaste 20 minutos[\s\S]*Llamar a Ana/)
-  const piezas = listarPiezas(db, { limite: 20 }).piezas
-  assert.ok(piezas.some((p) => p.nivel === 'propia' && p.etiquetas.includes('voz') && /llamar a Ana/.test(p.contenido)), 'su voz entra como propia')
-  assert.ok(piezas.some((p) => p.fuente === 'directo' && /Cómo diseñar juegos de mesa/.test(p.titulo) && /mecánica central/.test(p.contenido)), 'lo que consumió entra con lo que se escuchó')
-  assert.ok(piezas.some((p) => p.etiquetas.includes('informe')))
-  assert.equal(listarMisiones(db, { nivel: 'terciaria' })[0].titulo, 'Llamar a Ana por el presupuesto')
+  assert.match(c.informe!, /Programaste 20 minutos/)
+  assert.doesNotMatch(c.informe!, /Llamar a Ana/, 'el resumen no repite la bandeja')
+  const piezas = () => listarPiezas(db, { limite: 20 }).piezas
+  assert.ok(piezas().some((p) => p.nivel === 'propia' && p.etiquetas.includes('voz') && /llamar a Ana/.test(p.contenido)), 'su voz entra como propia')
+  assert.equal(piezas().some((p) => p.fuente === 'directo' || p.etiquetas.includes('informe')), false, 'la sugerencia no entra al corpus')
+  assert.equal(listarMisiones(db, { nivel: 'terciaria' }).some((m) => /Ana/.test(m.titulo)), false, 'la tarea nueva espera')
+  assert.equal(listarMisiones(db, { nivel: 'terciaria' }).find((m) => m.id === quest.id)?.estado, 'activa')
+  const props = (c.resumen as { propuestas: { id: string; tipo: string; titulo: string; estado: string }[] }).propuestas
+  assert.equal(props.find((p) => p.tipo === 'tarea')?.titulo, 'Llamar a Ana por el presupuesto')
+  assert.equal(props.some((p) => p.titulo === 'Instagram'), false, 'una app genérica no se propone')
+  assert.match(avisoDeCierre(c), /No las metí al corpus/)
+  assert.equal(propuestasPendientes(db), props.filter((p) => p.estado === 'pendiente').length)
+
+  const idDe = (tipo: string) => props.find((p) => p.tipo === tipo)!.id
+  resolverPropuestas(db, s.id, [idDe('medio')], 'rechazar')
+  assert.equal(piezas().some((p) => p.fuente === 'directo'), false)
+  const r = resolverPropuestas(db, s.id, [idDe('tarea'), idDe('entidad'), idDe('conexion'), idDe('cumplida'), idDe('idea')], 'aceptar')
+  assert.equal(r.propuestas.length, 5)
+  assert.equal(listarMisiones(db, { nivel: 'terciaria' }).find((m) => /Ana/.test(m.titulo))?.estado, 'activa')
+  assert.equal(listarMisiones(db, { nivel: 'terciaria' }).find((m) => m.id === quest.id)?.estado, 'hecha')
+  const ana = listarEntidades(db, { q: 'Ana' }).find((e) => e.nombre === 'Ana')
+  assert.equal(ana?.tipo, 'persona')
+  assert.ok(conexionesDe(db, ana!.id).some((x) => x.nombre === 'Pedro' && /presupuesto/.test(x.relacion ?? '')))
+  assert.ok(memoriaVigente(db).some((m) => /mecánica central/.test(m.texto) && m.revisada))
+  assert.equal(piezas().some((p) => p.fuente === 'directo'), false, 'lo rechazado no entra')
+  assert.equal(propuestasPendientes(db), 0)
   await assert.rejects(registrarCuadro(db, s.id, img), /ya se cerró/)
   assert.equal(directoParaPrompt(db), '')
 })

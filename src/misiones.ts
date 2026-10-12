@@ -30,14 +30,14 @@ const CERRADAS = ['hecha', 'parcial', 'no', 'descartada']
 export type Disparador = { lugar?: string | null; zona?: string | null; actividad?: string | null; cuando?: string | null }
 export type Mision = {
   id: number; personaje: string; asignadaPor: string; nivel: NivelMision; padreId: number | null; titulo: string; detalle: string | null
-  categoria: string | null; entidadId: number | null; estado: EstadoMision; progreso: number; feedback: string | null; semana: string | null
+  categoria: string | null; entidadId: number | null; estado: EstadoMision; progreso: number; feedback: string | null; armado: 'bien' | 'mal' | null; semana: string | null
   runId: number | null; inicio: string | null; fin: string | null; minutos: number | null; fijada: boolean; con: string | null; gasto: number | null
   disparador: Disparador | null; vence: string | null; orden: number; creadaPor: string; creadaEn: number; cerradaEn: number | null
 }
 
 const deFila = (r: any): Mision => ({
   id: r.id, personaje: r.personaje, asignadaPor: r.asignada_por, nivel: r.nivel, padreId: r.padre_id, titulo: r.titulo, detalle: r.detalle,
-  categoria: r.categoria, entidadId: r.entidad_id, estado: r.estado, progreso: r.progreso, feedback: r.feedback, semana: r.semana,
+  categoria: r.categoria, entidadId: r.entidad_id, estado: r.estado, progreso: r.progreso, feedback: r.feedback, armado: r.armado === 'bien' || r.armado === 'mal' ? r.armado : null, semana: r.semana,
   runId: r.run_id, inicio: r.inicio, fin: r.fin, minutos: r.minutos, fijada: r.fijada === 1, con: r.con, gasto: r.gasto,
   disparador: json(r.disparador, null), vence: r.vence, orden: r.orden, creadaPor: r.creada_por, creadaEn: r.creada_en, cerradaEn: r.cerrada_en,
 })
@@ -142,7 +142,7 @@ export function listarMisiones(db: Db, f: FiltroMisiones = {}): Mision[] {
     .all(...args, f.limite ?? 300).map(deFila)
 }
 
-export type CambiosMision = Partial<Pick<Mision, 'titulo' | 'detalle' | 'categoria' | 'estado' | 'progreso' | 'feedback' | 'vence' | 'padreId' | 'entidadId' | 'con' | 'fijada' | 'semana'>> & { disparador?: Disparador | null }
+export type CambiosMision = Partial<Pick<Mision, 'titulo' | 'detalle' | 'categoria' | 'estado' | 'progreso' | 'feedback' | 'armado' | 'vence' | 'padreId' | 'entidadId' | 'con' | 'fijada' | 'semana'>> & { disparador?: Disparador | null }
 
 /**
  * Cambia una misión. La principal de un agente no se toca nunca; la del jugador solo la toca el operador.
@@ -170,12 +170,13 @@ export function actualizarMision(db: Db, id: number, c: CambiosMision, o: { por?
   const v = <K extends keyof CambiosMision>(k: K, actual: unknown) => (k in c ? (c[k] ?? null) : actual)
   const estado = (c.estado ?? m.estado) as EstadoMision
   const progreso = c.progreso != null ? Math.max(0, Math.min(100, Math.round(Number(c.progreso)))) : estado === 'hecha' && m.nivel !== 'secundaria' ? 100 : m.progreso
+  const armado = !('armado' in c) || c.armado === undefined ? m.armado : (c.armado === 'bien' || c.armado === 'mal' ? c.armado : null)
   db.prepare(
-    `UPDATE misiones SET titulo = ?, detalle = ?, categoria = ?, estado = ?, progreso = ?, feedback = ?, vence = ?, padre_id = ?, entidad_id = ?, con = ?, fijada = ?,
+    `UPDATE misiones SET titulo = ?, detalle = ?, categoria = ?, estado = ?, progreso = ?, feedback = ?, armado = ?, vence = ?, padre_id = ?, entidad_id = ?, con = ?, fijada = ?,
        semana = ?, disparador = ?, cerrada_en = ? WHERE id = ?`,
   ).run(
     String(v('titulo', m.titulo) || m.titulo).trim().slice(0, 200), v('detalle', m.detalle) as any, v('categoria', m.categoria) as any, estado, progreso,
-    v('feedback', m.feedback) as any, v('vence', m.vence) as any, v('padreId', m.padreId) as any, v('entidadId', m.entidadId) as any, v('con', m.con) as any,
+    v('feedback', m.feedback) as any, armado, v('vence', m.vence) as any, v('padreId', m.padreId) as any, v('entidadId', m.entidadId) as any, v('con', m.con) as any,
     (('fijada' in c ? c.fijada : m.fijada) ? 1 : 0), v('semana', m.semana) as any,
     'disparador' in c ? (c.disparador ? JSON.stringify(c.disparador) : null) : (m.disparador ? JSON.stringify(m.disparador) : null),
     CERRADAS.includes(estado) ? m.cerradaEn ?? ahora : null, id,
@@ -330,13 +331,13 @@ export type PedidoResuelto = Omit<PedidoRun, 'incluir'> & { inicio: string; dura
 export type AgenteEnRun = { id: string; nombre: string; tarea: number; ok: boolean; aporte: string | null }
 export type Run = {
   id: number; fecha: string; inicio: string; fin: string; estado: 'propuesta' | 'en_curso' | 'cerrada' | 'descartada'; pedido: PedidoResuelto
-  fijos: { inicio: string; fin: string; titulo: string }[]; agentes: AgenteEnRun[]; resumen: string | null; reporte: string | null; modelo: string | null
+  fijos: { inicio: string; fin: string; titulo: string }[]; agentes: AgenteEnRun[]; resumen: string | null; reporte: string | null; comentario: string | null; modelo: string | null
   ultimaHora: number; creadaEn: number; iniciadaEn: number | null; cerradaEn: number | null
 }
 
 const deRun = (r: any): Run => ({
   id: r.id, fecha: r.fecha, inicio: r.inicio, fin: r.fin, estado: r.estado, pedido: json(r.pedido, {} as PedidoResuelto), fijos: json(r.fijos, []),
-  agentes: json(r.agentes, []), resumen: r.resumen, reporte: r.reporte, modelo: r.modelo, ultimaHora: r.ultima_hora, creadaEn: r.creada_en,
+  agentes: json(r.agentes, []), resumen: r.resumen, reporte: r.reporte, comentario: r.comentario ?? null, modelo: r.modelo, ultimaHora: r.ultima_hora, creadaEn: r.creada_en,
   iniciadaEn: r.iniciada_en, cerradaEn: r.cerrada_en,
 })
 
@@ -542,13 +543,25 @@ export function calibracion(db: Db, ahora: number, dias = 30): string {
   ).all(ahora - dias * 86_400_000) as { categoria: string; estado: string; n: number }[]
   const por = new Map<string, Record<string, number>>()
   for (const f of filas) por.set(f.categoria, { ...(por.get(f.categoria) ?? {}), [f.estado]: f.n })
+  const linea = (x: { titulo: string; estado: string; feedback: string | null }) => `- «${x.titulo}» [${x.estado}]${x.feedback ? `: ${recorte(x.feedback, 200)}` : ''}`
+  const verdictos = (armado: 'bien' | 'mal') => db.prepare(
+    `SELECT titulo, estado, feedback FROM misiones WHERE personaje = 'jugador' AND nivel = 'secundaria' AND armado = ? ORDER BY COALESCE(cerrada_en, creada_en) DESC LIMIT 8`,
+  ).all(armado) as { titulo: string; estado: string; feedback: string | null }[]
+  const bien = verdictos('bien')
+  const mal = verdictos('mal')
   const notas = db.prepare(
-    `SELECT titulo, estado, feedback FROM misiones WHERE personaje = 'jugador' AND nivel = 'secundaria' AND feedback IS NOT NULL ORDER BY COALESCE(cerrada_en, creada_en) DESC LIMIT 10`,
+    `SELECT titulo, estado, feedback FROM misiones WHERE personaje = 'jugador' AND nivel = 'secundaria' AND armado IS NULL AND feedback IS NOT NULL ORDER BY COALESCE(cerrada_en, creada_en) DESC LIMIT 8`,
   ).all() as { titulo: string; estado: string; feedback: string }[]
+  const comentarios = db.prepare(
+    `SELECT fecha, comentario FROM runs WHERE comentario IS NOT NULL AND trim(comentario) != '' ORDER BY id DESC LIMIT 5`,
+  ).all() as { fecha: string; comentario: string }[]
   const ultimo = db.prepare(`SELECT texto FROM reportes WHERE tipo = 'run' ORDER BY id DESC LIMIT 1`).get() as { texto: string } | undefined
   return [
     por.size ? `Cómo le fue por categoría (últimos ${dias} días):\n${[...por].map(([c, e]) => `- ${c}: ${e.hecha ?? 0} hechas, ${e.parcial ?? 0} a medias, ${e.no ?? 0} no`).join('\n')}` : '',
-    notas.length ? `Lo que te dijo de bandas anteriores:\n${notas.map((x) => `- «${x.titulo}» [${x.estado}]: ${recorte(x.feedback, 200)}`).join('\n')}` : '',
+    bien.length ? `Tareas bien armadas (repetí esa forma):\n${bien.map(linea).join('\n')}` : '',
+    mal.length ? `Tareas mal armadas (no repitas esa forma):\n${mal.map(linea).join('\n')}` : '',
+    notas.length ? `Lo que te dijo de bandas anteriores:\n${notas.map(linea).join('\n')}` : '',
+    comentarios.length ? `Comentarios de sus runs:\n${comentarios.map((c) => `- ${c.fecha}: ${recorte(c.comentario, 300)}`).join('\n')}` : '',
     ultimo ? `Tu último reporte de run: ${recorte(ultimo.texto, 600)}` : '',
   ].filter(Boolean).join('\n')
 }
@@ -561,6 +574,7 @@ Reglas:
 - Empujá sus primarias de la semana: «primaria» es el número de la lista que empuja, o null.
 - Si una misión usa plata, poné «gasto» (número); el total no puede pasar de lo disponible. Si involucra a alguien, «con».
 - Usá la calibración: lo que suele saltear, achicalo o cambialo; lo que funciona, repetilo.
+- Si una tarea fue marcada mal armada, no repitas esa forma (título vago, detalle sin primer paso, minutos que no alcanzan). Si estuvo bien armada, repetí esa forma.
 - Si su memoria dice en qué horas rinde más y en cuáles menos, ubicá lo hondo en sus horas buenas y lo liviano, mecánico o introspectivo donde baja.
 - Si hay datos de «cómo rinde según sus runs», mandan sobre la intuición: en las franjas que termina poco, bandas más cortas y livianas; si pidió que elijas el largo, preferí el largo que más termina.
 - Por defecto, arrancá con una victoria rápida y alterná tareas chicas y concretas (que terminan con algo hecho) con otras más grandes: la run existe para que haga más, no para que se sienta en deuda.
@@ -779,13 +793,87 @@ export function descartarRun(db: Db, id: number, ahora = Date.now()) {
   db.prepare(`UPDATE misiones SET estado = 'descartada', cerrada_en = ? WHERE run_id = ?`).run(ahora, id)
 }
 
-/** El feedback de una banda: hecha, a medias o no, y una nota si quiere. */
+/** El feedback de una banda: hecha, a medias o no, y una nota si quiere. La nota reemplaza a la anterior. */
 export function marcarSecundaria(db: Db, id: number, estado: 'hecha' | 'parcial' | 'no' | 'activa', nota?: string | null, ahora = Date.now()): Mision {
   const m = leerMision(db, id)
   if (!m) throw new Error(`No existe la misión ${id}`)
   if (!['hecha', 'parcial', 'no', 'activa'].includes(estado)) throw new Error('Estado inválido (hecha | parcial | no | activa)')
-  const feedback = nota?.trim() ? [m.feedback, nota.trim()].filter(Boolean).join(' · ') : m.feedback
-  return actualizarMision(db, id, { estado, feedback }, { por: 'operador', ahora })
+  const cambios: CambiosMision = { estado }
+  if (nota != null) cambios.feedback = nota.trim().slice(0, 500) || null
+  return actualizarMision(db, id, cambios, { por: 'operador', ahora })
+}
+
+/** Si la tarea estuvo bien o mal armada, y por qué. No cambia si se hizo. El porqué reemplaza la nota. */
+export function opinarArmado(db: Db, id: number, armado: 'bien' | 'mal' | null, porQue?: string | null, ahora = Date.now()): Mision {
+  const m = leerMision(db, id)
+  if (!m) throw new Error(`No existe la misión ${id}`)
+  if (armado != null && armado !== 'bien' && armado !== 'mal') throw new Error('Armado inválido (bien | mal)')
+  const cambios: CambiosMision = { armado: armado === 'bien' || armado === 'mal' ? armado : null }
+  if (porQue !== undefined) cambios.feedback = porQue == null ? null : porQue.trim().slice(0, 500) || null
+  return actualizarMision(db, id, cambios, { por: 'operador', ahora })
+}
+
+/** Lo que el jugador dice de la run entera: entra en la calibración de la próxima. */
+export function comentarRun(db: Db, id: number, comentario: string | null): Run {
+  const run = leerRun(db, id)
+  if (!run) throw new Error(`No existe la run ${id}`)
+  const texto = comentario?.trim() ? comentario.trim().slice(0, 2000) : null
+  db.prepare('UPDATE runs SET comentario = ? WHERE id = ?').run(texto, id)
+  return leerRun(db, id)!
+}
+
+/** Corre las bandas que empiezan en `desdeMin` o después. Si alargarlas se sale de la run, no toca nada. */
+function correrDesde(db: Db, run: Run, desdeMin: number, delta: number) {
+  if (!delta) return
+  const ms = misionesDeRun(db, run.id).filter((m) => m.inicio && aMin(m.inicio) >= desdeMin)
+  const finRun = aMin(run.fin)
+  for (const m of ms) {
+    const nf = aMin(m.fin!) + delta
+    if (aMin(m.inicio!) + delta < 0 || nf > 24 * 60 - 1) throw new Error('Ese cambio se sale del día')
+    if (delta > 0 && nf > finRun) throw new Error('Lo que sigue no entra en la run')
+  }
+  for (const m of ms) {
+    db.prepare('UPDATE misiones SET inicio = ?, fin = ? WHERE id = ?').run(aHora(aMin(m.inicio!) + delta), aHora(aMin(m.fin!) + delta), m.id)
+  }
+}
+
+/** Cambia los minutos de una banda de la run en curso y desplaza las posteriores para que no se pisen. */
+export function ajustarMinutos(db: Db, runId: number, misionId: number, minutos: number): Mision[] {
+  const m = leerMision(db, misionId)
+  if (!m?.runId || m.runId !== runId || !m.inicio || !m.fin) throw new Error('Esa misión no es una banda de esta run')
+  const run = leerRun(db, m.runId)
+  if (!run || run.estado !== 'en_curso') throw new Error('Solo se ajusta una banda de la run en curso')
+  const min = Math.round(Number(minutos))
+  if (!Number.isFinite(min) || min < 5 || min > 180) throw new Error('Cada banda dura entre 5 y 180 minutos')
+  const finNuevo = aMin(m.inicio) + min
+  if (finNuevo > aMin(run.fin)) throw new Error('No entra en lo que queda de la run')
+  correrDesde(db, run, aMin(m.fin), finNuevo - aMin(m.fin))
+  db.prepare('UPDATE misiones SET fin = ?, minutos = ? WHERE id = ?').run(aHora(finNuevo), min, m.id)
+  return misionesDeRun(db, run.id)
+}
+
+/** Cierra la banda de este minuto y corre las que siguen para que la próxima arranque ahora. */
+export function pasarASiguiente(db: Db, runId: number, ahora = Date.now()): Mision[] {
+  const run = leerRun(db, runId)
+  if (!run || run.estado !== 'en_curso') throw new Error('Solo se adelanta una run en curso')
+  const d = new Date(ahora)
+  const min = d.getHours() * 60 + d.getMinutes()
+  const ms = misionesDeRun(db, run.id)
+  const actual = ms.find((m) => m.inicio && m.fin && aMin(m.inicio) <= min && min < aMin(m.fin))
+  if (!actual?.inicio || !actual.fin) throw new Error('No hay una banda en este minuto')
+  const siguientes = ms.filter((m) => m.inicio && aMin(m.inicio) >= aMin(actual.fin!))
+  if (!siguientes.length) throw new Error('No hay una banda después')
+  const delta = min - aMin(siguientes[0].inicio!)
+  if (delta > 0) throw new Error('La siguiente ya debería haber empezado')
+  db.prepare('UPDATE misiones SET fin = ?, minutos = ? WHERE id = ?').run(aHora(min), Math.max(0, min - aMin(actual.inicio)), actual.id)
+  if (delta !== 0) {
+    for (const s of siguientes) {
+      db.prepare('UPDATE misiones SET inicio = ?, fin = ? WHERE id = ?').run(aHora(aMin(s.inicio!) + delta), aHora(aMin(s.fin!) + delta), s.id)
+    }
+    const nuevoFin = aMin(run.fin) + delta
+    if (nuevoFin > min) db.prepare('UPDATE runs SET fin = ? WHERE id = ?').run(aHora(nuevoFin), run.id)
+  }
+  return misionesDeRun(db, run.id)
 }
 
 /** La banda que toca ahora y las que siguen. */
@@ -861,8 +949,9 @@ const listaY = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -
 
 const SISTEMA_REPORTE_RUN = `Sos Mastropiero y escribís el reporte de una run que el jugador acaba de terminar.
 - Dos o tres párrafos cortos, en castellano rioplatense, como si le hablaras: qué salió, qué no y qué te dicen sus notas.
+- Si marcó tareas bien o mal armadas, o dejó un comentario de la run, decí qué forma repetir y cuál no.
 - Cerrá con uno a tres ajustes concretos para la próxima run (largo de bandas, tipo de tareas, orden, horario). Sin sermones.
-- No inventes: usá solo las misiones, sus marcas y sus notas.
+- No inventes: usá solo las misiones, sus marcas, si estuvieron bien o mal armadas y sus notas.
 Forma: {"texto": string, "ajustes": [string]}`
 
 /** Cierra una run y deja su reporte (al corpus como generado, y como calibración para la próxima). */
@@ -885,7 +974,8 @@ export async function cerrarRun(db: Db, id: number, o: { ahora?: number; conMode
     try {
       const { datos } = await pedirJson<{ texto?: string; ajustes?: string[] }>({ db, clase: 'mastropiero', agenteId: 'reporte' }, SISTEMA_REPORTE_RUN, [
         base, run.pedido.texto ? `Lo que pidió: «${run.pedido.texto}»` : '',
-        `Misiones:\n${ms.map((m) => `- ${m.inicio} ${m.titulo} [${m.estado}]${m.feedback ? ` — nota: ${m.feedback}` : ''}`).join('\n')}`,
+        `Misiones:\n${ms.map((m) => `- ${m.inicio} ${m.titulo} [${m.estado}]${m.armado ? ` [armada: ${m.armado}]` : ''}${m.feedback ? ` — nota: ${m.feedback}` : ''}`).join('\n')}`,
+        run.comentario ? `Comentario del jugador sobre la run: «${run.comentario}»` : '',
       ].filter(Boolean).join('\n'), { temperatura: 0.4, maxTokens: 1500 })
       if (typeof datos.texto === 'string' && datos.texto.trim()) {
         texto = [datos.texto.trim(), ...(Array.isArray(datos.ajustes) && datos.ajustes.length ? [`Para la próxima: ${datos.ajustes.filter((a) => typeof a === 'string').join(' · ')}`] : [])].join('\n\n')

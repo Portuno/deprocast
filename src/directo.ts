@@ -2,15 +2,17 @@
  * El Directo: Mastropiero mira y escucha mientras el jugador trabaja, a demanda (solo cuando lo prende).
  * La pantalla llega en cuadros (el navegador manda uno cada tanto, si cambió algo): la visión anota qué app,
  * qué hace y de qué trata. El audio llega en tramos: su voz (micrófono) y lo que escucha (el audio de la pantalla:
- * videos, música). Al cerrar, un informe: tiempos, ideas, tareas, lo que consumió y qué tan acorde fue con
- * sus misiones. Todo entra al corpus y a la memoria. Los cuadros no se guardan: solo lo que se vio.
+ * videos, música). Al cerrar, un informe para leer y una bandeja de propuestas: tareas, entidades,
+ * conexiones, ideas, lo que miró. Nada de eso entra al corpus ni a las misiones hasta que él lo acepta.
+ * Los cuadros no se guardan: solo lo que se vio. Lo que dijo en voz alta sí entra, porque es suyo.
  */
 import { fechaLocal, json, type Db } from './db.ts'
 import { asegurarFuente, insertar } from './corpus.ts'
-import { escribaDeMemoria, memoriaParaPrompt } from './memoria.ts'
+import { anotarConexion, asegurarPorNombre, editarEntidad, TIPOS_ENTIDAD, type TipoEntidad } from './entidades.ts'
+import { escribaDeMemoria, memoriaParaPrompt, recordar } from './memoria.ts'
 import { pedirJson } from './modelo.ts'
 import { nanTranscribir, nanVision } from './nan.ts'
-import { anotarSideQuest, enCurso, listarMisiones, principalDe, semanaDe } from './misiones.ts'
+import { anotarSideQuest, actualizarMision, enCurso, leerMision, listarMisiones, principalDe, semanaDe } from './misiones.ts'
 
 export type Momento = {
   id: number; sesionId: number; tipo: 'pantalla' | 'voz' | 'medio' | 'error'; desde: number; hasta: number
@@ -158,16 +160,228 @@ export function metricas(ms: Momento[]) {
   }
 }
 
-const SISTEMA_INFORME = `Sos Mastropiero y escribís el informe de un Directo: lo que viste y escuchaste mientras el jugador trabajaba.
-- «texto»: 3 a 5 párrafos cortos, en castellano rioplatense, como si le hablaras. Qué hizo y cuánto tiempo, en qué se fue el foco, qué consumió (videos, música, lecturas) y qué te dice de él, y qué tan acorde fue con sus misiones (sin sermón: si se fue por otro lado, decí adónde y si parece valioso).
-- «ideas»: lo que dijo en voz alta que vale guardar (ideas, decisiones), con sus palabras.
-- «tareas»: cosas que dijo que tiene que hacer («tengo que…», «después llamo a…»), cortas y en infinitivo.
-- «consumido»: por cada video, canción o lectura identificable: {titulo, tipo, resumen (qué dice, si se entendió), relacion (con qué proyecto o meta suya conecta, o null)}.
-- «bandas»: de las bandas de su run, los títulos exactos que parecen hechas según lo visto (solo si hay evidencia).
+const SISTEMA_INFORME = `Sos Mastropiero y cerrás un Directo: lo que viste y escuchaste mientras el jugador trabajaba.
+- «texto»: dos o tres párrafos cortos, separados por una línea en blanco. Castellano rioplatense, con ritmo de charla: qué hizo, adónde se le fue el foco, y si eso empujó sus misiones o fue paseo. Sin listas y sin repetir tareas, nombres ni títulos: eso va en los otros campos.
+- «ideas»: frases suyas que valen recordar, cortas, con sus palabras.
+- «tareas»: encargos nuevos que dijo («tengo que…», «después llamo a…»), cortos y en infinitivo. No repitas side quests que ya tiene abiertas.
+- «cumplidas»: ids (números de la lista) de side quests que en este Directo quedaron hechas. Solo con evidencia. Si no, [].
+- «bandas»: ids de bandas de la run que parecen hechas. Solo con evidencia. Si no, [].
+- «entidades»: personas, proyectos, lugares o conceptos suyos que aparecieron y NO están en la lista de conocidas. No anotes apps ni sitios genéricos (Chrome, Instagram, Gmail, YouTube, X, VS Code). tipo: persona | proyecto | agrupacion | dominio | lugar | concepto. alias solo si dijo que son el mismo.
+- «conexiones»: un vínculo concreto entre dos nombres (se conocen, trabajan juntos, uno le debe algo al otro). {de, con, relacion, tipoDe, tipoCon}. tipoDe y tipoCon con los mismos tipos. Vacío si no hay vínculo dicho o visible.
+- «consumido»: cada video, canción o lectura identificable: {titulo, tipo, resumen, relacion (con qué proyecto o meta conecta, o null)}.
 - No inventes: solo lo que está en los momentos.
-Forma: {"texto": string, "ideas": [string], "tareas": [string], "consumido": [{"titulo": string, "tipo": string, "resumen": string, "relacion": string | null}], "bandas": [string]}`
+Forma: {"texto": string, "ideas": [string], "tareas": [string], "cumplidas": [number], "bandas": [number], "entidades": [{"nombre": string, "tipo": string, "nota": string, "alias": [string]}], "conexiones": [{"de": string, "con": string, "relacion": string, "tipoDe": string, "tipoCon": string}], "consumido": [{"titulo": string, "tipo": string, "resumen": string, "relacion": string | null}]}`
 
-/** Cierra el Directo y deja todo donde corresponde: informe, voz, lo consumido, tareas, memoria. */
+export type TipoPropuesta = 'tarea' | 'cumplida' | 'banda' | 'entidad' | 'conexion' | 'idea' | 'medio'
+export type Propuesta = {
+  id: string
+  tipo: TipoPropuesta
+  estado: 'pendiente' | 'aceptada' | 'rechazada'
+  titulo: string
+  detalle: string | null
+  misionId: number | null
+  tipoEntidad: string | null
+  tipoCon: string | null
+  alias: string[]
+  de: string | null
+  con: string | null
+  oido: string | null
+}
+
+const TIPOS_PROP = new Set<TipoPropuesta>(['tarea', 'cumplida', 'banda', 'entidad', 'conexion', 'idea', 'medio'])
+
+export function propuestasDe(s: { resumen: Record<string, unknown> | null }): Propuesta[] {
+  const xs = s.resumen?.propuestas
+  if (!Array.isArray(xs)) return []
+  return xs.filter((x): x is Propuesta => !!x && typeof x === 'object' && typeof (x as Propuesta).id === 'string' && TIPOS_PROP.has((x as Propuesta).tipo))
+}
+
+export function propuestasPendientes(db: Db): number {
+  return (db.prepare(
+    `SELECT COUNT(*) AS n FROM directo_sesiones s, json_each(json_extract(s.resumen, '$.propuestas')) j WHERE json_extract(j.value, '$.estado') = 'pendiente'`,
+  ).get() as { n: number }).n
+}
+
+/** Lo que Mastropiero deja en el chat al cerrar: un aviso, no el informe entero. */
+export function avisoDeCierre(s: Sesion): string {
+  const n = propuestasDe(s).filter((p) => p.estado === 'pendiente').length
+  const desde = new Date(s.inicio).toTimeString().slice(0, 5)
+  const hasta = s.fin ? new Date(s.fin).toTimeString().slice(0, 5) : ''
+  const cuando = hasta ? `${desde}–${hasta}` : desde
+  return n
+    ? `Cerré el Directo (${cuando}). Hay ${n} ${n === 1 ? 'cosa' : 'cosas'} para aceptar o descartar en Directo. No las metí al corpus.`
+    : `Cerré el Directo (${cuando}). No quedó nada nuevo para anotar.`
+}
+
+const tipoEnt = (v: unknown): TipoEntidad => {
+  const t = String(v ?? '').toLowerCase().trim()
+  return (TIPOS_ENTIDAD as readonly string[]).includes(t) ? t as TipoEntidad : 'concepto'
+}
+const frases = (v: unknown, n = 8): string[] => {
+  const out: string[] = []
+  for (const x of Array.isArray(v) ? v : []) {
+    const s = typeof x === 'string' ? x : x && typeof x === 'object' && typeof (x as any).titulo === 'string' ? (x as any).titulo : x && typeof x === 'object' && typeof (x as any).texto === 'string' ? (x as any).texto : ''
+    const t = String(s).trim().replace(/\s+/g, ' ').slice(0, 200)
+    if (t && !out.some((y) => norm(y) === norm(t))) out.push(t)
+    if (out.length >= n) break
+  }
+  return out
+}
+const idsDe = (v: unknown, validos: Map<number, string>): number[] => {
+  const out: number[] = []
+  for (const x of Array.isArray(v) ? v : []) {
+    const n = typeof x === 'number' ? x : x && typeof x === 'object' ? Number((x as any).id) : Number(x)
+    if (validos.has(n) && !out.includes(n)) out.push(n)
+  }
+  return out
+}
+const pareceIgual = (a: string, b: string) => {
+  const x = norm(a), y = norm(b)
+  return !!x && (x === y || (x.length > 12 && y.includes(x)) || (y.length > 12 && x.includes(y)))
+}
+const GENERICO = new Set(['instagram', 'chrome', 'gmail', 'youtube', 'google', 'twitter', 'vs code', 'vscode', 'cursor', 'vivaldi', 'firefox', 'whatsapp', 'spotify', 'telegram'])
+
+function armarPropuestas(db: Db, informe: Record<string, unknown>, met: ReturnType<typeof metricas>, abiertas: Map<number, string>, bandas: Map<number, string>): Propuesta[] {
+  const conocidas = new Set<string>()
+  for (const r of db.prepare('SELECT nombre, alias FROM entidades').all() as { nombre: string; alias: string | null }[]) {
+    conocidas.add(norm(r.nombre))
+    for (const a of json<string[]>(r.alias, [])) conocidas.add(norm(a))
+  }
+  const titulosAbiertos = [...abiertas.values()]
+  const ps: Propuesta[] = []
+  const alta = (p: Propuesta) => { ps.push(p) }
+  let i = 0
+  const id = () => `p${++i}`
+  const base = (tipo: TipoPropuesta, titulo: string): Propuesta => ({
+    id: id(), tipo, estado: 'pendiente', titulo, detalle: null, misionId: null, tipoEntidad: null, tipoCon: null, alias: [], de: null, con: null, oido: null,
+  })
+  for (const mid of idsDe(informe.cumplidas, abiertas)) {
+    const p = base('cumplida', abiertas.get(mid)!)
+    p.misionId = mid
+    alta(p)
+  }
+  for (const mid of idsDe(informe.bandas, bandas)) {
+    const p = base('banda', bandas.get(mid)!)
+    p.misionId = mid
+    alta(p)
+  }
+  for (const t of frases(informe.tareas)) {
+    if (titulosAbiertos.some((a) => pareceIgual(a, t))) continue
+    alta(base('tarea', t))
+  }
+  for (const e of (Array.isArray(informe.entidades) ? informe.entidades : []).slice(0, 8)) {
+    if (!e || typeof e !== 'object') continue
+    const nombre = String((e as any).nombre ?? '').trim().slice(0, 80)
+    if (nombre.length < 2 || conocidas.has(norm(nombre)) || GENERICO.has(norm(nombre))) continue
+    const p = base('entidad', nombre)
+    p.tipoEntidad = tipoEnt((e as any).tipo || 'persona')
+    p.detalle = String((e as any).nota ?? '').trim().slice(0, 240) || null
+    p.alias = frases((e as any).alias, 6).filter((a) => norm(a) !== norm(nombre) && !conocidas.has(norm(a)))
+    conocidas.add(norm(nombre))
+    alta(p)
+  }
+  const pares = new Set<string>()
+  for (const c of (Array.isArray(informe.conexiones) ? informe.conexiones : []).slice(0, 6)) {
+    if (!c || typeof c !== 'object') continue
+    const de = String((c as any).de ?? '').trim().slice(0, 80)
+    const con = String((c as any).con ?? '').trim().slice(0, 80)
+    const relacion = String((c as any).relacion ?? '').trim().slice(0, 160)
+    if (de.length < 2 || con.length < 2 || norm(de) === norm(con) || GENERICO.has(norm(de)) || GENERICO.has(norm(con))) continue
+    const clave = `${norm(de)}|${norm(con)}|${norm(relacion)}`
+    if (pares.has(clave)) continue
+    pares.add(clave)
+    const p = base('conexion', `${de} ↔ ${con}`)
+    p.de = de
+    p.con = con
+    p.detalle = relacion || null
+    p.tipoEntidad = tipoEnt((c as any).tipoDe || 'persona')
+    p.tipoCon = tipoEnt((c as any).tipoCon || 'persona')
+    alta(p)
+  }
+  for (const idea of frases(informe.ideas, 6)) alta(base('idea', idea))
+  for (const c of (Array.isArray(informe.consumido) ? informe.consumido : []).slice(0, 8)) {
+    if (!c || typeof c !== 'object') continue
+    const titulo = String((c as any).titulo ?? '').trim().slice(0, 160)
+    if (titulo.length < 2) continue
+    const oido = met.consumido.find((x) => norm(x.titulo).includes(norm(titulo).slice(0, 20)))
+    const p = base('medio', titulo)
+    p.tipoEntidad = String((c as any).tipo ?? 'Medio').trim().slice(0, 40) || 'Medio'
+    const resumen = String((c as any).resumen ?? '').trim().slice(0, 400)
+    const relacion = String((c as any).relacion ?? '').trim().slice(0, 160)
+    p.detalle = [resumen, relacion ? `Conecta con: ${relacion}` : ''].filter(Boolean).join('\n') || null
+    p.oido = oido?.textos.length ? oido.textos.join('\n').slice(0, 1200) : null
+    alta(p)
+  }
+  return ps
+}
+
+function aplicarPropuesta(db: Db, p: Propuesta, s: Sesion, ahora: number) {
+  const fecha = fechaLocal(s.inicio)
+  if (p.tipo === 'tarea') {
+    anotarSideQuest(db, { titulo: p.titulo, detalle: `Lo dijiste en el Directo del ${fecha}.`, creadaPor: 'directo' }, ahora)
+    return
+  }
+  if (p.tipo === 'cumplida' || p.tipo === 'banda') {
+    const m = p.misionId ? leerMision(db, p.misionId) : null
+    if (m && (m.estado === 'activa' || m.estado === 'sugerida')) actualizarMision(db, m.id, { estado: 'hecha' }, { por: 'operador', ahora })
+    return
+  }
+  if (p.tipo === 'entidad') {
+    const id = asegurarPorNombre(db, p.titulo, tipoEnt(p.tipoEntidad), ahora)
+    if (p.alias.length) editarEntidad(db, id, { sumarAlias: p.alias })
+    if (p.detalle) {
+      const notas = (db.prepare('SELECT notas FROM entidades WHERE id = ?').get(id) as { notas: string | null }).notas
+      if (!notas?.trim()) editarEntidad(db, id, { notas: p.detalle })
+    }
+    return
+  }
+  if (p.tipo === 'conexion' && p.de && p.con) {
+    const a = asegurarPorNombre(db, p.de, tipoEnt(p.tipoEntidad), ahora)
+    const b = asegurarPorNombre(db, p.con, tipoEnt(p.tipoCon), ahora)
+    if (a !== b) anotarConexion(db, { a, b, relacion: p.detalle, origen: `directo:${s.id}`, nota: `Directo del ${fecha}` }, ahora)
+    return
+  }
+  if (p.tipo === 'idea') {
+    recordar(db, { texto: p.titulo, tipo: 'hecho', creadaPor: 'directo', revisada: true }, ahora)
+    return
+  }
+  if (p.tipo === 'medio') {
+    asegurarFuente(db, { id: 'directo', nombre: 'Directo', nivel: 'primaria', descripcion: 'Lo que vio, escuchó y leyó con el Directo prendido, y él aceptó guardar.' })
+    insertar(db, {
+      fuente: 'directo', nivel: 'primaria', titulo: `${p.tipoEntidad ?? 'Medio'} · ${p.titulo}`.slice(0, 200),
+      contenido: [p.detalle, p.oido ? `Lo que se escuchó:\n${p.oido}` : ''].filter(Boolean).join('\n\n'),
+      estado: 'disponible', etiquetas: ['directo', 'consumido'], fecha: new Date(s.inicio).toISOString(),
+      origenId: `directo:${s.id}:${p.id}`, meta: { sesion: s.id },
+    }, ahora)
+  }
+}
+
+/** Aceptar guarda (side quest, entidad, conexión, memoria, corpus). Rechazar no guarda nada. */
+export function resolverPropuestas(db: Db, sesionId: number, ids: string[], accion: 'aceptar' | 'rechazar', ahora = Date.now()): { propuestas: Propuesta[]; sesion: Sesion } {
+  const s = leerSesion(db, sesionId)
+  if (!s) throw new Error(`No existe la sesión ${sesionId}`)
+  if (accion !== 'aceptar' && accion !== 'rechazar') throw new Error('Acción inválida')
+  const propuestas = propuestasDe(s)
+  const pedidos = new Set(ids)
+  const tocadas: Propuesta[] = []
+  db.exec('BEGIN')
+  try {
+    for (const p of propuestas) {
+      if (!pedidos.has(p.id) || p.estado !== 'pendiente') continue
+      if (accion === 'aceptar') aplicarPropuesta(db, p, s, ahora)
+      p.estado = accion === 'aceptar' ? 'aceptada' : 'rechazada'
+      tocadas.push(p)
+    }
+    db.prepare('UPDATE directo_sesiones SET resumen = ? WHERE id = ?').run(JSON.stringify({ ...(s.resumen ?? {}), propuestas }), sesionId)
+    db.exec('COMMIT')
+  } catch (e) {
+    db.exec('ROLLBACK')
+    throw e
+  }
+  return { propuestas: tocadas, sesion: leerSesion(db, sesionId)! }
+}
+
+/** Cierra el Directo. El informe queda para leer; las propuestas esperan que él las acepte. */
 export async function cerrarDirecto(db: Db, id: number, o: { ahora?: number; conModelo?: boolean; escriba?: boolean } = {}): Promise<Sesion> {
   const ahora = o.ahora ?? Date.now()
   const s = leerSesion(db, id)
@@ -190,54 +404,37 @@ export async function cerrarDirecto(db: Db, id: number, o: { ahora?: number; con
     if (o.escriba !== false) void escribaDeMemoria(db, voz, null, { grabacion: true }).catch(() => {})
   }
   const run = enCurso(db, ahora)?.run
-  const bandas = run ? listarMisiones(db, { runId: run.id, nivel: 'secundaria' }).map((m) => m.titulo) : []
-  let informe: { texto?: string; ideas?: string[]; tareas?: string[]; consumido?: any[]; bandas?: string[] } = {}
+  const abiertas = new Map(listarMisiones(db, { personaje: 'jugador', nivel: 'terciaria', estados: ['activa'], limite: 40 }).map((m) => [m.id, m.titulo]))
+  const bandas = new Map((run ? listarMisiones(db, { runId: run.id, nivel: 'secundaria', estados: ['activa'] }) : []).map((m) => [m.id, m.titulo]))
+  const conocidas = (db.prepare('SELECT nombre FROM entidades ORDER BY id DESC LIMIT 40').all() as { nombre: string }[]).map((r) => r.nombre)
+  let informe: Record<string, unknown> = {}
   if (o.conModelo !== false) {
     const lineas = ms.map((m) => m.tipo === 'pantalla'
       ? `[${hora(m.desde)}–${hora(m.hasta)}] PANTALLA ${m.app ?? '?'} · ${m.actividad ?? ''} · ${m.tema ?? ''} · ${m.detalle ?? ''}${m.nota ? ` — ${m.nota}` : ''}`
       : `[${hora(m.desde)}] ${m.tipo === 'voz' ? 'DIJO' : `ESCUCHÓ (${m.detalle ?? m.app ?? '?'})`}: ${(m.texto ?? '').slice(0, 1200)}`).join('\n')
     const primarias = listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana: semanaDe(ahora), estados: ['activa'] }).map((m) => m.titulo)
+    const lista = (xs: Map<number, string>) => [...xs].map(([i, t]) => `- ${i} · ${t}`).join('\n')
     try {
-      informe = (await pedirJson<typeof informe>({ db, clase: 'mastropiero', agenteId: 'directo' }, SISTEMA_INFORME, [
+      informe = (await pedirJson<Record<string, unknown>>({ db, clase: 'mastropiero', agenteId: 'directo' }, SISTEMA_INFORME, [
         `Directo del ${fecha}, ${hora(s.inicio)}–${hora(ahora)} (${duracion}).`,
         `Minutos por actividad: ${JSON.stringify(met.minutosPorActividad)}. Por app: ${JSON.stringify(met.minutosPorApp)}.`,
         principalDe(db, 'jugador') ? `Su misión principal: ${principalDe(db, 'jugador')!.titulo}` : '',
         primarias.length ? `Sus primarias de la semana: ${primarias.join(' · ')}` : '',
-        bandas.length ? `Bandas de su run en curso: ${bandas.join(' · ')}` : '',
+        abiertas.size ? `Side quests abiertas (el número es el id):\n${lista(abiertas)}` : '',
+        bandas.size ? `Bandas de su run en curso (el número es el id):\n${lista(bandas)}` : '',
+        conocidas.length ? `Entidades que ya existen (no las repitas): ${conocidas.join(', ')}` : '',
         `Lo que sabés de él:\n${memoriaParaPrompt(db, 30)}`,
         `Momentos:\n${lineas.slice(0, 60000)}`,
-      ].filter(Boolean).join('\n'), { temperatura: 0.4, maxTokens: 5000 })).datos
+      ].filter(Boolean).join('\n'), { temperatura: 0.4, maxTokens: 5000 })).datos ?? {}
     } catch (e) {
       informe = { texto: `No pude escribir el informe: ${e instanceof Error ? e.message : e}` }
     }
   }
   const actividades = Object.entries(met.minutosPorActividad).map(([k, v]) => `${k} ${v} min`).join(', ')
-  const texto = [
-    informe.texto?.trim() || `Directo de ${duracion}: ${actividades || 'sin pantalla'}.`,
-    informe.ideas?.length ? `\nIdeas que dijiste:\n${informe.ideas.map((x) => `- ${x}`).join('\n')}` : '',
-    informe.tareas?.length ? `\nTareas que mencionaste (quedaron como side quests):\n${informe.tareas.map((x) => `- ${x}`).join('\n')}` : '',
-    informe.bandas?.length ? `\nBandas que parecen hechas (marcalas si es así): ${informe.bandas.join(' · ')}` : '',
-  ].filter(Boolean).join('\n')
-  const pieza = insertar(db, {
-    fuente: 'agentes', nivel: 'generada', titulo: `Informe del Directo · ${fecha} ${hora(s.inicio)}`, contenido: texto, estado: 'disponible',
-    etiquetas: ['directo', 'informe'], autor: 'Mastropiero', fecha: new Date(s.inicio).toISOString(), meta: { sesion: id, metricas: met },
-  }, ahora)
-  // Lo que consumió: cada video, canción o lectura, con lo que se escuchó, entra al corpus como fuente primaria.
-  if (met.consumido.length || informe.consumido?.length) {
-    asegurarFuente(db, { id: 'directo', nombre: 'Directo', nivel: 'primaria', descripcion: 'Lo que vio, escuchó y leyó con el Directo prendido.' })
-    for (const c of informe.consumido ?? []) {
-      const oido = met.consumido.find((x) => norm(x.titulo).includes(norm(c.titulo ?? '').slice(0, 20)))
-      insertar(db, {
-        fuente: 'directo', nivel: 'primaria', titulo: `${c.tipo ?? 'Medio'} · ${c.titulo ?? 'sin título'}`.slice(0, 200),
-        contenido: [c.resumen, c.relacion ? `Conecta con: ${c.relacion}` : '', oido?.textos.length ? `\nLo que se escuchó:\n${oido.textos.join('\n')}` : ''].filter(Boolean).join('\n'),
-        estado: 'disponible', etiquetas: ['directo', 'consumido'], fecha: new Date(s.inicio).toISOString(), meta: { sesion: id },
-      }, ahora)
-    }
-  }
-  for (const t of (informe.tareas ?? []).slice(0, 8)) {
-    try { anotarSideQuest(db, { titulo: t, detalle: `Lo dijiste en el Directo del ${fecha}.`, creadaPor: 'directo' }, ahora) } catch { /* una rara no frena */ }
-  }
-  db.prepare('UPDATE directo_sesiones SET informe = ?, resumen = ?, pieza_id = ? WHERE id = ?').run(texto, JSON.stringify({ ...met, ...informe, texto: undefined }), pieza, id)
+  const texto = (typeof informe.texto === 'string' && informe.texto.trim() ? informe.texto.trim() : `Directo de ${duracion}: ${actividades || 'sin pantalla'}.`).slice(0, 4000)
+  const propuestas = armarPropuestas(db, informe, met, abiertas, bandas)
+  const { consumido: _oido, ...numeros } = met
+  db.prepare('UPDATE directo_sesiones SET informe = ?, resumen = ? WHERE id = ?').run(texto, JSON.stringify({ ...numeros, propuestas }), id)
   return leerSesion(db, id)!
 }
 

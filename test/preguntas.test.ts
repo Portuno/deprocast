@@ -1,8 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { abrir } from '../src/db.ts'
+import { abrir, fechaLocal } from '../src/db.ts'
 import { _probarModelo } from '../src/modelo.ts'
+import { asegurarEntidad } from '../src/entidades.ts'
+import { registrarMovimiento } from '../src/finanzas.ts'
 import { recordar } from '../src/memoria.ts'
+import { guardarRelacion } from '../src/personas.ts'
 import { _probarEscribaPreguntas, encolarPregunta, generarPreguntas, listarPreguntas, responderPregunta, siguientePregunta } from '../src/preguntas.ts'
 
 test('Mastropiero pregunta: genera sin repetir, una por vez, y la respuesta va al escriba', async () => {
@@ -37,4 +40,33 @@ test('Mastropiero pregunta: genera sin repetir, una por vez, y la respuesta va a
   await generarPreguntas(db, 5)
   assert.match(vistos.at(-1)!, /Ya le preguntaste[\s\S]*2\.500 €/)
   assert.equal(encolarPregunta(db, { texto: '   ' }), null)
+  assert.equal(encolarPregunta(db, { texto: '¿Cuánto ganás por mes?' })?.id, ps[0].id, 'la misma pregunta con otras palabras no se encola de nuevo')
+})
+
+test('desglosa lo que ya sabe y no pregunta un dato que ya está', async () => {
+  const db = abrir(':memory:')
+  const ana = asegurarEntidad(db, { tipo: 'persona', nombre: 'Ana', notas: 'Socia del estudio' })
+  guardarRelacion(db, ana, { vinculo: 'trabajo', notas: 'Socia del estudio' })
+  registrarMovimiento(db, { monto: 2500, descripcion: 'Factura', fecha: `${fechaLocal().slice(0, 7)}-01` })
+  recordar(db, { texto: 'Quiere llegar a 12.000 € por mes', tipo: 'meta' })
+  _probarModelo(async (_l, o) => {
+    const u = String(o.mensajes.at(-1)!.content)
+    assert.match(u, /Ana \(trabajo\)/)
+    assert.match(u, /entraron 2500/)
+    assert.match(u, /desglosalo/)
+    return {
+      texto: JSON.stringify({
+        desglose: [{ texto: 'Ana es su socia en el estudio', tipo: 'hecho' }],
+        preguntas: [
+          { texto: '¿Cuánto te entra por mes?', tipo: 'numero', tema: 'numeros' },
+          { texto: '¿Quién es Ana para vos?', tipo: 'abierta', tema: 'gente' },
+          { texto: '¿Cuál es tu meta de ingresos?', tipo: 'numero', tema: 'numeros' },
+          { texto: '¿A qué hora se te apaga la cabeza?', tipo: 'abierta', tema: 'ritmo' },
+        ],
+      }), llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1,
+    }
+  })
+  const ps = await generarPreguntas(db, 5)
+  assert.ok(db.prepare(`SELECT 1 FROM memoria WHERE texto LIKE 'Ana es su socia%'`).get(), 'el desglose entra a la memoria')
+  assert.deepEqual(ps.map((p) => p.texto), ['¿A qué hora se te apaga la cabeza?'])
 })

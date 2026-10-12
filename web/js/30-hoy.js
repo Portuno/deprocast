@@ -194,37 +194,78 @@ function bandaHTML(m, { propuesta = false, actual = null } = {}) {
     <span class="b-hora">${m.inicio}<small>${m.minutos}′</small></span>
     <div class="b-cuerpo"><b>${esc(m.titulo)}</b>${m.detalle ? `<small>${esc(m.detalle)}</small>` : ''}
       ${m.feedback ? `<small class="b-nota">“${esc(m.feedback)}”</small>` : ''}
-      ${[m.categoria, m.con && `con ${m.con}`, m.gasto != null && `${m.gasto}`].filter(Boolean).map((x) => `<em>${esc(x)}</em>`).join('')}</div>
+      ${[m.armado === 'bien' ? 'bien armada' : m.armado === 'mal' ? 'mal armada' : '', m.categoria, m.con && `con ${m.con}`, m.gasto != null && `${m.gasto}`].filter(Boolean).map((x) => `<em>${esc(x)}</em>`).join('')}</div>
     ${propuesta
       ? `<span class="b-acc"><button data-fijar title="${m.fijada ? 'Soltar' : 'Fijar: rehacer la conserva'}" class="${m.fijada ? 'on' : ''}">★</button></span>`
       : `<span class="b-acc">${Object.entries(MARCA).map(([e, g]) => `<button data-marcar="${e}" title="${e === 'parcial' ? 'A medias' : e === 'no' ? 'No salió' : 'Hecha'}" class="${m.estado === e ? 'on' : ''}">${g}</button>`).join('')}<button data-nota title="Nota">✎</button></span>`}
   </li>`
 }
 
-function runEnCursoHTML(run) {
+/** La banda cuyo horario contiene este minuto, y la próxima (sin mostrarla en el foco). */
+function bandaDeAhora(run) {
+  const ahora = minutosAhora()
   const ms = run.misiones
-  const actual = ms.find((m) => m.id === hoyDatos.actual)
-  const marcadas = ms.filter((m) => m.estado !== 'activa').length
+  const actual = ms.find((m) => aMinJs(m.inicio) <= ahora && ahora < aMinJs(m.fin)) ?? null
+  const proxima = ms.find((m) => aMinJs(m.inicio) > ahora) ?? null
+  return { actual, proxima }
+}
+
+function runFocoHTML(run) {
+  const { actual, proxima } = bandaDeAhora(run)
+  const tarea = actual
+    ? `<div class="foco" data-mid="${actual.id}">
+        <span class="foco-cuenta" id="ma-cuenta" data-fin="${actual.fin}"></span>
+        <h2>${esc(actual.titulo)}</h2>
+        ${actual.detalle ? `<p class="foco-detalle">${esc(actual.detalle)}</p>` : ''}
+        <div class="foco-acc">
+          <button type="button" class="btn ${actual.estado === 'hecha' ? 'btn-primario' : ''}" data-foco-marcar="hecha">✓ Hecha</button>
+          <button type="button" class="btn ${actual.estado === 'parcial' ? 'btn-primario' : ''}" data-foco-marcar="parcial">◐ A medias</button>
+          <button type="button" class="btn ${actual.estado === 'no' ? 'btn-primario' : ''}" data-foco-marcar="no">✗ No salió</button>
+        </div>
+        <div class="foco-armado">
+          <small>¿Estuvo bien armada?</small>
+          <div class="foco-veredicto">
+            <button type="button" data-armado="bien" class="${actual.armado === 'bien' ? 'on' : ''}">Bien armada</button>
+            <button type="button" data-armado="mal" class="${actual.armado === 'mal' ? 'on' : ''}">Mal armada</button>
+          </div>
+          <textarea id="foco-porque" data-sin-foco rows="2" placeholder="Por qué: el primer paso, el largo, si el título alcanzaba…">${esc(actual.feedback ?? '')}</textarea>
+          <button type="button" class="btn btn-chico" id="foco-guardar-armado">Guardar</button>
+        </div>
+        <div class="foco-tiempo">
+          <button type="button" class="btn btn-chico" id="foco-menos" title="Acortar 5 minutos">−5 min</button>
+          <button type="button" class="btn btn-chico" id="foco-mas" title="Alargar 5 minutos">+5 min</button>
+          ${proxima ? '<button type="button" class="btn btn-chico" id="foco-pasar">Pasar a la siguiente</button>' : ''}
+        </div>
+      </div>`
+    : `<div class="foco entre">
+        ${proxima ? `<span class="foco-cuenta" id="ma-cuenta" data-fin="${proxima.inicio}"></span>` : ''}
+        <h2>Entre bandas</h2>
+        <p class="tenue">${proxima ? 'Falta para la próxima.' : 'No queda otra banda en esta run.'}</p>
+      </div>`
+  return `${tarea}
+    <div class="foco-run-com">
+      <small>Comentario de la run</small>
+      <textarea id="run-comentario" data-sin-foco rows="2" placeholder="Cómo estuvo armada la run, en conjunto…">${esc(run.comentario ?? '')}</textarea>
+      <button type="button" class="btn btn-chico" id="run-comentar">Guardar comentario</button>
+    </div>
+    <p class="foco-pie"><button type="button" class="link" id="run-gestionar">Gestionar la run</button></p>`
+}
+
+function runGestionHTML(run) {
+  const ms = run.misiones
+  const { actual } = bandaDeAhora(run)
   const hechas = ms.filter((m) => m.estado === 'hecha').length
   return `<section class="run en-curso">
-    <div class="run-cab"><small>Run · ${run.inicio}–${run.fin}</small><span>${hechas} de ${ms.length} hechas</span></div>
-    <div class="run-barra"><i style="width:${ms.length ? Math.round((marcadas / ms.length) * 100) : 0}%"></i></div>
-    ${actual ? `<div class="mision-actual" data-mid="${actual.id}">
-        <div class="ma-top"><span>${actual.inicio}–${actual.fin}</span><span class="ma-cuenta" id="ma-cuenta" data-fin="${actual.fin}"></span></div>
-        <h2>${esc(actual.titulo)}</h2>
-        ${actual.detalle ? `<p>${esc(actual.detalle)}</p>` : ''}
-        <div class="ma-acc">
-          <button class="btn ${actual.estado === 'hecha' ? 'btn-primario' : ''}" data-marcar="hecha">✓ Hecha</button>
-          <button class="btn ${actual.estado === 'parcial' ? 'btn-primario' : ''}" data-marcar="parcial">◐ A medias</button>
-          <button class="btn ${actual.estado === 'no' ? 'btn-primario' : ''}" data-marcar="no">✗ No salió</button>
-        </div>
-        <input class="campo-suelto" id="ma-nota" placeholder="Una nota para calibrar (qué trabó, qué funcionó)…" value="${esc(actual.feedback ?? '')}">
-      </div>`
-      : `<div class="mision-actual entre"><p class="tenue">${minutosAhora() < aMinJs(run.inicio) ? `Arranca a las ${run.inicio}.` : 'Entre bandas. Respirá.'}</p></div>`}
+    <div class="run-cab"><small>Gestionar · ${run.inicio}–${run.fin}</small><span>${hechas} de ${ms.length} hechas</span></div>
+    <div class="run-barra"><i style="width:${ms.length ? Math.round((hechas / ms.length) * 100) : 0}%"></i></div>
     <ol class="bandas">${ms.map((m) => bandaHTML(m, { actual: actual?.id })).join('')}</ol>
+    <div class="run-iterar">
+      <input class="campo-suelto" id="run-cambio" data-sin-foco placeholder="Qué cambio querés en lo que sigue. Vacío, rearma igual.">
+      <button type="button" class="btn" id="run-rehacer">Rehacer</button>
+    </div>
     <div class="fila run-pie">
-      <button class="btn btn-chico" id="run-rehacer">Rehacer lo que sigue</button>
-      <button class="btn btn-chico" id="run-cerrar">Cerrar la run</button>
+      <button type="button" class="btn btn-chico" id="run-foco">Volver a la tarea</button>
+      <button type="button" class="btn btn-chico" id="run-cerrar">Cerrar la run</button>
     </div>
   </section>`
 }
@@ -284,6 +325,8 @@ function semanaHoyHTML() {
 const DIA_PARTES = ['pregunta', 'run', 'gemelo']
 const DIA_NOMBRE = { pregunta: 'Pregunta', run: 'Run', gemelo: 'Gemelo' }
 let diaAbierto = null
+let gestionarRun = false
+let cuentaPedida = ''
 let preguntaVista = null
 let gemeloCache = {}
 let gemeloDia = null
@@ -306,6 +349,7 @@ const fechaLinda = (iso) => new Date(`${iso}T12:00:00`).toLocaleDateString('es-A
 
 function abrirDia(cual) {
   diaAbierto = cual
+  if (cual === 'run') gestionarRun = false
   if (cual === 'gemelo') {
     const pend = gemeloCache[hoyDatos?.fecha]?.pendientes ?? []
     if (!gemeloDia || !gemeloCache[gemeloDia]) gemeloDia = pend[0]?.fecha || hoyDatos.fecha
@@ -324,6 +368,10 @@ function moverDia(delta) {
 
 function pintarDiaModal(foco = false) {
   if (!diaAbierto || !hoyDatos) return
+  if (diaAbierto === 'run' && hoyDatos.run?.estado === 'en_curso') {
+    pintarRunEnCurso()
+    return
+  }
   const g = gemeloCache[hoyDatos.fecha]
   const pendGem = g?.pendientes?.length ?? 0
   const marcas = { pregunta: !!preguntaVista?.pregunta, run: hoyDatos.run?.estado === 'propuesta', gemelo: pendGem > 0 }
@@ -348,6 +396,19 @@ function pintarDiaModal(foco = false) {
   }, 30)
 }
 
+function pintarRunEnCurso() {
+  const run = hoyDatos.run
+  const cuerpo = gestionarRun ? runGestionHTML(run) : runFocoHTML(run)
+  abrirModal(`<div class="dia-modal run-modal ${gestionarRun ? 'gestion' : 'foco-run'}">
+    <header class="dia-top">
+      <small>${gestionarRun ? 'La run' : 'Ahora'} · ${run.inicio}–${run.fin}</small>
+      <button type="button" class="btn btn-chico cerrar" data-cerrar>✕</button>
+    </header>
+    <div class="dia-cuerpo">${cuerpo}</div>
+  </div>`)
+  engancharRun($('#modal'), run)
+}
+
 function engancharDiaModal() {
   const raiz = $('#modal')
   $$('[data-dia-tab]', raiz).forEach((b) => (b.onclick = () => { diaAbierto = b.dataset.diaTab; pintarDiaModal(true) }))
@@ -359,13 +420,14 @@ function engancharDiaModal() {
 
 document.addEventListener('keydown', (e) => {
   if (!diaAbierto || $('#velo').hidden || !$('#modal .dia-modal')) return
+  if ($('#modal .run-modal')) return
   if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName ?? '')) return
   if (e.key === 'ArrowRight') { e.preventDefault(); moverDia(1) }
   if (e.key === 'ArrowLeft') { e.preventDefault(); moverDia(-1) }
 })
 
 const _cerrarModalDia = cerrarModal
-cerrarModal = () => { diaAbierto = null; clearInterval(cuentaRegresiva); _cerrarModalDia() }
+cerrarModal = () => { diaAbierto = null; gestionarRun = false; clearInterval(cuentaRegresiva); _cerrarModalDia() }
 
 // ─── pregunta ───────────────────────────────────────────────────────────
 
@@ -435,7 +497,6 @@ function engancharPreguntaModal(raiz) {
 
 function cuerpoRun() {
   const run = hoyDatos.run
-  if (run?.estado === 'en_curso') return runEnCursoHTML(run)
   if (run?.estado === 'propuesta') return runPropuestaHTML(run)
   return sinRunHTML()
 }
@@ -624,6 +685,31 @@ async function trabajando(boton, texto, f) {
   }
 }
 
+function engancharCuenta(cont) {
+  clearInterval(cuentaRegresiva)
+  const reloj = $('#ma-cuenta', cont)
+  if (!reloj?.dataset.fin) return
+  const tic = () => {
+    const [h, mi] = reloj.dataset.fin.split(':').map(Number)
+    const fin = new Date()
+    fin.setHours(h, mi, 0, 0)
+    const s = Math.round((fin - Date.now()) / 1000)
+    if (s <= 0) {
+      clearInterval(cuentaRegresiva)
+      reloj.textContent = '0:00'
+      if (cuentaPedida !== reloj.dataset.fin && !focoEnCampo()) {
+        cuentaPedida = reloj.dataset.fin
+        traerHoy()
+      }
+      return
+    }
+    cuentaPedida = ''
+    reloj.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+  }
+  tic()
+  cuentaRegresiva = setInterval(tic, 1000)
+}
+
 function engancharRun(cont, run) {
   clearInterval(cuentaRegresiva)
   const nueva = $('#run-nueva', cont)
@@ -647,32 +733,72 @@ function engancharRun(cont, run) {
   }))
   $$('.banda [data-nota]', cont).forEach((b) => (b.onclick = () => {
     const m = run.misiones.find((x) => x.id === Number(b.closest('[data-mid]').dataset.mid))
-    const nota = prompt(`Nota sobre «${m.titulo}» (para calibrar):`)
+    const nota = prompt(`Nota sobre «${m.titulo}» (para calibrar):`, m.feedback ?? '')
     if (nota?.trim()) marcar(m.id, m.estado === 'activa' ? 'parcial' : m.estado, nota.trim())
   }))
   $$('.banda [data-fijar]', cont).forEach((b) => (b.onclick = async () => {
     const m = run.misiones.find((x) => x.id === Number(b.closest('[data-mid]').dataset.mid))
     try { await api(`/misiones/${m.id}`, { fijada: !m.fijada }); await traerHoy() } catch (e) { error(e) }
   }))
-  const ma = $('.mision-actual[data-mid]', cont)
-  if (ma) {
-    $$('[data-marcar]', ma).forEach((b) => (b.onclick = () => marcar(Number(ma.dataset.mid), b.dataset.marcar, $('#ma-nota').value.trim() || null)))
-    const reloj = $('#ma-cuenta')
-    const tic = () => {
-      const [h, mi] = reloj.dataset.fin.split(':').map(Number)
-      const fin = new Date()
-      fin.setHours(h, mi, 0, 0)
-      const s = Math.round((fin - Date.now()) / 1000)
-      if (s <= 0) { clearInterval(cuentaRegresiva); traerHoy(); return }
-      reloj.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+  const foco = $('.foco[data-mid]', cont)
+  if (foco) {
+    const mid = Number(foco.dataset.mid)
+    const porQue = () => $('#foco-porque', cont)?.value ?? ''
+    $$('[data-foco-marcar]', foco).forEach((b) => (b.onclick = () => {
+      const m = run.misiones.find((x) => x.id === mid)
+      const nota = porQue().trim()
+      marcar(mid, m.estado === b.dataset.focoMarcar ? 'activa' : b.dataset.focoMarcar, nota || null)
+    }))
+    const guardarArmado = async (armado) => {
+      try {
+        await api(`/misiones/${mid}/armado`, { armado, porQue: porQue() })
+        toast('Anotado<small>La próxima run se arma con eso.</small>', 'suave')
+        await traerHoy()
+      } catch (e) { error(e) }
     }
-    tic()
-    cuentaRegresiva = setInterval(tic, 1000)
+    $$('[data-armado]', foco).forEach((b) => (b.onclick = () => {
+      const m = run.misiones.find((x) => x.id === mid)
+      guardarArmado(m.armado === b.dataset.armado ? null : b.dataset.armado)
+    }))
+    const guardar = $('#foco-guardar-armado', cont)
+    if (guardar) guardar.onclick = () => {
+      const m = run.misiones.find((x) => x.id === mid)
+      guardarArmado(m.armado ?? null)
+    }
+    const mins = () => {
+      const m = run.misiones.find((x) => x.id === mid)
+      return m.minutos || aMinJs(m.fin) - aMinJs(m.inicio)
+    }
+    const ajustar = (boton, delta) => trabajando(boton, delta > 0 ? '+5…' : '−5…', async () => {
+      await api(`/runs/${run.id}/minutos`, { mision: mid, minutos: mins() + delta })
+      await traerHoy()
+    })
+    const menos = $('#foco-menos', cont)
+    const mas = $('#foco-mas', cont)
+    if (menos) menos.onclick = () => ajustar(menos, -5)
+    if (mas) mas.onclick = () => ajustar(mas, 5)
+    const pasar = $('#foco-pasar', cont)
+    if (pasar) pasar.onclick = () => trabajando(pasar, 'Pasando…', async () => {
+      await api(`/runs/${run.id}/pasar`, {})
+      await traerHoy()
+    })
+  }
+  engancharCuenta(cont)
+  const gestionar = $('#run-gestionar', cont)
+  if (gestionar) gestionar.onclick = () => { gestionarRun = true; pintarRunEnCurso() }
+  const volver = $('#run-foco', cont)
+  if (volver) volver.onclick = () => { gestionarRun = false; pintarRunEnCurso() }
+  const comentar = $('#run-comentar', cont)
+  if (comentar) comentar.onclick = async () => {
+    try {
+      await api(`/runs/${run.id}/comentario`, { comentario: $('#run-comentario', cont).value })
+      toast('Comentario guardado<small>La próxima run se arma con eso.</small>', 'suave')
+      await traerHoy()
+    } catch (e) { error(e) }
   }
   const rehacer = $('#run-rehacer', cont)
   if (rehacer) rehacer.onclick = () => {
-    const cambio = run.estado === 'propuesta' ? $('#run-cambio').value.trim() : prompt('¿Qué cambio querés en lo que sigue? (vacío = rearmar igual)')
-    if (cambio === null) return
+    const cambio = $('#run-cambio', cont)?.value.trim() ?? ''
     trabajando(rehacer, 'Rehaciendo…', async () => { await api(`/runs/${run.id}/rehacer`, { cambio }); await traerHoy() })
   }
   const cambio = $('#run-cambio', cont)
@@ -686,6 +812,8 @@ function engancharRun(cont, run) {
     if (!confirm('¿Cerrar la run? Escribo el reporte con lo que marcaste.')) return
     trabajando(cerrar, 'Escribiendo el reporte…', async () => {
       const r = await api(`/runs/${run.id}/cerrar`, {})
+      diaAbierto = null
+      clearInterval(cuentaRegresiva)
       abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Reporte de la run</h2><div class="md">${md(r.texto)}</div>`)
       await refrescar()
       await traerHoy()

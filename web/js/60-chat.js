@@ -90,9 +90,8 @@ const hiloHTMLBase = () => `
     <div class="chat-acciones" id="chat-acciones" hidden></div>
     <form id="chat-form">
       <label class="btn btn-icono" id="chat-audio" title="Subir un audio: se transcribe y entra como lo que contás" hidden>🎙<input type="file" accept="audio/*" hidden id="chat-audio-in"></label>
-      <textarea id="chat-txt" rows="1" placeholder="Escribile a Mastropiero…"></textarea><button class="btn btn-primario" id="chat-enviar">Enviar</button>
+      <textarea id="chat-txt" rows="1" placeholder="Escribile a Mastropiero…" title="Enter envía. Shift+Enter, nueva línea."></textarea><button class="btn btn-primario" id="chat-enviar">Enviar</button>
     </form>
-    <small>Enter envía · Shift+Enter, nueva línea. Lo destructivo siempre te lo pregunta antes.</small>
   </div>`
 
 function engancharCompositor() {
@@ -197,6 +196,26 @@ function sugerenciasDe(c) {
   return SUGERENCIAS_MASTRO
 }
 
+/** Igual que partirSeguir en el servidor: el bloque no se muestra; son botones. */
+function partirSeguir(texto, parcial = false) {
+  let limpio = texto ?? ''
+  if (parcial) limpio = limpio.replace(/\[\[(?:s(?:e(?:g(?:u(?:i(?:r(?:\](?:\])?)?)?)?)?)?)?)?$/i, '')
+  const marca = '[[seguir]]'
+  const i = limpio.toLowerCase().lastIndexOf(marca)
+  if (i < 0) return { texto: limpio.trimEnd(), seguir: [] }
+  const despues = limpio.slice(i + marca.length)
+  const fin = despues.toLowerCase().indexOf('[[/seguir]]')
+  if (fin < 0) return { texto: (parcial ? limpio.slice(0, i) : limpio).trimEnd(), seguir: [] }
+  if (despues.slice(fin + '[[/seguir]]'.length).trim()) return { texto: limpio.trimEnd(), seguir: [] }
+  const seguir = parcial ? [] : despues.slice(0, fin).split('\n').map((s) => s.replace(/^[-*•]\s*/, '').trim()).filter((s) => s.length > 0 && s.length <= 90).slice(0, 3)
+  return { texto: limpio.slice(0, i).trimEnd(), seguir }
+}
+
+function seguirDelHilo() {
+  if (chat.pensando) return []
+  return partirSeguir(ultimaRespuesta()).seguir
+}
+
 function ultimaRespuesta() {
   for (let i = chat.mensajes.length - 1; i >= 0; i--) {
     const m = chat.mensajes[i]
@@ -208,7 +227,7 @@ function ultimaRespuesta() {
 function pintarChat() {
   const c = chat.actual
   const q = quienEs(c ?? { con: 'mastropiero' })
-  const copiable = ultimaRespuesta()
+  const copiable = partirSeguir(ultimaRespuesta()).texto
   $('#chat-cab').innerHTML = `<span class="avatar" style="--c:${q.color}">${q.glifo}</span><div class="chat-quien"><b>${esc(q.nombre)}</b><small>${esc(q.sub)}</small></div>
     <div class="fila">${copiable ? '<button class="btn btn-chico" id="chat-copiar" type="button" title="Copiar la última respuesta">Copiar</button>' : ''}${c ? `<button class="btn btn-chico" id="chat-archivar" type="button" title="Sacar de la lista">Archivar</button>` : ''}</div>`
   const ar = $('#chat-archivar')
@@ -222,12 +241,13 @@ function pintarChat() {
   const audio = $('#chat-audio')
   if (audio) audio.hidden = c?.modo !== 'diario'
   if (c?.modo === 'diario') $('#chat-txt').placeholder = 'Contá lo que quieras…'
-  const sug = sugerenciasDe(c)
   const hayHilo = chat.mensajes.some((m) => m.rol === 'operador' || m.rol === 'asistente')
+  const sug = hayHilo ? [] : sugerenciasDe(c)
+  const rapidas = hayHilo ? seguirDelHilo() : []
   const acc = $('#chat-acciones')
   if (acc) {
-    acc.hidden = !hayHilo || !sug.length
-    acc.innerHTML = hayHilo ? sug.map((s) => `<button type="button" data-acc="${esc(s)}" ${chat.pensando ? 'disabled' : ''}>${esc(s)}</button>`).join('') : ''
+    acc.hidden = !rapidas.length
+    acc.innerHTML = rapidas.map((s) => `<button type="button" data-acc="${esc(s)}">${esc(s)}</button>`).join('')
     $$('[data-acc]', acc).forEach((b) => (b.onclick = () => { if (chat.pensando) return; $('#chat-txt').value = b.dataset.acc; enviarChat() }))
   }
   if (!c || !chat.mensajes.length) {
@@ -299,8 +319,8 @@ function turnoHTML(t, q, vivo) {
     const falla = /^\{"error"/.test(m.texto ?? '') || /falló|no existe/.test(m.resumen ?? '')
     return `<li class="${falla ? 'falla' : ''}"><details><summary>${esc(m.resumen ?? m.herramienta)}</summary><pre>${esc(cuerpo.slice(0, 6000))}</pre></details></li>`
   }).join('')}</ul></details>` : ''
-  const borrador = vivo?.borrador ?? ''
-  const texto = [...t.textos, borrador].filter(Boolean).join('\n\n')
+  const borrador = vivo?.borrador ? partirSeguir(vivo.borrador, true).texto : ''
+  const texto = [...t.textos.map((x) => partirSeguir(x).texto), borrador].filter(Boolean).join('\n\n')
   const haciendo = vivo && !borrador
     ? `<div class="pensando"><span><i></i><i></i><i></i></span>${esc(vivo.herramienta ? (VIVO[vivo.herramienta]?.(vivo.argumentos) ?? 'trabajando') : t.herr.length ? 'pensando qué decirte' : 'pensando')}…</div>` : ''
   const meta = !vivo && t.modelo ? `<div class="m-meta">${esc(t.modelo)}${t.tokens ? ` · ${t.tokens.toLocaleString('es-AR')} tokens` : ''}</div>` : ''

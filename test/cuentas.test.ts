@@ -4,7 +4,10 @@ import { abrir } from '../src/db.ts'
 import { _probarModelo } from '../src/modelo.ts'
 import { _probarCalendario } from '../src/calendario.ts'
 import { _probarEscriba, conversacionHoy, mensajeDeMastropiero, alDecirSolo } from '../src/chat/index.ts'
-import { _probarConectores, guardarCuenta, listarPublicaciones, publicarPendientes, redactarPublicaciones, resolverPublicacion } from '../src/cuentas.ts'
+import { _probarConectores, guardarCuenta, leerAgente, listarCuentas, listarPublicaciones, publicarPendientes, redactarPublicaciones, resolverPublicacion } from '../src/cuentas.ts'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { _probarTelegram, procesarActualizacion } from '../src/telegram.ts'
 import { arrancarRun, enCurso, prepararRun } from '../src/misiones.ts'
 
@@ -91,4 +94,58 @@ test('telegram: solo su chat; texto y audio van a Hoy y la respuesta vuelve; bot
   assert.deepEqual(oido, ['Buen día.'])
   delete process.env.TELEGRAM_BOT_TOKEN
   delete process.env.TELEGRAM_CHAT_ID
+})
+
+test('cuentas: varios agentes por red; la clave no sale del listado; el Markdown y los cupos limitan lo redactado', async () => {
+  const db = abrir(':memory:')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mastro-agentes-'))
+  process.env.MASTRO_AGENTES = dir
+  try {
+    const a = guardarCuenta(db, { red: 'linkedin', usuario: 'lautaro', correo: 'yo@ejemplo.com', clave: 'clave-secreta-xyz', nombre: 'Lautaro' }, T)
+    const b = guardarCuenta(db, { red: 'LinkedIn', usuario: 'otro' }, T)
+    assert.equal(a.red, 'linkedin')
+    assert.equal(b.red, 'linkedin')
+    assert.equal(listarCuentas(db).filter((c) => c.red === 'linkedin').length, 2)
+    const lista = listarCuentas(db).find((c) => c.id === a.id)!
+    assert.equal(lista.tieneClave, true)
+    assert.equal('clave' in lista, false)
+    assert.equal(lista.correo, 'yo@ejemplo.com')
+    const ficha = leerAgente(db, a.id)!
+    assert.equal(ficha.clave, 'clave-secreta-xyz')
+    assert.equal(fs.existsSync(path.join(dir, `${a.id}.md`)), false, 'sin markdown no escribe archivo')
+
+    const ig = guardarCuenta(db, { red: 'Instagram', usuario: '@foto' }, T)
+    assert.equal(ig.oficio, 'creador')
+    assert.ok(ig.cupos.some((c) => c.tipo === 'video' && c.clase === 'pieza'))
+
+    const reddit = guardarCuenta(db, {
+      red: 'reddit', usuario: 'u/yo', clave: 'clave-secreta-xyz',
+      cupos: [{ tipo: 'respuesta', cantidad: 2, clase: 'comentario' }],
+      markdown: '# voz\nNunca inventes cifras.',
+    }, T)
+    assert.equal(reddit.reglas.topeDia, 2)
+    assert.match(fs.readFileSync(path.join(dir, `${reddit.id}.md`), 'utf8'), /Nunca inventes cifras/)
+    const editada = leerAgente(db, reddit.id)!
+    assert.match(editada.markdown, /Nunca inventes cifras/)
+    assert.equal(editada.clave, 'clave-secreta-xyz')
+
+    _probarModelo(async (_l, o) => {
+      const texto = o.mensajes.map((m) => String(m.content)).join('\n')
+      assert.match(texto, /Nunca inventes cifras/)
+      assert.doesNotMatch(texto, /clave-secreta-xyz/)
+      return {
+        texto: JSON.stringify({ publicaciones: [
+          { texto: 'uno', tipo: 'respuesta' }, { texto: 'dos', tipo: 'respuesta' },
+          { texto: 'tres', tipo: 'respuesta' }, { texto: 'otro', tipo: 'hilo' },
+        ] }),
+        llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1,
+      }
+    })
+    const pubs = await redactarPublicaciones(db, reddit.id, { ahora: T })
+    assert.equal(pubs.length, 2)
+    assert.deepEqual(pubs.map((p) => p.tipo), ['respuesta', 'respuesta'])
+  } finally {
+    delete process.env.MASTRO_AGENTES
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })

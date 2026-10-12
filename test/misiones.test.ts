@@ -14,8 +14,8 @@ import { forjar, retirar } from '../src/roster.ts'
 import { _probarEscriba, promptMastropiero } from '../src/chat/index.ts'
 import { agregarItem, escribirHistoria, inventarioDe, leerHistoria, resolverHistoria, resolverPersonaje } from '../src/personajes.ts'
 import {
-  actualizarMision, anotarSideQuest, arrancarRun, asignarMision, avanceDe, crearMision, fijarPrincipal, latidoRuns, listarMisiones, listarReportes,
-  marcarSecundaria, metricasSemana, misionesDeRun, prepararRun, principalDe, programar, proponerPrimarias, rehacerRun, semanaDe, seguimientos, sideQuestsRelevantes,
+  actualizarMision, ajustarMinutos, anotarSideQuest, arrancarRun, asignarMision, avanceDe, cerrarRun, comentarRun, crearMision, fijarPrincipal, latidoRuns, leerMision, leerRun, listarMisiones, listarReportes,
+  marcarSecundaria, metricasSemana, misionesDeRun, opinarArmado, pasarASiguiente, prepararRun, principalDe, programar, proponerPrimarias, rehacerRun, semanaDe, seguimientos, sideQuestsRelevantes,
 } from '../src/misiones.ts'
 
 process.env.GCAL_ICS_URLS = 'https://calendario.falso/ics'
@@ -287,6 +287,64 @@ test('migración: las jornadas viejas en bloques pasan a una run con sus misione
   const tercera = abrir(ruta)
   assert.equal(listarMisiones(tercera, { nivel: 'secundaria' }).length, 2, 'no se migra dos veces')
   tercera.close()
+})
+
+test('el armado y el comentario calibran la próxima, y la banda de ahora se puede correr', async () => {
+  const db = abrir(':memory:')
+  modelo({ run: bandas(20), reporte: { texto: 'Las claras, repetirlas.', ajustes: ['Nada de admin vaga'] } })
+  const { run } = await prepararRun(db, {}, { ahora: a(9) })
+  arrancarRun(db, run.id, a(9))
+  const bs = misionesDeRun(db, run.id)
+  opinarArmado(db, bs[0].id, 'bien', 'el primer paso era claro')
+  opinarArmado(db, bs[1].id, 'mal', 'el detalle no decía qué era hecho')
+  assert.equal(leerMision(db, bs[0].id)!.estado, 'activa')
+  comentarRun(db, run.id, 'las de escritura estaban bien; las de admin, vagas')
+  marcarSecundaria(db, bs[2].id, 'hecha', 'primera nota')
+  marcarSecundaria(db, bs[2].id, 'hecha', 'segunda nota')
+  assert.equal(leerMision(db, bs[2].id)!.feedback, 'segunda nota')
+
+  const vistos = modelo({ run: bandas(20) })
+  await prepararRun(db, {}, { ahora: a(15) })
+  const visto = vistos.find((v) => v.agente === 'run')!
+  assert.match(visto.sistema, /mal armada/)
+  const u = visto.usuario
+  const iBien = u.indexOf('Tareas bien armadas')
+  const iMal = u.indexOf('Tareas mal armadas')
+  const iCom = u.indexOf('Comentarios de sus runs')
+  assert.ok(iBien >= 0 && iMal > iBien && iCom > iMal)
+  assert.match(u.slice(iBien, iMal), /el primer paso era claro/)
+  assert.doesNotMatch(u.slice(iBien, iMal), /el detalle no decía/)
+  assert.match(u.slice(iMal, iCom), /el detalle no decía qué era hecho/)
+  assert.match(u.slice(iCom), /las de escritura estaban bien/)
+
+  pasarASiguiente(db, run.id, a(9, 8))
+  const ps = misionesDeRun(db, run.id)
+  assert.equal(ps[0].fin, '09:08')
+  assert.equal(ps[1].inicio, '09:08')
+  assert.equal(leerRun(db, run.id)!.fin, '11:56')
+
+  const cierre = modelo({ reporte: { texto: 'Las claras, repetirlas.', ajustes: ['Nada de admin vaga'] } })
+  await cerrarRun(db, run.id, { ahora: a(12) })
+  const ru = cierre.find((v) => v.agente === 'reporte')!.usuario
+  assert.match(ru, /\[armada: bien\]/)
+  assert.match(ru, /\[armada: mal\]/)
+  assert.match(ru, /el detalle no decía qué era hecho/)
+  assert.match(ru, /Comentario del jugador sobre la run/)
+
+  const db2 = abrir(':memory:')
+  modelo({ run: bandas(8, 12) })
+  const corta = await prepararRun(db2, { cantidad: 4 }, { ahora: a(9) })
+  arrancarRun(db2, corta.run.id, a(9))
+  const c0 = misionesDeRun(db2, corta.run.id)
+  assert.equal(c0.length, 4)
+  assert.equal(c0[1].inicio, '09:12')
+  ajustarMinutos(db2, corta.run.id, c0[0].id, 17)
+  const aj = misionesDeRun(db2, corta.run.id)
+  assert.equal(aj[0].fin, '09:17')
+  assert.equal(aj[0].minutos, 17)
+  assert.equal(aj[1].inicio, '09:17')
+  assert.equal(aj[1].fin, '09:29')
+  assert.throws(() => ajustarMinutos(db2, corta.run.id, aj[0].id, 400), /entre 5 y 180/)
 })
 
 test('personas por apodo: «Rafa» encuentra a la única que encaja; con dos candidatas no adivina', async () => {

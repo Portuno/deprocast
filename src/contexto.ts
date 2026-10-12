@@ -6,6 +6,7 @@ import { CLASES } from './clases.ts'
 import type { Db } from './db.ts'
 import { asientos, especializacion } from './auditor.ts'
 import { buscar, leerPieza, type Pieza } from './corpus.ts'
+import { memoriaParaPrompt } from './memoria.ts'
 import { listar, nivel, type Ficha } from './roster.ts'
 import type { Tarea } from './bus.ts'
 import { capa, efectos } from './xp.ts'
@@ -19,8 +20,20 @@ export type Contexto = {
   proyecto?: { nombre: string; recientes: { tipo: string; clase: string; estado: string }[] }
   especialidad?: { dominio: string; piezas: { id: number; titulo: string }[] }
   liga?: { roster: { id: string; clase: string; nivel: number; estado: string }[]; auditoria: unknown[] }
+  /** Quién es el operador, corto. No entra en el texto de la tarea. */
+  operador?: { nombre: string; quien: string }
   /** Solo auditores: el log es su materia de trabajo, no contexto extra. */
   log?: unknown[]
+}
+
+/** Recorte para cualquier agente: el nombre y hasta 8 recuerdos. Vacío si todavía no hay nada. */
+export function operadorParaAgente(db: Db): { nombre: string; quien: string } | null {
+  const yo = db.prepare(`SELECT nombre FROM entidades WHERE tipo = 'persona' AND json_extract(meta, '$.operador') = 1 LIMIT 1`).get() as { nombre: string } | undefined
+  const mem = memoriaParaPrompt(db, 8)
+  if (!yo && !mem) return null
+  const nombre = yo?.nombre ?? 'operador'
+  const quien = [yo ? `El operador es ${yo.nombre}.` : '', mem].filter(Boolean).join('\n')
+  return { nombre, quien }
 }
 
 export type Lector = { buscar: (consulta: string) => Pieza[] }
@@ -30,10 +43,12 @@ export function construir(db: Db, f: Ficha, t: Tarea): { contexto: Contexto; lec
   const c = capa(n)
   const clase = CLASES[f.clase]
   const esp = especializacion(db, f.id)
+  const op = operadorParaAgente(db)
   const ctx: Contexto = {
     capa: { nivel: c.nivel, nombre: c.nombre },
     esquema: { clase: clase.nombre, produce: clase.produce, salida: clase.salida },
     tarea: { id: t.id, tipo: t.tipo, dominio: t.dominio, payload: t.payload },
+    ...(op ? { operador: op } : {}),
   }
   if (t.corpusId != null) ctx.pieza = leerPieza(db, t.corpusId) ?? undefined
 

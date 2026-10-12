@@ -4,7 +4,9 @@ import { abrir } from '../src/db.ts'
 import { _probarModelo } from '../src/modelo.ts'
 import { _probarCalendario } from '../src/calendario.ts'
 import { crearConversacion } from '../src/chat/index.ts'
+import { asegurarEntidad } from '../src/entidades.ts'
 import { actualizarMision, arrancarRun, crearMision, marcarSecundaria, misionesDeRun, prepararRun } from '../src/misiones.ts'
+import { guardarRelacion } from '../src/personas.ts'
 import { anotarPrediccion, brier, calificarAMano, calificarDia, conocimiento, curva, paraElJugador, predecirDia, prediccionesDe, sumarPredicciones } from '../src/gemelo.ts'
 
 process.env.GCAL_ICS_URLS = 'https://calendario.falso/ics'
@@ -88,4 +90,24 @@ test('el gemelo predice (sellado), se califica solo con datos y con evidencia, y
   assert.match(conNota.nota ?? '', /anexo/)
   assert.ok(db.prepare(`SELECT 1 FROM memoria WHERE texto LIKE '%anexo%'`).get(), 'la info entra a la memoria')
   assert.equal(calificarAMano(db, mia.id, true).resultado, 1)
+})
+
+test('el gemelo arma el día con nombres y con lo de ayer, y le pide predicciones concretas', async () => {
+  const db = abrir(':memory:')
+  crearMision(db, { nivel: 'primaria', titulo: 'Cerrar el contrato de Ana', estado: 'activa' }, { ahora: T })
+  const ana = asegurarEntidad(db, { tipo: 'persona', nombre: 'Ana' })
+  guardarRelacion(db, ana, { vinculo: 'trabajo', cadaDias: 7, contacto: '2026-09-01' })
+  let usuario = ''
+  _probarModelo(async (_l, o) => {
+    usuario = String(o.mensajes.at(-1)!.content)
+    assert.match(String(o.mensajes[0].content), /nombra algo concreto/)
+    return { texto: JSON.stringify({ predicciones: [
+      { texto: 'Va a avanzar el contrato de Ana', probabilidad: 0.62, tipo: 'primaria', criterio: { tipo: 'primaria_avanza', primaria: 'Cerrar el contrato de Ana' } },
+    ] }), llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }
+  })
+  const ps = await predecirDia(db, '2026-10-07', T)
+  assert.equal(ps[0].texto, 'Va a avanzar el contrato de Ana')
+  assert.match(usuario, /Cerrar el contrato de Ana/)
+  assert.match(usuario, /Ana \(trabajo\)/)
+  assert.match(usuario, /Ayer no hubo run/)
 })

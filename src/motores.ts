@@ -141,7 +141,7 @@ const local: Motor = async ({ db, ficha, contexto, lector, efectos }) => {
 
 // ─── modelos: prompt común ──────────────────────────────────────────────
 
-function mensajes({ ficha, contexto, lector, efectos }: Entrada) {
+export function mensajesDe({ ficha, contexto, lector, efectos }: Entrada) {
   const clase = CLASES[ficha.clase]
   const fuentes = ficha.clase === 'buscador'
     ? lector.buscar(textoDe(contexto)).map((p) => ({
@@ -156,6 +156,7 @@ function mensajes({ ficha, contexto, lector, efectos }: Entrada) {
       ? `Si hace falta trabajo de otra clase, podés agregar "nuevasTareas": [{"clase": string, "texto": string, "dominio"?: string}] (máximo ${efectos.iniciativa}).`
       : '',
     ficha.clase === 'buscador' ? 'Citá por id solo fuentes provistas. Si no hay fuente, citas vacías.' : '',
+    contexto.operador ? `Trabajás para ${contexto.operador.nombre}.\n${contexto.operador.quien}` : '',
   ].filter(Boolean).join('\n')
   return [
     { role: 'system', content: sistema },
@@ -206,7 +207,7 @@ const llm: Motor = async (e) => {
     temperature: e.efectos.temperatura,
     max_tokens: e.efectos.maxTokens,
     response_format: { type: 'json_object' },
-    messages: mensajes(e),
+    messages: mensajesDe(e),
   })
   return objetoJson(r.choices?.[0]?.message?.content ?? '')
 }
@@ -217,7 +218,7 @@ const nan: Motor = async (e) => {
   if (e.ficha.clase === 'crawler') return local(e)
   const l = { db: e.db, clase: e.ficha.clase, agenteId: e.ficha.id }
   if (e.ficha.clase === 'vectorizador') return { embedding: (await nanEmbed(l, textoDe(e.contexto))).embedding }
-  const { texto } = await nanChat(l, { mensajes: mensajes(e), temperatura: e.efectos.temperatura, maxTokens: e.efectos.maxTokens, json: true })
+  const { texto } = await nanChat(l, { mensajes: mensajesDe(e), temperatura: e.efectos.temperatura, maxTokens: e.efectos.maxTokens, json: true })
   return objetoJson(texto)
 }
 

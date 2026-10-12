@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import zlib from 'node:zlib'
 import { abrir } from '../src/db.ts'
 import { listarPiezas } from '../src/corpus.ts'
 import { ejecutar, subir } from '../src/cargas/index.ts'
@@ -133,4 +134,27 @@ test('respaldo 0.7: el predictor de energía entra opcional, un día por pieza, 
   const p = listarPiezas(db, { limite: 5 }).piezas.find((x) => x.titulo === 'Predictor de energía · 2026-09-15')!
   assert.equal(p.nivel, 'generada')
   assert.equal(p.contenido, '2 predicciones; de las medidas, 1 de 1 acertaron.\n- 09:00 · dialogo en «Ada» (30%) → expired\n- 10:00 · captura_audio en «Telar» (57%) → acertó')
+})
+
+function pdfCon(texto: string): Buffer {
+  const cuerpo = Buffer.from(`BT (${texto}) Tj ET`)
+  const datos = zlib.deflateSync(cuerpo)
+  const cabeza = `%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n4 0 obj\n<< /Length ${datos.length} /Filter /FlateDecode >>\nstream\n`
+  return Buffer.concat([Buffer.from(cabeza), datos, Buffer.from('endstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n')])
+}
+
+test('pdf: saca el texto comprimido; un escaneo avisa y no entra', () => {
+  const db = abrir(':memory:')
+  const c = subir(db, 'nota.pdf', pdfCon('Hola desde el pdf'))
+  assert.equal(c.importador, 'pdf')
+  assert.equal(c.analisis!.segmentos[0].nivel, 'primaria')
+  assert.equal(c.analisis!.avisos.length, 0)
+  ejecutar(db, c.id, { pipeline: 'ninguna' })
+  const p = listarPiezas(db, { limite: 5 }).piezas.find((x) => x.titulo === 'nota')!
+  assert.equal(p.nivel, 'primaria')
+  assert.equal(p.contenido, 'Hola desde el pdf')
+
+  const vacio = subir(db, 'escaneo.pdf', Buffer.from('%PDF-1.4\n1 0 obj\n<< >>\nendobj\n%%EOF\n'))
+  assert.match(vacio.analisis!.avisos[0], /no trae texto/)
+  assert.equal(vacio.analisis!.segmentos.length, 0)
 })

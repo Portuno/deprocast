@@ -6,7 +6,7 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { abrir } from '../src/db.ts'
 import { _probarModelo } from '../src/modelo.ts'
-import { aplicarCambios, aplicarForja, descartarForja, forjarMejora } from '../src/fragua.ts'
+import { aplicarCambios, aplicarForja, descartarForja, forjarMejora, salidaDeCompilador, salidaDeTests, sigueLaSuite } from '../src/fragua.ts'
 
 const git = (cwd: string, ...a: string[]) => execFileSync('git', a, { cwd, encoding: 'utf8' }).trim()
 
@@ -22,10 +22,16 @@ function repoDePrueba() {
   return dir
 }
 
+let vioCambios = ''
 function modelo(cambios: unknown[]) {
   _probarModelo(async (_l, o) => {
     const s = String(o.mensajes[0].content)
-    const datos = s.includes('Elegí los archivos') ? { archivos: ['src/saludo.ts', 'src/inventado.ts'] } : { resumen: 'Saluda con más onda.', cambios }
+    const u = String(o.mensajes[1]?.content ?? '')
+    const datos = s.includes('Elegí los archivos')
+      ? { archivos: ['src/saludo.ts', 'src/inventado.ts'] }
+      : s.includes('verificacion')
+        ? { archivos: ['src/saludo.ts'], cambio: 'Saluda con más onda.', verificacion: 'typecheck' }
+        : (vioCambios = u, { resumen: 'Saluda con más onda.', cambios })
     return { texto: JSON.stringify(datos), llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }
   })
 }
@@ -38,6 +44,9 @@ test('fragua: forja en su rama sin tocar main; aplica solo si pasó y con su ok;
   modelo([{ archivo: 'src/saludo.ts', buscar: "'hola'", reemplazar: "'buenas'" }])
   const f = await forjarMejora(db, { propuestaId: 1 }, { repo, verificar: () => ({ ok: true, salida: 'ℹ pass 1' }) })
   assert.equal(f.estado, 'lista', f.salida ?? '')
+  assert.match(vioCambios, /Cambio: Saluda con más onda/)
+  assert.match(vioCambios, /Verificación: typecheck/)
+  assert.match(f.resumen!, /Cambio: Saluda con más onda/)
   assert.deepEqual(f.archivos, ['src/saludo.ts'])
   assert.match(f.diff!, /-export const saludo = \(\) => 'hola'\n\+export const saludo = \(\) => 'buenas'/)
   assert.equal(fs.readFileSync(path.join(repo, 'src', 'saludo.ts'), 'utf8'), "export const saludo = () => 'hola'\n", 'main intacto')
@@ -66,6 +75,16 @@ test('fragua: forja en su rama sin tocar main; aplica solo si pasó y con su ok;
   assert.equal(mal.estado, 'fallo')
   assert.match(mal.salida!, /no encontré el tramo/)
   descartarForja(db, mal.id, { repo })
+})
+
+test('fragua: si tsc falla, la salida trae archivo y mensaje y la suite no corre', () => {
+  const txt = 'src/saludo.ts(1,14): error TS2322: Type \'string\' is not assignable to type \'number\'.\n  la línea de contexto también queda\n'
+  const salida = salidaDeCompilador(txt)
+  assert.match(salida, /src\/saludo\.ts\(1,14\): error TS2322/)
+  assert.match(salida, /línea de contexto/)
+  assert.doesNotMatch(salidaDeTests('ruido\n✖ failing tests\n'), /ruido/)
+  assert.equal(sigueLaSuite(2), false)
+  assert.equal(sigueLaSuite(0), true)
 })
 
 test('fragua: no deja tocar .env, .git, data ni salir del repo', () => {

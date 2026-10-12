@@ -1,0 +1,9 @@
+node_modules
+.git
+.vercel
+data
+.env
+.env.*
+*.db
+*.db-wal
+*.db-shm

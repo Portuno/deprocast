@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { abrir } from '../src/db.ts'
 import { insertar } from '../src/corpus.ts'
 import { asegurarEntidad } from '../src/entidades.ts'
-import { aContactar, guardarRelacion, personas, personasParaPrompt } from '../src/personas.ts'
+import { aContactar, guardarRelacion, matrizPersonas, personas, personasParaPrompt } from '../src/personas.ts'
 import { alertasPendientes } from '../src/alertas.ts'
 import { marcarJugador } from '../src/personajes.ts'
 
@@ -34,6 +34,11 @@ test('personas: relación definida, último contacto deducido del corpus, vencid
   const al = alertasPendientes(db, T).filter((x) => x.clave.startsWith('persona:'))
   assert.equal(al.length, 1)
   assert.match(al[0].texto, /Hace 19 días que no sabés de Ana Prueba \(querías cada 7\)\. Tenías pendiente: devolverle el libro\./)
+
+  insertar(db, { fuente: 'operador', titulo: 'Los dos', contenido: 'Ana y Beto', nivel: 'propia', fecha: '2026-09-01', entidades: [ana, beto], origenId: 't:2' })
+  const fila = matrizPersonas(db, T).find((p) => p.id === ana)!
+  assert.ok(fila.con.some((c) => c.nombre === 'Beto Prueba'))
+  assert.equal(fila.accion, 'escribirle')
 
   guardarRelacion(db, ana, { contacto: true }, T)
   assert.equal(aContactar(db, T).length, 0, 'hablaron hoy')

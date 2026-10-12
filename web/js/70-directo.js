@@ -18,7 +18,7 @@ function modalDirecto() {
   const huerfano = E.hoy?.directo
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button>
     <h2>Directo</h2>
-    <p class="tenue">Mastropiero mira tu pantalla y te escucha mientras trabajás. Anota qué hacés, transcribe lo que decís y entiende lo que mirás o escuchás (videos, música, lecturas). Al apagarlo te deja un informe, y todo entra al corpus y a tu memoria. Las capturas no se guardan: solo lo que se vio.</p>
+    <p class="tenue">Mastropiero mira tu pantalla y te escucha mientras trabajás. Al apagarlo te deja un resumen y una bandeja: tareas, entidades, conexiones, ideas y lo que miraste. Nada de eso entra solo; lo aceptás o lo descartás. Lo que decís en voz alta sí queda, porque es tuyo. Las capturas no se guardan.</p>
     ${huerfano ? `<p class="aviso">Hay un Directo abierto desde las ${new Date(huerfano.inicio).toTimeString().slice(0, 5)} sin señal (se recargó la página). Prendelo de nuevo para retomarlo, o cerralo.</p>` : ''}
     <div class="form-ing">
       <label class="campo fila" style="gap:6px"><input type="checkbox" id="d-pantalla" checked> Pantalla</label>
@@ -37,7 +37,7 @@ function modalDirecto() {
   if (viejo) viejo.onclick = async () => {
     cerrarModal()
     toast('Cerrando el Directo y escribiendo el informe…', 'suave')
-    try { await api(`/directo/${huerfano.id}/cerrar`, {}); await refrescar(); if (vista === 'directo') montarDirecto() } catch (e) { error(e) }
+    try { trasCerrar(await api(`/directo/${huerfano.id}/cerrar`, {})) } catch (e) { error(e) }
   }
 }
 
@@ -136,11 +136,7 @@ async function detenerDirecto() {
   toast('Apagando el Directo<small>Termino de procesar lo último y escribo el informe…</small>', 'suave')
   try {
     await Promise.allSettled([...directo.subidas])
-    const s = await api(`/directo/${sesion}/cerrar`, {})
-    toast('Informe del Directo listo<small>Lo tenés en Directo y en Hoy.</small>')
-    await refrescar()
-    if (vista === 'directo') montarDirecto()
-    else abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Informe del Directo</h2><div class="md">${md(s.informe ?? '')}</div>`)
+    trasCerrar(await api(`/directo/${sesion}/cerrar`, {}))
   } catch (e) { error(e) }
 }
 
@@ -158,16 +154,149 @@ function pintarIndicadorDirecto() {
     b.textContent = huerfano ? '● Directo (sin señal)' : '● Directo'
     b.title = huerfano ? 'Quedó un Directo abierto sin señal: tocá para retomarlo o cerrarlo' : 'Prender el Directo: Mastropiero ve tu pantalla y te escucha'
   }
+  const nav = document.querySelector('#nav button[data-vista="directo"]')
+  if (nav && E) {
+    const n = E.hoy?.directoPorRevisar ?? 0
+    let em = nav.querySelector('.badge')
+    if (!n) em?.remove()
+    else {
+      if (!em) { em = document.createElement('em'); em.className = 'badge'; nav.append(em) }
+      em.textContent = String(n)
+    }
+  }
 }
 
-// Vista Directo: la sesión en curso y los informes
+// Vista Directo: la sesión en curso y la bandeja de lo que hay que aceptar
 
 const ICONO_MOMENTO = { pantalla: '▣', voz: '🗣', medio: '♪' }
+const GRUPOS_DIRECTO = [
+  ['cumplida', 'Parecen hechas', 'Hecha'],
+  ['banda', 'Bandas', 'Hecha'],
+  ['tarea', 'Tareas nuevas', 'Side quest'],
+  ['entidad', 'Entidades', 'Anotar'],
+  ['conexion', 'Conexiones', 'Anotar'],
+  ['idea', 'Ideas', 'A la memoria'],
+  ['medio', 'Lo que viste o escuchaste', 'Al corpus'],
+]
 let directoFirma = ''
+
+const pendDirecto = (s) => (s.resumen?.propuestas ?? []).filter((p) => p.estado === 'pendiente')
+
+function subtituloProp(p) {
+  if (p.tipo === 'entidad') {
+    const alias = p.alias?.length ? ` · alias ${p.alias.join(', ')}` : ''
+    return [p.tipoEntidad, p.detalle].filter(Boolean).join(' · ') + alias
+  }
+  if (p.tipo === 'conexion') return p.detalle || ''
+  if (p.tipo === 'medio') return [p.tipoEntidad, p.detalle].filter(Boolean).join(' · ')
+  return p.detalle || ''
+}
+
+function tableroDirecto(s) {
+  const ps = s.resumen?.propuestas ?? []
+  const chips = Object.entries(s.resumen?.minutosPorActividad ?? {}).slice(0, 6).map(([k, v]) => `<span class="chip">${esc(k)} ${v}′</span>`).join('')
+  const texto = (s.informe ?? '').split(/\n{2,}/).map((x) => x.trim()).filter(Boolean).map((x) => `<p>${esc(x)}</p>`).join('')
+  const grupos = GRUPOS_DIRECTO.map(([tipo, nombre, verbo]) => {
+    const xs = ps.filter((p) => p.tipo === tipo && p.estado !== 'rechazada')
+    if (!xs.length) return ''
+    const vivos = xs.filter((p) => p.estado === 'pendiente')
+    const ids = vivos.map((p) => p.id).join(',')
+    return `<section class="dir-grupo" data-grupo="${tipo}">
+      <header><h4>${nombre}${vivos.length ? ` <em>${vivos.length}</em>` : ''}</h4>
+        ${vivos.length > 1 ? `<span class="fila"><button class="btn btn-chico" data-acc="aceptar" data-ids="${esc(ids)}">Aceptar estas</button><button class="btn btn-chico" data-acc="rechazar" data-ids="${esc(ids)}">Ninguna</button></span>` : ''}</header>
+      ${xs.map((p) => `<div class="sq ${p.estado}" data-prop="${esc(p.id)}"><span><b>${esc(p.titulo)}</b>${subtituloProp(p) ? `<small>${esc(subtituloProp(p))}</small>` : ''}</span>
+        ${p.estado === 'pendiente'
+          ? `<span class="fila"><button class="btn btn-chico btn-primario" data-acc="aceptar">${verbo}</button><button class="btn btn-chico" data-acc="rechazar" title="Descartar">✕</button></span>`
+          : '<em class="dir-ok">✓</em>'}</div>`).join('')}
+    </section>`
+  }).join('')
+  const quedan = pendDirecto(s).length
+  return `<div class="dir-tablero" data-sesion="${s.id}">
+    ${chips ? `<div class="chips">${chips}</div>` : ''}
+    <div class="dir-texto">${texto}</div>
+    ${grupos || '<p class="tenue chico">No salió nada para anotar.</p>'}
+    ${quedan ? `<p class="dir-nota">Nada de esto entró solo. Aceptá lo que quieras guardar.</p>` : (ps.length ? '<p class="dir-nota">No queda nada por revisar.</p>' : '')}
+  </div>`
+}
+
+function resumenSesion(s) {
+  const cuando = `${new Date(s.inicio).toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })} ${new Date(s.inicio).toTimeString().slice(0, 5)}–${s.fin ? new Date(s.fin).toTimeString().slice(0, 5) : '…'}`
+  const n = pendDirecto(s).length
+  const mins = s.resumen?.minutosPorActividad ? Object.entries(s.resumen.minutosPorActividad).slice(0, 3).map(([k, v]) => `${k} ${v}′`).join(', ') : ''
+  return { cuando, n, mins }
+}
+
+async function trasCerrar(s) {
+  await refrescar()
+  if (vista === 'directo') montarDirecto()
+  else mostrarRevision(s)
+}
+
+function mostrarRevision(s) {
+  const bandeja = Array.isArray(s.resumen?.propuestas)
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Del Directo</h2>
+    ${bandeja ? tableroDirecto(s) : `<div class="md">${md(s.informe ?? '')}</div>`}`)
+  if (bandeja) engancharTablero($('#modal'))
+}
+
+function engancharTablero(raiz) {
+  $$('[data-acc]', raiz).forEach((btn) => {
+    btn.onclick = async () => {
+      const tablero = btn.closest('[data-sesion]')
+      const sesion = tablero?.dataset.sesion
+      const ids = btn.dataset.ids ? btn.dataset.ids.split(',').filter(Boolean) : [btn.closest('[data-prop]')?.dataset.prop].filter(Boolean)
+      if (!sesion || !ids.length) return
+      btn.disabled = true
+      try {
+        const r = await api(`/directo/${sesion}/propuesta`, { ids, accion: btn.dataset.acc })
+        aplicarEnPantalla(sesion, r.propuestas)
+        const verbos = { tarea: 'Side quest anotada', cumplida: 'Marcada hecha', banda: 'Banda hecha', entidad: 'Entidad anotada', conexion: 'Conexión anotada', idea: 'Quedó en la memoria', medio: 'Entró al corpus' }
+        const uno = r.propuestas.length === 1 ? r.propuestas[0] : null
+        toast(btn.dataset.acc === 'rechazar' ? (r.propuestas.length > 1 ? 'Descartadas' : 'Descartada') : (uno ? verbos[uno.tipo] ?? 'Anotado' : `${r.propuestas.length} anotadas`), 'suave')
+        refrescar()
+      } catch (e) { error(e); btn.disabled = false }
+    }
+  })
+}
+
+function aplicarEnPantalla(sesion, propuestas) {
+  for (const p of propuestas) {
+    $$(`[data-sesion="${sesion}"] [data-prop="${CSS.escape(p.id)}"]`).forEach((fila) => {
+      if (p.estado === 'rechazada') fila.remove()
+      else {
+        fila.classList.remove('pendiente')
+        fila.classList.add('aceptada')
+        const botones = fila.querySelector('.fila')
+        if (botones) botones.outerHTML = '<em class="dir-ok">✓</em>'
+      }
+    })
+  }
+  $$(`[data-sesion="${sesion}"]`).forEach((tablero) => {
+    $$('.dir-grupo', tablero).forEach((g) => {
+      const vivos = $$('[data-prop]:not(.aceptada)', g)
+      const em = g.querySelector('h4 em')
+      if (em) { if (vivos.length) em.textContent = String(vivos.length); else em.remove() }
+      const cab = g.querySelector('header .fila')
+      if (cab) {
+        if (vivos.length < 2) cab.remove()
+        else cab.querySelectorAll('[data-ids]').forEach((b) => { b.dataset.ids = vivos.map((f) => f.dataset.prop).join(',') })
+      }
+      if (!g.querySelector('[data-prop]')) g.remove()
+    })
+    const nota = $('.dir-nota', tablero)
+    const quedan = $$('[data-prop]:not(.aceptada)', tablero).length
+    if (nota) nota.textContent = quedan ? 'Nada de esto entró solo. Aceptá lo que quieras guardar.' : 'No queda nada por revisar.'
+  })
+  $$('[data-pend-sesion]').forEach((em) => {
+    const tablero = $(`[data-sesion="${em.dataset.pendSesion}"]`)
+    const n = tablero ? $$('[data-prop]:not(.aceptada)', tablero).length : 0
+    em.textContent = n ? `${n} para revisar` : ''
+  })
+}
 
 async function montarDirecto() {
   $('#principal').innerHTML = `
-    <div class="titulo"><h1>Directo</h1><p>Lo que Mastropiero ve y escucha mientras trabajás, y lo que entiende de eso. Se prende y se apaga desde el botón ● de arriba.</p>
+    <div class="titulo"><h1>Directo</h1><p>El resumen de lo que Mastropiero vio, y una bandeja para aceptar o descartar. Las tareas, entidades y conexiones no entran solas.</p>
       <div class="fila"><button class="btn btn-primario" id="dv-boton">${directo.sesion ? 'Apagar el Directo' : '● Prender el Directo'}</button></div></div>
     <div id="dv"></div>`
   $('#dv-boton').onclick = modalDirecto
@@ -177,12 +306,18 @@ async function montarDirecto() {
     const momento = (m) => `<div class="momento ${m.tipo}"><span class="mo-hora">${new Date(m.desde).toTimeString().slice(0, 5)}${m.hasta - m.desde > 90_000 ? `<small>${Math.round((m.hasta - m.desde) / 60000)}′</small>` : ''}</span><i>${ICONO_MOMENTO[m.tipo] ?? '·'}</i>
       <div>${m.tipo === 'pantalla' ? `<b>${esc([m.app, m.actividad].filter(Boolean).join(' · '))}</b>${m.detalle ? `<small>${esc(m.detalle)}</small>` : ''}${m.nota ? `<p>${esc(m.nota)}</p>` : ''}`
         : `<b>${m.tipo === 'voz' ? 'Dijiste' : `Escuchaste${m.detalle ? ` · ${esc(m.detalle)}` : ''}`}</b><p>${esc((m.texto ?? '').slice(0, 600))}</p>`}</div></div>`
+    const cuerpo = (s) => Array.isArray(s.resumen?.propuestas)
+      ? tableroDirecto(s)
+      : `<div class="md">${md(s.informe ?? '')}</div>${s.piezaId ? `<p><a href="#" class="ref" data-pieza="${s.piezaId}">abrir en el corpus</a></p>` : ''}`
     $('#dv').innerHTML = `
       ${d.activa ? `<section class="panel"><h3>En curso · desde las ${new Date(d.activa.inicio).toTimeString().slice(0, 5)}</h3>
         ${d.activa.momentos.length ? `<div class="momentos">${d.activa.momentos.slice().reverse().map(momento).join('')}</div>` : '<p class="tenue">Todavía nada: el primer cuadro llega en unos segundos y la voz al minuto.</p>'}</section>` : ''}
       <h3 class="sub">Informes</h3>
-      ${d.sesiones.length ? d.sesiones.map((s) => `<details class="run-pasada"><summary><b>${esc(new Date(s.inicio).toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' }))}</b> ${new Date(s.inicio).toTimeString().slice(0, 5)}–${s.fin ? new Date(s.fin).toTimeString().slice(0, 5) : '…'}${s.resumen?.minutosPorActividad ? ` · ${esc(Object.entries(s.resumen.minutosPorActividad).slice(0, 3).map(([k, v]) => `${k} ${v}′`).join(', '))}` : ''}</summary>
-        <div class="md">${md(s.informe ?? '')}</div>${s.piezaId ? `<p><a href="#" class="ref" data-pieza="${s.piezaId}">abrir en el corpus</a></p>` : ''}</details>`).join('') : '<div class="vacio"><div class="gran">◎</div><h2>Todavía no prendiste el Directo</h2><p>Prendelo cuando trabajes: Mastropiero va a entender qué hacés, qué mirás y qué decís, y te deja un informe.</p></div>'}`
+      ${d.sesiones.length ? d.sesiones.map((s) => {
+        const r = resumenSesion(s)
+        return `<details class="run-pasada" ${r.n ? 'open' : ''}><summary><b>${esc(r.cuando)}</b>${r.mins ? ` · ${esc(r.mins)}` : ''}${r.n ? ` <em class="dir-pend" data-pend-sesion="${s.id}">${r.n} para revisar</em>` : ''}</summary>${cuerpo(s)}</details>`
+      }).join('') : '<div class="vacio"><div class="gran">◎</div><h2>Todavía no prendiste el Directo</h2><p>Prendelo cuando trabajes. Al cerrarlo, aceptás o descartás lo que Mastropiero creyó ver.</p></div>'}`
+    engancharTablero($('#dv'))
   } catch (e) { error(e) }
 }
 

@@ -44,7 +44,7 @@ export type Opciones = {
   umbralPeso?: number
 }
 
-export type Datos = { nombre: string; texto: string; json?: any }
+export type Datos = { nombre: string; texto: string; json?: any; bin?: Buffer }
 
 /** Lo que la carga le pide al sistema; el núcleo aplica pipeline, carga_id y conteos. */
 export type Contexto = {

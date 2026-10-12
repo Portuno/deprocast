@@ -4,6 +4,7 @@
  * tiene pendiente con ella y qué le debe. Lo que él no llenó, se deduce o queda vacío: nada se inventa.
  */
 import { fechaLocal, type Db } from './db.ts'
+import { coocurrencias } from './entidades.ts'
 import { entidadDelJugador } from './personajes.ts'
 import { listarMisiones } from './misiones.ts'
 
@@ -95,6 +96,26 @@ export function guardarRelacion(db: Db, id: number, c: { vinculo?: string | null
 /** Las que pidió ver seguido y hace más de lo que quería que no ve. */
 export function aContactar(db: Db, ahora = Date.now()): Persona[] {
   return personas(db, {}, ahora).filter((p) => p.vencida).sort((a, b) => (b.diasSinContacto ?? 999) - (a.diasSinContacto ?? 999))
+}
+
+export type ConPersona = { id: number; nombre: string; compartidas: number }
+export type PersonaConMatriz = Persona & { con: ConPersona[]; accion: string | null }
+
+/** Con quién aparece en el corpus, y la acción que ya está en los datos: escribirle si venció el ritmo, o lo próximo. */
+export function matrizPersonas(db: Db, ahora = Date.now()): PersonaConMatriz[] {
+  return personas(db, {}, ahora)
+    .filter((p) => p.vinculo || p.notas || p.menciones > 0)
+    .map((p) => ({
+      ...p,
+      con: coocurrencias(db, p.id, 8).filter((e) => e.tipo === 'persona').map((e) => ({ id: e.id, nombre: e.nombre, compartidas: e.compartidas })),
+      accion: p.vencida ? 'escribirle' : p.proxima,
+    }))
+}
+
+/** La lista que ya se pidió, con la matriz pegada. Quien no entra en la matriz queda con acción vacía. */
+export function conMatriz(db: Db, ps: Persona[], ahora = Date.now()): PersonaConMatriz[] {
+  const porId = new Map(matrizPersonas(db, ahora).map((p) => [p.id, p]))
+  return ps.map((p) => ({ ...p, con: porId.get(p.id)?.con ?? [], accion: porId.get(p.id)?.accion ?? null }))
 }
 
 /** Para Mastropiero: a quién le debe un contacto y qué tiene pendiente con su gente (corto; vacío si no hay nada). */

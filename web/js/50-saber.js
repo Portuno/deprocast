@@ -618,7 +618,7 @@ async function verEntidad(id) {
   filtroEnt.sel = id
   $$('.ent-fila').forEach((el) => el.classList.toggle('sel', Number(el.dataset.ent) === id))
   try {
-    const { entidad: e, coocurrencias, total, piezas } = await api(`/entidades/${id}`)
+    const { entidad: e, coocurrencias, conexiones, total, piezas } = await api(`/entidades/${id}`)
     const det = $('#ent-detalle')
     if (!det) return
     const meta = e.meta ? Object.entries(e.meta).filter(([k, v]) => v != null && typeof v !== 'object' && k !== 'operador') : []
@@ -633,6 +633,7 @@ async function verEntidad(id) {
       <div id="ent-ficha"></div>
       <div id="ent-corpus" ${entTab === 'corpus' ? '' : 'hidden'}>
       ${coocurrencias.length ? `<h3 class="sub">Aparece con</h3><div class="coocurre">${coocurrencias.map((x) => `<button data-co="${x.id}">${TIPO_ENT[x.tipo]?.glifo ?? ''} ${esc(x.nombre)}<em>${x.compartidas}</em></button>`).join('')}</div>` : ''}
+      ${conexiones?.length ? `<h3 class="sub">Conexiones</h3><div class="coocurre">${conexiones.map((x) => `<button data-co="${x.otra}">${TIPO_ENT[x.tipo]?.glifo ?? ''} ${esc(x.nombre)}${x.relacion ? `<em>${esc(x.relacion)}</em>` : ''}</button>`).join('')}</div>` : ''}
       <h3 class="sub">Piezas que la mencionan · ${total.toLocaleString('es-AR')}</h3>
       ${piezas.length ? piezas.map(piezaHTML).join('') : '<p class="tenue">Ninguna pieza la menciona todavía.</p>'}
       ${total > piezas.length ? `<p class="tenue">Mostrando ${piezas.length}. En Corpus podés buscarla por nombre.</p>` : ''}

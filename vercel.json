@@ -1,5 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "node",
+  "installCommand": "npm install --omit=dev",
+  "regions": ["cdg1"],
   "functions": {
     "server.ts": {
       "maxDuration": 300,

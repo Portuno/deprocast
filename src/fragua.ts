@@ -46,26 +46,45 @@ function entornoLimpio(): NodeJS.ProcessEnv {
   return Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(NAN_|GCAL_|TELEGRAM_|TAVILY_|BRAVE_|MASTRO_|OPENAI|ANTHROPIC|GITHUB_|GH_)/i.test(k) && !/(KEY|TOKEN|SECRET|CLAVE|PASSWORD)/i.test(k)))
 }
 
+/** La salida del compilador, con archivo, línea y mensaje. No se recorta a las líneas que dicen error. */
+export function salidaDeCompilador(txt: string): string {
+  const lineas = txt.split('\n').map((l) => l.trimEnd()).filter((l) => l.trim()).slice(0, 80)
+  return `$ tsc\n${lineas.join('\n')}`
+}
+
+export function salidaDeTests(txt: string): string {
+  const lineas = txt.split('\n').filter((l) => /✖|error|fail|ℹ (tests|pass|fail)/i.test(l)).slice(0, 60)
+  return `$ node --test\n${lineas.join('\n')}`
+}
+
+/** Si el typecheck falla, la suite no corre. */
+export function sigueLaSuite(statusTsc: number): boolean {
+  return statusTsc === 0
+}
+
 /** Por defecto: el tsc y los tests del repo principal, corridos sobre la copia (el worktree no tiene node_modules). */
 function verificarDefecto(dir: string, repo: string): { ok: boolean; salida: string } {
   const tsc = path.join(repo, 'node_modules', 'typescript', 'bin', 'tsc')
-  const pasos: [string, string[]][] = [
-    ...(fs.existsSync(tsc) ? [[process.execPath, [tsc, '-p', 'tsconfig.json']] as [string, string[]]] : []),
-    [process.execPath, ['--disable-warning=ExperimentalWarning', '--test', 'test/**/*.test.ts']],
-  ]
   const salida: string[] = []
-  for (const [cmd, args] of pasos) {
-    const r = spawnSync(cmd, args, { cwd: dir, encoding: 'utf8', timeout: 10 * 60_000, env: entornoLimpio() })
-    const txt = `${r.stdout ?? ''}${r.stderr ?? ''}`
-    salida.push(`$ ${path.basename(args[0] === tsc ? 'tsc' : 'node --test')}\n${txt.split('\n').filter((l) => /✖|error|fail|ℹ (tests|pass|fail)/i.test(l)).slice(0, 60).join('\n')}`)
-    if (r.status !== 0) return { ok: false, salida: salida.join('\n\n') }
+  if (fs.existsSync(tsc)) {
+    const r = spawnSync(process.execPath, [tsc, '-p', 'tsconfig.json'], { cwd: dir, encoding: 'utf8', timeout: 10 * 60_000, env: entornoLimpio() })
+    salida.push(salidaDeCompilador(`${r.stdout ?? ''}${r.stderr ?? ''}`))
+    if (!sigueLaSuite(r.status ?? 1)) return { ok: false, salida: salida.join('\n\n') }
   }
-  return { ok: true, salida: salida.join('\n\n') }
+  const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--test', 'test/**/*.test.ts'], { cwd: dir, encoding: 'utf8', timeout: 10 * 60_000, env: entornoLimpio() })
+  salida.push(salidaDeTests(`${r.stdout ?? ''}${r.stderr ?? ''}`))
+  return { ok: r.status === 0, salida: salida.join('\n\n') }
 }
 
 const SISTEMA_ARCHIVOS = `Sos el herrero de La Fragua: mejorás el código de Mastropiero (Node 24, TypeScript nativo, node:sqlite, sin dependencias; frontend en web/js/*.js clásico).
 Te paso una propuesta de mejora y la lista de archivos del repo. Elegí los archivos que hay que tocar o leer para hacerla (máximo 6), incluido el test que corresponda.
 Forma: {"archivos": [string]}`
+
+const SISTEMA_PLAN = `Sos el herrero de La Fragua. Ya elegiste los archivos. Dejá el plan en tres campos, antes de escribir el diff.
+Forma: {"archivos": [string], "cambio": string, "verificacion": string}
+- archivos: los que ya elegiste.
+- cambio: una oración, qué va a cambiar.
+- verificacion: qué tiene que pasar (typecheck, un test nombrado, o los dos).`
 
 const SISTEMA_CAMBIOS = `Sos el herrero de La Fragua: mejorás el código de Mastropiero (Node 24, TypeScript nativo, node:sqlite, sin dependencias; frontend en web/js/*.js clásico; textos en castellano rioplatense).
 Te paso la propuesta y el contenido de los archivos. Escribí los cambios mínimos y completos para hacerla, con su test si corresponde, siguiendo el estilo del código.
@@ -125,17 +144,24 @@ export async function forjarMejora(db: Db, p: { propuestaId?: number | null; ped
     const { datos: elegidos } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'fragua' }, SISTEMA_ARCHIVOS, `PROPUESTA:\n${pedido}\n\nARCHIVOS:\n${lista.join('\n')}`, { temperatura: 0.1, maxTokens: 800 })
     const archivos = (Array.isArray(elegidos.archivos) ? elegidos.archivos : []).map(String).filter((f: string) => lista.includes(f)).slice(0, 6)
     if (!archivos.length) return fin({ estado: 'fallo', salida: 'No supe qué archivos tocar para esta propuesta.' })
+    const { datos: tres } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'fragua' }, SISTEMA_PLAN, `PROPUESTA:\n${pedido}\n\nARCHIVOS ELEGIDOS:\n${archivos.join('\n')}`, { temperatura: 0.1, maxTokens: 400 })
+    const lineas = [
+      `Archivos: ${(Array.isArray(tres.archivos) ? tres.archivos : archivos).map(String).join(', ')}`,
+      `Cambio: ${String(tres.cambio ?? '').trim()}`,
+      `Verificación: ${String(tres.verificacion ?? '').trim()}`,
+    ].join('\n')
     const contenido = archivos.map((f: string) => `=== ${f} ===\n${fs.readFileSync(path.join(dir, f), 'utf8')}`).join('\n\n')
-    const { datos: plan } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'fragua' }, SISTEMA_CAMBIOS, `PROPUESTA:\n${pedido}\n\n${contenido}`, { temperatura: 0.2, maxTokens: 12000 })
+    const { datos: plan } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'fragua' }, SISTEMA_CAMBIOS, `PROPUESTA:\n${pedido}\n\nPLAN:\n${lineas}\n\n${contenido}`, { temperatura: 0.2, maxTokens: 12000 })
     const cambios = Array.isArray(plan.cambios) ? plan.cambios : []
-    if (!cambios.length) return fin({ estado: 'fallo', resumen: plan.resumen ?? null, salida: 'El modelo no propuso cambios.' })
+    const resumen = [lineas, plan.resumen].filter(Boolean).join('\n\n')
+    if (!cambios.length) return fin({ estado: 'fallo', resumen, salida: 'El modelo no propuso cambios.' })
     let tocados: string[]
-    try { tocados = aplicarCambios(dir, cambios) } catch (e) { return fin({ estado: 'fallo', resumen: plan.resumen ?? null, salida: e instanceof Error ? e.message : String(e) }) }
+    try { tocados = aplicarCambios(dir, cambios) } catch (e) { return fin({ estado: 'fallo', resumen, salida: e instanceof Error ? e.message : String(e) }) }
     const v = (o.verificar ?? verificarDefecto)(dir, repo)
     git(dir, 'add', '-A') // node_modules está en .gitignore
     git(dir, '-c', 'user.name=La Fragua', '-c', 'user.email=fragua@mastropiero.local', 'commit', '-q', '-m', `Fragua #${id}: ${String(plan.resumen ?? pedido).split('\n')[0].slice(0, 70)}`)
     const diff = git(dir, 'diff', 'HEAD~1', 'HEAD')
-    return fin({ estado: v.ok ? 'lista' : 'rota', resumen: plan.resumen ?? null, archivos: tocados, diff: diff.slice(0, 200_000), salida: v.salida })
+    return fin({ estado: v.ok ? 'lista' : 'rota', resumen, archivos: tocados, diff: diff.slice(0, 200_000), salida: v.salida })
   } catch (e) {
     return fin({ estado: 'fallo', salida: e instanceof Error ? e.message : String(e) })
   }
