@@ -6,7 +6,7 @@
  * conexiones, ideas, lo que miró. Nada de eso entra al corpus ni a las misiones hasta que él lo acepta.
  * Los cuadros no se guardan: solo lo que se vio. Lo que dijo en voz alta sí entra, porque es suyo.
  */
-import { fechaLocal, json, type Db } from './db.ts'
+import { ajuste, fechaLocal, json, type Db } from './db.ts'
 import { asegurarFuente, insertar } from './corpus.ts'
 import { anotarConexion, asegurarPorNombre, editarEntidad, TIPOS_ENTIDAD, type TipoEntidad } from './entidades.ts'
 import { escribaDeMemoria, memoriaParaPrompt, recordar } from './memoria.ts'
@@ -169,8 +169,14 @@ const SISTEMA_INFORME = `Sos Mastropiero y cerrás un Directo: lo que viste y es
 - «entidades»: personas, proyectos, lugares o conceptos suyos que aparecieron y NO están en la lista de conocidas. No anotes apps ni sitios genéricos (Chrome, Instagram, Gmail, YouTube, X, VS Code). tipo: persona | proyecto | agrupacion | dominio | lugar | concepto. alias solo si dijo que son el mismo.
 - «conexiones»: un vínculo concreto entre dos nombres (se conocen, trabajan juntos, uno le debe algo al otro). {de, con, relacion, tipoDe, tipoCon}. tipoDe y tipoCon con los mismos tipos. Vacío si no hay vínculo dicho o visible.
 - «consumido»: cada video, canción o lectura identificable: {titulo, tipo, resumen, relacion (con qué proyecto o meta conecta, o null)}.
+- Si te paso lo anotado en tramos anteriores o lo que ya propusiste, no lo repitas en los otros campos.
 - No inventes: solo lo que está en los momentos.
 Forma: {"texto": string, "ideas": [string], "tareas": [string], "cumplidas": [number], "bandas": [number], "entidades": [{"nombre": string, "tipo": string, "nota": string, "alias": [string]}], "conexiones": [{"de": string, "con": string, "relacion": string, "tipoDe": string, "tipoCon": string}], "consumido": [{"titulo": string, "tipo": string, "resumen": string, "relacion": string | null}]}`
+
+/** El mismo informe, para una hora de un Directo que sigue prendido. */
+const SISTEMA_TRAMO = SISTEMA_INFORME
+  .replace(/^Sos Mastropiero y cerrás un Directo: [^\n]*/, 'Sos Mastropiero y vas anotando un Directo que sigue prendido: te paso un tramo (la última hora, más o menos) de lo que viste y escuchaste mientras el jugador trabajaba.')
+  .replace('- «texto»: dos o tres párrafos cortos', '- «texto»: uno o dos párrafos cortos sobre este tramo')
 
 export type TipoPropuesta = 'tarea' | 'cumplida' | 'banda' | 'entidad' | 'conexion' | 'idea' | 'medio'
 export type Propuesta = {
@@ -392,7 +398,6 @@ export async function cerrarDirecto(db: Db, id: number, o: { ahora?: number; con
   const met = metricas(ms)
   const duracion = fmtMin(ahora - s.inicio)
   const fecha = fechaLocal(s.inicio)
-  const hora = (t: number) => new Date(t).toTimeString().slice(0, 5)
   if (!ms.length) {
     db.prepare('UPDATE directo_sesiones SET informe = ?, resumen = ? WHERE id = ?').run(`Directo de ${duracion} sin nada registrado.`, JSON.stringify(met), id)
     return leerSesion(db, id)!
@@ -406,27 +411,52 @@ export async function cerrarDirecto(db: Db, id: number, o: { ahora?: number; con
   return escribirInforme(db, s, ms, ahora, o)
 }
 
-/** El informe y la bandeja de propuestas de un Directo ya cerrado (al cerrar, o de nuevo si la primera vez falló). */
-async function escribirInforme(db: Db, s: Sesion, ms: Momento[], ahora: number, o: { conModelo?: boolean } = {}): Promise<Sesion> {
-  const id = s.id
+/** El informe de una hora de un Directo que sigue prendido. */
+export type Tramo = { desde: number; hasta: number; texto: string }
+export const tramosDe = (s: { resumen: Record<string, unknown> | null }): Tramo[] => (Array.isArray(s.resumen?.tramos) ? s.resumen!.tramos as Tramo[] : [])
+const minutosDeTramo = (db: Db) => Math.max(15, Number(ajuste(db, 'directo_tramo_min')) || 60)
+const hora = (t: number) => new Date(t).toTimeString().slice(0, 5)
+
+/** Suma propuestas nuevas a las que ya había (sin repetir y sin tocar las que él ya aceptó o descartó). */
+function sumarPropuestas(ya: Propuesta[], nuevas: Propuesta[], prefijo: string): Propuesta[] {
+  const out = [...ya]
+  let i = 0
+  for (const p of nuevas) {
+    if (out.some((q) => q.tipo === p.tipo && (p.misionId ? q.misionId === p.misionId : pareceIgual(q.titulo, p.titulo)))) continue
+    let id = ''
+    do id = `${prefijo}${++i}`; while (out.some((q) => q.id === id))
+    out.push({ ...p, id })
+  }
+  return out
+}
+
+/** Lo que el modelo escribe sobre unos momentos: el Directo entero, una de sus horas, o lo que quedó después de la última. */
+async function informar(db: Db, s: Sesion, ms: Momento[], o: { desde: number; hasta: number; tramos: Tramo[]; ya: Propuesta[]; enCurso: boolean; conModelo?: boolean }): Promise<{ texto: string; propuestas: Propuesta[]; fallo: boolean }> {
   const met = metricas(ms)
-  const duracion = fmtMin(ahora - s.inicio)
+  const duracion = fmtMin(o.hasta - (o.enCurso ? o.desde : s.inicio))
   const fecha = fechaLocal(s.inicio)
-  const hora = (t: number) => new Date(t).toTimeString().slice(0, 5)
-  const run = enCurso(db, ahora)?.run
+  const run = enCurso(db, o.hasta)?.run
   const abiertas = new Map(listarMisiones(db, { personaje: 'jugador', nivel: 'terciaria', estados: ['activa'], limite: 40 }).map((m) => [m.id, m.titulo]))
   const bandas = new Map((run ? listarMisiones(db, { runId: run.id, nivel: 'secundaria', estados: ['activa'] }) : []).map((m) => [m.id, m.titulo]))
   const conocidas = (db.prepare('SELECT nombre FROM entidades ORDER BY id DESC LIMIT 40').all() as { nombre: string }[]).map((r) => r.nombre)
   let informe: Record<string, unknown> = {}
-  if (o.conModelo !== false) {
+  let fallo = false
+  if (!o.enCurso && !ms.length && o.tramos.length === 1) {
+    informe = { texto: o.tramos[0].texto } // se cerró justo después de la única hora anotada: no hay nada que integrar
+  } else if (o.conModelo !== false) {
     const lineas = ms.map((m) => m.tipo === 'pantalla'
       ? `[${hora(m.desde)}–${hora(m.hasta)}] PANTALLA ${m.app ?? '?'} · ${m.actividad ?? ''} · ${m.tema ?? ''} · ${m.detalle ?? ''}${m.nota ? ` — ${m.nota}` : ''}`
       : `[${hora(m.desde)}] ${m.tipo === 'voz' ? 'DIJO' : `ESCUCHÓ (${m.detalle ?? m.app ?? '?'})`}: ${(m.texto ?? '').slice(0, 1200)}`).join('\n')
-    const primarias = listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana: semanaDe(ahora), estados: ['activa'] }).map((m) => m.titulo)
+    const primarias = listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana: semanaDe(o.hasta), estados: ['activa'] }).map((m) => m.titulo)
     const lista = (xs: Map<number, string>) => [...xs].map(([i, t]) => `- ${i} · ${t}`).join('\n')
     try {
-      informe = (await pedirJson<Record<string, unknown>>({ db, clase: 'mastropiero', agenteId: 'directo' }, SISTEMA_INFORME, [
-        `Directo del ${fecha}, ${hora(s.inicio)}–${hora(ahora)} (${duracion}).`,
+      informe = (await pedirJson<Record<string, unknown>>({ db, clase: 'mastropiero', agenteId: 'directo' }, o.enCurso ? SISTEMA_TRAMO : SISTEMA_INFORME, [
+        o.enCurso
+          ? `Tramo del Directo del ${fecha}: ${hora(o.desde)}–${hora(o.hasta)} (${duracion}). Sigue prendido.`
+          : `Directo del ${fecha}, ${hora(s.inicio)}–${hora(o.hasta)} (${duracion}).`,
+        o.tramos.length ? `Lo que ya anotaste por tramos:\n${o.tramos.map((t) => `[${hora(t.desde)}–${hora(t.hasta)}] ${t.texto}`).join('\n\n')}` : '',
+        o.tramos.length && !o.enCurso ? `Escribí el «texto» de la sesión entera, integrando lo anotado por tramos con lo que pasó después de las ${hora(o.desde)}.` : '',
+        o.ya.length ? `Ya propusiste (no lo repitas): ${o.ya.map((p) => p.titulo).join(' · ')}` : '',
         `Minutos por actividad: ${JSON.stringify(met.minutosPorActividad)}. Por app: ${JSON.stringify(met.minutosPorApp)}.`,
         principalDe(db, 'jugador') ? `Su misión principal: ${principalDe(db, 'jugador')!.titulo}` : '',
         primarias.length ? `Sus primarias de la semana: ${primarias.join(' · ')}` : '',
@@ -434,18 +464,61 @@ async function escribirInforme(db: Db, s: Sesion, ms: Momento[], ahora: number, 
         bandas.size ? `Bandas de su run en curso (el número es el id):\n${lista(bandas)}` : '',
         conocidas.length ? `Entidades que ya existen (no las repitas): ${conocidas.join(', ')}` : '',
         `Lo que sabés de él:\n${memoriaParaPrompt(db, 30)}`,
-        `Momentos:\n${lineas.slice(0, 60000)}`,
+        `Momentos${o.tramos.length ? ` desde las ${hora(o.desde)}` : ''}:\n${lineas.slice(0, 60000) || '(nada nuevo después del último tramo)'}`,
       ].filter(Boolean).join('\n'), { temperatura: 0.4, maxTokens: 5000, largo: true })).datos ?? {}
     } catch (e) {
       informe = { texto: `No pude escribir el informe: ${e instanceof Error ? e.message : e}` }
+      fallo = true
     }
   }
   const actividades = Object.entries(met.minutosPorActividad).map(([k, v]) => `${k} ${v} min`).join(', ')
   const texto = (typeof informe.texto === 'string' && informe.texto.trim() ? informe.texto.trim() : `Directo de ${duracion}: ${actividades || 'sin pantalla'}.`).slice(0, 4000)
-  const propuestas = armarPropuestas(db, informe, met, abiertas, bandas)
-  const { consumido: _oido, ...numeros } = met
-  db.prepare('UPDATE directo_sesiones SET informe = ?, resumen = ? WHERE id = ?').run(texto, JSON.stringify({ ...numeros, propuestas }), id)
+  return { texto, propuestas: fallo ? [] : armarPropuestas(db, informe, met, abiertas, bandas), fallo }
+}
+
+/** El informe y la bandeja de propuestas de un Directo ya cerrado (al cerrar, o de nuevo si la primera vez falló). */
+async function escribirInforme(db: Db, s: Sesion, ms: Momento[], ahora: number, o: { conModelo?: boolean } = {}): Promise<Sesion> {
+  const id = s.id
+  // Si se fue anotando por horas, el modelo lee lo anotado y solo los momentos de después (no la sesión entera).
+  const tramos = tramosDe(s)
+  const desde = tramos.at(-1)?.hasta ?? s.inicio
+  const r = await informar(db, s, tramos.length ? ms.filter((m) => m.hasta > desde) : ms, { desde, hasta: ahora, tramos, ya: propuestasDe(s), enCurso: false, conModelo: o.conModelo })
+  const { consumido: _oido, ...numeros } = metricas(ms)
+  const vivo = leerSesion(db, id)! // mientras escribía, él pudo aceptar propuestas de las horas anteriores
+  const propuestas = sumarPropuestas(propuestasDe(vivo), r.propuestas, 'p')
+  db.prepare('UPDATE directo_sesiones SET informe = ?, resumen = ? WHERE id = ?').run(r.texto, JSON.stringify({ ...numeros, ...(tramos.length ? { tramos: tramosDe(vivo) } : {}), propuestas }), id)
   return leerSesion(db, id)!
+}
+
+const enTramo = new Set<number>()
+const intentoDeTramo = new Map<number, number>()
+
+/**
+ * Con el Directo prendido, cada hora (ajuste directo_tramo_min) se escribe el informe de esa hora y sus propuestas:
+ * se pueden ir aceptando sin apagarlo, y si al cerrar algo falla, lo de antes ya quedó escrito. Si falla, reintenta
+ * a los 10 minutos.
+ */
+export async function tramoDirecto(db: Db, ahora = Date.now(), o: { conModelo?: boolean } = {}): Promise<Tramo | null> {
+  const s = sesionActiva(db)
+  if (!s || enTramo.has(s.id)) return null
+  const tramos = tramosDe(s)
+  const desde = tramos.at(-1)?.hasta ?? s.inicio
+  if (ahora - desde < minutosDeTramo(db) * 60_000 || ahora - (intentoDeTramo.get(s.id) ?? 0) < 10 * 60_000) return null
+  const ms = momentos(db, s.id).filter((m) => m.hasta > desde && m.hasta <= ahora)
+  if (!ms.length) return null
+  enTramo.add(s.id)
+  intentoDeTramo.set(s.id, ahora)
+  try {
+    const r = await informar(db, s, ms, { desde, hasta: ahora, tramos, ya: propuestasDe(s), enCurso: true, conModelo: o.conModelo })
+    const vivo = leerSesion(db, s.id)
+    if (r.fallo || !vivo || vivo.estado !== 'activa') return null // si se cerró mientras, el cierre ya cubre estos momentos
+    const tramo = { desde, hasta: ahora, texto: r.texto }
+    const propuestas = sumarPropuestas(propuestasDe(vivo), r.propuestas, `t${tramos.length + 1}p`)
+    db.prepare('UPDATE directo_sesiones SET resumen = ? WHERE id = ?').run(JSON.stringify({ ...(vivo.resumen ?? {}), tramos: [...tramosDe(vivo), tramo], propuestas }), s.id)
+    return tramo
+  } finally {
+    enTramo.delete(s.id)
+  }
 }
 
 export const informeFallido = (s: Pick<Sesion, 'informe'>) => /^No pude escribir el informe/.test(s.informe ?? '')
@@ -462,7 +535,7 @@ export async function rehacerInforme(db: Db, id: number): Promise<Sesion> {
   return r
 }
 
-/** Si el navegador se cerró sin apagar el Directo, a los 10 minutos sin nada se cierra solo. */
+/** Si el navegador se cerró sin apagar el Directo (o se apagó el servidor), a los 10 minutos sin nada se cierra solo. */
 export async function latidoDirecto(db: Db, ahora = Date.now()): Promise<Sesion | null> {
   const s = sesionActiva(db)
   if (!s || ahora - (s.ultimo ?? s.inicio) < 10 * 60_000) return null

@@ -2,8 +2,10 @@
  * La Fragua: Mastropiero se mejora a sí mismo, pero nunca sobre lo que está andando. Toma una propuesta de mejora,
  * elige los archivos, escribe los cambios (buscar → reemplazar, exactos), los aplica en una copia aparte del repo (un
  * git worktree en la rama fragua/<n>), corre el typecheck y los tests ahí, y deja el diff para que él lo lea.
- * Solo con su ok (desde la pantalla) se mergea a main; después hay que reiniciar el servidor. Si algo falla, la rama
- * queda para revisar o se descarta, y main no se enteró.
+ * Si no compila, fallan los tests, un tramo no está o falta el test, le devuelve el error y corrige (hasta dos vueltas).
+ * Solo con su ok (desde la pantalla) se mergea a la rama que está andando; después hay que reiniciar el servidor. Si
+ * algo falla, la rama queda para revisar o se descarta, y lo que anda no se enteró. Los commits salen con la identidad
+ * del repo (la cuenta del operador), no con una inventada.
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -103,7 +105,30 @@ const SISTEMA_CAMBIOS = `Sos el herrero de La Fragua: mejorás el código de Mas
 Te paso la propuesta y el contenido de los archivos. Escribí los cambios mínimos y completos para hacerla, con su test si corresponde, siguiendo el estilo del código.
 Forma: {"resumen": string (qué cambia y por qué, 2-4 oraciones), "cambios": [{"archivo": string, "buscar": string, "reemplazar": string}]}
 - "buscar" es un tramo EXACTO y ÚNICO del archivo actual (copialo tal cual, con su sangría, de 2 a 15 líneas). Para crear un archivo nuevo, "buscar" va vacío y "reemplazar" es el archivo entero.
+- Si tocás algo de src/, traé su test en test/*.test.ts (nuevo o ajustado) que pruebe lo que pide la propuesta: sin test no se acepta.
 - Nada de cambios cosméticos ni refactors que no pidió la propuesta.`
+
+const SISTEMA_CORRECCION = `Sos el herrero de La Fragua. Ya aplicaste cambios para una propuesta, pero algo falló: te paso qué (el error del compilador, los tests que fallan, un tramo que no encontraste, o que falta el test) y cómo están los archivos AHORA, con tus cambios ya aplicados.
+Arreglalo con cambios nuevos sobre los archivos tal como están.
+Forma: {"resumen": string, "cambios": [{"archivo": string, "buscar": string, "reemplazar": string}]}
+- "buscar" es un tramo EXACTO y ÚNICO del archivo como está ahora (copialo tal cual, de 2 a 15 líneas). Para crear un archivo nuevo, "buscar" va vacío y "reemplazar" es el archivo entero.
+- Si el que está mal es el test y no el código, arreglá el test; pero nunca lo vacíes, lo saltees ni lo borres para que pase.`
+
+/** Cuántas veces vuelve sobre su propio error antes de dejar la forja rota. */
+export const CORRECCIONES = 2
+
+/** Si toca src/ tiene que traer su test: sin test no se sabe si hace lo que dice. (La pantalla, web/, no tiene tests.) */
+export function faltaTest(tocados: string[]): string | null {
+  return tocados.some((f) => f.startsWith('src/')) && !tocados.some((f) => /^test\/.+\.test\.ts$/.test(f))
+    ? 'Cambiaste código de src/ sin tocar ningún test: agregá o ajustá el test (test/*.test.ts) que pruebe lo que pide la propuesta.'
+    : null
+}
+
+/** Los commits de la Fragua llevan la identidad del repo (en este, la cuenta del operador); si no tiene, una propia. */
+function firma(repo: string): string[] {
+  const leer = (k: string) => { try { return git(repo, 'config', k) } catch { return '' } }
+  return ['-c', `user.name=${leer('user.name') || 'La Fragua'}`, '-c', `user.email=${leer('user.email') || 'fragua@mastropiero.local'}`]
+}
 
 /** Aplica los cambios buscar → reemplazar; cada «buscar» tiene que aparecer exactamente una vez. */
 export function aplicarCambios(dir: string, cambios: { archivo: string; buscar: string; reemplazar: string }[]): string[] {
@@ -171,17 +196,41 @@ export async function forjarMejora(db: Db, p: { propuestaId?: number | null; ped
     const contenido = archivos.map((f: string) => `=== ${f} ===\n${fs.readFileSync(path.join(dir, f), 'utf8')}`).join('\n\n')
     paso('escribiendo los cambios')
     const { datos: plan } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'fragua' }, SISTEMA_CAMBIOS, `PROPUESTA:\n${pedido}\n\nPLAN:\n${lineas}\n\n${contenido}`, { temperatura: 0.2, maxTokens: 12000, largo: true })
-    const cambios = Array.isArray(plan.cambios) ? plan.cambios : []
+    let cambios = Array.isArray(plan.cambios) ? plan.cambios : []
     const resumen = [lineas, plan.resumen].filter(Boolean).join('\n\n')
     if (!cambios.length) return fin({ estado: 'fallo', resumen, salida: 'El modelo no propuso cambios.' })
-    let tocados: string[]
-    try { tocados = aplicarCambios(dir, cambios) } catch (e) { return fin({ estado: 'fallo', resumen, salida: e instanceof Error ? e.message : String(e) }) }
-    paso('typecheck y tests (unos minutos)')
-    const v = (o.verificar ?? verificarDefecto)(dir, repo)
+    // Aplicar → ¿trae test? → typecheck y tests. Si algo falla, le devuelve el error y corrige sobre lo que quedó.
+    const tocados = new Set<string>()
+    const vueltas: string[] = []
+    let ok = false
+    let verifico = false
+    for (let vuelta = 0; ; vuelta++) {
+      let problema: string | null = null
+      try { aplicarCambios(dir, cambios).forEach((t) => tocados.add(t)) } catch (e) { problema = `Al aplicar los cambios: ${e instanceof Error ? e.message : String(e)}` }
+      problema ??= faltaTest([...tocados])
+      if (!problema) {
+        paso(vuelta ? `typecheck y tests, otra vez (corrección ${vuelta})` : 'typecheck y tests (unos minutos)')
+        const v = (o.verificar ?? verificarDefecto)(dir, repo)
+        verifico = true
+        if (v.ok) { vueltas.push(v.salida); ok = true; break }
+        problema = v.salida
+      }
+      vueltas.push(problema)
+      if (vuelta >= CORRECCIONES) break
+      paso(`corrigiendo su error (vuelta ${vuelta + 1} de ${CORRECCIONES})`)
+      const actuales = [...new Set([...archivos, ...tocados])].filter((f) => fs.existsSync(path.join(dir, f)))
+      const { datos: arreglo } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'fragua' }, SISTEMA_CORRECCION,
+        `PROPUESTA:\n${pedido}\n\nPLAN:\n${lineas}\n\nLO QUE FALLÓ:\n${problema}\n\nASÍ ESTÁN LOS ARCHIVOS AHORA:\n${actuales.map((f) => `=== ${f} ===\n${fs.readFileSync(path.join(dir, f), 'utf8')}`).join('\n\n')}`,
+        { temperatura: 0.2, maxTokens: 12000, largo: true })
+      cambios = Array.isArray(arreglo.cambios) ? arreglo.cambios : []
+      if (!cambios.length) break
+    }
+    const salida = vueltas.length > 1 ? vueltas.map((t, i) => `— ${i ? `corrección ${i}` : 'primera vuelta'} —\n${t}`).join('\n\n') : vueltas[0] ?? ''
+    if (!tocados.size) return fin({ estado: 'fallo', resumen, salida })
     git(dir, 'add', '-A') // node_modules está en .gitignore
-    git(dir, '-c', 'user.name=La Fragua', '-c', 'user.email=fragua@mastropiero.local', 'commit', '-q', '-m', `Fragua #${id}: ${String(plan.resumen ?? pedido).split('\n')[0].slice(0, 70)}`)
+    git(dir, ...firma(repo), 'commit', '-q', '-m', `Fragua #${id}: ${String(plan.resumen ?? pedido).split('\n')[0].slice(0, 70)}`)
     const diff = git(dir, 'diff', 'HEAD~1', 'HEAD')
-    return fin({ estado: v.ok ? 'lista' : 'rota', resumen, archivos: tocados, diff: diff.slice(0, 200_000), salida: v.salida })
+    return fin({ estado: ok ? 'lista' : verifico ? 'rota' : 'fallo', resumen, archivos: [...tocados], diff: diff.slice(0, 200_000), salida })
   } catch (e) {
     return fin({ estado: 'fallo', salida: e instanceof Error ? e.message : String(e) })
   }
@@ -206,7 +255,7 @@ export function aplicarForja(db: Db, id: number, o: Opciones = {}, ahora = Date.
   if (f.estado !== 'lista') throw new Error(`La forja ${id} está «${f.estado}»: solo se aplica una que pasó los tests`)
   const sucio = git(repo, 'status', '--porcelain', '--untracked-files=no')
   if (sucio) throw new Error('Hay cambios sin commitear en el repo: commitealos o descartalos antes de aplicar una forja')
-  git(repo, '-c', 'user.name=La Fragua', '-c', 'user.email=fragua@mastropiero.local', 'merge', '--no-ff', '-q', '-m', `Fragua #${id} aplicada`, f.rama)
+  git(repo, ...firma(repo), 'merge', '--no-ff', '-q', '-m', `Fragua #${id} aplicada`, f.rama)
   limpiar(repo, f, true)
   db.prepare(`UPDATE fragua SET estado = 'aplicada', resuelta_en = ? WHERE id = ?`).run(ahora, id)
   if (f.propuestaId) db.prepare(`UPDATE propuestas SET estado = 'aceptada', resuelta_en = ? WHERE id = ?`).run(ahora, f.propuestaId)

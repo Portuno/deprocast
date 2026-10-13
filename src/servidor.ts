@@ -41,7 +41,7 @@ import { editarMovimiento, importarCSV, listarMovimientos, registrarMovimiento, 
 import { buscarOportunidades, listarOportunidades, marcarOportunidad, redactarOportunidad } from './radar.ts'
 import { cuotas, hayBuscadorWeb } from './web.ts'
 import { anotarPrediccion, calificarAMano, calificarDia, curva, paraElJugador, predecirDia, prediccionesDe, sumarPredicciones, textoDeCalificacion } from './gemelo.ts'
-import { cerrarDirecto, iniciarDirecto, latidoDirecto, leerSesion, listarSesiones, momentos as momentosDirecto, registrarAudio, registrarCuadro, sesionActiva, rehacerInforme, resolverPropuestas } from './directo.ts'
+import { cerrarDirecto, iniciarDirecto, latidoDirecto, tramoDirecto, tramosDe, leerSesion, listarSesiones, momentos as momentosDirecto, registrarAudio, registrarCuadro, sesionActiva, rehacerInforme, resolverPropuestas } from './directo.ts'
 import { encolarPregunta, generandoPreguntas, generarPreguntas, listarPreguntas, reponerPreguntas, responderPregunta, siguientePregunta } from './preguntas.ts'
 import { aportes, ayudantesDe, pedirAportes, quitarAyudante, sumarAyudante } from './ayudantes.ts'
 import { agregarItem, editarItem, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, marcarJugador, personaje, resolverHistoria, TIPOS_INVENTARIO } from './personajes.ts'
@@ -151,7 +151,7 @@ function estado() {
     hoy: {
       fecha: fechaLocal(), ...progreso(db, fechaLocal()), conversacion: conversacionHoy(db).id,
       pregunta: siguientePregunta(db)?.id ?? null,
-      directo: (() => { const s = sesionActiva(db); return s ? { id: s.id, inicio: s.inicio, momentos: (db.prepare('SELECT COUNT(*) AS n FROM directo_momentos WHERE sesion_id = ?').get(s.id) as { n: number }).n } : null })(),
+      directo: (() => { const s = sesionActiva(db); return s ? { id: s.id, inicio: s.inicio, tramos: tramosDe(s).length, momentos: (db.prepare('SELECT COUNT(*) AS n FROM directo_momentos WHERE sesion_id = ?').get(s.id) as { n: number }).n } : null })(),
       run: (() => { const r = runActual(db); return r ? { id: r.id, estado: r.estado, marcadas: misionesDeRun(db, r.id).filter((m) => m.estado !== 'activa').length } : null })(),
       // Lo último que Mastropiero dijo solo (rutinas): la pantalla avisa cuando aparece algo nuevo.
       aviso: db.prepare(`SELECT m.id, m.texto FROM mensajes m JOIN conversaciones c ON c.id = m.conversacion_id WHERE c.modo = 'hoy' AND m.modelo = 'rutina' ORDER BY m.id DESC LIMIT 1`).get() ?? null,
@@ -860,7 +860,8 @@ function encolarDirecto(sesion: number, f: () => Promise<unknown>) {
 setInterval(async () => {
   try {
     const s = await latidoDirecto(db)
-    if (s?.informe) mensajeDeMastropiero(db, conversacionHoy(db).id, `El Directo se cortó (la pestaña se cerró), así que lo cerré yo. ${s.informe}`)
+    if (s?.informe) mensajeDeMastropiero(db, conversacionHoy(db).id, `El Directo se cortó (no me llegó nada en 10 minutos: se cerró la pestaña o se apagó el servidor), así que lo cerré yo. ${s.informe}`)
+    else void tramoDirecto(db).catch((e) => console.error('  directo:', e instanceof Error ? e.message : e))
   } catch (e) { console.error('  directo:', e instanceof Error ? e.message : e) }
 }, 60_000).unref()
 
@@ -897,11 +898,14 @@ setInterval(async () => {
 
 // Telegram: si hay bot, escucha; y lo que Mastropiero dice solo también sale por ahí.
 // En Vercel no hay proceso siempre prendido: el long polling pelearía con el de la compu y se cortaría.
-if (telegramConfigurado() && !enVercel()) {
-  escucharTelegram(db)
+// Lo que el servidor dejó a medias al apagarse (tandas en proceso, una forja) se retoma o se marca, con o sin bot.
+if (!enVercel()) {
   retomarTandas(db)
   retomarFragua(db)
   void procesarTandas(db).catch(() => {})
+}
+if (telegramConfigurado() && !enVercel()) {
+  escucharTelegram(db)
   setInterval(() => void latidoTelegram(db).catch(() => {}), 60_000).unref()
   alDecirSolo((texto) => void decirPorTelegram(texto).catch(() => {}))
 }

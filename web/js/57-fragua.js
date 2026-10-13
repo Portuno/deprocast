@@ -9,8 +9,8 @@ let fraguaEspera = null
 
 function montarFragua() {
   $('#principal').innerHTML = `
-    <div class="titulo"><h1>La Fragua</h1><p>Donde Mastropiero mejora su propio código sin tocar lo que está andando. Cada mejora se escribe en una copia aparte, se compila y se prueba entera; vos leés el cambio y decidís. Nada entra solo.</p></div>
-    <div class="pasos"><span><b>1</b>Propuesta o pedido</span><span><b>2</b>Elige archivos y arma un plan</span><span><b>3</b>Escribe en una rama aparte</span><span><b>4</b>Typecheck y tests</span><span><b>5</b>Vos lo aplicás (y se reinicia el servidor)</span></div>
+    <div class="titulo"><h1>La Fragua</h1><p>Donde Mastropiero mejora su propio código sin tocar lo que está andando. Cada mejora se escribe en una copia aparte, se compila y se prueba entera (todo lo que toca del servidor trae su test); vos leés el cambio y decidís. Nada entra solo.</p></div>
+    <div class="pasos"><span><b>1</b>Propuesta o pedido</span><span><b>2</b>Elige archivos y arma un plan</span><span><b>3</b>Escribe en una rama aparte</span><span><b>4</b>Typecheck y tests (si falla, se corrige hasta 2 veces)</span><span><b>5</b>Vos lo aplicás y reiniciás el servidor</span></div>
     <form class="seccion" id="fr-pedir">
       <h3>Pedir una mejora</h3>
       <textarea name="pedido" rows="2" placeholder="Qué querés que cambie, con el detalle que tengas («que en la Criba la tecla d también descarte»). O forjá una de las propuestas de abajo." style="width:100%"></textarea>

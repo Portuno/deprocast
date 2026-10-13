@@ -180,6 +180,7 @@ const GRUPOS_DIRECTO = [
 ]
 let directoFirma = ''
 
+const horaDe = (t) => new Date(t).toTimeString().slice(0, 5)
 const pendDirecto = (s) => (s.resumen?.propuestas ?? []).filter((p) => p.estado === 'pendiente')
 
 function subtituloProp(p) {
@@ -211,10 +212,15 @@ function tableroDirecto(s) {
     </section>`
   }).join('')
   const quedan = pendDirecto(s).length
+  const tramos = s.resumen?.tramos ?? []
+  const porHoras = s.estado === 'cerrada' && tramos.length > 1
+    ? `<details class="dir-tramos"><summary class="tenue chico">Lo anotado hora por hora (${tramos.length})</summary>${tramos.map((t) => `<p><b>${horaDe(t.desde)}–${horaDe(t.hasta)}</b> ${esc(t.texto)}</p>`).join('')}</details>`
+    : ''
   return `<div class="dir-tablero" data-sesion="${s.id}">
     ${chips ? `<div class="chips">${chips}</div>` : ''}
     <div class="dir-texto">${texto}</div>
     ${/^No pude escribir el informe/.test(s.informe ?? '') ? `<p class="fila"><span class="tenue">Lo que viste y escuchaste quedó guardado; faltó el informe (seguramente se cortó internet).</span><button class="btn btn-chico btn-primario" data-rehacer="${s.id}">Reintentar el informe</button></p>` : ''}
+    ${porHoras}
     ${grupos || '<p class="tenue chico">No salió nada para anotar.</p>'}
     ${quedan ? `<p class="dir-nota">Nada de esto entró solo. Aceptá lo que quieras guardar.</p>` : (ps.length ? '<p class="dir-nota">No queda nada por revisar.</p>' : '')}
   </div>`
@@ -317,6 +323,9 @@ async function montarDirecto() {
       : `<div class="md">${md(s.informe ?? '')}</div>${s.piezaId ? `<p><a href="#" class="ref" data-pieza="${s.piezaId}">abrir en el corpus</a></p>` : ''}`
     $('#dv').innerHTML = `
       ${d.activa ? `<section class="panel"><h3>En curso · desde las ${new Date(d.activa.inicio).toTimeString().slice(0, 5)}</h3>
+        ${d.activa.resumen?.tramos?.length
+          ? tableroDirecto({ ...d.activa, informe: d.activa.resumen.tramos.map((t) => `${horaDe(t.desde)}–${horaDe(t.hasta)} · ${t.texto}`).join('\n\n') })
+          : '<p class="tenue chico">Cada hora te dejo acá lo que vi, con sus propuestas: las podés ir aceptando sin apagarlo.</p>'}
         ${d.activa.momentos.length ? `<div class="momentos">${d.activa.momentos.slice().reverse().map(momento).join('')}</div>` : '<p class="tenue">Todavía nada: el primer cuadro llega en unos segundos y la voz al minuto.</p>'}</section>` : ''}
       <h3 class="sub">Informes</h3>
       ${d.sesiones.length ? d.sesiones.map((s) => {

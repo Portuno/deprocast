@@ -114,3 +114,38 @@ test('Directo: si al cerrar falla el informe (sin red), los momentos quedan y el
   assert.equal(r.informe, 'Estuviste 15 minutos en la Fragua.')
   assert.equal(momentos(db, s.id).length, antes, 'los momentos no se tocan')
 })
+
+test('Directo por tramos: cada hora su informe y sus propuestas (aceptables sin apagarlo); al cerrar, se integra sin repetir', async () => {
+  const { tramoDirecto, tramosDe, propuestasDe } = await import('../src/directo.ts')
+  const db = abrir(':memory:')
+  _probarDirecto({ vision: async () => ({ app: 'VS Code', actividad: 'programando', tema: 'Deprocast', detalle: 'directo.ts', nota: '' }), transcribir: async () => '' })
+  const s = iniciarDirecto(db, ['pantalla'], T)
+  await registrarCuadro(db, s.id, img, 'image/jpeg', min(0))
+  await registrarCuadro(db, s.id, img, 'image/jpeg', min(50))
+  const pedidos: string[] = []
+  const responde = (r: Record<string, unknown>) => _probarModelo(async (...a: any[]) => {
+    pedidos.push(JSON.stringify(a.slice(1)))
+    return { texto: JSON.stringify({ ideas: [], tareas: [], cumplidas: [], entidades: [], conexiones: [], consumido: [], bandas: [], ...r }), llamadas: [], razonamiento: null, modelo: 'f', tokens: 1 }
+  })
+  responde({ texto: 'La primera hora fue toda del Directo.', tareas: ['Llamar a Ana'] })
+  assert.equal(await tramoDirecto(db, min(30)), null, 'antes de la hora no se escribe nada')
+  const t1 = await tramoDirecto(db, min(61))
+  assert.equal(t1?.texto, 'La primera hora fue toda del Directo.')
+  assert.equal(await tramoDirecto(db, min(62)), null, 'la hora siguiente empieza donde terminó esta')
+  const viva = sesionActiva(db)!
+  const [ana] = propuestasDe(viva)
+  assert.equal(ana.id, 't1p1')
+  resolverPropuestas(db, s.id, [ana.id], 'aceptar', min(63))
+  assert.ok(listarMisiones(db, { nivel: 'terciaria' }).some((m) => m.titulo === 'Llamar a Ana'), 'se acepta sin apagar el Directo')
+
+  await registrarCuadro(db, s.id, img, 'image/jpeg', min(80))
+  responde({ texto: 'Hora y media: arrancó con el Directo y siguió con lo mismo.', tareas: ['Llamar a Ana', 'Probar el informe por tramos'] })
+  const c = await cerrarDirecto(db, s.id, { ahora: min(95), escriba: false })
+  assert.match(pedidos.at(-1)!, /Lo que ya anotaste por tramos[\s\S]*La primera hora fue toda del Directo/, 'el cierre lee lo anotado')
+  assert.match(pedidos.at(-1)!, /Ya propusiste \(no lo repitas\): Llamar a Ana/)
+  assert.equal(c.informe, 'Hora y media: arrancó con el Directo y siguió con lo mismo.')
+  assert.equal(tramosDe(c).length, 1)
+  const ps = propuestasDe(c)
+  assert.deepEqual(ps.map((p) => [p.id, p.titulo, p.estado]), [['t1p1', 'Llamar a Ana', 'aceptada'], ['p1', 'Probar el informe por tramos', 'pendiente']], 'no repite y no pisa lo aceptado')
+  assert.equal(c.estado, 'cerrada')
+})
