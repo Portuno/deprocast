@@ -30,6 +30,19 @@ const deFila = (r: any): Forja => ({
   diff: r.diff, salida: r.salida, creadaEn: r.creada_en, resueltaEn: r.resuelta_en,
 })
 
+/** En qué paso va cada forja (para la pantalla). */
+export const pasoDeForja = new Map<number, string>()
+
+/** La rama del repo donde se aplicaría una forja (la que está andando). */
+export function ramaActual(repo = process.cwd()): string | null {
+  try { return git(path.resolve(repo), 'rev-parse', '--abbrev-ref', 'HEAD') } catch { return null }
+}
+
+/** Si el servidor se cortó a mitad de una forja, queda «haciendo» y bloquearía las siguientes: pasa a fallo. */
+export function retomarFragua(db: Db) {
+  db.prepare(`UPDATE fragua SET estado = 'fallo', salida = COALESCE(salida, '') || 'Se cortó: el servidor se reinició mientras forjaba. Podés volver a forjarla.' WHERE estado = 'haciendo'`).run()
+}
+
 export const leerForja = (db: Db, id: number): Forja | null => { const r = db.prepare('SELECT * FROM fragua WHERE id = ?').get(id); return r ? deFila(r) : null }
 export const listarForjas = (db: Db): Forja[] => db.prepare('SELECT * FROM fragua ORDER BY id DESC LIMIT 40').all().map(deFila)
 
@@ -130,20 +143,25 @@ export async function forjarMejora(db: Db, p: { propuestaId?: number | null; ped
   const id = Number(r.lastInsertRowid)
   const rama = `fragua/${id}`
   const dir = dirDe(repo, id)
+  const paso = (t: string) => pasoDeForja.set(id, t)
   const fin = (c: Partial<Forja> & { estado: Forja['estado'] }) => {
+    pasoDeForja.delete(id)
     db.prepare('UPDATE fragua SET rama = ?, estado = ?, resumen = ?, archivos = ?, diff = ?, salida = ? WHERE id = ?')
       .run(rama, c.estado, c.resumen ?? null, JSON.stringify(c.archivos ?? []), c.diff ?? null, c.salida ?? null, id)
     return leerForja(db, id)!
   }
   try {
+    paso('preparando una copia aparte del código')
     fs.mkdirSync(path.dirname(dir), { recursive: true })
     git(repo, 'worktree', 'add', '-b', rama, dir, 'HEAD')
     // node_modules del repo, enlazado (junction): el typecheck necesita los tipos. Se desenlaza antes de borrar la copia.
     if (fs.existsSync(path.join(repo, 'node_modules'))) fs.symlinkSync(path.join(repo, 'node_modules'), path.join(dir, 'node_modules'), 'junction')
     const lista = git(dir, 'ls-files').split('\n').filter((f) => /^(src|web|test|scripts)\//.test(f) || /^(README\.md|package\.json)$/.test(f))
+    paso('eligiendo qué archivos tocar')
     const { datos: elegidos } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'fragua' }, SISTEMA_ARCHIVOS, `PROPUESTA:\n${pedido}\n\nARCHIVOS:\n${lista.join('\n')}`, { temperatura: 0.1, maxTokens: 800 })
     const archivos = (Array.isArray(elegidos.archivos) ? elegidos.archivos : []).map(String).filter((f: string) => lista.includes(f)).slice(0, 6)
     if (!archivos.length) return fin({ estado: 'fallo', salida: 'No supe qué archivos tocar para esta propuesta.' })
+    paso('armando el plan')
     const { datos: tres } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'fragua' }, SISTEMA_PLAN, `PROPUESTA:\n${pedido}\n\nARCHIVOS ELEGIDOS:\n${archivos.join('\n')}`, { temperatura: 0.1, maxTokens: 400 })
     const lineas = [
       `Archivos: ${(Array.isArray(tres.archivos) ? tres.archivos : archivos).map(String).join(', ')}`,
@@ -151,12 +169,14 @@ export async function forjarMejora(db: Db, p: { propuestaId?: number | null; ped
       `Verificación: ${String(tres.verificacion ?? '').trim()}`,
     ].join('\n')
     const contenido = archivos.map((f: string) => `=== ${f} ===\n${fs.readFileSync(path.join(dir, f), 'utf8')}`).join('\n\n')
+    paso('escribiendo los cambios')
     const { datos: plan } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'fragua' }, SISTEMA_CAMBIOS, `PROPUESTA:\n${pedido}\n\nPLAN:\n${lineas}\n\n${contenido}`, { temperatura: 0.2, maxTokens: 12000 })
     const cambios = Array.isArray(plan.cambios) ? plan.cambios : []
     const resumen = [lineas, plan.resumen].filter(Boolean).join('\n\n')
     if (!cambios.length) return fin({ estado: 'fallo', resumen, salida: 'El modelo no propuso cambios.' })
     let tocados: string[]
     try { tocados = aplicarCambios(dir, cambios) } catch (e) { return fin({ estado: 'fallo', resumen, salida: e instanceof Error ? e.message : String(e) }) }
+    paso('typecheck y tests (unos minutos)')
     const v = (o.verificar ?? verificarDefecto)(dir, repo)
     git(dir, 'add', '-A') // node_modules está en .gitignore
     git(dir, '-c', 'user.name=La Fragua', '-c', 'user.email=fragua@mastropiero.local', 'commit', '-q', '-m', `Fragua #${id}: ${String(plan.resumen ?? pedido).split('\n')[0].slice(0, 70)}`)

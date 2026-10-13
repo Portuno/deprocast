@@ -33,14 +33,14 @@ import { perfilDeRendimiento, textoDeRendimiento } from './rendimiento.ts'
 import { listarRecomendaciones, recomendar, resolverRecomendacion } from './mentor.ts'
 import { listarPuentes, proponerPuentes, resolverPuente } from './puentes.ts'
 import { aCsv, agregarObra, conteos as conteosLibreria, editarObra, listarObras, poblando, poblarLibreria } from './libreria.ts'
-import { aplicarForja, descartarForja, forjarMejora, leerForja, listarForjas } from './fragua.ts'
+import { aplicarForja, descartarForja, forjarMejora, leerForja, listarForjas, pasoDeForja, ramaActual, retomarFragua } from './fragua.ts'
 import { borrarCuaderno, charla, componentesDeEntidad, crearCuaderno, guia, haciendo, leerCuaderno, listarCuadernos, notas, preguntar, quitarFuente, sumarFuentes } from './cuadernos.ts'
 import { buscarHibrido, estadoVectores, nivelesDe, vectorizarPendientes } from './semantica.ts'
 import { editarMovimiento, importarCSV, listarMovimientos, registrarMovimiento, resumenMes } from './finanzas.ts'
 import { buscarOportunidades, listarOportunidades, marcarOportunidad, redactarOportunidad } from './radar.ts'
 import { cuotas, hayBuscadorWeb } from './web.ts'
 import { anotarPrediccion, calificarAMano, calificarDia, curva, paraElJugador, predecirDia, prediccionesDe, sumarPredicciones, textoDeCalificacion } from './gemelo.ts'
-import { cerrarDirecto, iniciarDirecto, latidoDirecto, leerSesion, listarSesiones, momentos as momentosDirecto, registrarAudio, registrarCuadro, sesionActiva } from './directo.ts'
+import { cerrarDirecto, iniciarDirecto, latidoDirecto, leerSesion, listarSesiones, momentos as momentosDirecto, registrarAudio, registrarCuadro, sesionActiva, rehacerInforme } from './directo.ts'
 import { encolarPregunta, generandoPreguntas, generarPreguntas, listarPreguntas, reponerPreguntas, responderPregunta, siguientePregunta } from './preguntas.ts'
 import { aportes, ayudantesDe, pedirAportes, quitarAyudante, sumarAyudante } from './ayudantes.ts'
 import { agregarItem, editarItem, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, marcarJugador, personaje, resolverHistoria, TIPOS_INVENTARIO } from './personajes.ts'
@@ -380,6 +380,7 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['GET', /^\/api\/directo\/(\d+)$/, (_, [s]) => ({ ...leerSesion(db, id(s)), momentos: momentosDirecto(db, id(s)) })],
   ['POST', /^\/api\/directo\/iniciar$/, (b) => iniciarDirecto(db, Array.isArray(b.fuentes) ? b.fuentes : [])],
+  ['POST', /^\/api\/directo\/(\d+)\/informe$/, async (_, [s]) => rehacerInforme(db, id(s))],
   ['POST', /^\/api\/directo\/(\d+)\/cerrar$/, async (_, [s]) => {
     await colasDirecto.get(id(s)) // lo último que mandó el navegador entra al informe
     const r = await cerrarDirecto(db, id(s))
@@ -445,7 +446,7 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
 
   // La Fragua (forjar corre en segundo plano; aplicar es solo desde acá, con su ok)
-  ['GET', /^\/api\/fragua$/, () => ({ forjas: listarForjas(db).map(({ diff: _, ...f }) => f), propuestas: db.prepare(`SELECT id, titulo, detalle, area, prioridad, estado FROM propuestas WHERE estado = 'abierta' ORDER BY id DESC`).all() })],
+  ['GET', /^\/api\/fragua$/, () => ({ rama: ramaActual(), forjas: listarForjas(db).map(({ diff: _, ...f }) => ({ ...f, paso: pasoDeForja.get(f.id) ?? null })), propuestas: db.prepare(`SELECT id, titulo, detalle, area, prioridad, estado FROM propuestas WHERE estado = 'abierta' ORDER BY id DESC`).all() })],
   ['GET', /^\/api\/fragua\/(\d+)$/, (_, [f]) => leerForja(db, id(f)) ?? (() => { throw new Error(`No existe la forja ${f}`) })()],
   ['POST', /^\/api\/fragua$/, (b) => {
     void forjarMejora(db, { propuestaId: b.propuestaId ? Number(b.propuestaId) : null, pedido: b.pedido || null }).then((f) => {
@@ -870,6 +871,7 @@ setInterval(async () => {
 if (telegramConfigurado() && !enVercel()) {
   escucharTelegram(db)
   retomarTandas(db)
+  retomarFragua(db)
   void procesarTandas(db).catch(() => {})
   setInterval(() => void latidoTelegram(db).catch(() => {}), 60_000).unref()
   alDecirSolo((texto) => void decirPorTelegram(texto).catch(() => {}))

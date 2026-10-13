@@ -43,8 +43,16 @@ async function pintarMentor() {
   if (!cont) return
   let rs
   try { rs = await api('/mentor') } catch { return }
-  cont.innerHTML = rs.length ? `<div class="bloque"><h3>🧭 El Mentor recomienda</h3>${rs.map((r) => `<div class="cu-fuente" data-reco="${r.id}"><span style="white-space:normal"><b>${esc(r.accion)}</b>${r.minutos ? ` <small class="tenue">${r.minutos} min</small>` : ''}<br><small class="tenue">${esc(r.porQue)}</small></span>
-    <button class="btn btn-chico btn-primario" data-si title="${r.como === 'banda' ? 'Queda para la próxima run' : 'Queda como side quest'}">${r.como === 'banda' ? 'A la próxima run' : 'Side quest'}</button><button class="btn btn-chico" data-no>✕</button></div>`).join('')}</div>` : ''
+  const TIPO = { libro: 'libro', pelicula: 'película', serie: 'serie', videojuego: 'videojuego', paper: 'paper', repositorio: 'repo' }
+  cont.innerHTML = rs.length ? `<section class="seccion">
+    <div class="seccion-cab"><h3>🧭 El Mentor recomienda</h3><span class="tenue">De tu Librería, para lo que estás empujando esta semana.</span></div>
+    <div class="tarjetas">${rs.map((r) => `<article class="tarjeta" data-reco="${r.id}">
+      <div class="tarjeta-cab"><span class="chip">${esc(TIPO[r.tipo] ?? r.tipo)}</span><span>${esc(r.titulo)}</span>${r.minutos ? `<span class="estado-chip">${r.minutos} min</span>` : ''}</div>
+      <h4>${esc(r.accion)}</h4>
+      <p class="recorte">${esc(r.porQue)}</p>
+      <div class="tarjeta-pie"><button class="btn btn-chico btn-primario" data-si title="${r.como === 'banda' ? 'Queda como side quest para la próxima run' : 'Queda como side quest'}">${r.como === 'banda' ? 'A la próxima run' : 'Side quest'}</button><span class="espacio"></span><button class="btn btn-chico" data-no title="No me sirve">Descartar</button></div>
+    </article>`).join('')}</div></section>` : ''
+  $$('.recorte', cont).forEach((p) => (p.onclick = () => p.classList.toggle('abierto')))
   $$('[data-reco]', cont).forEach((el) => {
     const id = el.dataset.reco
     $('[data-si]', el).onclick = async () => { try { await api(`/mentor/${id}`, { aceptar: true }); toast('Anotado<small>Quedó como side quest y la obra pasó a «en curso».</small>'); pintarMentor(); refrescarLibreria() } catch (e) { error(e) } }

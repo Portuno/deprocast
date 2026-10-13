@@ -123,3 +123,16 @@ test('streaming: el acumulador junta texto y pedidos de herramienta en pedazos',
   assert.equal(a.estado.fin, 'tool_calls')
   assert.equal(a.estado.tokens, 15)
 })
+
+test('sin red: se reintenta con espera y, si sigue sin conexión, corta con un mensaje claro', async () => {
+  const { nanChat, SIN_RED } = await import('../src/nan.ts')
+  const db = abrir(':memory:')
+  const esperas: number[] = []
+  let n = 0
+  _probar(async () => (++n <= 2 ? { status: SIN_RED, body: 'sin conexión: fetch failed (ECONNRESET)', json: undefined } : { status: 200, body: '', json: { choices: [{ message: { content: 'volví' } }] } }), async (ms) => { esperas.push(ms) })
+  const r = await nanChat({ db, clase: 'mastropiero', agenteId: 't' }, { mensajes: [{ role: 'user', content: 'hola' }], temperatura: 0, maxTokens: 10, json: false })
+  assert.equal(r.texto, 'volví')
+  assert.deepEqual(esperas, [2000, 5000])
+  _probar(async () => ({ status: SIN_RED, body: 'sin conexión: fetch failed', json: undefined }), async () => {})
+  await assert.rejects(nanChat({ db, clase: 'mastropiero', agenteId: 't' }, { mensajes: [{ role: 'user', content: 'hola' }], temperatura: 0, maxTokens: 10, json: false }), /Sin conexión con NaN \(fetch failed\)\. Revisá internet/)
+})

@@ -358,7 +358,7 @@ async function montarBitacora(cont) {
   const cerradas = d.entradas.filter((e) => e.cifrada && e.texto == null).length
   cont.innerHTML = `
     <p class="tenue">Tu diario. No entra al corpus, ni a la liga, ni a ningún modelo: Mastropiero solo lee las entradas que marcás «compartir». Si la cifrás, ni el respaldo ni quien abra la base la puede leer sin tu clave (que no se guarda: si la olvidás, se pierde).</p>
-    <form id="bit-form" class="bloque">
+    <form id="bit-form" class="seccion">
       <textarea name="texto" rows="6" placeholder="${esc(d.disparador)}" style="width:100%"></textarea>
       <div class="fila">
         <span class="tenue">Ánimo</span>${[1, 2, 3, 4, 5].map((n) => `<label class="chip"><input type="radio" name="animo" value="${n}" hidden>${['😞', '😕', '😐', '🙂', '😄'][n - 1]}</label>`).join('')}
@@ -370,7 +370,7 @@ async function montarBitacora(cont) {
     </form>
     ${cifradas ? `<div class="fila">${cerradas ? `<span class="tenue">🔒 ${cerradas} cifrada${cerradas > 1 ? 's' : ''}</span><input type="password" id="bit-clave" placeholder="tu clave" autocomplete="current-password" style="width:9em"><button class="btn btn-chico" id="bit-abrir">Abrir</button>` : `<button class="btn btn-chico" id="bit-cerrar">🔒 Volver a cerrar</button>`}</div>` : ''}
     <div id="bit-lista">${d.entradas.map((e) => `
-      <div class="bloque bit" data-id="${e.id}">
+      <div class="seccion bit" data-id="${e.id}">
         <div class="fila"><b>${esc(e.fecha)}</b>${e.animo ? `<span>${['😞', '😕', '😐', '🙂', '😄'][e.animo - 1]}</span>` : ''}${e.cifrada ? '<span class="chip">🔒 cifrada</span>' : ''}${e.compartida ? '<span class="chip">compartida</span>' : ''}
           <span style="flex:1"></span>${e.cifrada ? '' : `<button class="btn btn-chico" data-compartir="${e.compartida ? 0 : 1}">${e.compartida ? 'Dejar de compartir' : 'Compartir'}</button>`}<button class="btn btn-chico" data-borrar title="Borrar para siempre">✕</button></div>
         <div class="md">${e.texto == null ? '<span class="tenue">(cifrada)</span>' : esc(e.texto).replace(/\n/g, '<br>')}</div>
@@ -430,11 +430,11 @@ async function montarPlata(cont) {
       <div class="stat"><b>${eur(r.neto)}</b><small>neto</small></div>
       ${r.meta ? `<div class="stat"><b>${r.avanceMeta}%</b><small>de la meta (${eur(r.meta)})</small></div>` : ''}
     </div>
-    ${cats.length ? `<div class="bloque"><h3>En qué se fue</h3>${cats.map(([k, v]) => `<div class="fila"><span style="width:9em">${esc(k)}</span><span class="barrita" style="flex:1"><b style="width:${Math.round((v / max) * 100)}%"></b></span><span>${eur(v)}</span></div>`).join('')}</div>` : ''}
-    <div class="bloque"><h3>Anotar</h3>
+    ${cats.length ? `<div class="seccion"><h3>En qué se fue</h3>${cats.map(([k, v]) => `<div class="fila"><span style="width:9em">${esc(k)}</span><span class="barrita" style="flex:1"><b style="width:${Math.round((v / max) * 100)}%"></b></span><span>${eur(v)}</span></div>`).join('')}</div>` : ''}
+    <div class="seccion"><h3>Anotar</h3>
       <form class="fila" id="pl-form"><input name="monto" type="number" step="0.01" placeholder="-20 o 800" required style="width:8em"><input name="descripcion" placeholder="En qué" required style="flex:1"><input name="fecha" type="date"><button class="btn">Anotar</button></form>
       <p class="tenue">O contáselo a Mastropiero en el chat («gasté 20 en el súper»), o subí el extracto del banco: <label class="btn btn-chico">CSV del banco<input type="file" accept=".csv,.txt,text/csv" hidden id="pl-csv"></label></p></div>
-    <div class="bloque"><h3>Movimientos (${d.movimientos.length})</h3>
+    <div class="seccion"><h3>Movimientos (${d.movimientos.length})</h3>
       ${d.movimientos.length ? d.movimientos.map((m) => `<div class="fila item"><span class="tenue">${esc(m.fecha)}</span><span style="flex:1">${esc(m.descripcion)}</span><span class="chip">${esc(m.categoria)}</span><b style="color:${m.monto > 0 ? 'var(--ok, #6c6)' : 'inherit'}">${eur(m.monto)}</b><button class="btn btn-chico" data-borrar="${m.id}" title="Borrar">✕</button></div>`).join('') : '<p class="vacio">Nada este mes todavía.</p>'}
     </div>`
   const otro = (n) => { const [a, m] = plataMes.split('-').map(Number); const f = new Date(a, m - 1 + n, 1); plataMes = `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}`; montarPlata(cont) }

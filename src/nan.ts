@@ -79,8 +79,17 @@ export function cupoDe(modelo: string): number | null {
 // ─── transporte (inyectable para tests) ─────────────────────────────────
 
 type Respuesta = { status: number; body: string; json?: any }
+/** Un corte de red (sin conexión, DNS, reset) no es un error del modelo: vuelve como 599 y se reintenta con espera. */
+export const SIN_RED = 599
 let transporte = async (url: string, init: RequestInit): Promise<Respuesta> => {
-  const res = await fetch(url, { ...init, signal: AbortSignal.timeout(180_000) })
+  let res: Response
+  try {
+    res = await fetch(url, { ...init, signal: AbortSignal.timeout(180_000) })
+  } catch (e) {
+    const causa = e instanceof Error ? `${e.message}${(e as any).cause?.code ? ` (${(e as any).cause.code})` : ''}` : String(e)
+    if (e instanceof Error && e.name === 'TimeoutError') return { status: 504, body: `tiempo agotado: ${causa}`, json: undefined }
+    return { status: SIN_RED, body: `sin conexión: ${causa}`, json: undefined }
+  }
   const body = await res.text()
   let json: unknown
   try {
@@ -145,6 +154,8 @@ export function decidir(r: Respuesta, modelo: string, n: { server: number; rate:
   if (r.status === 401) return { accion: 'cortar', motivo: 'NaN 401: revisá NAN_API_KEY' }
   if (r.status === 402) return { accion: 'siguiente' }
   if (r.status === 429) return n.rate >= 4 ? { accion: 'siguiente' } : { accion: 'reintentar', esperaMs: Math.min(30_000, 400 * 2 ** n.rate) }
+  // Sin red: el siguiente modelo tampoco llegaría; mejor esperar un poco (2, 5 y 10 s) y volver a probar.
+  if (r.status === SIN_RED) return n.server >= 3 ? { accion: 'cortar', motivo: `Sin conexión con NaN (${r.body.replace(/^sin conexión: /, '')}). Revisá internet y probá de nuevo.` } : { accion: 'reintentar', esperaMs: [2000, 5000, 10_000][n.server] }
   if (r.status >= 500) return n.server >= 2 ? { accion: 'siguiente' } : { accion: 'reintentar', esperaMs: Math.min(30_000, 400 * 2 ** n.server) }
   if (r.status === 400) return { accion: 'cortar', motivo: `NaN 400: ${r.body.slice(0, 200)}` }
   return { accion: 'siguiente' }
@@ -343,7 +354,14 @@ export async function nanTranscribirDetallado(db: Db, audio: Buffer, nombre: str
       form.append('timestamp_granularities[]', 'word')
     }
     const t0 = Date.now()
-    const res = await fetch(`${base()}/audio/transcriptions`, { method: 'POST', headers: { authorization: `Bearer ${key()}` }, body: form, signal: AbortSignal.timeout(300_000) })
+    let res: Response
+    try {
+      res = await fetch(`${base()}/audio/transcriptions`, { method: 'POST', headers: { authorization: `Bearer ${key()}` }, body: form, signal: AbortSignal.timeout(300_000) })
+    } catch (e) {
+      if (intento === 1) throw new Error(`Sin conexión con Whisper: ${e instanceof Error ? e.message : e}`)
+      await dormir(4000)
+      continue
+    }
     const cuerpo = await res.text()
     db.prepare(`INSERT INTO llamadas (motor, modelo, clase, agente_id, tokens_in, tokens_out, latencia_ms, status, en) VALUES ('nan', 'whisper', 'diario', 'mastropiero', NULL, NULL, ?, ?, ?)`)
       .run(Date.now() - t0, res.status, Date.now())

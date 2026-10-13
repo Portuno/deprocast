@@ -403,6 +403,16 @@ export async function cerrarDirecto(db: Db, id: number, o: { ahora?: number; con
     insertar(db, { fuente: 'operador', nivel: 'propia', titulo: `Directo · ${fecha} · lo que dijo`, contenido: voz, estado: 'disponible', etiquetas: ['directo', 'voz'], fecha: new Date(s.inicio).toISOString() }, ahora)
     if (o.escriba !== false) void escribaDeMemoria(db, voz, null, { grabacion: true }).catch(() => {})
   }
+  return escribirInforme(db, s, ms, ahora, o)
+}
+
+/** El informe y la bandeja de propuestas de un Directo ya cerrado (al cerrar, o de nuevo si la primera vez falló). */
+async function escribirInforme(db: Db, s: Sesion, ms: Momento[], ahora: number, o: { conModelo?: boolean } = {}): Promise<Sesion> {
+  const id = s.id
+  const met = metricas(ms)
+  const duracion = fmtMin(ahora - s.inicio)
+  const fecha = fechaLocal(s.inicio)
+  const hora = (t: number) => new Date(t).toTimeString().slice(0, 5)
   const run = enCurso(db, ahora)?.run
   const abiertas = new Map(listarMisiones(db, { personaje: 'jugador', nivel: 'terciaria', estados: ['activa'], limite: 40 }).map((m) => [m.id, m.titulo]))
   const bandas = new Map((run ? listarMisiones(db, { runId: run.id, nivel: 'secundaria', estados: ['activa'] }) : []).map((m) => [m.id, m.titulo]))
@@ -436,6 +446,20 @@ export async function cerrarDirecto(db: Db, id: number, o: { ahora?: number; con
   const { consumido: _oido, ...numeros } = met
   db.prepare('UPDATE directo_sesiones SET informe = ?, resumen = ? WHERE id = ?').run(texto, JSON.stringify({ ...numeros, propuestas }), id)
   return leerSesion(db, id)!
+}
+
+export const informeFallido = (s: Pick<Sesion, 'informe'>) => /^No pude escribir el informe/.test(s.informe ?? '')
+
+/** Vuelve a escribir el informe de un Directo cerrado cuya primera vez falló (sin volver a guardar su voz en el corpus). */
+export async function rehacerInforme(db: Db, id: number): Promise<Sesion> {
+  const s = leerSesion(db, id)
+  if (!s) throw new Error(`No existe la sesión ${id}`)
+  if (s.estado !== 'cerrada') throw new Error('El Directo sigue prendido')
+  const ms = momentos(db, id)
+  if (!ms.length) throw new Error('Ese Directo no tiene nada registrado')
+  const r = await escribirInforme(db, s, ms, s.fin ?? Date.now())
+  if (informeFallido(r)) throw new Error(r.informe!.replace(/^No pude escribir el informe: /, 'Tampoco esta vez: '))
+  return r
 }
 
 /** Si el navegador se cerró sin apagar el Directo, a los 10 minutos sin nada se cierra solo. */

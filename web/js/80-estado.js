@@ -3,13 +3,13 @@
 
 function modalEstado() {
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Exportar o importar</h2>
-    <div class="bloque">
+    <div class="seccion">
       <h3>Exportar todo</h3>
       <p class="tenue">Un solo JSON con todo: corpus, memoria, misiones, runs, chats, personas, plata, bitácora (lo cifrado sigue cifrado), agentes, ajustes y rutinas. Con los archivos, también lo que subiste y lo del Taller. No lleva tu <code>.env</code> (las claves): copialo a mano.</p>
       <label><input type="checkbox" id="es-archivos" checked> incluir archivos (cargas y Taller; pesa más)</label>
       <div class="fila" style="margin-top:8px"><button class="btn btn-primario" id="es-exportar">⇩ Exportar</button></div>
     </div>
-    <div class="bloque">
+    <div class="seccion">
       <h3>Importar</h3>
       <p class="tenue">Deja esta base igual a la exportada. Si acá ya hay datos, se reemplazan (antes guardo un respaldo en <code>data/respaldos/</code>).</p>
       <label class="btn">Elegir exportación (.json)<input type="file" accept=".json,application/json" hidden id="es-archivo"></label>

@@ -214,6 +214,7 @@ function tableroDirecto(s) {
   return `<div class="dir-tablero" data-sesion="${s.id}">
     ${chips ? `<div class="chips">${chips}</div>` : ''}
     <div class="dir-texto">${texto}</div>
+    ${/^No pude escribir el informe/.test(s.informe ?? '') ? `<p class="fila"><span class="tenue">Lo que viste y escuchaste quedó guardado; faltó el informe (seguramente se cortó internet).</span><button class="btn btn-chico btn-primario" data-rehacer="${s.id}">Reintentar el informe</button></p>` : ''}
     ${grupos || '<p class="tenue chico">No salió nada para anotar.</p>'}
     ${quedan ? `<p class="dir-nota">Nada de esto entró solo. Aceptá lo que quieras guardar.</p>` : (ps.length ? '<p class="dir-nota">No queda nada por revisar.</p>' : '')}
   </div>`
@@ -240,6 +241,11 @@ function mostrarRevision(s) {
 }
 
 function engancharTablero(raiz) {
+  $$('[data-rehacer]', raiz).forEach((b) => (b.onclick = async () => {
+    b.disabled = true
+    b.textContent = 'Escribiendo…'
+    try { const s = await api(`/directo/${b.dataset.rehacer}/informe`, {}); if ($('#modal')?.contains(b)) mostrarRevision(s); else if (vista === 'directo') montarDirecto() } catch (e) { error(e); b.disabled = false; b.textContent = 'Reintentar el informe' }
+  }))
   $$('[data-acc]', raiz).forEach((btn) => {
     btn.onclick = async () => {
       const tablero = btn.closest('[data-sesion]')

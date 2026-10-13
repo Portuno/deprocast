@@ -96,3 +96,21 @@ test('Directo: si la pestaña se cerró sin apagarlo, a los 10 minutos se cierra
   assert.ok(esRuido('¡Gracias por ver el video!'))
   assert.ok(!esRuido('Hoy avancé con el reglamento'))
 })
+
+test('Directo: si al cerrar falla el informe (sin red), los momentos quedan y el informe se rehace', async () => {
+  const { rehacerInforme, informeFallido } = await import('../src/directo.ts')
+  const db = abrir(':memory:')
+  _probarDirecto({ vision: async () => ({ app: 'VS Code', actividad: 'programando', tema: 'Deprocast', detalle: 'fragua.ts', nota: '' }), transcribir: async () => '' })
+  const s = iniciarDirecto(db, ['pantalla'], T)
+  await registrarCuadro(db, s.id, img, 'image/jpeg', min(0))
+  await registrarCuadro(db, s.id, img, 'image/jpeg', min(10))
+  const antes = momentos(db, s.id).length
+  _probarModelo(async () => { throw new Error('fetch failed') })
+  const c = await cerrarDirecto(db, s.id, { ahora: min(15), escriba: false })
+  assert.ok(informeFallido(c))
+  await assert.rejects(rehacerInforme(db, s.id), /Tampoco esta vez: fetch failed/)
+  _probarModelo(async () => ({ texto: JSON.stringify({ texto: 'Estuviste 15 minutos en la Fragua.', ideas: [], tareas: [], cumplidas: [], entidades: [], conexiones: [], consumido: [], bandas: [] }), llamadas: [], razonamiento: null, modelo: 'f', tokens: 1 }))
+  const r = await rehacerInforme(db, s.id)
+  assert.equal(r.informe, 'Estuviste 15 minutos en la Fragua.')
+  assert.equal(momentos(db, s.id).length, antes, 'los momentos no se tocan')
+})
