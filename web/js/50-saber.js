@@ -496,12 +496,14 @@ async function modalLinaje(id) {
 
 function montarQuantomos() {
   $('#principal').innerHTML = `
-    <div class="titulo"><h1>Quántomos</h1><p>La unidad mínima: una afirmación atómica. Los extractores y las cargas proponen; vos sellás con un peso de 1 a 12. Los generativos proponen mejoras y vos decidís.</p></div>
+    <div class="titulo"><h1>Quántomos</h1><p>La unidad mínima: una afirmación atómica. Los extractores y las cargas proponen; vos sellás con un peso de 1 a 12. Los generativos proponen mejoras y vos decidís.</p>
+      <div class="fila"><button class="btn" id="q-lotes" title="Sellar proto de 10 en 10 con un peso único">Por lotes</button></div></div>
     <div class="chips" id="q-chips"></div>
     <div class="corpus-barra"><input class="campo-suelto" id="q-q" placeholder="Buscar quántomos…" value="${esc(filtroQ.q)}"></div>
     <div id="q-cuenta" class="cuenta"></div><div id="q-lista" class="q-lista"></div><div id="q-mas"></div>`
   let espera
   $('#q-q').oninput = (e) => { clearTimeout(espera); espera = setTimeout(() => { filtroQ.q = e.target.value; filtroQ.desde = 0; traerQuantomos() }, 250) }
+  $('#q-lotes').onclick = modalLotes
   refrescarQuantomos()
   traerQuantomos()
 }
@@ -512,6 +514,48 @@ function refrescarQuantomos() {
   const etapas = [['', 'Vigentes', (n.proto ?? 0) + (n.sellado ?? 0) + (n.propuesta ?? 0)], ['propuesta', 'Propuestas', n.propuesta ?? 0], ['proto', 'Proto', n.proto ?? 0], ['sellado', 'Sellados', n.sellado ?? 0], ['superado', 'Superados', n.superado ?? 0], ['descartado', 'Descartados', n.descartado ?? 0]]
   $('#q-chips').innerHTML = etapas.map(([k, t, c]) => `<button class="chip ${filtroQ.etapa === k ? 'on' : ''}" data-etapa="${k}">${t} ${c.toLocaleString('es-AR')}</button>`).join('')
   $$('[data-etapa]').forEach((b) => (b.onclick = () => { filtroQ.etapa = b.dataset.etapa; filtroQ.desde = 0; refrescarQuantomos(); traerQuantomos() }))
+}
+
+async function modalLotes() {
+  try {
+    const grupos = await api('/quantomos/grupos')
+    abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>⚛ Sellar por lotes</h2>
+      <p class="tenue">Proto quántomos agrupados por tema y pieza. Pedí una propuesta generativa de 10 en 10, o sellá/descartá el lote con un peso único.</p>
+      ${grupos.length ? `<table class="log"><tr><th>Tema</th><th>Pieza</th><th>Proto</th><th>Acción</th></tr>
+        ${grupos.map((g, i) => `<tr><td>${esc(g.universo ?? '—')}</td><td>${g.pieza_id ? '#' + g.pieza_id : '—'}</td><td>${g.n}</td>
+          <td><div class="fila"><button class="btn btn-chico" data-lote-fusion="${i}">✦ Fusionar</button>
+            <button class="btn btn-chico" data-lote-sellar="${i}">Sellar lote</button>
+            <button class="btn btn-chico" data-lote-descartar="${i}">Descartar</button></div></td></tr>`).join('')}</table>`
+        : '<p>No hay proto quántomos para lotear.</p>'}`)
+    const idsDe = (g) => g.ids.split(',').map(Number)
+    $$('#modal [data-lote-fusion]').forEach((b) => (b.onclick = async () => {
+      const g = grupos[Number(b.dataset.loteFusion)]
+      try {
+        const t = await api('/quantomos/lote', { ids: idsDe(g) })
+        toast(`Misión #${t.id} para un generativo<small>Dale Tick: propone fusión o descarte para ${g.n} quántomos.</small>`, 'suave')
+      } catch (e) { error(e) }
+    }))
+    $$('#modal [data-lote-sellar]').forEach((b) => (b.onclick = async () => {
+      const g = grupos[Number(b.dataset.loteSellar)]
+      const peso = Number(prompt('Peso del lote (1–12):', '7'))
+      if (!peso || peso < 1 || peso > 12) return
+      try {
+        const r = await api('/quantomos/lote/sellar', { ids: idsDe(g), peso })
+        toast(`${r.sellados} quántomos sellados con peso ${peso}`, 'suave')
+        cerrarModal(); await refrescar()
+      } catch (e) { error(e) }
+    }))
+    $$('#modal [data-lote-descartar]').forEach((b) => (b.onclick = async () => {
+      const g = grupos[Number(b.dataset.loteDescartar)]
+      const motivo = prompt('Motivo del descarte:', 'sin sustancia')
+      if (!motivo) return
+      try {
+        const r = await api('/quantomos/lote/descartar', { ids: idsDe(g), motivo })
+        toast(`${r.descartados} quántomos descartados`, 'suave')
+        cerrarModal(); await refrescar()
+      } catch (e) { error(e) }
+    }))
+  } catch (e) { error(e) }
 }
 
 async function traerQuantomos(mas = false) {

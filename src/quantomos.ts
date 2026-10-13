@@ -197,3 +197,56 @@ export function candidatos(texto: string, max = 3): string[] {
     .filter((s) => s.length >= 40 && s.length <= 280 && /\s/.test(s))
   return [...new Set(oraciones)].sort((a, b) => b.length - a.length).slice(0, max)
 }
+
+/** Grupos de proto quántomos por (universo, piezaId), para sellar por lote. */
+export function gruposProto(db: Db) {
+  return db.prepare(`
+    SELECT universo, pieza_id, COUNT(*) AS n, GROUP_CONCAT(id) AS ids
+    FROM quantomos
+    WHERE etapa = 'proto'
+    GROUP BY universo, pieza_id
+    ORDER BY n DESC
+  `).all() as { universo: string | null; pieza_id: number | null; n: number; ids: string }[]
+}
+
+/** Pide a un generativo que fusione o recomiende descartar un lote de proto (máx 10). */
+export function pedirLote(db: Db, ids: number[], ahora = Date.now()): Tarea {
+  if (!ids.length) throw new Error('Lote vacío')
+  if (ids.length > 10) throw new Error('Un lote es de máximo 10 quántomos')
+  const quants = ids.map((i) => leerQuantomo(db, i)).filter((q): q is Quantomo => !!q && q.etapa === 'proto')
+  if (!quants.length) throw new Error('Ningún quántomo del lote está en proto')
+  const lista = quants.map((q, i) => `${i + 1}. [id=${q.id}] ${q.texto}`).join('\n')
+  return publicar(db, {
+    clase: 'generativo',
+    tipo: 'lote-quantomo',
+    payload: {
+      ids: quants.map((q) => q.id),
+      texto: [
+        'Te doy un lote de proto-quántomos agrupados por tema y pieza. Proponé UNA de estas dos cosas:',
+        '1) "fusion": una sola afirmación atómica que capture la esencia del lote.',
+        '2) "descartar": si el lote no tiene sustancia, un motivo breve.',
+        'Respondé SOLO un objeto JSON: {"fusion": string} o {"descartar": string}.',
+        `Lote (${quants.length} quántomos):`,
+        lista,
+      ].join('\n'),
+    },
+    publicadaPor: 'operador',
+  }, ahora)
+}
+
+/** Sella un lote de proto quántomos con un peso único. */
+export function sellarLote(db: Db, ids: number[], peso: number, ahora = Date.now()) {
+  validarPeso(peso)
+  if (!ids.length) throw new Error('Lote vacío')
+  const placeholders = ids.map(() => '?').join(',')
+  const r = db.prepare(`UPDATE quantomos SET etapa = 'sellado', peso = ?, actualizado_en = ? WHERE id IN (${placeholders}) AND etapa = 'proto'`).run(peso, ahora, ...ids)
+  return { sellados: r.changes }
+}
+
+/** Descarta un lote de proto quántomos con un motivo. */
+export function descartarLote(db: Db, ids: number[], motivo: string, ahora = Date.now()) {
+  if (!ids.length) throw new Error('Lote vacío')
+  const placeholders = ids.map(() => '?').join(',')
+  const r = db.prepare(`UPDATE quantomos SET etapa = 'descartado', procedencia = ?, actualizado_en = ? WHERE id IN (${placeholders}) AND etapa = 'proto'`).run(`descartado por lote: ${motivo}`, ahora, ...ids)
+  return { descartados: r.changes }
+}
