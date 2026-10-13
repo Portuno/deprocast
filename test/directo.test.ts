@@ -44,6 +44,7 @@ test('Directo: anota lo que ve (estirando lo que no cambia), transcribe voz y me
   assert.equal(met.consumido[0].titulo, 'Cómo diseñar juegos de mesa')
   assert.match(directoParaPrompt(db), /YouTube · mirando video · Cómo diseñar juegos de mesa[\s\S]*llamar a Ana/)
 
+  db.prepare(`UPDATE ajustes SET valor = '0' WHERE clave = 'directo_auto'`).run() // acá todo espera su ok
   const quest = anotarSideQuest(db, { titulo: 'Revisar el mail de Namecheap' }, T)
   _probarModelo(async () => ({
     texto: JSON.stringify({
@@ -66,7 +67,7 @@ test('Directo: anota lo que ve (estirando lo que no cambia), transcribe voz y me
   const props = (c.resumen as { propuestas: { id: string; tipo: string; titulo: string; estado: string }[] }).propuestas
   assert.equal(props.find((p) => p.tipo === 'tarea')?.titulo, 'Llamar a Ana por el presupuesto')
   assert.equal(props.some((p) => p.titulo === 'Instagram'), false, 'una app genérica no se propone')
-  assert.match(avisoDeCierre(c), /No las metí al corpus/)
+  assert.match(avisoDeCierre(c), /esperan tu ok.$/)
   assert.equal(propuestasPendientes(db), props.filter((p) => p.estado === 'pendiente').length)
 
   const idDe = (tipo: string) => props.find((p) => p.tipo === tipo)!.id

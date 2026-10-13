@@ -119,7 +119,7 @@ function renderHud() {
       stat('Bus', t.pendiente ?? 0, `pend · ${t.hecha ?? 0} hechas${E.enEspera ? ` · ${fmtTokens(E.enEspera)} en espera` : ''}`),
       stat('Tick', E.nTick),
     ] : []),
-    stat('Gasto hoy', fmtTokens(E.gasto.total), E.gasto.tope ? `liga ${fmtTokens(E.gasto.liga)} de ${fmtTokens(E.gasto.tope)}` : 'sin tope'),
+    stat('Gasto hoy', fmtTokens(E.gasto.total), E.gasto.tope ? `solo ${fmtTokens(E.gasto.liga + (E.gasto.fondo ?? 0))} de ${fmtTokens(E.gasto.tope)}` : 'sin tope'),
     stat('NaN este mes', fmtTokens(tokens), 'tokens'),
   ].join('')
 }

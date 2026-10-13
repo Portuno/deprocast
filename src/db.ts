@@ -730,6 +730,17 @@ CREATE TABLE IF NOT EXISTS reportes (
   creado_en INTEGER NOT NULL
 );
 
+-- Lo que se rompió (errores del servidor, rutas que no existen): la materia de la autocrítica. Uno por texto y día.
+CREATE TABLE IF NOT EXISTS errores (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  origen TEXT NOT NULL,               -- servidor | ruta | rutina
+  texto TEXT NOT NULL,
+  veces INTEGER NOT NULL DEFAULT 1,
+  primera INTEGER NOT NULL,
+  ultima INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS errores_ultima ON errores(ultima);
+
 CREATE INDEX IF NOT EXISTS quantomos_pieza ON quantomos(pieza_id);
 CREATE INDEX IF NOT EXISTS quantomos_etapa ON quantomos(etapa);
 `
@@ -768,6 +779,12 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   memoria: [
     ['pieza_id', 'INTEGER'], // la pieza del corpus de la que salió, si salió de una
   ],
+  llamadas: [
+    ['fondo', 'INTEGER'], // 1 = la hizo algo que corre solo (una rutina): cuenta para el tope diario
+  ],
+  propuestas: [
+    ['origen', 'TEXT'], // chat | autocritica
+  ],
 }
 
 /** Rutinas y ajustes de fábrica: horarios editables, nada del operador. */
@@ -785,6 +802,10 @@ const RUTINAS_SISTEMA = [
   { id: 'puentes', nombre: 'Puentes con tu gente', hora: '11:00', dias: '0', accion: 'puentes' },
   { id: 'temporada', nombre: 'Cierre de temporada de la liga', hora: '07:30', dias: '1', accion: 'temporada' },
   { id: 'destilar', nombre: 'Destilar unas piezas tuyas en espera', hora: '10:15', dias: '0123456', accion: 'destilar' },
+  { id: 'autocritica', nombre: 'Mastropiero revisa lo que se rompió y propone arreglos', hora: '02:30', dias: '0123456', accion: 'autocritica' },
+  { id: 'fragua', nombre: 'La Fragua forja las propuestas abiertas', hora: '03:00', dias: '0123456', accion: 'fragua' },
+  { id: 'lectura', nombre: 'Lectura nocturna: expandir la Librería', hora: '04:00', dias: '0123456', accion: 'lectura' },
+  { id: 'matinal', nombre: 'El audio de la mañana', hora: '07:50', dias: '0123456', accion: 'matinal' },
 ]
 /** La única plantilla de run de fábrica: genérica, sin nada del operador. */
 const PLANTILLAS_SISTEMA = [
@@ -795,13 +816,17 @@ const AJUSTES_SISTEMA: Record<string, string> = {
   jornada_fin: '23:00',
   bloques_minutos: '12,25,50',
   primarias_semana: '6',
-  tokens_dia_max: '1000000', // tokens por día para la liga (agentes); 0 = sin tope
+  tokens_dia_max: '5000000', // tokens por día para lo que corre solo (la liga y las rutinas); lo que él pide no se frena; 0 = sin tope
   pensar_cada_horas: '3', // Mastropiero piensa solo y deja una sugerencia (o nada); 0 = nunca
   meta_ingresos_mes: '', // su meta de ingresos por mes, en euros; vacío = sin meta
   telegram_voz: '0', // respuestas por Telegram también en audio: 0 = no, 1 = cuando él manda audio, siempre
   telegram_bandas: '1', // cada banda de la run llega sola por Telegram, con botones
   destilar_por_dia: '15', // con la ingesta en pausa, cuántas piezas propias despierta por día la rutina «destilar»
   vectorizar_auto: '1', // calcular solos los vectores del corpus (búsqueda por significado); 0 = no
+  directo_auto: '1', // del Directo, las ideas y lo que miró entran solas (tareas, personas y conexiones esperan su ok); 0 = todo espera
+  fragua_por_noche: '3', // cuántas propuestas forja la rutina «fragua» por noche; 0 = ninguna
+  lectura_obras: '10', // cuántas obras de la Librería expande la lectura nocturna
+  ayudantes_auto: '1', // cada primaria aceptada sin ayudante recibe uno solo; 0 = los suma él
 }
 
 /** Fuentes de fábrica. Estructura, no contenido: el corpus arranca vacío. */

@@ -4,8 +4,17 @@
  * DeepSeek con max_tokens ≥ 16384 y la palabra JSON, se lee `message.content` y nunca `reasoning_content`.
  * La API key no se loguea.
  */
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { ClaseId } from './clases.ts'
 import type { Db } from './db.ts'
+
+/**
+ * Lo que corre solo (las rutinas, la Fragua de noche) marca sus llamadas: cuentan para el tope diario igual que la
+ * liga. Lo que él pide en el momento no se marca y no se frena.
+ */
+const deFondo = new AsyncLocalStorage<true>()
+export const enFondo = <T>(f: () => Promise<T>): Promise<T> => deFondo.run(true, f)
+const fondo = () => (deFondo.getStore() ? 1 : 0)
 
 export const NAN_BASE_DEFECTO = 'https://api.nan.builders/v1'
 
@@ -183,8 +192,8 @@ type Llamada = { db: Db; clase: ClaseId | 'mastropiero'; agenteId: string }
 function anotar(l: Llamada, modelo: string, r: Respuesta, ms: number) {
   const u = r.json?.usage
   l.db.prepare(
-    `INSERT INTO llamadas (motor, modelo, clase, agente_id, tokens_in, tokens_out, latencia_ms, status, en) VALUES ('nan', ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(modelo, l.clase, l.agenteId, u?.prompt_tokens ?? u?.total_tokens ?? null, u?.completion_tokens ?? null, ms, r.status, Date.now())
+    `INSERT INTO llamadas (motor, modelo, clase, agente_id, tokens_in, tokens_out, latencia_ms, status, en, fondo) VALUES ('nan', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(modelo, l.clase, l.agenteId, u?.prompt_tokens ?? u?.total_tokens ?? null, u?.completion_tokens ?? null, ms, r.status, Date.now(), fondo())
 }
 
 async function recorrer(l: Llamada, modelos: string[], llamar: (modelo: string, razonarPoco: boolean) => Promise<Respuesta>) {
@@ -316,8 +325,8 @@ export async function nanChatHerramientasStream(
     }
     const e = acc.estado
     l.db.prepare(
-      `INSERT INTO llamadas (motor, modelo, clase, agente_id, tokens_in, tokens_out, latencia_ms, status, en) VALUES ('nan', ?, ?, ?, ?, NULL, ?, 200, ?)`,
-    ).run(modelo, l.clase, l.agenteId, e.tokens || null, Date.now() - t0, Date.now())
+      `INSERT INTO llamadas (motor, modelo, clase, agente_id, tokens_in, tokens_out, latencia_ms, status, en, fondo) VALUES ('nan', ?, ?, ?, ?, NULL, ?, 200, ?, ?)`,
+    ).run(modelo, l.clase, l.agenteId, e.tokens || null, Date.now() - t0, Date.now(), fondo())
     if (e.fin === 'length' || (!e.texto.trim() && !e.llamadas.length)) throw new Error('stream cortado')
     return {
       texto: e.texto.trim(),
@@ -419,30 +428,35 @@ export async function nanModelos(): Promise<string[]> {
 }
 
 /** Tokens del mes en curso por modelo, contra el cupo. Cuenta solo lo que pasó por esta liga. */
-/** Tokens gastados hoy: los de la liga (agentes) y los de Mastropiero (lo que pide el operador). */
-export function tokensHoy(db: Db, ahora = Date.now()): { liga: number; mastropiero: number; total: number } {
+/**
+ * Tokens gastados hoy: los de la liga (agentes), los de Mastropiero (lo que pide el operador y sus rutinas) y, de esos,
+ * los de fondo (las rutinas, que corren solas).
+ */
+export function tokensHoy(db: Db, ahora = Date.now()): { liga: number; mastropiero: number; fondo: number; total: number } {
   const d = new Date(ahora)
   const desde = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
   const filas = db.prepare(
-    `SELECT clase = 'mastropiero' AS suyo, COALESCE(SUM(tokens_in), 0) + COALESCE(SUM(tokens_out), 0) AS t FROM llamadas WHERE en >= ? GROUP BY 1`,
-  ).all(desde) as { suyo: number; t: number }[]
-  const liga = filas.find((f) => !f.suyo)?.t ?? 0
-  const mastropiero = filas.find((f) => f.suyo)?.t ?? 0
-  return { liga, mastropiero, total: liga + mastropiero }
+    `SELECT clase = 'mastropiero' AS suyo, COALESCE(fondo, 0) AS solo, COALESCE(SUM(tokens_in), 0) + COALESCE(SUM(tokens_out), 0) AS t FROM llamadas WHERE en >= ? GROUP BY 1, 2`,
+  ).all(desde) as { suyo: number; solo: number; t: number }[]
+  const suma = (f: (x: { suyo: number; solo: number }) => boolean) => filas.filter(f).reduce((s, x) => s + x.t, 0)
+  const liga = suma((x) => !x.suyo)
+  const mastropiero = suma((x) => !!x.suyo)
+  return { liga, mastropiero, fondo: suma((x) => !!x.suyo && !!x.solo), total: liga + mastropiero }
 }
 
-/** El tope diario de la liga (ajuste `tokens_dia_max`; 0 = sin tope). Lo que el operador pide a Mastropiero no se frena. */
+/** El tope diario de lo que corre solo, la liga y las rutinas (ajuste `tokens_dia_max`; 0 = sin tope). Lo que el operador pide a Mastropiero no se frena. */
 export function topeDiario(db: Db): number {
   const v = (db.prepare(`SELECT valor FROM ajustes WHERE clave = 'tokens_dia_max'`).get() as { valor: string } | undefined)?.valor
   return Math.max(0, Number(v ?? 0) || 0)
 }
 
-/** Si la liga ya gastó su tope de hoy, el motivo; si no, null. */
+/** Si lo que corre solo (liga + rutinas) ya gastó su tope de hoy, el motivo; si no, null. */
 export function topeAlcanzado(db: Db, ahora = Date.now()): string | null {
   const tope = topeDiario(db)
   if (!tope) return null
-  const { liga } = tokensHoy(db, ahora)
-  return liga >= tope ? `gastó ${liga.toLocaleString('es-AR')} tokens hoy, el tope es ${tope.toLocaleString('es-AR')}` : null
+  const { liga, fondo } = tokensHoy(db, ahora)
+  const solo = liga + fondo
+  return solo >= tope ? `lo que corre solo gastó ${solo.toLocaleString('es-AR')} tokens hoy, el tope es ${tope.toLocaleString('es-AR')}` : null
 }
 
 export function usoDelMes(db: Db, ahora = Date.now()) {

@@ -67,8 +67,9 @@ export function alDecirSolo(f: (texto: string) => void) {
 }
 
 /** Un mensaje que Mastropiero deja por su cuenta (rutinas), sin que nadie le haya hablado. */
-export function mensajeDeMastropiero(db: Db, cid: number, texto: string) {
+export function mensajeDeMastropiero(db: Db, cid: number, texto: string, o: { canales?: boolean } = {}) {
   guardar(db, cid, { rol: 'asistente', texto, modelo: 'rutina' })
+  if (o.canales === false) return // ya salió por su cuenta (el audio de la mañana)
   for (const f of oyentes) {
     try { f(texto) } catch { /* un canal caído no frena nada */ }
   }

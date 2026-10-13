@@ -941,9 +941,11 @@ function modalAjustesHoy() {
   const r = hoyDatos.rutinas
   const ps = hoyDatos.plantillas
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Tu día</h2>
-    <p class="tenue">A qué hora hace Mastropiero cada cosa solo, cuántas primarias te propone por semana y cuánto puede gastar la liga por día (lo que le pedís vos no se frena).</p>
+    <p class="tenue">A qué hora hace Mastropiero cada cosa solo, cuántas primarias te propone por semana y cuánto puede gastar por día lo que corre solo, la liga y las rutinas (lo que le pedís vos no se frena).</p>
     <div class="form-ing"><label class="campo">Primarias por semana<input id="aj-prim" type="number" min="1" max="12" value="${esc(hoyDatos.ajustes.primarias_semana ?? 6)}"></label>
-      <label class="campo">Tope diario de la liga (tokens, 0 = sin tope)<input id="aj-tope" type="number" min="0" step="100000" value="${esc(hoyDatos.ajustes.tokens_dia_max ?? 1000000)}"></label>
+      <label class="campo">Tope diario de lo que corre solo (tokens, 0 = sin tope)<input id="aj-tope" type="number" min="0" step="500000" value="${esc(hoyDatos.ajustes.tokens_dia_max ?? 5000000)}"></label>
+      <label class="campo">La Fragua forja por noche (propuestas, 0 = ninguna)<input id="aj-fragua" type="number" min="0" max="10" value="${esc(hoyDatos.ajustes.fragua_por_noche ?? 3)}"></label>
+      <label class="fila" style="gap:6px"><input type="checkbox" id="aj-directo" ${hoyDatos.ajustes.directo_auto !== '0' ? 'checked' : ''}> Del Directo, las ideas y lo que miraste entran solas (tareas, personas y conexiones esperan tu ok)</label>
       <label class="campo">Mastropiero piensa solo cada (horas, 0 = nunca)<input id="aj-pensar" type="number" min="0" max="24" value="${esc(hoyDatos.ajustes.pensar_cada_horas ?? 3)}"></label></div>
     <h3 class="sub">Rutinas</h3>
     ${r.map((x) => `<div class="fila" style="margin:6px 0"><label class="fila" style="gap:6px;min-width:260px"><input type="checkbox" data-rut-activa="${x.id}" ${x.activa ? 'checked' : ''}> ${esc(x.nombre)}</label>
@@ -956,7 +958,7 @@ function modalAjustesHoy() {
   }))
   $('#aj-guardar').onclick = async () => {
     try {
-      await api('/ajustes', { primarias_semana: $('#aj-prim').value, tokens_dia_max: $('#aj-tope').value, pensar_cada_horas: $('#aj-pensar').value })
+      await api('/ajustes', { primarias_semana: $('#aj-prim').value, tokens_dia_max: $('#aj-tope').value, pensar_cada_horas: $('#aj-pensar').value, fragua_por_noche: $('#aj-fragua').value, directo_auto: $('#aj-directo').checked ? '1' : '0' })
       for (const x of r) await api(`/rutinas/${x.id}`, { hora: $(`[data-rut-hora="${x.id}"]`).value, activa: $(`[data-rut-activa="${x.id}"]`).checked })
       cerrarModal()
       toast('Guardado', 'suave')

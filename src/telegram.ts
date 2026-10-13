@@ -112,6 +112,14 @@ export async function decir(texto: string, botones?: Botones): Promise<number | 
   return id
 }
 
+/** Manda un audio (mp3) a su chat, con un texto corto debajo. */
+export async function mandarAudio(datos: Buffer, titulo: string, texto?: string): Promise<boolean> {
+  const chat = suChat()
+  if (!telegramConfigurado() || !chat) return false
+  const r = await mandarArchivo('sendAudio', { chat_id: chat, title: titulo, ...(texto ? { caption: texto.slice(0, 1000) } : {}) }, 'audio', datos, 'mastropiero.mp3')
+  return !!r?.ok
+}
+
 async function editar(mensajeId: number, texto: string, botones?: Botones) {
   const r = await pedir('editMessageText', { chat_id: suChat(), message_id: mensajeId, text: aHtml(texto), parse_mode: 'HTML', disable_web_page_preview: true, ...teclado(botones) })
   if (r && r.ok === false) await decir(texto, botones)

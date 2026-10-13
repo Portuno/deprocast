@@ -117,3 +117,18 @@ test('una run para mañana: arranca al inicio de la jornada y no pisa la propues
   assert.equal(db.prepare(`SELECT estado FROM runs WHERE id = ?`).get(hoy.run.id)!.estado, 'propuesta')
   await assert.rejects(prepararRun(db, { fecha: '2026-10-06' }, { ahora: new Date(2026, 9, 7, 15).getTime() }), /ya pasó/)
 })
+
+test('ayudantes: la rutina de la mañana le pone uno a cada primaria aceptada que no tiene (salvo ayudantes_auto = 0)', async () => {
+  const { ACCIONES } = await import('../src/rutinas.ts')
+  const db = abrir(':memory:')
+  const p = primaria(db)
+  const msg = await ACCIONES.ayudantes(db, '2026-10-07', T)
+  assert.equal(ayudantesDe(db, p.id).length, 1)
+  assert.match(msg!, /Le puse un ayudante a tu primaria que no tenía: Escribir el guion del corto\. Tus ayudantes te dejaron 1 aporte/)
+  await ACCIONES.ayudantes(db, '2026-10-07', T + 60_000)
+  assert.equal(ayudantesDe(db, p.id).length, 1, 'no le suma otro')
+  const q = primaria(db, 'Otra primaria')
+  db.prepare(`UPDATE ajustes SET valor = '0' WHERE clave = 'ayudantes_auto'`).run()
+  await ACCIONES.ayudantes(db, '2026-10-07', T + 120_000)
+  assert.equal(ayudantesDe(db, q.id).length, 0)
+})

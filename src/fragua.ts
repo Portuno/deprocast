@@ -236,6 +236,31 @@ export async function forjarMejora(db: Db, p: { propuestaId?: number | null; ped
   }
 }
 
+/**
+ * Las propuestas abiertas que todavía no tienen forja (o cuyas forjas fallaron por algo ajeno, como un corte, y van
+ * menos de dos intentos): primero las de prioridad alta, después las más viejas.
+ */
+export function propuestasParaForjar(db: Db, limite: number): { id: number; titulo: string }[] {
+  return db.prepare(`
+    SELECT p.id, p.titulo FROM propuestas p
+    WHERE p.estado = 'abierta'
+      AND NOT EXISTS (SELECT 1 FROM fragua f WHERE f.propuesta_id = p.id AND f.estado IN ('haciendo', 'lista', 'rota', 'aplicada'))
+      AND (SELECT COUNT(*) FROM fragua f WHERE f.propuesta_id = p.id) < 2
+    ORDER BY CASE p.prioridad WHEN 'alta' THEN 0 WHEN 'media' THEN 1 ELSE 2 END, p.id
+    LIMIT ?`).all(limite) as { id: number; titulo: string }[]
+}
+
+/** La Fragua de noche: forja de a una las propuestas que tocan, hasta el límite o el tope de gasto. */
+export async function forjarPendientes(db: Db, o: Opciones & { limite?: number; frenar?: () => string | null } = {}): Promise<{ forjas: Forja[]; frenado: string | null }> {
+  const forjas: Forja[] = []
+  for (const p of propuestasParaForjar(db, o.limite ?? 3)) {
+    const frenado = o.frenar?.() ?? null
+    if (frenado) return { forjas, frenado }
+    forjas.push(await forjarMejora(db, { propuestaId: p.id }, o))
+  }
+  return { forjas, frenado: null }
+}
+
 function limpiar(repo: string, f: Forja, borrarRama: boolean) {
   const dir = dirDe(repo, f.id)
   const enlace = path.join(dir, 'node_modules')

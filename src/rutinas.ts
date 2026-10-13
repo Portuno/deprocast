@@ -1,12 +1,21 @@
 /**
  * Rutinas: lo que Mastropiero hace solo, a su hora. Corren mientras el servidor está prendido;
  * si al arrancar ya pasó la hora de una rutina de hoy, se pone al día. Una rutina corre una vez por día.
+ * Todo lo que gastan cuenta para el tope diario de lo que corre solo (ajuste tokens_dia_max).
  */
+import fs from 'node:fs'
+import path from 'node:path'
 import { ajuste, fechaLocal, type Db } from './db.ts'
 import { aMin, asegurarJornada, fijarResumen, leerJornada, textoDeCierre } from './jornada.ts'
 import { agendaDelDia } from './calendario.ts'
 import { conversacionHoy, mensajeDeMastropiero } from './chat/index.ts'
-import { pedirAportes } from './ayudantes.ts'
+import { ayudantesDe, pedirAportes, sumarAyudante } from './ayudantes.ts'
+import { autocritica } from './autocritica.ts'
+import { forjarPendientes } from './fragua.ts'
+import { expandirTanda, paraExpandir } from './libreria.ts'
+import { guionMatinal } from './matinal.ts'
+import { sintetizar } from './taller.ts'
+import { mandarAudio, telegramConfigurado } from './telegram.ts'
 import { calificarDia, predecirDia, textoDeCalificacion } from './gemelo.ts'
 import { buscarOportunidades } from './radar.ts'
 import { enEspera, reanudarIngesta } from './bus.ts'
@@ -15,7 +24,7 @@ import { cerrarTemporada } from './economia.ts'
 import { brujulaDelDia, textoDeBrujula } from './brujula.ts'
 import { recomendar } from './mentor.ts'
 import { proponerPuentes } from './puentes.ts'
-import { topeAlcanzado } from './nan.ts'
+import { enFondo, topeAlcanzado } from './nan.ts'
 import { conAvance, listarMisiones, proponerPrimarias, reporteSemana, semanaDe, seguimientos, sideQuestsRelevantes } from './misiones.ts'
 
 export type Rutina = { id: string; nombre: string; hora: string; dias: string; accion: string; activa: boolean; ultimaFecha: string | null }
@@ -75,11 +84,22 @@ export const ACCIONES: Acciones = {
     if ((!j && !huboRun) || j?.cierre) return null
     return textoDeCierre(db, fecha, ahora)
   },
-  /** Temprano: cada ayudante deja su aporte del día (si no lo dejó ya), dentro del tope de la liga. */
+  /**
+   * Temprano: cada primaria aceptada que no tiene ayudante recibe uno (ajuste ayudantes_auto), y cada ayudante deja su
+   * aporte del día (si no lo dejó ya), dentro del tope.
+   */
   async ayudantes(db, _fecha, ahora) {
+    const nuevos: string[] = []
+    if (ajuste(db, 'ayudantes_auto') !== '0') {
+      for (const p of listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana: semanaDe(ahora), estados: ['activa'] })) {
+        if (ayudantesDe(db, p.id).length) continue
+        try { sumarAyudante(db, p.id, { ahora }); nuevos.push(p.titulo) } catch { /* una primaria que no admite ayudante: sigue */ }
+      }
+    }
+    const sumados = nuevos.length ? `Le puse un ayudante a ${nuevos.length === 1 ? 'tu primaria' : `${nuevos.length} primarias`} que no tenía${nuevos.length === 1 ? '' : 'n'}: ${nuevos.join(' · ')}. ` : ''
     const r = await pedirAportes(db, { ahora, soloSinAporteHoy: true })
-    if (!r.aportes.length) return r.frenado ? `Tus ayudantes no trabajaron hoy: ${r.frenado}.` : null
-    return `Tus ayudantes te dejaron ${r.aportes.length} aporte${r.aportes.length > 1 ? 's' : ''}: ${r.aportes.map((a) => `${a.autor} para «${a.titulo.split(' · ').slice(1).join(' · ')}»`).join('; ')}. Los vas a ver en Misiones y entran como material en tu próxima run.${r.frenado ? ` (Me frené: ${r.frenado}.)` : ''}`
+    if (!r.aportes.length) return r.frenado ? `${sumados}Tus ayudantes no trabajaron hoy: ${r.frenado}.` : sumados.trim() || null
+    return `${sumados}Tus ayudantes te dejaron ${r.aportes.length} aporte${r.aportes.length > 1 ? 's' : ''}: ${r.aportes.map((a) => `${a.autor} para «${a.titulo.split(' · ').slice(1).join(' · ')}»`).join('; ')}. Los vas a ver en Misiones y entran como material en tu próxima run.${r.frenado ? ` (Me frené: ${r.frenado}.)` : ''}`
   },
   /** A la mañana, el gemelo predice el día (sellado: no se le cuenta, para no condicionarlo). */
   async prediccion(db, fecha, ahora) {
@@ -145,6 +165,47 @@ export const ACCIONES: Acciones = {
     cerrarTemporada(db, semanaDe(ahora - 86_400_000), ahora)
     return null
   },
+  /** De madrugada: lo que se rompió y lo que él se quejó se vuelve propuestas de arreglo para La Fragua. */
+  async autocritica(db, _fecha, ahora) {
+    if (topeAlcanzado(db, ahora)) return null
+    const ps = await autocritica(db, ahora)
+    return ps.length ? `Revisé lo que se rompió estos días y anoté ${ps.length} arreglo${ps.length > 1 ? 's' : ''} para La Fragua: ${ps.map((p) => p.titulo).join(' · ')}.` : null
+  },
+  /** De noche: La Fragua forja las propuestas abiertas (ajuste fragua_por_noche). A la mañana, él lee y aplica. */
+  async fragua(db, _fecha, ahora) {
+    const limite = Number(ajuste(db, 'fragua_por_noche') ?? 3)
+    if (!limite || !fs.existsSync(path.join(process.cwd(), '.git'))) return null
+    const r = await forjarPendientes(db, { limite, frenar: () => topeAlcanzado(db) })
+    if (!r.forjas.length) return r.frenado ? `La Fragua no forjó esta noche: ${r.frenado}.` : null
+    const listas = r.forjas.filter((f) => f.estado === 'lista')
+    const resto = r.forjas.length - listas.length
+    const titulo = (f: { pedido: string }) => f.pedido.split('\n')[0].slice(0, 80)
+    return [
+      `🔨 Esta noche La Fragua forjó ${r.forjas.length} propuesta${r.forjas.length > 1 ? 's' : ''}.`,
+      listas.length ? `Listas para aplicar (compilan y pasan los tests): ${listas.map(titulo).join(' · ')}. Leelas en La Fragua y aplicá las que quieras.` : '',
+      resto ? `${resto} no salió${resto > 1 ? 'eron' : ''}: quedan en La Fragua con el error.` : '',
+      r.frenado ? `Me frené antes: ${r.frenado}.` : '',
+    ].filter(Boolean).join(' ')
+  },
+  /** De noche: expande obras de su Librería (la fuente al corpus, un resumen), así a la mañana sabe más. */
+  async lectura(db, _fecha, ahora) {
+    const n = Number(ajuste(db, 'lectura_obras') ?? 10)
+    if (!n || topeAlcanzado(db, ahora) || !paraExpandir(db, 1).length) return null
+    let r
+    try { r = await expandirTanda(db, n) } catch { return null } // ya estaba expandiendo: que siga eso
+    return r.hechas ? `📚 Leí de noche ${r.hechas} obra${r.hechas > 1 ? 's' : ''} de tu Librería: ya están en el corpus, con su resumen.` : null
+  },
+  /** Temprano: el audio de la mañana por Telegram (y el texto en Hoy). */
+  async matinal(db, fecha, ahora) {
+    if (topeAlcanzado(db, ahora)) return null
+    const guion = await guionMatinal(db, fecha, ahora)
+    let enAudio = false
+    if (telegramConfigurado()) {
+      try { enAudio = await mandarAudio(await sintetizar(guion), 'La mañana', '🎧 La mañana. Contestame con una nota de voz.') } catch { /* sin voz: va el texto */ }
+    }
+    mensajeDeMastropiero(db, conversacionHoy(db).id, `🎧 **La mañana**${enAudio ? ' (te lo mandé en audio por Telegram)' : ''}\n\n${guion}`, { canales: !enAudio })
+    return null
+  },
   /** El domingo a la noche: el reporte de la semana que termina. */
   async reporte_semanal(db, _fecha, ahora) {
     const semana = semanaDe(ahora)
@@ -164,7 +225,7 @@ export async function correrRutinas(db: Db, ahora = Date.now(), acciones: Accion
     const accion = acciones[r.accion]
     if (!accion) continue
     try {
-      const mensaje = await accion(db, hoy, ahora)
+      const mensaje = await enFondo(() => accion(db, hoy, ahora))
       if (mensaje) mensajeDeMastropiero(db, conversacionHoy(db).id, mensaje)
       salida.push({ id: r.id, ok: true, mensaje })
     } catch (e) {

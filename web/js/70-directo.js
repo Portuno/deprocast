@@ -208,7 +208,7 @@ function tableroDirecto(s) {
       ${xs.map((p) => `<div class="sq ${p.estado}" data-prop="${esc(p.id)}"><span><b>${esc(p.titulo)}</b>${subtituloProp(p) ? `<small>${esc(subtituloProp(p))}</small>` : ''}</span>
         ${p.estado === 'pendiente'
           ? `<span class="fila"><button class="btn btn-chico btn-primario" data-acc="aceptar">${verbo}</button><button class="btn btn-chico" data-acc="rechazar" title="Descartar">✕</button></span>`
-          : '<em class="dir-ok">✓</em>'}</div>`).join('')}
+          : `<em class="dir-ok"${p.sola ? ' title="Entró sola: las ideas y lo que miraste no esperan tu ok"' : ''}>✓${p.sola ? ' <small>sola</small>' : ''}</em>`}</div>`).join('')}
     </section>`
   }).join('')
   const quedan = pendDirecto(s).length

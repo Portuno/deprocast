@@ -192,6 +192,8 @@ export type Propuesta = {
   de: string | null
   con: string | null
   oido: string | null
+  /** Entró sola (ajuste directo_auto): una idea o algo que miró, sin que él la aceptara. */
+  sola?: boolean
 }
 
 const TIPOS_PROP = new Set<TipoPropuesta>(['tarea', 'cumplida', 'banda', 'entidad', 'conexion', 'idea', 'medio'])
@@ -211,12 +213,23 @@ export function propuestasPendientes(db: Db): number {
 /** Lo que Mastropiero deja en el chat al cerrar: un aviso, no el informe entero. */
 export function avisoDeCierre(s: Sesion): string {
   const n = propuestasDe(s).filter((p) => p.estado === 'pendiente').length
+  const solas = propuestasDe(s).filter((p) => p.sola).length
   const desde = new Date(s.inicio).toTimeString().slice(0, 5)
   const hasta = s.fin ? new Date(s.fin).toTimeString().slice(0, 5) : ''
   const cuando = hasta ? `${desde}–${hasta}` : desde
+  const entraron = solas ? ` ${solas === 1 ? 'Una idea o algo que miraste entró solo' : `${solas} ideas y cosas que miraste entraron solas`} (lo podés revisar en Memoria y el corpus).` : ''
   return n
-    ? `Cerré el Directo (${cuando}). Hay ${n} ${n === 1 ? 'cosa' : 'cosas'} para aceptar o descartar en Directo. No las metí al corpus.`
-    : `Cerré el Directo (${cuando}). No quedó nada nuevo para anotar.`
+    ? `Cerré el Directo (${cuando}). Hay ${n} ${n === 1 ? 'cosa' : 'cosas'} para aceptar o descartar en Directo: tareas, personas y conexiones esperan tu ok.${entraron}`
+    : `Cerré el Directo (${cuando}).${entraron || ' No quedó nada nuevo para anotar.'}`
+}
+
+/** Lo de bajo riesgo entra solo (ajuste directo_auto): las ideas a la memoria (sin revisar) y lo que miró al corpus. */
+const SOLAS = new Set<TipoPropuesta>(['idea', 'medio'])
+function aceptarSolas(db: Db, sesionId: number, ahora: number) {
+  if (ajuste(db, 'directo_auto') === '0') return
+  const s = leerSesion(db, sesionId)
+  const ids = s ? propuestasDe(s).filter((p) => p.estado === 'pendiente' && SOLAS.has(p.tipo)).map((p) => p.id) : []
+  if (ids.length) resolverPropuestas(db, sesionId, ids, 'aceptar', ahora, { sola: true })
 }
 
 const tipoEnt = (v: unknown): TipoEntidad => {
@@ -321,7 +334,7 @@ function armarPropuestas(db: Db, informe: Record<string, unknown>, met: ReturnTy
   return ps
 }
 
-function aplicarPropuesta(db: Db, p: Propuesta, s: Sesion, ahora: number) {
+function aplicarPropuesta(db: Db, p: Propuesta, s: Sesion, ahora: number, sola = false) {
   const fecha = fechaLocal(s.inicio)
   if (p.tipo === 'tarea') {
     anotarSideQuest(db, { titulo: p.titulo, detalle: `Lo dijiste en el Directo del ${fecha}.`, creadaPor: 'directo' }, ahora)
@@ -348,7 +361,7 @@ function aplicarPropuesta(db: Db, p: Propuesta, s: Sesion, ahora: number) {
     return
   }
   if (p.tipo === 'idea') {
-    recordar(db, { texto: p.titulo, tipo: 'hecho', creadaPor: 'directo', revisada: true }, ahora)
+    recordar(db, { texto: p.titulo, tipo: 'hecho', creadaPor: 'directo', revisada: !sola }, ahora)
     return
   }
   if (p.tipo === 'medio') {
@@ -363,7 +376,7 @@ function aplicarPropuesta(db: Db, p: Propuesta, s: Sesion, ahora: number) {
 }
 
 /** Aceptar guarda (side quest, entidad, conexión, memoria, corpus). Rechazar no guarda nada. */
-export function resolverPropuestas(db: Db, sesionId: number, ids: string[], accion: 'aceptar' | 'rechazar', ahora = Date.now()): { propuestas: Propuesta[]; sesion: Sesion } {
+export function resolverPropuestas(db: Db, sesionId: number, ids: string[], accion: 'aceptar' | 'rechazar', ahora = Date.now(), o: { sola?: boolean } = {}): { propuestas: Propuesta[]; sesion: Sesion } {
   const s = leerSesion(db, sesionId)
   if (!s) throw new Error(`No existe la sesión ${sesionId}`)
   if (accion !== 'aceptar' && accion !== 'rechazar') throw new Error('Acción inválida')
@@ -374,8 +387,9 @@ export function resolverPropuestas(db: Db, sesionId: number, ids: string[], acci
   try {
     for (const p of propuestas) {
       if (!pedidos.has(p.id) || p.estado !== 'pendiente') continue
-      if (accion === 'aceptar') aplicarPropuesta(db, p, s, ahora)
+      if (accion === 'aceptar') aplicarPropuesta(db, p, s, ahora, o.sola)
       p.estado = accion === 'aceptar' ? 'aceptada' : 'rechazada'
+      if (o.sola) p.sola = true
       tocadas.push(p)
     }
     db.prepare('UPDATE directo_sesiones SET resumen = ? WHERE id = ?').run(JSON.stringify({ ...(s.resumen ?? {}), propuestas }), sesionId)
@@ -487,6 +501,7 @@ async function escribirInforme(db: Db, s: Sesion, ms: Momento[], ahora: number, 
   const vivo = leerSesion(db, id)! // mientras escribía, él pudo aceptar propuestas de las horas anteriores
   const propuestas = sumarPropuestas(propuestasDe(vivo), r.propuestas, 'p')
   db.prepare('UPDATE directo_sesiones SET informe = ?, resumen = ? WHERE id = ?').run(r.texto, JSON.stringify({ ...numeros, ...(tramos.length ? { tramos: tramosDe(vivo) } : {}), propuestas }), id)
+  aceptarSolas(db, id, ahora)
   return leerSesion(db, id)!
 }
 
@@ -515,6 +530,7 @@ export async function tramoDirecto(db: Db, ahora = Date.now(), o: { conModelo?: 
     const tramo = { desde, hasta: ahora, texto: r.texto }
     const propuestas = sumarPropuestas(propuestasDe(vivo), r.propuestas, `t${tramos.length + 1}p`)
     db.prepare('UPDATE directo_sesiones SET resumen = ? WHERE id = ?').run(JSON.stringify({ ...(vivo.resumen ?? {}), tramos: [...tramosDe(vivo), tramo], propuestas }), s.id)
+    aceptarSolas(db, s.id, ahora)
     return tramo
   } finally {
     enTramo.delete(s.id)

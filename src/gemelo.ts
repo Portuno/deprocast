@@ -7,6 +7,7 @@
 import { fechaLocal, json, type Db } from './db.ts'
 import { agendaDelDia } from './calendario.ts'
 import { compartidas } from './bitacora.ts'
+import { metricas, momentos } from './directo.ts'
 import { progreso, semana } from './jornada.ts'
 import { memoriaParaPrompt, recordar } from './memoria.ts'
 import { pedirJson } from './modelo.ts'
@@ -20,6 +21,7 @@ export type Criterio =
   | { tipo: 'primaria_avanza'; primaria: string }
   | { tipo: 'habla_de'; texto: string }
   | { tipo: 'directo_prendido'; valor: boolean }
+  | { tipo: 'directo_minutos'; que: string; op: '>=' | '<='; valor: number }
 
 export type Prediccion = {
   id: number; fecha: string; texto: string; probabilidad: number; tipo: string; criterio: Criterio | null
@@ -56,9 +58,25 @@ export function evidencia(db: Db, fecha: string) {
   const dijo = (db.prepare(`SELECT m.texto FROM mensajes m JOIN conversaciones c ON c.id = m.conversacion_id WHERE m.rol = 'operador' AND c.con = 'mastropiero' AND m.en >= ? AND m.en < ?`).all(desde, hasta) as { texto: string }[]).map((x) => x.texto)
   const directo = db.prepare(`SELECT informe FROM directo_sesiones WHERE inicio >= ? AND inicio < ?`).all(desde, hasta) as { informe: string | null }[]
   const cierre = (db.prepare('SELECT cierre FROM jornadas WHERE fecha = ?').get(fecha) as { cierre: string | null } | undefined)?.cierre ?? null
+  const minutos = minutosDelDirecto(db, desde, hasta)
   const primariasQueAvanzaron = [...new Set(bandas.filter((b) => b.padreId && ['hecha', 'parcial'].includes(b.estado)).map((b) => b.padreId!))]
     .map((id) => (db.prepare('SELECT titulo FROM misiones WHERE id = ?').get(id) as { titulo: string } | undefined)?.titulo).filter(Boolean) as string[]
-  return { runs, bandas, dijo, directo, cierre, primariasQueAvanzaron }
+  return { runs, bandas, dijo, directo, cierre, primariasQueAvanzaron, minutos }
+}
+
+/** Minutos por actividad y por app que vio el Directo entre dos momentos (null si no estuvo prendido). */
+export function minutosDelDirecto(db: Db, desde: number, hasta: number): { porActividad: Record<string, number>; porApp: Record<string, number> } | null {
+  const ids = (db.prepare('SELECT id FROM directo_sesiones WHERE inicio >= ? AND inicio < ?').all(desde, hasta) as { id: number }[]).map((s) => s.id)
+  if (!ids.length) return null
+  const m = metricas(ids.flatMap((id) => momentos(db, id)))
+  return { porActividad: m.minutosPorActividad, porApp: m.minutosPorApp }
+}
+
+/** Los minutos de algo (una actividad o una app, por nombre parecido) en lo que vio el Directo. */
+const minutosDe = (m: NonNullable<ReturnType<typeof minutosDelDirecto>>, que: string) => {
+  const q = norm(que).trim()
+  const suma = (t: Record<string, number>) => Object.entries(t).filter(([k]) => norm(k).includes(q) || (norm(k).length > 2 && q.includes(norm(k)))).reduce((s, [, v]) => s + v, 0)
+  return Math.max(suma(m.porActividad), suma(m.porApp))
 }
 
 /** Califica lo que se puede verificar solo. null = no se puede decir con los datos. */
@@ -70,6 +88,11 @@ export function verificar(c: Criterio, ev: ReturnType<typeof evidencia>): number
     case 'primaria_avanza': return ev.primariasQueAvanzaron.some((t) => norm(t).includes(norm(c.primaria).slice(0, 24))) ? 1 : 0
     case 'habla_de': return ev.dijo.some((t) => norm(t).includes(norm(c.texto))) ? 1 : 0
     case 'directo_prendido': return (ev.directo.length > 0) === c.valor ? 1 : 0
+    case 'directo_minutos': {
+      if (!ev.minutos) return null // sin Directo no hay con qué medirlo: lo juzga la evidencia o él
+      const n = minutosDe(ev.minutos, c.que)
+      return (c.op === '>=' ? n >= c.valor : n <= c.valor) ? 1 : 0
+    }
   }
   return null
 }
@@ -80,6 +103,7 @@ function criterioValido(c: any): Criterio | null {
   if ((c.tipo === 'run_arrancada' || c.tipo === 'directo_prendido') && typeof c.valor === 'boolean') return { tipo: c.tipo, valor: c.valor }
   if (c.tipo === 'primaria_avanza' && typeof c.primaria === 'string' && c.primaria.trim()) return { tipo: c.tipo, primaria: c.primaria.trim() }
   if (c.tipo === 'habla_de' && typeof c.texto === 'string' && c.texto.trim().length >= 3) return { tipo: c.tipo, texto: c.texto.trim() }
+  if (c.tipo === 'directo_minutos' && typeof c.que === 'string' && c.que.trim().length >= 2 && (c.op === '>=' || c.op === '<=') && Number.isFinite(Number(c.valor))) return { tipo: c.tipo, que: c.que.trim(), op: c.op, valor: Number(c.valor) }
   return null
 }
 
@@ -121,6 +145,7 @@ const SISTEMA_PREDECIR = `Sos el gemelo predictivo del jugador: Mastropiero pred
   {"tipo": "primaria_avanza", "primaria": "título exacto de una primaria"}
   {"tipo": "habla_de", "texto": "palabra o nombre que va a aparecer en lo que te diga"}
   {"tipo": "directo_prendido", "valor": true | false}
+  {"tipo": "directo_minutos", "que": "una actividad (programando, mirando video, chateando…) o una app (VS Code, YouTube…)", "op": ">=" | "<=", "valor": minutos} (lo que va a ver el Directo; solo si suele prenderlo)
   Si no es verificable con datos, criterio null (lo juzga la evidencia o él).
 - Usá su rendimiento por franja y por día, lo que hizo los días anteriores, su agenda, las bandas de la run, sus primarias, su gente y tus errores de antes. No repitas una predicción que ya falló con el mismo objeto.
 - «texto» en una oración, en tercera persona, concreta («Va a mover el contrato de Ana entre las 9 y las 11», no «va a trabajar en la mañana»).
@@ -162,10 +187,22 @@ async function contextoDelDia(db: Db, fecha: string, ahora: number): Promise<str
     gente,
     animo.length ? `Lo que compartió de su bitácora: ${animo.map((e) => `${e.fecha}${e.animo ? ` (ánimo ${e.animo}/5)` : ''}: ${String(e.texto).slice(0, 180)}`).join(' | ')}` : '',
     `Cómo le viene yendo en las runs:\n${calibracion(db, ahora) || '- sin datos todavía'}`,
+    ...usoDelDirecto(db, fecha),
     historia.calificadas ? `Tu puntería hasta ahora: «te conozco» ${historia.total}% en ${historia.calificadas} predicciones calificadas.` : 'Es tu primer día prediciendo.',
     errores.length ? `Tus últimas predicciones calificadas:\n${errores.join('\n')}` : '',
     `Lo que sabés de él:\n${memoriaParaPrompt(db, 60)}`,
   ].filter(Boolean).join('\n')
+}
+
+/** Cómo usó el tiempo según el Directo los últimos días: con eso predice minutos en vez de adivinar. */
+function usoDelDirecto(db: Db, fecha: string): string[] {
+  const lineas = [5, 4, 3, 2, 1].map((n) => {
+    const desde = inicioDia(fecha) - n * 86_400_000
+    const m = minutosDelDirecto(db, desde, desde + 86_400_000)
+    const dia = new Date(desde + 43_200_000).toLocaleDateString('es-AR', { weekday: 'long' })
+    return m ? `- ${dia}: ${Object.entries(m.porActividad).slice(0, 4).map(([k, v]) => `${k} ${v}′`).join(', ')}` : ''
+  }).filter(Boolean)
+  return lineas.length ? [`Lo que vio el Directo los últimos días:\n${lineas.join('\n')}`] : []
 }
 
 function guardarPredicciones(db: Db, fecha: string, lista: any[], ahora: number, tope: number, ya: Prediccion[] = []) {
@@ -196,7 +233,7 @@ const SISTEMA_SUMAR = `Sos el gemelo predictivo del jugador y SUMÁS prediccione
 - Entre 2 y 4 predicciones NUEVAS: no repitas las que ya están. Si él te pasó una pista, predecí en base a eso.
 - Cada una nombra algo concreto de los datos (una persona, una banda, una primaria, una hora). Nada del molde «va a trabajar» o «va a estar cansado».
 - «probabilidad» de 0 a 1 bien calibrada (si dudás, cerca de 0,5; nada de 0 ni 1).
-- Si se puede verificar con datos, agregá «criterio» con los mismos tipos de siempre (bandas_hechas, run_arrancada, primaria_avanza, habla_de, directo_prendido). Si no, criterio null.
+- Si se puede verificar con datos, agregá «criterio» con los mismos tipos de siempre (bandas_hechas, run_arrancada, primaria_avanza, habla_de, directo_prendido, directo_minutos). Si no, criterio null.
 - «texto» en una oración, en tercera persona, concreta.
 Forma: {"predicciones": [{"texto": string, "probabilidad": number, "tipo": string, "criterio": object | null}]}`
 

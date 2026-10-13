@@ -79,10 +79,11 @@ test('rutinas: corren una vez por día a su hora y dejan el mensaje en Hoy; el c
   _probarCalendario(async () => ICS(''))
   modelo({ chat: 'Gracias por contarme.' })
   const ahora = new Date(2026, 9, 7, 7, 30).getTime()
-  assert.equal(pendientes(db, ahora).length, 0, 'antes de las 07:45 nada')
+  assert.deepEqual(pendientes(db, ahora).map((r) => r.id), ['autocritica', 'fragua', 'lectura'], 'a las 07:30 solo las de la madrugada')
   const nueve = new Date(2026, 9, 7, 9, 0).getTime()
   const r = await correrRutinas(db, nueve)
-  assert.deepEqual(r.map((x) => [x.id, x.ok]), [['ayudantes', true], ['brujula', false], ['prediccion', true], ['jornada', true]]) // la brújula falla sin romper: el modelo falso no devuelve JSON
+  // Las de la madrugada no tienen nada que hacer (sin errores, propuestas ni obras). La brújula y el audio fallan sin romper: el modelo falso no devuelve JSON.
+  assert.deepEqual(r.map((x) => [x.id, x.ok]), [['autocritica', true], ['fragua', true], ['lectura', true], ['ayudantes', true], ['matinal', false], ['brujula', false], ['prediccion', true], ['jornada', true]])
   assert.equal((await correrRutinas(db, nueve + 60_000)).length, 0, 'una vez por día')
   const hoy = conversacionHoy(db)
   assert.match(mensajes(db, hoy.id).at(-1)!.texto!, /Buen día.*No tenés primarias.*arrancamos una run/)

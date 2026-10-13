@@ -34,6 +34,7 @@ import { perfilDeRendimiento, textoDeRendimiento } from './rendimiento.ts'
 import { listarRecomendaciones, recomendar, resolverRecomendacion } from './mentor.ts'
 import { listarPuentes, proponerPuentes, resolverPuente } from './puentes.ts'
 import { aCsv, agregarObra, conteos as conteosLibreria, cuadernoDeObra, editarObra, expandiendo, expandirObra, expandirTanda, listarObras, panorama, poblando, poblarLibreria } from './libreria.ts'
+import { esErrorDeCodigo, registrarError } from './autocritica.ts'
 import { aplicarForja, descartarForja, forjarMejora, leerForja, listarForjas, pasoDeForja, ramaActual, retomarFragua } from './fragua.ts'
 import { borrarCuaderno, charla, componentesDeEntidad, crearCuaderno, guia, haciendo, leerCuaderno, listarCuadernos, notas, preguntar, quitarFuente, sumarFuentes } from './cuadernos.ts'
 import { buscarHibrido, estadoVectores, nivelesDe, vectorizarPendientes } from './semantica.ts'
@@ -279,11 +280,11 @@ const rutas: [string, RegExp, Ruta][] = [
       aportes: aportes(db, { desde: Date.now() - 2 * 86_400_000, limite: 4 }),
       proximas: listarRuns(db, { desde: fechaLocal(Date.now() + 86_400_000), estados: ['propuesta'] }).map((r) => ({ ...r, misiones: misionesDeRun(db, r.id) })),
       brujula: leerBrujula(db, fecha),
-      ajustes: { primarias_semana: ajuste(db, 'primarias_semana'), tokens_dia_max: ajuste(db, 'tokens_dia_max'), pensar_cada_horas: ajuste(db, 'pensar_cada_horas'), meta_ingresos_mes: ajuste(db, 'meta_ingresos_mes') },
+      ajustes: { primarias_semana: ajuste(db, 'primarias_semana'), tokens_dia_max: ajuste(db, 'tokens_dia_max'), pensar_cada_horas: ajuste(db, 'pensar_cada_horas'), meta_ingresos_mes: ajuste(db, 'meta_ingresos_mes'), directo_auto: ajuste(db, 'directo_auto'), fragua_por_noche: ajuste(db, 'fragua_por_noche') },
     }
   }],
   ['POST', /^\/api\/ajustes$/, (b) => {
-    for (const k of ['primarias_semana', 'tokens_dia_max', 'pensar_cada_horas']) if (b[k] != null && String(b[k]).trim()) fijarAjuste(db, k, String(b[k]).trim())
+    for (const k of ['primarias_semana', 'tokens_dia_max', 'pensar_cada_horas', 'directo_auto', 'fragua_por_noche']) if (b[k] != null && String(b[k]).trim()) fijarAjuste(db, k, String(b[k]).trim())
     if (b.meta_ingresos_mes != null) fijarAjuste(db, 'meta_ingresos_mes', String(b.meta_ingresos_mes).trim())
     return { ok: true }
   }],
@@ -807,11 +808,15 @@ const servidor = http.createServer(async (req, res) => {
         return void res.end(JSON.stringify(carga))
       }
       const r = rutas.find(([m, re]) => m === req.method && re.test(url.pathname))
-      if (!r) return void res.writeHead(404).end(JSON.stringify({ error: 'Ruta desconocida' }))
+      if (!r) {
+        registrarError(db, 'ruta', `${req.method} ${url.pathname.replace(/\/\d+(?=\/|$)/g, '/:id')}: Ruta desconocida`)
+        return void res.writeHead(404).end(JSON.stringify({ error: 'Ruta desconocida' }))
+      }
       const cuerpo = req.method === 'POST' ? await leerCuerpo(req) : {}
       const params = url.pathname.match(r[1])!.slice(1)
       res.end(JSON.stringify((await r[2](cuerpo, params, url.searchParams)) ?? null))
     } catch (e) {
+      if (esErrorDeCodigo(e)) registrarError(db, 'ruta', `${req.method} ${url.pathname.replace(/\/\d+(?=\/|$)/g, '/:id')}: ${e instanceof Error ? e.message : String(e)}`)
       if (!res.headersSent) res.writeHead(400)
       res.end(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }))
     }
@@ -898,6 +903,15 @@ setInterval(async () => {
 
 // Telegram: si hay bot, escucha; y lo que Mastropiero dice solo también sale por ahí.
 // En Vercel no hay proceso siempre prendido: el long polling pelearía con el de la compu y se cortaría.
+// Lo que se rompe queda anotado (además de en la consola): la rutina «autocritica» lo convierte en propuestas de arreglo.
+if (!enVercel()) {
+  const consola = console.error.bind(console)
+  console.error = (...xs: unknown[]) => {
+    consola(...xs)
+    registrarError(db, 'servidor', xs.map((x) => (x instanceof Error ? x.message : String(x))).join(' '))
+  }
+}
+
 // Lo que el servidor dejó a medias al apagarse (tandas en proceso, una forja) se retoma o se marca, con o sin bot.
 if (!enVercel()) {
   retomarTandas(db)
