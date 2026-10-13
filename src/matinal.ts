@@ -11,6 +11,7 @@ import { aportes as aportesDe } from './ayudantes.ts'
 import { conAvance, listarMisiones, semanaDe, seguimientos } from './misiones.ts'
 import { pedirJson } from './modelo.ts'
 import { saludParaPrompt } from './salud.ts'
+import { finanzasParaPrompt } from './finanzas.ts'
 
 const SISTEMA = `Sos Mastropiero y grabás el audio de la mañana para el jugador: lo escucha caminando, antes de arrancar.
 Escribí el guion para leer en voz alta, de 2 a 3 minutos (entre 300 y 450 palabras):
@@ -51,6 +52,7 @@ export async function materialMatinal(db: Db, fecha: string, ahora = Date.now())
     deben.length ? `Le deben respuesta: ${deben.map((m) => m.titulo).join(' · ')}` : '',
     forjas.length ? `La Fragua dejó ${forjas.length} mejora${forjas.length > 1 ? 's' : ''} lista${forjas.length > 1 ? 's' : ''} para aplicar: ${forjas.map((f) => f.pedido.split('\n')[0].slice(0, 80)).join(' · ')}` : '',
     saludParaPrompt(db, ahora),
+    finanzasParaPrompt(db, ahora),
     aportes.length ? `Aportes nuevos de sus ayudantes: ${aportes.map((a) => a.titulo).join(' · ')}` : '',
     `Lo que sabés de él:\n${memoriaParaPrompt(db, 20)}`,
   ].filter(Boolean).join('\n')

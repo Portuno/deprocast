@@ -799,6 +799,12 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   propuestas: [
     ['origen', 'TEXT'], // chat | autocritica
   ],
+  movimientos: [
+    ['entidad_id', 'INTEGER'], // el proyecto (o la persona) al que pertenece: cuánto deja o cuesta cada cosa suya
+    ['mision_id', 'INTEGER'],
+    ['foto', 'TEXT'], // el ticket, si entró por foto
+    ['nota', 'TEXT'],
+  ],
 }
 
 /** Rutinas y ajustes de fábrica: horarios editables, nada del operador. */

@@ -98,13 +98,15 @@ export function registrarCaptura(db: Db, c: Captura, o: { foto?: string | null; 
   if (c.tipo === 'gasto' || c.tipo === 'ingreso') {
     const monto = Math.abs(Number(c.datos.monto))
     if (!Number.isFinite(monto) || !monto) return null
-    const descripcion = String(c.datos.comercio || c.titulo || (c.tipo === 'gasto' ? 'Gasto' : 'Ingreso')).slice(0, 200)
+    // «Gasto: imprenta cartas Corruptopolis» dice más que «imprenta»: el título sin la etiqueta, y si no, el comercio.
+    const descripcion = String(c.titulo.replace(/^(gasto|ingreso|compra|pago)\s*:\s*/i, '').trim() || c.datos.comercio || (c.tipo === 'gasto' ? 'Gasto' : 'Ingreso')).slice(0, 200)
     const m = registrarMovimiento(db, {
       fecha: c.fecha ?? undefined, monto: c.tipo === 'gasto' ? -monto : monto, moneda: String(c.datos.moneda || 'EUR').toUpperCase().slice(0, 3),
       categoria: c.datos.categoria ?? null, descripcion, origen: o.foto ? 'ticket' : fuente,
+      proyecto: typeof c.datos.proyecto === 'string' ? c.datos.proyecto : null, foto: o.foto ?? null,
     }, ahora)
     if (!m) return null // ya estaba (mismo día, monto y descripción)
-    return { tipo: c.tipo, tabla: 'movimientos', id: m.id, resumen: `${c.tipo === 'gasto' ? '💸' : '💰'} ${descripcion}: ${c.tipo === 'gasto' ? '-' : '+'}${monto} ${m.moneda} (${m.categoria}). Anotado.` }
+    return { tipo: c.tipo, tabla: 'movimientos', id: m.id, resumen: `${c.tipo === 'gasto' ? '💸' : '💰'} ${descripcion}: ${c.tipo === 'gasto' ? '-' : '+'}${monto} ${m.moneda} (${m.categoria}${m.entidad ? ` · ${m.entidad}` : ''}). Anotado.${m.entidad ? '' : ' Si es de un proyecto, respondé con cuál.'}` }
   }
   return null
 }

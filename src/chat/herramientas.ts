@@ -8,7 +8,7 @@ import path from 'node:path'
 import { ATRIBUTOS, CLASE_IDS, CLASES } from '../clases.ts'
 import { fechaLocal, fijarAjuste, type Db } from '../db.ts'
 import { fijarMetasSalud, registrarSalud, resumenDia, resumenSemana, TIPOS_SALUD } from '../salud.ts'
-import { CATEGORIAS, listarMovimientos, registrarMovimiento, resumenMes } from '../finanzas.ts'
+import { CATEGORIAS, listarMovimientos, registrarMovimiento, resumenMes, resumenPorProyecto, ritmoMeta } from '../finanzas.ts'
 import { guardarRelacion, personas, VINCULOS } from '../personas.ts'
 import { archivar, corregir, HORIZONTES, memoriaVigente, recordar, TIPOS_MEMORIA } from '../memoria.ts'
 import { leerJornada, progreso } from '../jornada.ts'
@@ -569,8 +569,8 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'registrar_movimiento', familia: 'accion',
-    descripcion: 'Registra un gasto (monto negativo) o un ingreso (positivo) que él cuenta («gasté 20 en el súper», «me pagaron 800 del freelance»). Euros salvo que diga otra moneda.',
-    parametros: S({ monto: { type: 'number', description: 'Negativo si es gasto, positivo si es ingreso' }, descripcion: str('En qué'), categoria: str('Categoría', { enum: [...CATEGORIAS] }), fecha: str('YYYY-MM-DD; vacío = hoy'), moneda: str('EUR por defecto') }, ['monto', 'descripcion']),
+    descripcion: 'Registra un gasto (monto negativo) o un ingreso (positivo) que él cuenta («gasté 20 en el súper», «me pagaron 800 del freelance»). Euros salvo que diga otra moneda. Si es de un proyecto o una persona suya, ponelo en proyecto.',
+    parametros: S({ monto: { type: 'number', description: 'Negativo si es gasto, positivo si es ingreso' }, descripcion: str('En qué'), categoria: str('Categoría', { enum: [...CATEGORIAS] }), fecha: str('YYYY-MM-DD; vacío = hoy'), moneda: str('EUR por defecto'), proyecto: str('El proyecto o la persona al que pertenece, si lo dice («para Corruptopolis»)') }, ['monto', 'descripcion']),
     ejecutar: (a, { db }) => registrarMovimiento(db, { ...a, origen: 'chat' }) ?? { repetido: true },
     resumen: (a) => `anotó ${a.monto} € (${recorte(a.descripcion, 40)})`,
   },
@@ -856,11 +856,11 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'ver_finanzas', familia: 'lectura',
-    descripcion: 'Sus números de un mes: ingresos, gastos, por categoría, avance hacia su meta y los últimos movimientos.',
+    descripcion: 'Sus números de un mes: ingresos, gastos, por categoría, por proyecto (cuánto deja o cuesta cada uno), avance y ritmo hacia su meta, y los últimos movimientos.',
     parametros: S({ mes: str('YYYY-MM; vacío = este mes') }),
     ejecutar: (a, { db }) => {
       const mes = a.mes || fechaLocal().slice(0, 7)
-      return { ...resumenMes(db, mes), ultimos: listarMovimientos(db, { mes, limite: 15 }).map((m) => ({ fecha: m.fecha, monto: m.monto, categoria: m.categoria, descripcion: m.descripcion })) }
+      return { ...resumenMes(db, mes), ritmo: ritmoMeta(db), porProyecto: resumenPorProyecto(db, mes), ultimos: listarMovimientos(db, { mes, limite: 15 }).map((m) => ({ fecha: m.fecha, monto: m.monto, categoria: m.categoria, descripcion: m.descripcion, proyecto: m.entidad ?? undefined })) }
     },
   },
   {

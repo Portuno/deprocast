@@ -1328,3 +1328,6 @@ a.mencion { color: var(--acento-texto); text-decoration: none; background: var(-
 .sal-col-barra i { display: block; width: 100%; background: var(--acento); }
 .sal-col-barra s { position: absolute; left: 0; right: 0; border-top: 2px dashed var(--ok); }
 .sal-col small { font-size: 11px; color: var(--tenue); }
+
+.pl-ticket { width: 28px; height: 28px; object-fit: cover; border-radius: 4px; display: block; }
+.pl-proy { max-width: 11em; font-size: 12px; }

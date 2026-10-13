@@ -20,6 +20,7 @@ import { alias, leer, listar } from './roster.ts'
 import { aportesParaRun } from './ayudantes.ts'
 import { menciones, sinArrobas } from './menciones.ts'
 import { perfilDeRendimiento, textoDeRendimiento } from './rendimiento.ts'
+import { finanzasParaPrompt } from './finanzas.ts'
 
 export const NIVELES_MISION = ['principal', 'primaria', 'secundaria', 'terciaria'] as const
 export type NivelMision = (typeof NIVELES_MISION)[number]
@@ -288,6 +289,7 @@ export async function proponerPrimarias(db: Db, semana = semanaDe(), o: { ahora?
     actuales.length ? `\nYa aceptadas para esta semana (no las repitas; proponé ${Math.max(0, n - actuales.length)}):\n${actuales.map((m) => `- ${m.titulo}`).join('\n')}` : '',
     charla.length ? `\nLo que te dijo estos días:\n${charla.map((c) => `- ${c}`).join('\n')}` : '',
     `\nProyectos que aparecen en su mundo: ${proyectosActivos(db) || 'ninguno cargado'}.`,
+    finanzasParaPrompt(db, ahora) ? `\nSu plata (si la meta del mes viene lejos, que una primaria la empuje):\n${finanzasParaPrompt(db, ahora)}` : '',
     o.texto ? `\nLo que pide para esta propuesta: ${o.texto}` : '',
   ].filter(Boolean).join('\n')
   const { datos } = await pedirJson<{ primarias?: any[] }>({ db, clase: 'mastropiero', agenteId: 'primarias' }, SISTEMA_PRIMARIAS(n), usuario, { temperatura: 0.5, maxTokens: 3000 })
@@ -664,6 +666,7 @@ async function generar(
     charla.length ? `\nLo que te dijo en las últimas horas:\n${charla.map((c) => `- ${c}`).join('\n')}` : '',
     `\n${calibracion(db, o.ahora) || 'Todavía no hay runs anteriores para calibrar.'}`,
     textoDeRendimiento(perfilDeRendimiento(db, o.ahora)) ? `\nCómo rinde según sus runs (datos, no opiniones):\n${textoDeRendimiento(perfilDeRendimiento(db, o.ahora))}` : '',
+    finanzasParaPrompt(db, o.ahora) ? `\nSu plata (tenela en cuenta: lo que trae ingresos pesa más si la meta viene lejos):\n${finanzasParaPrompt(db, o.ahora)}` : '',
   ].filter(Boolean).join('\n')
   const { datos, modelo } = await pedirJson<{ resumen?: string; misiones?: any[] }>({ db, clase: 'mastropiero', agenteId: 'run' }, SISTEMA_RUN, usuario, { temperatura: 0.6, maxTokens: 6000 })
   const ps = (datos.misiones ?? []).map(deModelo).filter((x): x is Propuesta => !!x)

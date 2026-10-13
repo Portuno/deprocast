@@ -409,14 +409,17 @@ async function montarBitacora(cont) {
   })
 }
 
-// Plata: sus números del mes, contra su meta. Movimientos a mano, por el chat o del CSV del banco.
+// Plata: sus números del mes, contra su meta y por proyecto. Movimientos a mano, por el chat, por foto (un ticket por
+// Telegram) o del CSV del banco; cada uno se ata solo al proyecto que nombra, y si no, se asigna acá.
 
 let plataMes = new Date().toISOString().slice(0, 7)
 const eur = (n) => `${Number(n).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} €`
 
 async function montarPlata(cont) {
-  let d, h
-  try { [d, h] = await Promise.all([api(`/finanzas?mes=${plataMes}`), api('/hoy')]) } catch (e) { return error(e) }
+  let d, h, ents
+  try { [d, h, ents] = await Promise.all([api(`/finanzas?mes=${plataMes}`), api('/hoy'), api('/entidades?limite=400').catch(() => ({ entidades: [] }))]) } catch (e) { return error(e) }
+  const opciones = (ents.entidades ?? []).filter((e) => ['proyecto', 'agrupacion', 'persona'].includes(e.tipo))
+    .sort((a, b) => (a.tipo === 'proyecto' ? 0 : 1) - (b.tipo === 'proyecto' ? 0 : 1) || a.nombre.localeCompare(b.nombre))
   const r = d.resumen
   const meta = h.ajustes?.meta_ingresos_mes || ''
   const cats = Object.entries(r.porCategoria)
@@ -429,13 +432,19 @@ async function montarPlata(cont) {
       <div class="stat"><b>${eur(r.gastos)}</b><small>salió</small></div>
       <div class="stat"><b>${eur(r.neto)}</b><small>neto</small></div>
       ${r.meta ? `<div class="stat"><b>${r.avanceMeta}%</b><small>de la meta (${eur(r.meta)})</small></div>` : ''}
+      ${d.ritmo?.falta ? `<div class="stat"><b>${eur(d.ritmo.porDia)}</b><small>por día para llegar (faltan ${eur(d.ritmo.falta)} en ${d.ritmo.diasQuedan} días)</small></div>` : ''}
     </div>
+    ${d.porProyecto?.length ? `<div class="seccion"><h3>Por proyecto</h3><div class="tarjetas">${d.porProyecto.map((p) => `<article class="tarjeta"><h4>${esc(p.nombre)}</h4>
+      <p>${p.ingresos ? `entró ${eur(p.ingresos)} · ` : ''}${p.gastos ? `salió ${eur(p.gastos)} · ` : ''}${p.movimientos} movimiento${p.movimientos === 1 ? '' : 's'}</p>
+      <b style="color:${p.neto >= 0 ? 'var(--ok, #6c6)' : 'inherit'}">${p.neto >= 0 ? '+' : ''}${eur(p.neto)}</b></article>`).join('')}</div></div>` : ''}
     ${cats.length ? `<div class="seccion"><h3>En qué se fue</h3>${cats.map(([k, v]) => `<div class="fila"><span style="width:9em">${esc(k)}</span><span class="barrita" style="flex:1"><b style="width:${Math.round((v / max) * 100)}%"></b></span><span>${eur(v)}</span></div>`).join('')}</div>` : ''}
     <div class="seccion"><h3>Anotar</h3>
       <form class="fila" id="pl-form"><input name="monto" type="number" step="0.01" placeholder="-20 o 800" required style="width:8em"><input name="descripcion" placeholder="En qué" required style="flex:1"><input name="fecha" type="date"><button class="btn">Anotar</button></form>
       <p class="tenue">O contáselo a Mastropiero en el chat («gasté 20 en el súper»), o subí el extracto del banco: <label class="btn btn-chico">CSV del banco<input type="file" accept=".csv,.txt,text/csv" hidden id="pl-csv"></label></p></div>
     <div class="seccion"><h3>Movimientos (${d.movimientos.length})</h3>
-      ${d.movimientos.length ? d.movimientos.map((m) => `<div class="fila item"><span class="tenue">${esc(m.fecha)}</span><span style="flex:1">${esc(m.descripcion)}</span><span class="chip">${esc(m.categoria)}</span><b style="color:${m.monto > 0 ? 'var(--ok, #6c6)' : 'inherit'}">${eur(m.monto)}</b><button class="btn btn-chico" data-borrar="${m.id}" title="Borrar">✕</button></div>`).join('') : '<p class="vacio">Nada este mes todavía.</p>'}
+      ${d.movimientos.length ? d.movimientos.map((m) => `<div class="fila item"><span class="tenue">${esc(m.fecha)}</span>${m.foto ? `<a href="${esc(m.foto)}" target="_blank" title="El ticket"><img src="${esc(m.foto)}" alt="" class="pl-ticket"></a>` : ''}<span style="flex:1">${esc(m.descripcion)}</span><span class="chip">${esc(m.categoria)}</span>
+        <select class="pl-proy" data-proy="${m.id}" title="De qué proyecto o persona es"><option value="">— proyecto —</option>${opciones.map((e) => `<option value="${e.id}" ${m.entidadId === e.id ? 'selected' : ''}>${esc(e.nombre)}</option>`).join('')}</select>
+        <b style="color:${m.monto > 0 ? 'var(--ok, #6c6)' : 'inherit'}">${eur(m.monto)}</b><button class="btn btn-chico" data-borrar="${m.id}" title="Borrar">✕</button></div>`).join('') : '<p class="vacio">Nada este mes todavía.</p>'}
     </div>`
   const otro = (n) => { const [a, m] = plataMes.split('-').map(Number); const f = new Date(a, m - 1 + n, 1); plataMes = `${f.getFullYear()}-${String(f.getMonth() + 1).padStart(2, '0')}`; montarPlata(cont) }
   $('#pl-ant').onclick = () => otro(-1)
@@ -456,6 +465,7 @@ async function montarPlata(cont) {
     } catch (e) { error(e) }
   }
   $$('[data-borrar]', cont).forEach((b) => (b.onclick = async () => { try { await api(`/finanzas/${b.dataset.borrar}`, { borrar: true }); montarPlata(cont) } catch (e) { error(e) } }))
+  $$('[data-proy]', cont).forEach((s) => (s.onchange = async () => { try { await api(`/finanzas/${s.dataset.proy}`, { entidadId: s.value ? Number(s.value) : null }); montarPlata(cont) } catch (e) { error(e) } }))
 }
 
 function refrescarJugador() {

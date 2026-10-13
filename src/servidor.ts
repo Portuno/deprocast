@@ -41,7 +41,7 @@ import { esErrorDeCodigo, registrarError } from './autocritica.ts'
 import { aplicarForja, descartarForja, forjarMejora, leerForja, listarForjas, pasoDeForja, ramaActual, retomarFragua } from './fragua.ts'
 import { borrarCuaderno, charla, componentesDeEntidad, crearCuaderno, guia, haciendo, leerCuaderno, listarCuadernos, notas, preguntar, quitarFuente, sumarFuentes } from './cuadernos.ts'
 import { buscarHibrido, estadoVectores, nivelesDe, vectorizarPendientes } from './semantica.ts'
-import { editarMovimiento, importarCSV, listarMovimientos, registrarMovimiento, resumenMes } from './finanzas.ts'
+import { editarMovimiento, importarCSV, listarMovimientos, registrarMovimiento, resumenMes, resumenPorProyecto, ritmoMeta } from './finanzas.ts'
 import { buscarOportunidades, listarOportunidades, marcarOportunidad, redactarOportunidad } from './radar.ts'
 import { cuotas, hayBuscadorWeb } from './web.ts'
 import { anotarPrediccion, calificarAMano, calificarDia, curva, paraElJugador, predecirDia, prediccionesDe, sumarPredicciones, textoDeCalificacion } from './gemelo.ts'
@@ -540,7 +540,7 @@ const rutas: [string, RegExp, Ruta][] = [
   // Finanzas
   ['GET', /^\/api\/finanzas$/, (_, __, q) => {
     const mes = q.get('mes') || fechaLocal().slice(0, 7)
-    return { resumen: resumenMes(db, mes), movimientos: listarMovimientos(db, { mes }) }
+    return { resumen: resumenMes(db, mes), movimientos: listarMovimientos(db, { mes }), porProyecto: resumenPorProyecto(db, mes), ritmo: mes === fechaLocal().slice(0, 7) ? ritmoMeta(db) : null }
   }],
   ['POST', /^\/api\/finanzas$/, (b) => registrarMovimiento(db, b) ?? { repetido: true }],
   ['POST', /^\/api\/finanzas\/(\d+)$/, (b, [m]) => (editarMovimiento(db, id(m), b), { ok: true })],
