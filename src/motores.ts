@@ -81,6 +81,10 @@ const local: Motor = async ({ db, ficha, contexto, lector, efectos }) => {
   const p = contexto.tarea.payload
   switch (ficha.clase) {
     case 'generativo':
+      if (p.tipo === 'lote-quantomo') {
+        const ids = Array.isArray(p.ids) ? p.ids : []
+        return { fusion: `Fusión de ${ids.length} quántomos (local)`, ids }
+      }
       return { texto: `${ficha.instrucciones}\n\n— sobre: ${texto.slice(0, efectos.maxTokens * 4)}` }
     case 'gerente':
       return { decision: `sin modelo: dejo "${texto.slice(0, 80)}" para el reparto heurístico` }

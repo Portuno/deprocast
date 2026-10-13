@@ -61,7 +61,7 @@ import { crearProyecto, cronica, estadoLiga, ingerir, numeroDeTick, tickEnCurso,
 import { motoresDisponibles } from './motores.ts'
 import { cadena, nanConfigurado, nanTranscribir, tokensHoy, topeAlcanzado, topeDiario, usoDelMes } from './nan.ts'
 import {
-  aceptarPropuesta, descartar as descartarQuantomo, leerQuantomo, linaje, listarQuantomos, pedirMejora, quantomosDePieza, resumenQuantomos, sellar,
+  aceptarPropuesta, descartar as descartarQuantomo, descartarLote, gruposProto, leerQuantomo, linaje, listarQuantomos, pedirLote, pedirMejora, quantomosDePieza, resumenQuantomos, sellar, sellarLote,
 } from './quantomos.ts'
 import {
   alias, bautizar, cambiarEstado, DIAS_SIN_CORRER, forjar, lapidas, leer, listar, MOTOR_DEFECTO, nivel, retirar,
@@ -625,6 +625,10 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/quantomos\/(\d+)\/aceptar$/, (b, [k]) => (aceptarPropuesta(db, id(k), b.peso ? Number(b.peso) : null), leerQuantomo(db, id(k)))],
   ['POST', /^\/api\/quantomos\/(\d+)\/descartar$/, (_, [k]) => (descartarQuantomo(db, id(k)), leerQuantomo(db, id(k)))],
   ['POST', /^\/api\/quantomos\/(\d+)\/mejora$/, (b, [k]) => pedirMejora(db, id(k), String(b.instruccion ?? ''))],
+  ['GET', /^\/api\/quantomos\/grupos$/, () => gruposProto(db)],
+  ['POST', /^\/api\/quantomos\/lote$/, (b) => pedirLote(db, Array.isArray(b.ids) ? b.ids.map(Number) : [])],
+  ['POST', /^\/api\/quantomos\/lote\/sellar$/, (b) => sellarLote(db, Array.isArray(b.ids) ? b.ids.map(Number) : [], Number(b.peso))],
+  ['POST', /^\/api\/quantomos\/lote\/descartar$/, (b) => descartarLote(db, Array.isArray(b.ids) ? b.ids.map(Number) : [], String(b.motivo ?? ''))],
 ]
 
 const TIPOS_MIME: Record<string, string> = {
