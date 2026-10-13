@@ -467,10 +467,16 @@ CREATE TABLE IF NOT EXISTS artefactos (
 CREATE TABLE IF NOT EXISTS cuentas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   red TEXT NOT NULL,                  -- Instagram, X, Telegram, WhatsApp…
+  nombre TEXT,                        -- nombre del agente de la cuenta (puede haber varios por red)
   usuario TEXT NOT NULL,
+  correo TEXT,
+  clave TEXT,                         -- nunca sale en los listados
   modo TEXT NOT NULL,                 -- lectura | redacta | libre
   conector TEXT,                      -- manual | telegram_canal
   reglas TEXT,                        -- JSON: temas, tono, horas, topeDia, chatId
+  oficio TEXT,                        -- operador | creador
+  cupos TEXT,                         -- JSON: cuántas publicaciones de cada tipo
+  contexto TEXT,                      -- ruta del Markdown con el contexto del agente
   activa INTEGER NOT NULL DEFAULT 1,
   creada_en INTEGER NOT NULL
 );
@@ -479,6 +485,7 @@ CREATE TABLE IF NOT EXISTS publicaciones (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   cuenta_id INTEGER NOT NULL,
   texto TEXT NOT NULL,
+  tipo TEXT,                          -- el tipo de publicación (para los cupos)
   estado TEXT NOT NULL,               -- borrador | aprobada | publicada | descartada | fallo
   programada_para INTEGER,
   publicada_en INTEGER,
@@ -680,6 +687,19 @@ CREATE TABLE IF NOT EXISTS movimientos (
 );
 CREATE INDEX IF NOT EXISTS movimientos_fecha ON movimientos (fecha);
 
+-- Conexiones entre entidades (se conocen, trabajan juntos, le debe algo): de lo que se dice o se ve en el Directo.
+CREATE TABLE IF NOT EXISTS conexiones (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  a INTEGER NOT NULL,
+  b INTEGER NOT NULL,
+  relacion TEXT,
+  nota TEXT,
+  origen TEXT,
+  creada_en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS conexiones_a ON conexiones (a);
+CREATE INDEX IF NOT EXISTS conexiones_b ON conexiones (b);
+
 CREATE TABLE IF NOT EXISTS alertas (
   clave TEXT PRIMARY KEY,             -- tipo:id:fecha (una por día)
   texto TEXT NOT NULL,
@@ -724,6 +744,12 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   ],
   runs: [
     ['comentario', 'TEXT'], // lo que dijo de la run entera
+  ],
+  cuentas: [
+    ['nombre', 'TEXT'], ['correo', 'TEXT'], ['clave', 'TEXT'], ['oficio', 'TEXT'], ['cupos', 'TEXT'], ['contexto', 'TEXT'],
+  ],
+  publicaciones: [
+    ['tipo', 'TEXT'],
   ],
   memoria: [
     ['pieza_id', 'INTEGER'], // la pieza del corpus de la que salió, si salió de una
