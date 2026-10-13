@@ -6,7 +6,7 @@ const MODO_TXT = { lectura: 'Solo lectura', redacta: 'Redacta (espera tu ok)', l
 async function montarCuentas() {
   $('#principal').innerHTML = `
     <div class="cabecera"><div class="cabecera-texto"><h1>Cuentas</h1>
-      <p>Varios agentes por red. Cada uno tiene usuario, correo, clave y un contexto en Markdown. <b>lectura</b> solo lee, <b>redacta</b> espera tu ok y <b>libre</b> publica sola, sin pasarse de los cupos.</p></div>
+      <p>Varios agentes por red. Cada uno tiene usuario, correo y un contexto en Markdown. <b>lectura</b> solo lee, <b>redacta</b> espera tu ok y <b>libre</b> publica sola, sin pasarse de los cupos.</p></div>
       <div class="fila"><button class="btn" id="cu-nueva">+ Agente</button></div></div>
     <div class="panel tg-panel" id="tg"></div>
     <div class="redes" id="cu"></div>`
@@ -126,13 +126,12 @@ async function modalCuenta(c = null, redId = null) {
   const cat = redes.find((r) => r.id === redActual || r.nombre.toLowerCase() === String(redActual).toLowerCase())
   const cupos = full?.cupos?.length ? full.cupos : cuposDe(cat?.oficio ?? 'operador')
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>${full?.id ? 'Agente' : 'Nuevo agente'}</h2>
-    <p class="tenue chico">La clave queda en esta máquina y no se manda al modelo. El Markdown es la voz y el contexto de este agente.</p>
+    <p class="tenue chico">El Markdown es la voz y el contexto de este agente. Las contraseñas de las redes no se guardan acá.</p>
     <div class="form-ing">
       <label class="campo">Red<select id="cu-red">${redes.map((r) => `<option value="${esc(r.id)}" ${redActual === r.id || String(redActual).toLowerCase() === r.nombre.toLowerCase() ? 'selected' : ''}>${esc(r.nombre)}</option>`).join('')}${!conocida && redActual ? `<option value="${esc(redActual)}" selected>${esc(redActual)}</option>` : ''}</select></label>
       <label class="campo">Nombre<input id="cu-nombre" value="${esc(full?.nombre ?? '')}" placeholder="Cómo lo ves en la grilla"></label>
       <label class="campo">Usuario<input id="cu-usuario" value="${esc(full?.usuario ?? '')}" placeholder="@usuario"></label>
       <label class="campo">Correo<input id="cu-correo" value="${esc(full?.correo ?? '')}" placeholder="correo@…"></label>
-      <label class="campo">Clave<input id="cu-clave" type="password" value="${esc(full?.clave ?? '')}" autocomplete="off" placeholder="${full?.tieneClave && !full?.clave ? '••••' : ''}"></label>
       <label class="campo">Modo<select id="cu-modo">${(cuentasDatos?.modos ?? ['lectura', 'redacta', 'libre']).map((m) => `<option value="${m}" ${(full?.modo ?? 'redacta') === m ? 'selected' : ''}>${MODO_TXT[m]}</option>`).join('')}</select></label>
       <label class="campo">Publica por<select id="cu-conector">${Object.entries(cuentasDatos?.conectores ?? { manual: 'Manual' }).map(([k, v]) => `<option value="${k}" ${full?.conector === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
       <label class="campo fila" style="gap:6px"><input type="checkbox" id="cu-activa" ${full?.activa === false ? '' : 'checked'}> Activa</label>
@@ -164,7 +163,7 @@ async function modalCuenta(c = null, redId = null) {
       const catRed = redes.find((r) => r.id === red)
       await api('/cuentas', {
         id: full?.id, red, nombre: $('#cu-nombre').value.trim() || null, usuario: $('#cu-usuario').value, correo: $('#cu-correo').value.trim() || null,
-        clave: $('#cu-clave').value, modo: $('#cu-modo').value, conector: $('#cu-conector').value, activa: $('#cu-activa').checked,
+        modo: $('#cu-modo').value, conector: $('#cu-conector').value, activa: $('#cu-activa').checked,
         oficio: catRed?.oficio ?? full?.oficio ?? null, cupos: leerCupos(), markdown: $('#cu-md').value,
         reglas: { temas: $('#cu-temas').value.trim() || undefined, tono: $('#cu-tono').value.trim() || undefined, horas: $('#cu-horas').value.split(',').map(Number).filter((n) => n >= 0 && n < 24), chatId: $('#cu-chat').value.trim() || undefined },
       })

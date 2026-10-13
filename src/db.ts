@@ -470,7 +470,6 @@ CREATE TABLE IF NOT EXISTS cuentas (
   nombre TEXT,                        -- nombre del agente de la cuenta (puede haber varios por red)
   usuario TEXT NOT NULL,
   correo TEXT,
-  clave TEXT,                         -- nunca sale en los listados
   modo TEXT NOT NULL,                 -- lectura | redacta | libre
   conector TEXT,                      -- manual | telegram_canal
   reglas TEXT,                        -- JSON: temas, tono, horas, topeDia, chatId
@@ -746,7 +745,7 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
     ['comentario', 'TEXT'], // lo que dijo de la run entera
   ],
   cuentas: [
-    ['nombre', 'TEXT'], ['correo', 'TEXT'], ['clave', 'TEXT'], ['oficio', 'TEXT'], ['cupos', 'TEXT'], ['contexto', 'TEXT'],
+    ['nombre', 'TEXT'], ['correo', 'TEXT'], ['oficio', 'TEXT'], ['cupos', 'TEXT'], ['contexto', 'TEXT'],
   ],
   publicaciones: [
     ['tipo', 'TEXT'],
@@ -818,6 +817,11 @@ export function migrar(db: Db) {
   for (const [tabla, cols] of Object.entries(COLUMNAS_NUEVAS)) {
     const hay = new Set((db.prepare(`PRAGMA table_info(${tabla})`).all() as { name: string }[]).map((c) => c.name))
     for (const [col, tipo] of cols) if (!hay.has(col)) db.exec(`ALTER TABLE ${tabla} ADD COLUMN ${col} ${tipo}`)
+  }
+  // Las contraseñas de las redes no se guardan (ninguna función las usaba y quedaban en texto plano): se borran y se va la columna.
+  if ((db.prepare('PRAGMA table_info(cuentas)').all() as { name: string }[]).some((c) => c.name === 'clave')) {
+    db.exec('UPDATE cuentas SET clave = NULL')
+    try { db.exec('ALTER TABLE cuentas DROP COLUMN clave') } catch { /* SQLite viejo: queda la columna, vacía */ }
   }
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS corpus_origen ON corpus(origen_id); CREATE INDEX IF NOT EXISTS corpus_fuente ON corpus(fuente, nivel);')
   const habiaFts = !!db.prepare(`SELECT 1 FROM sqlite_master WHERE name = 'corpus_fts'`).get()

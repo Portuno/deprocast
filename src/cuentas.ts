@@ -1,7 +1,9 @@
 /**
  * Cuentas y voz pública: cada red puede tener varios agentes. «lectura» (solo se lee), «redacta» (prepara y
  * espera el ok: nunca publica solo) o «libre» (publica solo, dentro de horarios y el tope del día). El contexto
- * de cada agente es un Markdown en data/agentes/. La clave queda en la base local y no entra al modelo.
+ * de cada agente es un Markdown en data/agentes/. No se guardan contraseñas de las redes: ningún conector las usa, y
+ * en la base quedarían en texto plano (y viajarían en las exportaciones y en la nube). Si algún día hace falta entrar a
+ * una red, va por su API oficial con un token, no con la contraseña.
  * Publicar de verdad necesita un conector; sin conector, queda lista para copiar y marcar publicada.
  */
 import fs from 'node:fs'
@@ -17,11 +19,11 @@ export type Oficio = 'operador' | 'creador'
 export type Reglas = { temas?: string; tono?: string; horas?: number[]; topeDia?: number; chatId?: string }
 export type Cupo = { tipo: string; cantidad: number; clase: 'comentario' | 'pieza' }
 export type Cuenta = {
-  id: number; red: string; nombre: string | null; usuario: string; correo: string | null; tieneClave: boolean
+  id: number; red: string; nombre: string | null; usuario: string; correo: string | null
   modo: Modo; conector: string | null; reglas: Reglas; oficio: Oficio | null; cupos: Cupo[]
   contexto: string | null; activa: boolean; creadaEn: number
 }
-export type Agente = Cuenta & { clave: string; markdown: string }
+export type Agente = Cuenta & { markdown: string }
 export type Publicacion = {
   id: number; cuentaId: number; texto: string; tipo: string | null; estado: 'borrador' | 'aprobada' | 'publicada' | 'descartada' | 'fallo'
   programadaPara: number | null; publicadaEn: number | null; url: string | null; origen: string; error: string | null; creadaEn: number
@@ -74,8 +76,7 @@ function normalizarCupos(v: unknown): Cupo[] {
 }
 
 const deCuenta = (r: any): Cuenta => ({
-  id: r.id, red: r.red, nombre: r.nombre ?? null, usuario: r.usuario, correo: r.correo ?? null,
-  tieneClave: typeof r.clave === 'string' && r.clave.length > 0, modo: r.modo, conector: r.conector,
+  id: r.id, red: r.red, nombre: r.nombre ?? null, usuario: r.usuario, correo: r.correo ?? null, modo: r.modo, conector: r.conector,
   reglas: json(r.reglas, {}), oficio: r.oficio === 'operador' || r.oficio === 'creador' ? r.oficio : null,
   cupos: normalizarCupos(json(r.cupos, [])), contexto: r.contexto ?? null, activa: r.activa === 1, creadaEn: r.creada_en,
 })
@@ -118,24 +119,17 @@ export function leerCuenta(db: Db, id: number): Cuenta | null {
   return r ? deCuenta(r) : null
 }
 
-/** La ficha para el editor: clave y Markdown. El listado no los trae. */
+/** La ficha para el editor: con su Markdown (el listado no lo trae). */
 export function leerAgente(db: Db, id: number): Agente | null {
   const c = leerCuenta(db, id)
-  if (!c) return null
-  const row = db.prepare('SELECT clave FROM cuentas WHERE id = ?').get(id) as { clave: string | null } | undefined
-  return { ...c, clave: row?.clave ?? '', markdown: leerMarkdown(c.contexto) }
+  return c ? { ...c, markdown: leerMarkdown(c.contexto) } : null
 }
 
 /** Conectores de publicación que existen hoy. Los que no tienen API oficial quedan en manual. */
 export const CONECTORES: Record<string, string> = { manual: 'Manual (copiás y la marcás publicada)', telegram_canal: 'Canal de Telegram (con el bot de Mastropiero como admin)' }
 
-function claveGuardada(db: Db, id: number): string | null {
-  const row = db.prepare('SELECT clave FROM cuentas WHERE id = ?').get(id) as { clave: string | null } | undefined
-  return row?.clave ?? null
-}
-
 export function guardarCuenta(db: Db, c: {
-  id?: number; red: string; usuario: string; nombre?: string | null; correo?: string | null; clave?: string | null
+  id?: number; red: string; usuario: string; nombre?: string | null; correo?: string | null
   modo?: string; conector?: string | null; reglas?: Reglas; activa?: boolean; oficio?: string | null
   cupos?: Cupo[] | null; markdown?: string
 }, ahora = Date.now()): Cuenta {
@@ -148,19 +142,18 @@ export function guardarCuenta(db: Db, c: {
   const red = catalogo?.id ?? c.red.trim()
   const nombre = c.nombre === undefined ? (previo?.nombre ?? null) : (c.nombre?.trim() || null)
   const correo = c.correo === undefined ? (previo?.correo ?? null) : (c.correo?.trim() || null)
-  const clave = c.clave === undefined ? (c.id ? claveGuardada(db, c.id) : null) : (typeof c.clave === 'string' && c.clave.trim() ? c.clave.trim() : null)
   const oficio: Oficio | null = c.oficio === 'operador' || c.oficio === 'creador' ? c.oficio : (previo?.oficio ?? catalogo?.oficio ?? null)
   const cupos = c.cupos !== undefined ? normalizarCupos(c.cupos) : (previo?.cupos.length ? previo.cupos : cuposPorDefecto(oficio))
   const reglas: Reglas = { ...(c.reglas ?? {}) }
   if (cupos.length) reglas.topeDia = cupos.reduce((s, x) => s + x.cantidad, 0)
   const activa = c.activa === false ? 0 : 1
-  const pack = [red, nombre, c.usuario.trim(), correo, clave, modo, conector, JSON.stringify(reglas), oficio, JSON.stringify(cupos), activa]
+  const pack = [red, nombre, c.usuario.trim(), correo, modo, conector, JSON.stringify(reglas), oficio, JSON.stringify(cupos), activa]
   let id = c.id
   if (id) {
-    db.prepare('UPDATE cuentas SET red = ?, nombre = ?, usuario = ?, correo = ?, clave = ?, modo = ?, conector = ?, reglas = ?, oficio = ?, cupos = ?, activa = ? WHERE id = ?')
+    db.prepare('UPDATE cuentas SET red = ?, nombre = ?, usuario = ?, correo = ?, modo = ?, conector = ?, reglas = ?, oficio = ?, cupos = ?, activa = ? WHERE id = ?')
       .run(...pack, id)
   } else {
-    const r = db.prepare('INSERT INTO cuentas (red, nombre, usuario, correo, clave, modo, conector, reglas, oficio, cupos, activa, creada_en) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    const r = db.prepare('INSERT INTO cuentas (red, nombre, usuario, correo, modo, conector, reglas, oficio, cupos, activa, creada_en) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(...pack, ahora)
     id = Number(r.lastInsertRowid)
   }

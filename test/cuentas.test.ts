@@ -96,22 +96,23 @@ test('telegram: solo su chat; texto y audio van a Hoy y la respuesta vuelve; bot
   delete process.env.TELEGRAM_CHAT_ID
 })
 
-test('cuentas: varios agentes por red; la clave no sale del listado; el Markdown y los cupos limitan lo redactado', async () => {
+test('cuentas: varios agentes por red; no se guardan contraseñas; el Markdown y los cupos limitan lo redactado', async () => {
   const db = abrir(':memory:')
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mastro-agentes-'))
   process.env.MASTRO_AGENTES = dir
   try {
-    const a = guardarCuenta(db, { red: 'linkedin', usuario: 'lautaro', correo: 'yo@ejemplo.com', clave: 'clave-secreta-xyz', nombre: 'Lautaro' }, T)
+    const a = guardarCuenta(db, { red: 'linkedin', usuario: 'lautaro', correo: 'yo@ejemplo.com', nombre: 'Lautaro', ...({ clave: 'clave-secreta-xyz' } as any) }, T)
     const b = guardarCuenta(db, { red: 'LinkedIn', usuario: 'otro' }, T)
     assert.equal(a.red, 'linkedin')
     assert.equal(b.red, 'linkedin')
     assert.equal(listarCuentas(db).filter((c) => c.red === 'linkedin').length, 2)
     const lista = listarCuentas(db).find((c) => c.id === a.id)!
-    assert.equal(lista.tieneClave, true)
     assert.equal('clave' in lista, false)
+    assert.equal(JSON.stringify(db.prepare('SELECT * FROM cuentas').all()).includes('clave-secreta-xyz'), false, 'ni en la base')
+    assert.equal((db.prepare('PRAGMA table_info(cuentas)').all() as { name: string }[]).some((c) => c.name === 'clave'), false)
     assert.equal(lista.correo, 'yo@ejemplo.com')
     const ficha = leerAgente(db, a.id)!
-    assert.equal(ficha.clave, 'clave-secreta-xyz')
+    assert.equal('clave' in ficha, false)
     assert.equal(fs.existsSync(path.join(dir, `${a.id}.md`)), false, 'sin markdown no escribe archivo')
 
     const ig = guardarCuenta(db, { red: 'Instagram', usuario: '@foto' }, T)
@@ -119,7 +120,7 @@ test('cuentas: varios agentes por red; la clave no sale del listado; el Markdown
     assert.ok(ig.cupos.some((c) => c.tipo === 'video' && c.clase === 'pieza'))
 
     const reddit = guardarCuenta(db, {
-      red: 'reddit', usuario: 'u/yo', clave: 'clave-secreta-xyz',
+      red: 'reddit', usuario: 'u/yo',
       cupos: [{ tipo: 'respuesta', cantidad: 2, clase: 'comentario' }],
       markdown: '# voz\nNunca inventes cifras.',
     }, T)
@@ -127,7 +128,6 @@ test('cuentas: varios agentes por red; la clave no sale del listado; el Markdown
     assert.match(fs.readFileSync(path.join(dir, `${reddit.id}.md`), 'utf8'), /Nunca inventes cifras/)
     const editada = leerAgente(db, reddit.id)!
     assert.match(editada.markdown, /Nunca inventes cifras/)
-    assert.equal(editada.clave, 'clave-secreta-xyz')
 
     _probarModelo(async (_l, o) => {
       const texto = o.mensajes.map((m) => String(m.content)).join('\n')
