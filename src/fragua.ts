@@ -170,7 +170,7 @@ export async function forjarMejora(db: Db, p: { propuestaId?: number | null; ped
     ].join('\n')
     const contenido = archivos.map((f: string) => `=== ${f} ===\n${fs.readFileSync(path.join(dir, f), 'utf8')}`).join('\n\n')
     paso('escribiendo los cambios')
-    const { datos: plan } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'fragua' }, SISTEMA_CAMBIOS, `PROPUESTA:\n${pedido}\n\nPLAN:\n${lineas}\n\n${contenido}`, { temperatura: 0.2, maxTokens: 12000 })
+    const { datos: plan } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'fragua' }, SISTEMA_CAMBIOS, `PROPUESTA:\n${pedido}\n\nPLAN:\n${lineas}\n\n${contenido}`, { temperatura: 0.2, maxTokens: 12000, largo: true })
     const cambios = Array.isArray(plan.cambios) ? plan.cambios : []
     const resumen = [lineas, plan.resumen].filter(Boolean).join('\n\n')
     if (!cambios.length) return fin({ estado: 'fallo', resumen, salida: 'El modelo no propuso cambios.' })

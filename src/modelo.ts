@@ -25,7 +25,7 @@ export async function pedirJson<T = any>(
   l: Parameters<Modelo>[0],
   sistema: string,
   usuario: string,
-  o: { temperatura?: number; maxTokens?: number } = {},
+  o: { temperatura?: number; maxTokens?: number; largo?: boolean } = {},
 ): Promise<{ datos: T; modelo: string; tokens: number }> {
   const mensajes = [{ role: 'system', content: `${sistema}\nRespondé SOLO un objeto JSON válido.` }, { role: 'user', content: usuario }]
   // Un JSON roto (texto alrededor, cortado, una coma de más) merece un segundo intento antes de fallar.
@@ -33,8 +33,10 @@ export async function pedirJson<T = any>(
   for (let intento = 0; intento < 2; intento++) {
     const r = await llamarModelo(l, {
       mensajes: intento ? [...mensajes, { role: 'assistant', content: ultimo.slice(0, 4000) }, { role: 'user', content: 'Eso no es un JSON válido. Devolvé SOLO el objeto JSON, completo y bien formado, sin texto alrededor.' }] : mensajes,
-      herramientas: [], temperatura: o.temperatura ?? 0.4, maxTokens: o.maxTokens ?? 4096,
-    })
+      herramientas: [], temperatura: o.temperatura ?? 0.4, maxTokens: o.maxTokens ?? 4096, razonarPoco: o.largo || undefined,
+      // Respuesta larga: en streaming (el proxy de NaN corta a los ~125 s lo que no manda nada) y razonando poco
+      // (el razonamiento come del mismo tope que la respuesta).
+    }, o.largo ? () => {} : undefined)
     ultimo = r.texto
     const datos = leerJson<T>(r.texto)
     if (datos) return { datos, modelo: r.modelo, tokens: r.tokens }

@@ -435,7 +435,7 @@ async function escribirInforme(db: Db, s: Sesion, ms: Momento[], ahora: number, 
         conocidas.length ? `Entidades que ya existen (no las repitas): ${conocidas.join(', ')}` : '',
         `Lo que sabés de él:\n${memoriaParaPrompt(db, 30)}`,
         `Momentos:\n${lineas.slice(0, 60000)}`,
-      ].filter(Boolean).join('\n'), { temperatura: 0.4, maxTokens: 5000 })).datos ?? {}
+      ].filter(Boolean).join('\n'), { temperatura: 0.4, maxTokens: 5000, largo: true })).datos ?? {}
     } catch (e) {
       informe = { texto: `No pude escribir el informe: ${e instanceof Error ? e.message : e}` }
     }
