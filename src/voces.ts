@@ -1,18 +1,17 @@
 /**
- * El Diarizador (personaje 49): quién habla cuándo, por cómo suena, sin dependencias. ffmpeg pasa el audio a PCM
- * (mono, 16 kHz); por ventanas de medio segundo se mide el tono (F0 por autocorrelación) y el brillo (cruces por
- * cero); las ventanas con voz se agrupan en dos con k-means y, si los grupos suenan distinto de verdad (más de unos
- * semitonos o un timbre bien distinto) y los dos tienen peso, hay dos voces. Cada palabra de Whisper toma la voz que
- * sonaba en su momento, y se suavizan los saltos cortos. Distinguir voces de tono parecido es más difícil: ahí el
- * texto (y el modelo) ayudan, y ante la duda no se le atribuye nada a él.
+ * El oído del Diarizador (personaje 49), sin dependencias. ffmpeg pasa el audio a PCM (mono, 16 kHz); las palabras
+ * de Whisper se agrupan en frases (los cambios de turno caen entre frases); por frase se mide el tono (YIN) y el
+ * timbre. Las frases se agrupan en dos y solo se dice «dos voces» si los tonos están muy separados (una voz grave y
+ * una aguda): la entonación de una misma persona mueve varios semitonos de frase a frase, y una pista dudosa
+ * confunde más de lo que ayuda. La decisión final (quién dice cada frase y cuál es él) la toma el modelo con esta
+ * pista y el contenido (tandas.ts, separarVoces). Probado con voces sintéticas: una sola voz no se parte, hombre y
+ * mujer se separan; dos voces parecidas dependen del contenido.
  */
 import { spawnSync } from 'node:child_process'
 
 export type Palabra = { start: number; end: number; word: string }
-export type Turno = { voz: string; desde: number; hasta: number; texto: string }
 
 const SR = 16000
-const VENTANA = 0.25 // segundos: más corto, los cortes de turno caen más cerca de donde están
 
 /** El audio como muestras (mono, 16 kHz). null si ffmpeg no está o falla. */
 export function pcm(ruta: string): Int16Array | null {
@@ -90,110 +89,97 @@ function timbre(x: Float32Array): number[] {
   return e.map((v) => v - media)
 }
 
-type Rasgo = { t: number; tono: number; timbre: number[] }
+type Rasgo = { tono: number; timbre: number[]; sonoros: number }
+export type Frase = { desde: number; hasta: number; texto: string; palabras: number }
 
-/** Rasgos por ventana con voz: tono mediano (semitonos sobre 55 Hz) y timbre medio. */
-export function rasgos(muestras: Int16Array): Rasgo[] {
-  const paso = Math.floor(SR * VENTANA)
-  const out: Rasgo[] = []
-  const rmsDe = (a: number, b: number) => { let s = 0; for (let i = a; i < b; i++) s += (muestras[i] / 32768) ** 2; return Math.sqrt(s / Math.max(1, b - a)) }
-  const rmsVentanas: number[] = []
-  for (let i = 0; i + paso <= muestras.length; i += paso) rmsVentanas.push(rmsDe(i, i + paso))
-  const ordenados = [...rmsVentanas].sort((a, b) => a - b)
-  // Voz = bastante por encima del piso y no muy por debajo de lo típico (sirve con y sin silencios entre frases).
-  const umbral = Math.max(0.004, (ordenados[Math.floor(ordenados.length * 0.1)] ?? 0) * 1.5, (ordenados[Math.floor(ordenados.length / 2)] ?? 0) * 0.35)
-  for (let w = 0, i = 0; i + paso <= muestras.length; i += paso, w++) {
-    if (rmsVentanas[w] < umbral) continue
-    const tonos: number[] = []
-    const ts: number[][] = []
-    for (let j = i; j + CUADRO <= i + paso; j += CUADRO / 2) {
-      const x = new Float32Array(CUADRO)
-      for (let k = 0; k < CUADRO; k++) x[k] = muestras[j + k] / 32768
-      const f = yin(x)
-      if (f) { tonos.push(12 * Math.log2(f / 55)); ts.push(timbre(x)) }
-    }
-    if (tonos.length < 2) continue
-    tonos.sort((a, b) => a - b)
-    out.push({ t: i / SR, tono: tonos[Math.floor(tonos.length / 2)], timbre: ts[0].map((_, k) => ts.reduce((s, v) => s + v[k], 0) / ts.length) })
+/**
+ * Frases: las palabras de Whisper partidas por puntuación de cierre (. ? ! …) o por una pausa de 0,35 s, con un
+ * máximo de 30 palabras. Los cambios de turno caen casi siempre entre frases, y una frase tiene cuadros de sobra
+ * para medir la voz con firmeza.
+ */
+export function frases(palabras: Palabra[]): Frase[] {
+  const out: Frase[] = []
+  let actual: Palabra[] = []
+  const cerrar = () => {
+    if (!actual.length) return
+    out.push({ desde: actual[0].start, hasta: actual.at(-1)!.end, texto: actual.map((p) => p.word).join('').trim(), palabras: actual.length })
+    actual = []
   }
+  palabras.forEach((p, i) => {
+    const sig = palabras[i + 1]
+    actual.push(p)
+    if (/[.?!…]["»”')]*\s*$/.test(p.word) || (sig && sig.start - p.end >= 0.35) || actual.length >= 30) cerrar()
+  })
+  cerrar()
   return out
 }
 
+/** Tono mediano y timbre medio de un tramo [desde, hasta] (en segundos), con los cuadros sonoros. */
+export function rasgoDeTramo(muestras: Int16Array, desde: number, hasta: number): Rasgo {
+  const a = Math.max(0, Math.floor(desde * SR))
+  const b = Math.min(muestras.length, Math.ceil(hasta * SR))
+  const tonos: number[] = []
+  const ts: number[][] = []
+  const x = new Float32Array(CUADRO)
+  for (let j = a; j + CUADRO <= b; j += CUADRO / 2) {
+    let e = 0
+    for (let k = 0; k < CUADRO; k++) { x[k] = muestras[j + k] / 32768; e += x[k] * x[k] }
+    if (e / CUADRO < 1e-5) continue // silencio
+    const f = yin(x)
+    if (!f) continue
+    tonos.push(12 * Math.log2(f / 55))
+    ts.push(timbre(x))
+  }
+  tonos.sort((p, q) => p - q)
+  return {
+    tono: tonos.length ? tonos[Math.floor(tonos.length / 2)] : NaN,
+    timbre: ts.length ? ts[0].map((_, k) => ts.reduce((s, v) => s + v[k], 0) / ts.length) : [],
+    sonoros: tonos.length,
+  }
+}
+
 /**
- * k-means de 2 sobre tono + timbre (cada dimensión normalizada; el tono pesa el doble). Las etiquetas se suavizan en
- * el tiempo (moda de 5 ventanas ≈ 1,25 s: nadie cambia de voz cada cuarto de segundo). «dos» solo si los grupos están
- * bien separados respecto de su dispersión, o a varios semitonos, y el menor pesa al menos un 12 %.
+ * Dos grupos de frases (k-means sobre tono + timbre normalizados; el tono pesa el doble y cada frase pesa por su
+ * duración). Hay dos voces solo si sus tonos medianos están a 3,5 semitonos o más (o a 2 con un timbre bien
+ * distinto) y la voz menor tiene al menos el 10 % del tiempo hablado. Si no, es una sola voz.
  */
-export function agrupar(rs: Rasgo[]): { etiquetas: number[]; dos: boolean; distancia: number; separacion: number } {
-  const nada = { etiquetas: rs.map(() => 0), dos: false, distancia: 0, separacion: 0 }
-  if (rs.length < 8) return nada
-  const crudo = rs.map((r) => [r.tono, ...r.timbre])
+export function agruparFrases(fs: Frase[], rs: Rasgo[]): { etiquetas: number[]; dos: boolean; distancia: number; separacion: number } {
+  const validas = rs.map((r, i) => (r.sonoros >= 4 && Number.isFinite(r.tono) ? i : -1)).filter((i) => i >= 0)
+  const una = { etiquetas: fs.map(() => 0), dos: false, distancia: 0, separacion: 0 }
+  if (validas.length < 3) return una
+  const crudo = validas.map((i) => [rs[i].tono, ...rs[i].timbre])
   const dims = crudo[0].length
   const media = Array.from({ length: dims }, (_, k) => crudo.reduce((s, v) => s + v[k], 0) / crudo.length)
   const desv = Array.from({ length: dims }, (_, k) => Math.sqrt(crudo.reduce((s, v) => s + (v[k] - media[k]) ** 2, 0) / crudo.length) || 1)
-  const p = crudo.map((v) => v.map((x, k) => ((x - media[k]) / desv[k]) * (k === 0 ? 2 : 1)))
+  // El tono manda (es lo que más separa voces); el timbre, en conjunto, pesa como un tercio del tono.
+  const p = crudo.map((v) => v.map((x, k) => ((x - media[k]) / desv[k]) * (k === 0 ? 3 : 1 / Math.sqrt(dims - 1))))
+  const w = validas.map((i) => Math.max(0.2, fs[i].hasta - fs[i].desde))
   const dist = (a: number[], b: number[]) => Math.sqrt(a.reduce((s, x, k) => s + (x - b[k]) ** 2, 0))
-  const porTono = [...p.keys()].sort((a, b) => p[a][0] - p[b][0])
-  let c = [p[porTono[Math.floor(p.length * 0.15)]], p[porTono[Math.floor(p.length * 0.85)]]]
+  const orden = [...p.keys()].sort((a, b) => p[a][0] - p[b][0])
+  let c = [p[orden[0]], p[orden.at(-1)!]]
   let et = p.map(() => 0)
-  for (let it = 0; it < 40; it++) {
+  for (let it = 0; it < 50; it++) {
     et = p.map((x) => (dist(x, c[0]) <= dist(x, c[1]) ? 0 : 1))
-    const nuevo = [0, 1].map((k) => { const g = p.filter((_, i) => et[i] === k); return g.length ? g[0].map((_, d) => g.reduce((s, v) => s + v[d], 0) / g.length) : c[k] })
-    if (nuevo.every((x, k) => dist(x, c[k]) < 1e-6)) break
+    const nuevo = [0, 1].map((k) => {
+      const idx = et.map((e, i) => (e === k ? i : -1)).filter((i) => i >= 0)
+      const tot = idx.reduce((s, i) => s + w[i], 0)
+      return tot ? p[0].map((_, d) => idx.reduce((s, i) => s + p[i][d] * w[i], 0) / tot) : c[k]
+    })
+    if (nuevo.every((x, k) => dist(x, c[k]) < 1e-9)) break
     c = nuevo
   }
-  // Suavizado temporal: moda de 5 ventanas vecinas (solo entre ventanas a menos de 1 s, para no pegar turnos lejanos).
-  const suave = et.map((_, i) => {
-    const vecinas = et.filter((__, j) => Math.abs(j - i) <= 2 && Math.abs(rs[j].t - rs[i].t) <= 1)
-    return vecinas.filter((x) => x === 1).length * 2 > vecinas.length ? 1 : 0
-  })
-  const dentro = p.reduce((s, x, i) => s + dist(x, c[et[i]]), 0) / p.length || 1
-  const separacion = Math.round((dist(c[0], c[1]) / dentro) * 100) / 100
-  const tonoDe = (k: number) => { const g = rs.filter((_, i) => et[i] === k).map((r) => r.tono).sort((a, b) => a - b); return g[Math.floor(g.length / 2)] ?? 0 }
-  const distancia = Math.round(Math.abs(tonoDe(0) - tonoDe(1)) * 10) / 10
-  const menor = Math.min(suave.filter((e) => e === 0).length, suave.filter((e) => e === 1).length) / suave.length
-  const dos = menor >= 0.12 && (separacion >= 1.4 || distancia >= 4)
-  return { etiquetas: dos ? suave : suave.map(() => 0), dos, distancia, separacion }
-}
-
-/** Cada palabra toma la voz de su ventana; saltos de menos de 3 palabras se suavizan; palabras seguidas de la misma voz, un turno. */
-export function turnos(palabras: Palabra[], rs: Rasgo[], etiquetas: number[]): Turno[] {
-  if (!palabras.length) return []
-  // Cada palabra vota con las ventanas que pisa (si no pisa ninguna, la más cercana a menos de 1 s).
-  const vozDe = (p: Palabra) => {
-    const votos = [0, 0]
-    rs.forEach((r, i) => { const solape = Math.min(p.end, r.t + VENTANA) - Math.max(p.start, r.t); if (solape > 0) votos[etiquetas[i]] += solape })
-    if (votos[0] || votos[1]) return votos[1] > votos[0] ? 1 : 0
-    let mejor = -1
-    let d = Infinity
-    rs.forEach((r, i) => { const dd = Math.abs(r.t + VENTANA / 2 - (p.start + p.end) / 2); if (dd < d) { d = dd; mejor = i } })
-    return mejor >= 0 && d <= 1 ? etiquetas[mejor] : -1
-  }
-  const vs = palabras.map(vozDe)
-  // Las palabras sin ventana (silencio, ruido) heredan la voz de la anterior.
-  for (let i = 0; i < vs.length; i++) if (vs[i] < 0) vs[i] = i ? vs[i - 1] : (vs.find((v) => v >= 0) ?? 0)
-  // Suavizar: una racha de menos de 3 palabras entre dos de la misma voz es ruido de medición.
-  for (let i = 0; i < vs.length;) {
-    let j = i
-    while (j < vs.length && vs[j] === vs[i]) j++
-    if (j - i < 3 && i > 0 && j < vs.length && vs[i - 1] === vs[j]) for (let k = i; k < j; k++) vs[k] = vs[i - 1]
-    i = j
-  }
-  const out: Turno[] = []
-  palabras.forEach((p, i) => {
-    const voz = String.fromCharCode(65 + vs[i])
-    const ult = out.at(-1)
-    if (ult && ult.voz === voz) { ult.texto += p.word; ult.hasta = p.end } else out.push({ voz, desde: p.start, hasta: p.end, texto: p.word })
-  })
-  return out.map((t) => ({ ...t, texto: t.texto.trim() }))
-}
-
-/** Todo junto: del archivo y las palabras de Whisper a turnos por voz (o null si no hay ffmpeg o no se pudo medir). */
-export function diarizar(ruta: string, palabras: Palabra[]): { turnos: Turno[]; voces: number; distancia: number; separacion: number } | null {
-  const m = pcm(ruta)
-  if (!m || !palabras.length) return null
-  const rs = rasgos(m)
-  const g = agrupar(rs)
-  const ts = turnos(palabras, rs, g.etiquetas)
-  return { turnos: ts, voces: g.dos ? new Set(ts.map((t) => t.voz)).size : 1, distancia: g.distancia, separacion: g.separacion }
+  const tonoMediano = (k: number) => { const g = validas.filter((_, j) => et[j] === k).map((i) => rs[i].tono).sort((a, b) => a - b); return g.length ? g[Math.floor(g.length / 2)] : NaN }
+  const distancia = Math.abs(tonoMediano(0) - tonoMediano(1))
+  const dentro = p.reduce((s, x, i) => s + dist(x, c[et[i]]) * w[i], 0) / w.reduce((s, x) => s + x, 0) || 1
+  const separacion = dist(c[0], c[1]) / dentro
+  const tiempo = [0, 1].map((k) => w.filter((_, i) => et[i] === k).reduce((s, x) => s + x, 0))
+  const menor = Math.min(...tiempo) / (tiempo[0] + tiempo[1])
+  // Exigente a propósito: la entonación de una misma persona mueve la mediana varios semitonos de una frase a otra.
+  // Solo dos grupos bien separados (≥ 5 semitonos, como una voz grave y una aguda) cuentan como dos voces.
+  const dos = Number.isFinite(distancia) && menor >= 0.1 && distancia >= 5
+  // Las frases sin medida (cortas o sin voz) toman la voz de la frase anterior (o la siguiente).
+  const etiquetas = fs.map(() => -1)
+  validas.forEach((i, j) => (etiquetas[i] = dos ? et[j] : 0))
+  for (let i = 0; i < etiquetas.length; i++) if (etiquetas[i] < 0) etiquetas[i] = i ? etiquetas[i - 1] : (etiquetas.find((e) => e >= 0) ?? 0)
+  return { etiquetas, dos, distancia: Math.round(distancia * 10) / 10, separacion: Math.round(separacion * 100) / 100 }
 }

@@ -14,7 +14,8 @@ import crypto from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { resolverRuta, type Db } from './db.ts'
 import { asegurarFuente, insertar } from './corpus.ts'
-import { nanTranscribir, nanVision } from './nan.ts'
+import { nanTranscribirDetallado, nanVision } from './nan.ts'
+import { frases, pcm, rasgoDeTramo, agruparFrases, type Palabra } from './voces.ts'
 import { leerJson, pedirJson } from './modelo.ts'
 import { escribaDeMemoria } from './memoria.ts'
 import { personaje } from './personajes.ts'
@@ -34,7 +35,7 @@ const IMAGEN = /\.(jpe?g|png|webp|heic|heif|gif|bmp|tiff?)$/i
 
 // ─── inyectables (tests) ────────────────────────────────────────────────
 
-let transcribir = (db: Db, audio: Buffer, nombre: string) => nanTranscribir(db, audio, nombre)
+let transcribir = async (db: Db, audio: Buffer, nombre: string): Promise<{ texto: string; palabras: Palabra[] }> => nanTranscribirDetallado(db, audio, nombre)
 let leerPagina = async (db: Db, imagen: Buffer, mime: string, sistema: string, texto: string) =>
   (await nanVision({ db, clase: 'mastropiero', agenteId: 'visionario' }, { sistema, texto, imagen: `data:${mime};base64,${imagen.toString('base64')}`, maxTokens: 4000 })).texto
 let escriba = (db: Db, texto: string, pieza: number) => escribaDeMemoria(db, texto, null, { pieza })
@@ -111,27 +112,65 @@ function tramos(ruta: string, bytes: number): string[] {
   return salida
 }
 
-const SISTEMA_VOCES = `Te paso la transcripción de una nota de voz grabada por el operador (Whisper, sin marcas de quién habla). Puede ser él solo pensando en voz alta, o una charla con otras personas.
-Separá las voces por lo que se dice (cambios de turno, preguntas y respuestas, quién se nombra) y decidí cuál es él (habla en primera persona de sus proyectos y su vida; los demás le hablan a él).
-Forma: {"titulo": string (máx. 60, de qué va), "voces": number, "operador": "A" | null, "nombres": {"B": "nombre si se lo nombra"}, "turnos": [{"voz": "A" | "B" | "C"…, "texto": string}]}
-- Si es una sola voz: voces 1, operador "A" y un único turno con todo el texto.
-- Copiá el texto tal cual (no resumas ni corrijas), solo partilo en turnos.
+const SISTEMA_VOCES = `Te paso una nota de voz grabada por el operador, partida en frases numeradas (Whisper, sin marcas de quién habla). Puede ser él solo pensando en voz alta, o una charla con otras personas.
+Cada frase trae una pista acústica: la voz que le asignó un medidor de tono y timbre (A, B) y su tono en semitonos. Te digo cuánto confiar en la pista.
+Decidí quién dice cada frase y cuál de las voces es él (habla en primera persona de sus proyectos y su vida; los demás le hablan a él, le preguntan, le cuentan lo suyo).
+Forma: {"titulo": string (máx. 60, de qué va), "voces": number, "operador": "A" | null, "nombres": {"B": "nombre si se lo nombra"}, "frases": ["A" | "B" | "C" | "?"]}
+- «frases» tiene exactamente una entrada por frase, en orden: la voz de cada una, o "?" si no se puede saber.
+- Si es una sola persona hablando: voces 1, operador "A" y todas las frases "A". No inventes una segunda voz porque cambie el tema o el tono de una frase.
+- Si hay diálogo, marcá con "A" al operador y con "B", "C"… a los demás. Las preguntas y sus respuestas suelen ser de voces distintas.
 - Si no se puede saber cuál es él, operador null. No inventes nombres.`
 
 type Voces = { titulo: string | null; voces: number; operador: string | null; nombres: Record<string, string>; turnos: { voz: string; texto: string }[] }
 
-/** Quién habla en una grabación. Corto o de una sola voz: no gasta modelo. */
-export async function separarVoces(db: Db, texto: string, nombreOperador: string): Promise<Voces> {
+/** Une frases seguidas de la misma voz. */
+function aTurnos(textos: string[], voces: string[]): { voz: string; texto: string }[] {
+  const out: { voz: string; texto: string }[] = []
+  textos.forEach((t, i) => {
+    const ult = out.at(-1)
+    if (ult && ult.voz === voces[i]) ult.texto += ` ${t}`
+    else out.push({ voz: voces[i], texto: t })
+  })
+  return out
+}
+
+/**
+ * Quién habla en una grabación. Con las palabras de Whisper y el audio: frases con su pista acústica (tono y timbre)
+ * y el modelo decide frase por frase, sin reescribir el texto. Sin palabras ni audio: todo el texto como una voz, salvo
+ * que el modelo lea un diálogo claro (y ahí, ante la duda, no se le atribuye nada a él).
+ */
+export async function separarVoces(db: Db, texto: string, nombreOperador: string, o: { palabras?: Palabra[]; ruta?: string } = {}): Promise<Voces> {
   const solo: Voces = { titulo: null, voces: 1, operador: 'A', nombres: {}, turnos: [{ voz: 'A', texto }] }
-  if (texto.length < 400) return solo
+  const fs_ = o.palabras?.length ? frases(o.palabras) : []
+  if (texto.length < 400 && fs_.length < 4) return solo
+  // La pista acústica: por frase, la voz que sugiere el medidor y su tono.
+  let pista: { voz: string; tono: number | null }[] = []
+  let distancia = 0
+  const m = o.ruta && fs_.length ? pcm(o.ruta) : null
+  if (m) {
+    const rs = fs_.map((f) => rasgoDeTramo(m, f.desde, f.hasta))
+    const g = agruparFrases(fs_, rs)
+    distancia = g.distancia
+    // Solo se pasa cuando el sonido es inequívoco: una pista dudosa arrastra al modelo (se probó: la sigue frase por frase).
+    if (g.dos) pista = fs_.map((_, i) => ({ voz: String.fromCharCode(65 + g.etiquetas[i]), tono: Number.isFinite(rs[i].tono) ? Math.round(rs[i].tono * 10) / 10 : null }))
+  }
+  const unidades = fs_.length ? fs_.map((f) => f.texto) : texto.split(/(?<=[.?!…])\s+/).filter((x) => x.trim())
+  const confianza = pista.length
+    ? `Pista acústica: hay dos voces bien distintas (a ${distancia} semitonos, una grave y una aguda). Usala, salvo que el contenido la contradiga claramente.`
+    : 'No hay pista acústica confiable: decidí por el contenido (preguntas y respuestas, quién cuenta qué, en primera persona de quién).'
   try {
-    const { datos } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'diarizador' }, SISTEMA_VOCES, `El operador se llama ${nombreOperador}.\n\nTranscripción:\n${texto.slice(0, 24000)}`, { temperatura: 0.1, maxTokens: 9000 })
-    const turnos = (Array.isArray(datos.turnos) ? datos.turnos : []).filter((t: any) => t?.texto?.trim()).map((t: any) => ({ voz: String(t.voz ?? 'A').slice(0, 3), texto: String(t.texto).trim() }))
-    // Si el modelo resumió en vez de copiar, se pierde texto: mejor quedarse con la transcripción entera como una voz.
-    const largo = turnos.reduce((s: number, t: { texto: string }) => s + t.texto.length, 0)
-    if (!turnos.length || largo < texto.length * 0.8) return { ...solo, titulo: typeof datos.titulo === 'string' ? datos.titulo : null }
-    return { titulo: typeof datos.titulo === 'string' ? datos.titulo.slice(0, 80) : null, voces: Math.max(1, Number(datos.voces) || new Set(turnos.map((t: any) => t.voz)).size), operador: datos.operador ?? null, nombres: datos.nombres && typeof datos.nombres === 'object' ? datos.nombres : {}, turnos }
+    const lista = unidades.map((t, i) => `[${i + 1}]${pista[i] ? ` (voz ${pista[i].voz}${pista[i].tono != null ? ` · tono ${pista[i].tono}` : ''})` : ''} ${t}`).join('\n')
+    const { datos } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'diarizador' }, SISTEMA_VOCES, `El operador se llama ${nombreOperador}.\n${confianza}\n\nFrases:\n${lista.slice(0, 30000)}`, { temperatura: 0.1, maxTokens: 4000 })
+    const vs: string[] = Array.isArray(datos.frases) ? datos.frases.map((v: unknown) => String(v ?? '?').trim().toUpperCase().slice(0, 1) || '?') : []
+    const titulo = typeof datos.titulo === 'string' ? datos.titulo.slice(0, 80) : null
+    if (vs.length !== unidades.length) throw new Error('el modelo no devolvió una voz por frase')
+    const distintas = new Set(vs.filter((v) => v !== '?'))
+    if (distintas.size <= 1 && !vs.includes('?')) return { ...solo, titulo, operador: datos.operador === null ? null : 'A' }
+    const operador = typeof datos.operador === 'string' && distintas.has(datos.operador.toUpperCase()) ? datos.operador.toUpperCase() : null
+    return { titulo, voces: Math.max(1, distintas.size), operador, nombres: datos.nombres && typeof datos.nombres === 'object' ? datos.nombres : {}, turnos: aTurnos(unidades, vs) }
   } catch {
+    // Sin modelo: si el sonido dice claramente dos voces, se respeta pero no se sabe cuál es él; si no, una sola voz.
+    if (pista.length && new Set(pista.map((p) => p.voz)).size > 1) return { titulo: null, voces: 2, operador: null, nombres: {}, turnos: aTurnos(unidades, pista.map((p) => p.voz)) }
     return solo
   }
 }
@@ -139,14 +178,23 @@ export async function separarVoces(db: Db, texto: string, nombreOperador: string
 async function procesarAudio(db: Db, t: Tanda, ruta: string): Promise<number> {
   const partes = tramos(ruta, t.bytes)
   const textos: string[] = []
-  for (const p of partes) textos.push((await transcribir(db, fs.readFileSync(p), path.basename(p).replace(/\.oga$/, '.ogg'))).trim())
+  const palabras: Palabra[] = []
+  let corrimiento = 0
+  for (const p of partes) {
+    const r = await transcribir(db, fs.readFileSync(p), path.basename(p).replace(/\.oga$/, '.ogg'))
+    textos.push(r.texto.trim())
+    // Los tiempos de cada tramo se corren a su lugar en el audio entero.
+    for (const w of r.palabras) palabras.push({ start: w.start + corrimiento, end: w.end + corrimiento, word: w.word })
+    corrimiento += r.palabras.at(-1)?.end ?? 600
+  }
   if (partes[0] !== ruta) fs.rmSync(path.dirname(partes[0]), { recursive: true, force: true })
   const texto = textos.filter(Boolean).join('\n')
   if (!texto) throw new Error('No había voz que transcribir')
   const yo = personaje(db, 'jugador').nombre
-  const v = await separarVoces(db, texto, yo)
-  const quien = (voz: string) => (voz === v.operador ? yo : v.nombres[voz] || `Voz ${voz}`)
-  const contenido = v.voces > 1 ? v.turnos.map((x) => `[${quien(x.voz)}] ${x.texto}`).join('\n') : texto
+  // Con varios tramos los tiempos son aproximados: la pista acústica solo se usa con el audio entero.
+  const v = await separarVoces(db, texto, yo, { palabras: partes.length === 1 ? palabras : [], ruta: partes.length === 1 ? ruta : undefined })
+  const quien = (voz: string) => (voz === '?' ? '¿?' : voz === v.operador ? yo : v.nombres[voz] || `Voz ${voz}`)
+  const contenido = v.voces > 1 || v.turnos.some((x) => x.voz === '?') ? v.turnos.map((x) => `[${quien(x.voz)}] ${x.texto}`).join('\n') : texto
   const [fecha, hora] = (t.fecha ?? '').split(' ')
   asegurarFuente(db, { id: 'voz', nombre: 'Notas de voz', nivel: 'propia', descripcion: 'Lo que grabás caminando o pensando en voz alta.' })
   const pieza = insertar(db, {
@@ -154,8 +202,8 @@ async function procesarAudio(db: Db, t: Tanda, ruta: string): Promise<number> {
     contenido, fecha: fecha || null, etiquetas: ['audio', ...(v.voces > 1 ? ['varias-voces'] : [])], origenId: `tanda:${t.id}`,
     datos: { archivo: t.archivo, voces: v.voces, operador: v.operador, nombres: v.nombres },
   })!
-  // El escriba aprende solo de lo que dijo él; si no se sabe cuál es él, no aprende nada de esta grabación.
-  const suyo = v.voces > 1 ? (v.operador ? v.turnos.filter((x) => x.voz === v.operador).map((x) => x.texto).join('\n') : '') : texto
+  // El escriba aprende solo de lo que dijo él (nunca de lo dudoso); si no se sabe cuál es él, no aprende nada de esta grabación.
+  const suyo = v.operador ? v.turnos.filter((x) => x.voz === v.operador).map((x) => x.texto).join('\n') : ''
   if (suyo.trim()) await escriba(db, suyo, pieza).catch(() => [])
   return pieza
 }

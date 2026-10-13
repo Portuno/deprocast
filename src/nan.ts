@@ -326,6 +326,11 @@ export async function nanChatHerramientasStream(
 
 /** Audio → texto con el Whisper de NaN (en castellano). Un 5xx se reintenta una vez. */
 export async function nanTranscribir(db: Db, audio: Buffer, nombre: string): Promise<string> {
+  return (await nanTranscribirDetallado(db, audio, nombre, { palabras: false })).texto
+}
+
+/** Whisper con el tiempo de cada palabra (para saber quién habló cuándo). Sin palabras si el servicio no las da. */
+export async function nanTranscribirDetallado(db: Db, audio: Buffer, nombre: string, o: { palabras?: boolean } = {}): Promise<{ texto: string; palabras: { start: number; end: number; word: string }[] }> {
   const tipo = /\.(mp3)$/i.test(nombre) ? 'audio/mpeg' : /\.(wav)$/i.test(nombre) ? 'audio/wav' : /\.(ogg|opus)$/i.test(nombre) ? 'audio/ogg' : /\.webm$/i.test(nombre) ? 'audio/webm' : 'audio/mp4'
   for (let intento = 0; intento < 2; intento++) {
     await turno()
@@ -333,6 +338,10 @@ export async function nanTranscribir(db: Db, audio: Buffer, nombre: string): Pro
     form.append('file', new Blob([new Uint8Array(audio)], { type: tipo }), nombre)
     form.append('model', 'whisper')
     form.append('language', 'es')
+    if (o.palabras !== false) {
+      form.append('response_format', 'verbose_json')
+      form.append('timestamp_granularities[]', 'word')
+    }
     const t0 = Date.now()
     const res = await fetch(`${base()}/audio/transcriptions`, { method: 'POST', headers: { authorization: `Bearer ${key()}` }, body: form, signal: AbortSignal.timeout(300_000) })
     const cuerpo = await res.text()
@@ -340,10 +349,13 @@ export async function nanTranscribir(db: Db, audio: Buffer, nombre: string): Pro
       .run(Date.now() - t0, res.status, Date.now())
     if (res.ok) {
       let texto = cuerpo
+      let palabras: { start: number; end: number; word: string }[] = []
       try {
-        texto = JSON.parse(cuerpo).text ?? cuerpo
+        const j = JSON.parse(cuerpo)
+        texto = j.text ?? cuerpo
+        if (Array.isArray(j.words)) palabras = j.words.filter((w: any) => Number.isFinite(w?.start) && Number.isFinite(w?.end) && typeof w?.word === 'string')
       } catch { /* algunas respuestas vienen en texto plano */ }
-      return String(texto).trim()
+      return { texto: String(texto).trim(), palabras }
     }
     if (res.status < 500 || intento === 1) throw new Error(`Whisper ${res.status}: ${cuerpo.slice(0, 160)}`)
   }

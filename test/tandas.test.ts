@@ -10,6 +10,7 @@ import { marcarJugador } from '../src/personajes.ts'
 import { _probarModelo } from '../src/modelo.ts'
 import { nombresDelOperador, soloSuVoz } from '../src/memoria.ts'
 import { _probarTandas, encolar, fechaDeNombre, leerTanda, listarTandas, procesarTandas, separarVoces } from '../src/tandas.ts'
+import { agruparFrases, frases } from '../src/voces.ts'
 
 process.env.MASTRO_TANDAS = fs.mkdtempSync(path.join(os.tmpdir(), 'mastro-tandas-'))
 
@@ -22,16 +23,30 @@ test('tandas: la fecha sale del nombre del archivo', () => {
   assert.equal(fechaDeNombre('mi audio.m4a'), null)
 })
 
-test('tandas: audios en cola, sin duplicar; con varias voces el escriba aprende solo de él', async () => {
+/** Palabras falsas de Whisper: cada frase, una palabra por token, 0,3 s cada una. */
+function palabrasDe(frases: string[]) {
+  const out: { start: number; end: number; word: string }[] = []
+  let t = 0
+  for (const f of frases) for (const w of f.split(' ')) { out.push({ start: t, end: t + 0.25, word: ` ${w}` }); t += 0.3 }
+  return out
+}
+
+test('tandas: audios en cola, sin duplicar; con varias voces el escriba aprende solo de él (y nunca de lo dudoso)', async () => {
   const db = abrir(':memory:')
   marcarJugador(db, asegurarEntidad(db, { tipo: 'persona', nombre: 'Jugador Prueba', origenId: 't:yo' }))
-  const largo = 'Yo creo que el proyecto tiene que salir este mes, voy a terminar la escena siete mañana temprano. '.repeat(3)
-  const ajeno = 'Y yo te digo que no, que mi viaje a Roma es lo primero y que vendí el auto. '.repeat(3)
-  _probarTandas({ transcribir: async () => `${largo} ${ajeno}` })
-  _probarModelo(async () => ({
-    texto: JSON.stringify({ titulo: 'Charla del proyecto', voces: 2, operador: 'A', nombres: { B: 'Ana' }, turnos: [{ voz: 'A', texto: largo }, { voz: 'B', texto: ajeno }] }),
-    llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1,
-  }))
+  const frases = [
+    'Yo creo que el proyecto tiene que salir este mes.',
+    'Voy a terminar la escena siete mañana temprano.',
+    'Y yo te digo que mi viaje a Roma es lo primero.',
+    'Vendí el auto la semana pasada.',
+    'No sé si esto lo dijo alguien más.',
+  ]
+  _probarTandas({ transcribir: async () => ({ texto: frases.join(' '), palabras: palabrasDe(frases) }) })
+  let vio = ''
+  _probarModelo(async (_l, o) => {
+    vio = String(o.mensajes[1].content)
+    return { texto: JSON.stringify({ titulo: 'Charla del proyecto', voces: 2, operador: 'A', nombres: { B: 'Ana' }, frases: ['A', 'A', 'B', 'B', '?'] }), llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }
+  })
   const aprendido: string[] = []
   _probarTandas({ escriba: async (_db, t) => { aprendido.push(t); return [] } })
 
@@ -42,34 +57,56 @@ test('tandas: audios en cola, sin duplicar; con varias voces el escriba aprende 
   assert.throws(() => encolar(db, { nombre: 'planilla.xlsx', datos: Buffer.from('x') }), /No sé qué hacer/)
 
   assert.equal(await procesarTandas(db), 1)
+  assert.match(vio, /\[1\] Yo creo que el proyecto/, 'el modelo ve las frases numeradas')
+  assert.match(vio, /\[5\] No sé si esto/)
   const t = leerTanda(db, a.tanda.id)!
-  assert.equal(t.estado, 'hecha')
+  assert.equal(t.estado, 'hecha', t.error ?? '')
   const p = leerPieza(db, t.piezaId!)!
   assert.equal(p.nivel, 'propia')
   assert.equal(p.fecha, '2026-09-30')
   assert.match(p.titulo, /^Audio · 2026-09-30 · Charla del proyecto/)
-  assert.match(p.contenido, /^\[Jugador Prueba\] Yo creo/)
-  assert.match(p.contenido, /\n\[Ana\] Y yo te digo/)
+  assert.equal(p.contenido, '[Jugador Prueba] Yo creo que el proyecto tiene que salir este mes. Voy a terminar la escena siete mañana temprano.\n[Ana] Y yo te digo que mi viaje a Roma es lo primero. Vendí el auto la semana pasada.\n[¿?] No sé si esto lo dijo alguien más.')
   assert.ok(p.etiquetas.includes('varias-voces'))
-  assert.equal(aprendido.length, 1)
-  assert.ok(aprendido[0].includes('escena siete') && !aprendido[0].includes('Roma'), 'lo de Ana no se aprende como suyo')
+  assert.deepEqual(aprendido, ['Yo creo que el proyecto tiene que salir este mes. Voy a terminar la escena siete mañana temprano.'], 'ni lo de Ana ni lo dudoso')
 })
 
-test('tandas: si no se sabe cuál voz es él, no aprende; si el modelo resume en vez de copiar, se queda con todo', async () => {
+test('tandas: si no se sabe cuál es él, no aprende; si el modelo no da una voz por frase, una sola voz; una nota corta no gasta modelo', async () => {
   const db = abrir(':memory:')
-  const texto = 'Una charla larga entre varias personas sobre cosas de la oficina y otros temas variados. '.repeat(8)
-  _probarModelo(async () => ({ texto: JSON.stringify({ voces: 2, operador: null, turnos: [{ voz: 'A', texto: texto.slice(0, 300) }, { voz: 'B', texto: texto.slice(300) }] }), llamadas: [], razonamiento: null, modelo: 'f', tokens: 1 }))
-  const v = await separarVoces(db, texto, 'Jugador')
+  const frases = Array.from({ length: 8 }, (_, i) => `Esta es la frase número ${i} de una charla larga entre varias personas.`)
+  const palabras = palabrasDe(frases)
+  _probarModelo(async () => ({ texto: JSON.stringify({ voces: 2, operador: null, frases: frases.map((_, i) => (i % 2 ? 'B' : 'A')) }), llamadas: [], razonamiento: null, modelo: 'f', tokens: 1 }))
+  const v = await separarVoces(db, frases.join(' '), 'Jugador', { palabras })
   assert.equal(v.operador, null)
+  assert.equal(v.turnos.length, 8)
   const aprendido: string[] = []
-  _probarTandas({ transcribir: async () => texto, escriba: async (_db, t) => { aprendido.push(t); return [] } })
+  _probarTandas({ transcribir: async () => ({ texto: frases.join(' '), palabras }), escriba: async (_db, t) => { aprendido.push(t); return [] } })
   encolar(db, { nombre: 'reunion.m4a', datos: Buffer.from('audio-2') })
   await procesarTandas(db)
-  assert.equal(aprendido.length, 0, 'de una grabación ajena no aprende nada')
+  assert.equal(aprendido.length, 0, 'de una grabación donde no se sabe cuál es él no aprende nada')
 
-  _probarModelo(async () => ({ texto: JSON.stringify({ voces: 1, operador: 'A', turnos: [{ voz: 'A', texto: 'resumen corto' }] }), llamadas: [], razonamiento: null, modelo: 'f', tokens: 1 }))
-  const r = await separarVoces(db, texto, 'Jugador')
-  assert.equal(r.turnos[0].texto, texto, 'no se pierde texto')
+  _probarModelo(async () => ({ texto: JSON.stringify({ voces: 2, operador: 'A', frases: ['A', 'B'] }), llamadas: [], razonamiento: null, modelo: 'f', tokens: 1 }))
+  const r = await separarVoces(db, frases.join(' '), 'Jugador', { palabras })
+  assert.deepEqual([r.voces, r.turnos.length, r.turnos[0].texto], [1, 1, frases.join(' ')], 'no se pierde texto')
+
+  _probarModelo(async () => { throw new Error('no debería llamar') })
+  const corta = await separarVoces(db, 'Hola, me acordé de algo.', 'Jugador', { palabras: palabrasDe(['Hola, me acordé de algo.']) })
+  assert.equal(corta.voces, 1)
+})
+
+test('voces: frases por puntuación o pausa; dos voces solo con tonos bien separados', () => {
+  const ps = [
+    { start: 0, end: 0.3, word: ' Hola,' }, { start: 0.3, end: 0.6, word: ' qué' }, { start: 0.6, end: 0.9, word: ' tal?' },
+    { start: 1.0, end: 1.3, word: ' Bien' }, { start: 2.0, end: 2.3, word: ' después' }, { start: 2.3, end: 2.6, word: ' sigo.' },
+  ]
+  assert.deepEqual(frases(ps).map((f) => f.texto), ['Hola, qué tal?', 'Bien', 'después sigo.'], 'la pausa de 0,7 s también corta')
+  const fs3 = Array.from({ length: 6 }, (_, i) => ({ desde: i * 2, hasta: i * 2 + 1.5, texto: `f${i}`, palabras: 4 }))
+  const r = (tono: number) => ({ tono, timbre: Array(12).fill(0), sonoros: 10 })
+  const graveAguda = agruparFrases(fs3, [12, 12.5, 20, 19.5, 12.2, 20.3].map(r))
+  assert.equal(graveAguda.dos, true)
+  assert.deepEqual(graveAguda.etiquetas.map((e) => (e === graveAguda.etiquetas[0] ? 'x' : 'y')).join(''), 'xxyyxy')
+  assert.equal(agruparFrases(fs3, [13, 15, 17, 14, 16, 13.5].map(r)).dos, false, 'la entonación de una persona no son dos voces')
+  assert.equal(agruparFrases(fs3, [12, 12, 12, 12, 12, 20].map(r)).dos, true)
+  assert.equal(agruparFrases(fs3.slice(0, 2), [12, 20].map(r)).dos, false, 'con muy pocas frases no opina')
 })
 
 test('tandas: páginas de cuaderno con hoja automática y visión', async () => {
