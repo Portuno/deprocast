@@ -7,6 +7,7 @@ const VISTAS = {
   jugador: { montar: montarJugador, refrescar: refrescarJugador },
   personas: { montar: montarPersonas, refrescar: refrescarPersonas },
   directo: { montar: montarDirecto, refrescar: refrescarDirecto },
+  salud: { montar: montarSalud, refrescar: () => {} },
   radar: { montar: montarRadar, refrescar: refrescarRadar },
   taller: { montar: montarTaller, refrescar: refrescarTaller },
   cuentas: { montar: montarCuentas, refrescar: refrescarCuentas },

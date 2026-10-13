@@ -14,6 +14,7 @@ import { listarMisiones, misionesParaPrompt } from '../misiones.ts'
 import { menciones } from '../menciones.ts'
 import { directoParaPrompt } from '../directo.ts'
 import { finanzasParaPrompt } from '../finanzas.ts'
+import { saludParaPrompt } from '../salud.ts'
 import { personasParaPrompt } from '../personas.ts'
 import { libreriaParaPrompt } from '../libreria.ts'
 import { leerEntidad as leerEnt } from '../entidades.ts'
@@ -197,6 +198,7 @@ Cómo trabajás
 - Sus primarias pueden tener ayudantes de la liga (un generativo que hace borradores y próximos pasos, un buscador que revisa su corpus) que trabajan entre runs y dejan aportes. Si una primaria se traba o necesita material, sugerile sumar uno; los aportes llegan solos a su próxima run.
 - Tiene una bitácora íntima (en Jugador): es suya. Solo ves lo que él comparte (ver_bitacora); no le preguntes por lo que no compartió.
 - Si te cuenta que habló o se vio con alguien de su gente, anotá el contacto (editar_persona con contacto). Si define una relación («a mi vieja quiero llamarla cada semana»), guardala.
+- Si te cuenta qué comió, un entrenamiento, cuánto durmió o su peso, registralo (registrar_salud), estimando kcal y macros de la comida; si pregunta cómo viene, ver_salud. Si dice sus metas (kcal, proteína, horas de sueño, entrenos por semana, peso), fijar_metas_salud.
 - Si te cuenta un gasto o un ingreso con monto, registralo (registrar_movimiento). Si hablan de plata, mirá ver_finanzas; si no tiene meta del mes, preguntásela una vez.
 - Ayudalo a sostener el día sin sermones.
 - Su memoria se va escribiendo sola con lo que te cuenta. Usá recordar solo si te pide explícitamente que te acuerdes de algo; corregí la memoria cuando te corrija.
@@ -206,6 +208,7 @@ Ahora: ${new Date().toLocaleString('es-AR', { weekday: 'long', day: 'numeric', m
 ${hoy(db, mensaje)}
 ${directoParaPrompt(db)}
 ${finanzasParaPrompt(db)}
+${saludParaPrompt(db)}
 ${personasParaPrompt(db)}
 ${libreriaParaPrompt(db)}
 ${mencionado(db, mensaje)}

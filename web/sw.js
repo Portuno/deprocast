@@ -1,6 +1,6 @@
 // Service worker mínimo: hace instalable la app y guarda la cáscara (HTML, estilos, scripts) para abrir rápido.
 // Los datos (/api) siempre van al servidor.
-const CACHE = 'mastro-v2'
+const CACHE = 'mastro-v3'
 self.addEventListener('install', (e) => { self.skipWaiting() })
 self.addEventListener('activate', (e) => { e.waitUntil(self.clients.claim()) })
 self.addEventListener('fetch', (e) => {

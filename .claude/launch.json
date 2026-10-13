@@ -20,7 +20,8 @@
         "data/prueba-ui.db",
         "--puerto",
         "7373",
-        "--sin-rutinas"
+        "--sin-rutinas",
+        "--sin-telegram"
       ],
       "port": 7373
     }

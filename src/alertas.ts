@@ -12,6 +12,7 @@ import { directoParaPrompt } from './directo.ts'
 import { personaje } from './personajes.ts'
 import { oportunidadesQueCierran } from './radar.ts'
 import { aContactar } from './personas.ts'
+import { alertasSalud } from './salud.ts'
 
 export type Alerta = { clave: string; texto: string }
 
@@ -51,6 +52,7 @@ export function alertasPendientes(db: Db, ahora = Date.now()): Alerta[] {
   for (const p of aContactar(db, ahora).slice(0, 1)) {
     out.push({ clave: `persona:${p.id}:${semanaDe(ahora)}`, texto: `Hace ${p.diasSinContacto ?? 'mucho'} días que no sabés de ${p.nombre}${p.cadaDias ? ` (querías cada ${p.cadaDias})` : ''}.${p.proxima ? ` Tenías pendiente: ${p.proxima}.` : ' ¿Le escribís?'}` })
   }
+  out.push(...alertasSalud(db, ahora))
   return out.filter((a) => !db.prepare('SELECT 1 FROM alertas WHERE clave = ?').get(a.clave))
 }
 

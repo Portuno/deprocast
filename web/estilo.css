@@ -1306,3 +1306,25 @@ a.mencion { color: var(--acento-texto); text-decoration: none; background: var(-
 .chat-compositor.soltando { outline: 2px dashed var(--acento); outline-offset: -4px; border-radius: 12px; }
 .m-imgs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; justify-content: flex-end; }
 .m-imgs img { max-width: 220px; max-height: 180px; border-radius: 8px; display: block; border: 1px solid var(--linea); }
+
+/* Salud */
+.sal-alta { gap: 8px; }
+.sal-nav { gap: 10px; margin: 6px 0 10px; }
+.sal-nav h2 { margin: 0; font-size: 18px; text-transform: capitalize; }
+.sal-barra { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.sal-pista { height: 6px; border-radius: 3px; background: var(--linea); overflow: hidden; }
+.sal-pista i { display: block; height: 100%; background: var(--acento); }
+.sal-pista i.lleno { background: var(--ok); }
+.sal-regs { display: flex; flex-direction: column; gap: 6px; }
+.sal-reg { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 6px; border-radius: 8px; background: var(--panel-2); }
+.sal-reg img { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; }
+.sal-reg .sal-ico { width: 48px; height: 48px; display: grid; place-items: center; font-size: 22px; }
+.sal-reg b { display: block; font-size: 14px; font-weight: 600; }
+.sal-reg small { display: block; font-size: 12px; }
+.sal-semana { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.sal-col { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; padding: 4px; border-radius: 8px; }
+.sal-col.hoy { background: var(--panel-2); }
+.sal-col-barra { position: relative; width: 100%; max-width: 34px; height: 90px; background: var(--linea); border-radius: 5px; overflow: hidden; display: flex; align-items: flex-end; }
+.sal-col-barra i { display: block; width: 100%; background: var(--acento); }
+.sal-col-barra s { position: absolute; left: 0; right: 0; border-top: 2px dashed var(--ok); }
+.sal-col small { font-size: 11px; color: var(--tenue); }

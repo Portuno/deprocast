@@ -10,10 +10,11 @@ import { memoriaParaPrompt } from './memoria.ts'
 import { aportes as aportesDe } from './ayudantes.ts'
 import { conAvance, listarMisiones, semanaDe, seguimientos } from './misiones.ts'
 import { pedirJson } from './modelo.ts'
+import { saludParaPrompt } from './salud.ts'
 
 const SISTEMA = `Sos Mastropiero y grabás el audio de la mañana para el jugador: lo escucha caminando, antes de arrancar.
 Escribí el guion para leer en voz alta, de 2 a 3 minutos (entre 300 y 450 palabras):
-- Primero, en dos o tres frases, cómo le fue ayer (si hay datos).
+- Primero, en dos o tres frases, cómo le fue ayer (si hay datos), incluido su cuerpo si hay datos (comió, entrenó, durmió), sin sermones.
 - Después qué tiene hoy: la agenda y la primaria que más conviene empujar, con su nombre.
 - Lo que la plataforma hizo sola de noche, solo si hay algo que él tenga que mirar (una forja lista para aplicar, aportes de sus ayudantes), en una frase.
 - Terminá con UNA pregunta concreta para que te conteste con una nota de voz.
@@ -49,6 +50,7 @@ export async function materialMatinal(db: Db, fecha: string, ahora = Date.now())
     primarias.length ? `Primarias de la semana: ${primarias.map((p) => `${p.titulo} (${p.avance.progreso}%)`).join(' · ')}` : 'No tiene primarias aceptadas esta semana.',
     deben.length ? `Le deben respuesta: ${deben.map((m) => m.titulo).join(' · ')}` : '',
     forjas.length ? `La Fragua dejó ${forjas.length} mejora${forjas.length > 1 ? 's' : ''} lista${forjas.length > 1 ? 's' : ''} para aplicar: ${forjas.map((f) => f.pedido.split('\n')[0].slice(0, 80)).join(' · ')}` : '',
+    saludParaPrompt(db, ahora),
     aportes.length ? `Aportes nuevos de sus ayudantes: ${aportes.map((a) => a.titulo).join(' · ')}` : '',
     `Lo que sabés de él:\n${memoriaParaPrompt(db, 20)}`,
   ].filter(Boolean).join('\n')

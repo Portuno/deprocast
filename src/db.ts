@@ -730,6 +730,20 @@ CREATE TABLE IF NOT EXISTS reportes (
   creado_en INTEGER NOT NULL
 );
 
+-- Salud: lo que come, el ejercicio, el sueño y las medidas (peso). Entra por foto o texto (Telegram, chat, pantalla).
+CREATE TABLE IF NOT EXISTS salud (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  fecha TEXT NOT NULL,                -- YYYY-MM-DD (el sueño: el día en que se despertó)
+  hora TEXT,                          -- HH:MM
+  tipo TEXT NOT NULL,                 -- comida | ejercicio | sueno | medida | sintoma | otro
+  titulo TEXT NOT NULL,
+  datos TEXT NOT NULL DEFAULT '{}',   -- JSON: kcal, proteina, carbos, grasa, minutos, intensidad, distancia_km, horas, calidad, peso…
+  foto TEXT,                          -- /adjuntos/<archivo>
+  fuente TEXT NOT NULL DEFAULT 'manual',
+  creado_en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS salud_fecha ON salud(fecha, tipo);
+
 -- Lo que se rompió (errores del servidor, rutas que no existen): la materia de la autocrítica. Uno por texto y día.
 CREATE TABLE IF NOT EXISTS errores (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -827,6 +841,11 @@ const AJUSTES_SISTEMA: Record<string, string> = {
   fragua_por_noche: '3', // cuántas propuestas forja la rutina «fragua» por noche; 0 = ninguna
   lectura_obras: '10', // cuántas obras de la Librería expande la lectura nocturna
   ayudantes_auto: '1', // cada primaria aceptada sin ayudante recibe uno solo; 0 = los suma él
+  salud_kcal_dia: '', // metas de salud; vacío = sin meta
+  salud_proteina_dia: '',
+  salud_sueno_horas: '',
+  salud_entrenos_semana: '',
+  salud_peso_objetivo: '',
 }
 
 /** Fuentes de fábrica. Estructura, no contenido: el corpus arranca vacío. */

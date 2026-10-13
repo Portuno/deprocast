@@ -7,6 +7,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { ATRIBUTOS, CLASE_IDS, CLASES } from '../clases.ts'
 import { fechaLocal, fijarAjuste, type Db } from '../db.ts'
+import { fijarMetasSalud, registrarSalud, resumenDia, resumenSemana, TIPOS_SALUD } from '../salud.ts'
 import { CATEGORIAS, listarMovimientos, registrarMovimiento, resumenMes } from '../finanzas.ts'
 import { guardarRelacion, personas, VINCULOS } from '../personas.ts'
 import { archivar, corregir, HORIZONTES, memoriaVigente, recordar, TIPOS_MEMORIA } from '../memoria.ts'
@@ -574,6 +575,29 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `anotó ${a.monto} € (${recorte(a.descripcion, 40)})`,
   },
   {
+    nombre: 'registrar_salud', familia: 'accion',
+    descripcion: 'Registra algo de su cuerpo que él cuenta: una comida (estimá kcal y macros en gramos con lo que dice), un entrenamiento, cuánto durmió o su peso. «almorcé milanesa con puré», «corrí 5 km en 30 min», «dormí 6 horas», «peso 82,4».',
+    parametros: S({
+      tipo: str('Qué es', { enum: [...TIPOS_SALUD] }), titulo: str('Corto; comida: «Almuerzo: milanesa con puré»'), fecha: str('YYYY-MM-DD; vacío = hoy (el sueño: el día en que se despertó)'), hora: str('HH:MM si la dice'),
+      kcal: { type: 'number' }, proteina: { type: 'number', description: 'gramos' }, carbos: { type: 'number', description: 'gramos' }, grasa: { type: 'number', description: 'gramos' },
+      minutos: { type: 'number' }, distancia_km: { type: 'number' }, intensidad: str('suave | media | fuerte'),
+      horas: { type: 'number', description: 'horas de sueño' }, calidad: int('sueño: 1 mal, 2 bien, 3 muy bien'), peso: { type: 'number', description: 'kg' },
+    }, ['tipo']),
+    ejecutar: (a, { db }) => {
+      const r = registrarSalud(db, { tipo: a.tipo, titulo: a.titulo, fecha: a.fecha, hora: a.hora, datos: a, fuente: 'chat' })
+      const d = resumenDia(db, r.fecha)
+      return { registrado: { id: r.id, tipo: r.tipo, titulo: r.titulo, datos: r.datos }, dia: { kcal: d.kcal, proteina: d.proteina, ejercicioMin: d.ejercicio.minutos, sueno: d.sueno, metas: d.metas } }
+    },
+    resumen: (a) => `anotó ${a.tipo === 'comida' ? 'una comida' : a.tipo === 'ejercicio' ? 'un entrenamiento' : a.tipo === 'sueno' ? 'el sueño' : 'una medida'}${a.titulo ? ` (${recorte(a.titulo, 40)})` : ''}`,
+  },
+  {
+    nombre: 'fijar_metas_salud', familia: 'accion',
+    descripcion: 'Fija sus metas de salud cuando las dice: kcal por día, gramos de proteína por día, horas de sueño, entrenos por semana, peso objetivo (kg). 0 borra una meta.',
+    parametros: S({ kcal: { type: 'number' }, proteina: { type: 'number' }, sueno: { type: 'number' }, entrenos: { type: 'number' }, peso: { type: 'number' } }),
+    ejecutar: (a, { db }) => fijarMetasSalud(db, a),
+    resumen: () => 'fijó sus metas de salud',
+  },
+  {
     nombre: 'fijar_meta_mes', familia: 'accion',
     descripcion: 'Fija su meta de ingresos por mes (en euros), cuando él la dice.',
     parametros: S({ euros: int('Euros por mes') }, ['euros']),
@@ -819,6 +843,16 @@ export const HERRAMIENTAS: Herramienta[] = [
     descripcion: 'Su gente: vínculo, último contacto, a quién quería ver más seguido, lo pendiente con cada una y lo que les asignó.',
     parametros: S({ q: str('Filtrar por nombre') }),
     ejecutar: (a, { db }) => personas(db, { q: a.q || undefined, limite: 30 }).map((p) => ({ id: p.id, nombre: p.nombre, vinculo: p.vinculo ?? undefined, ultimo: p.ultimoContacto ?? undefined, dias: p.diasSinContacto ?? undefined, vencida: p.vencida || undefined, proxima: p.proxima ?? undefined, misiones: p.misiones.length ? p.misiones : undefined })),
+  },
+  {
+    nombre: 'ver_salud', familia: 'lectura',
+    descripcion: 'Cómo viene su cuerpo: un día (comidas con kcal y macros, ejercicio, sueño, peso, contra sus metas) y los 7 días anteriores.',
+    parametros: S({ fecha: str('YYYY-MM-DD; vacío = hoy') }),
+    ejecutar: (a, { db }) => {
+      const fecha = a.fecha || fechaLocal()
+      const d = resumenDia(db, fecha)
+      return { ...d, registros: d.registros.map((r) => ({ hora: r.hora, tipo: r.tipo, titulo: r.titulo, datos: r.datos })), semana: resumenSemana(db, fecha) }
+    },
   },
   {
     nombre: 'ver_finanzas', familia: 'lectura',

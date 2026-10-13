@@ -20,7 +20,10 @@ import { pensar } from './alertas.ts'
 import { autorizado, cookieDeEntrada, enVercel, expuesto, host, leerFormulario, PAGINA_ENTRAR, validarAcceso } from './acceso.ts'
 import { alGuardar, bajarNube, esperarSubida, subirAhora } from './nube.ts'
 import { CONECTORES, guardarCuenta, leerAgente, listarCuentas, listarPublicaciones, MODOS, publicarPendientes, redactarPublicaciones, resolverPublicacion } from './cuentas.ts'
-import { decir as decirPorTelegram, escucharTelegram, estadoTelegram, latidoTelegram, telegramConfigurado } from './telegram.ts'
+import { decir as decirPorTelegram, escucharTelegram, estadoTelegram, latidoTelegram, telegramActivo, telegramConfigurado } from './telegram.ts'
+import { borrarSalud, editarSalud, fijarMetasSalud, registrarSalud, resumenDia, resumenSemana } from './salud.ts'
+import { clasificar, registrarCaptura } from './captura.ts'
+import { guardarFoto } from './chat/adjuntos.ts'
 import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, hayFfmpeg, iterarArtefacto, listarArtefactos, VOCES } from './taller.ts'
 import { guardarRelacion, personas } from './personas.ts'
 import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora.ts'
@@ -85,6 +88,8 @@ const iPuerto = process.argv.indexOf('--puerto')
 if (iPuerto > 0 && process.argv[iPuerto + 1]) process.env.MASTRO_PUERTO = process.argv[iPuerto + 1]
 // `--sin-rutinas` para levantar sin que Mastropiero haga cosas solo (pruebas, o hasta decidir).
 if (process.argv.includes('--sin-rutinas')) process.env.MASTRO_SIN_RUTINAS = '1'
+// `--sin-telegram` para una copia de prueba: lee el mismo .env, y si escucha el mismo bot las dos instancias contestan todo dos veces.
+if (process.argv.includes('--sin-telegram')) process.env.MASTRO_TELEGRAM = '0'
 
 if (enVercel()) await bajarNube()
 
@@ -450,6 +455,19 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/libreria\/(\d+)$/, (b, [o]) => editarObra(db, id(o), b) ?? { borrada: true }],
 
   // Telegram: estado del canal y un mensaje de prueba
+  // Salud: el día, la semana, los registros y las metas
+  ['GET', /^\/api\/salud$/, (_, __, q) => {
+    const fecha = /^\d{4}-\d{2}-\d{2}$/.test(q.get('fecha') ?? '') ? q.get('fecha')! : fechaLocal()
+    return { dia: resumenDia(db, fecha), semana: resumenSemana(db, fecha) }
+  }],
+  ['POST', /^\/api\/salud$/, (b) => registrarSalud(db, { ...b, fuente: 'pantalla' })],
+  ['POST', /^\/api\/salud\/metas$/, (b) => fijarMetasSalud(db, b)],
+  ['POST', /^\/api\/salud\/(\d+)$/, (b, [r]) => (b.borrar ? (borrarSalud(db, id(r)), { ok: true }) : editarSalud(db, id(r), b))],
+  // Captura con palabras («almorcé milanesa con ensalada», «gasté 12 en el súper»): se clasifica y se registra
+  ['POST', /^\/api\/captura$/, async (b) => {
+    const c = await clasificar(db, { texto: String(b.texto ?? '') })
+    return { captura: c, registrado: c.tipo !== 'otro' && c.confianza >= 0.5 ? registrarCaptura(db, c, { fuente: 'pantalla' }) : null }
+  }],
   ['GET', /^\/api\/telegram$/, () => ({ ...estadoTelegram(), voz: ajuste(db, 'telegram_voz'), bandas: ajuste(db, 'telegram_bandas') })],
   ['POST', /^\/api\/telegram\/probar$/, async () => {
     if (!telegramConfigurado()) throw new Error('Falta TELEGRAM_BOT_TOKEN en .env (y reiniciar)')
@@ -761,6 +779,13 @@ const servidor = http.createServer(async (req, res) => {
     res.setHeader('content-type', 'application/json; charset=utf-8')
     try {
       // Una imagen para el chat (cruda): se guarda, se describe y vuelve la marca para el mensaje.
+      // Una foto para registrar (una comida, un ticket, la balanza): cruda, con su explicación en ?texto=
+      if (req.method === 'POST' && url.pathname === '/api/captura/foto') {
+        const foto = guardarFoto(url.searchParams.get('nombre') || 'foto.jpg', await leerCrudo(req, 30 * 1024 * 1024))
+        const c = await clasificar(db, { imagen: { datos: foto.datos, mime: foto.mime }, texto: url.searchParams.get('texto') || '' })
+        const registrado = c.tipo !== 'otro' && c.confianza >= 0.5 ? registrarCaptura(db, c, { foto: foto.url, fuente: 'pantalla' }) : null
+        return void res.end(JSON.stringify({ captura: c, registrado, foto: foto.url }))
+      }
       if (req.method === 'POST' && url.pathname === '/api/chat/imagen') {
         const r = await guardarImagen(db, url.searchParams.get('nombre') || 'imagen', await leerCrudo(req, 30 * 1024 * 1024))
         return void res.end(JSON.stringify(r))
@@ -922,7 +947,7 @@ if (!enVercel()) {
   retomarFragua(db)
   void procesarTandas(db).catch(() => {})
 }
-if (telegramConfigurado() && !enVercel()) {
+if (telegramActivo() && !enVercel()) {
   escucharTelegram(db)
   setInterval(() => void latidoTelegram(db).catch(() => {}), 60_000).unref()
   alDecirSolo((texto) => void decirPorTelegram(texto).catch(() => {}))

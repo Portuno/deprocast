@@ -15,7 +15,7 @@ import { forjarPendientes } from './fragua.ts'
 import { expandirTanda, paraExpandir } from './libreria.ts'
 import { guionMatinal } from './matinal.ts'
 import { sintetizar } from './taller.ts'
-import { mandarAudio, telegramConfigurado } from './telegram.ts'
+import { mandarAudio, preguntarSueno, telegramActivo } from './telegram.ts'
 import { calificarDia, predecirDia, textoDeCalificacion } from './gemelo.ts'
 import { buscarOportunidades } from './radar.ts'
 import { enEspera, reanudarIngesta } from './bus.ts'
@@ -200,10 +200,11 @@ export const ACCIONES: Acciones = {
     if (topeAlcanzado(db, ahora)) return null
     const guion = await guionMatinal(db, fecha, ahora)
     let enAudio = false
-    if (telegramConfigurado()) {
+    if (telegramActivo()) {
       try { enAudio = await mandarAudio(await sintetizar(guion), 'La mañana', '🎧 La mañana. Contestame con una nota de voz.') } catch { /* sin voz: va el texto */ }
     }
     mensajeDeMastropiero(db, conversacionHoy(db).id, `🎧 **La mañana**${enAudio ? ' (te lo mandé en audio por Telegram)' : ''}\n\n${guion}`, { canales: !enAudio })
+    await preguntarSueno(db, ahora).catch(() => {})
     return null
   },
   /** El domingo a la noche: el reporte de la semana que termina. */

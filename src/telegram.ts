@@ -17,6 +17,10 @@ import { ingerir } from './mastropiero.ts'
 import { registrarMovimiento, resumenMes, importarCSV } from './finanzas.ts'
 import { escribir } from './bitacora.ts'
 import { buscarHibrido } from './semantica.ts'
+import { clasificar, deshacerCaptura, PARECE_REGISTRO, registrarCaptura, type Captura } from './captura.ts'
+import { guardarFoto, leerFoto } from './chat/adjuntos.ts'
+import { registrarSalud, resumenDia } from './salud.ts'
+import { registrarError } from './autocritica.ts'
 import { cribar, marcador, siguiente } from './criba.ts'
 import { responderPregunta, siguientePregunta } from './preguntas.ts'
 import { descartar, ejecutar, leerCarga, subir } from './cargas/index.ts'
@@ -59,6 +63,11 @@ export function _probarTelegram(o: { pedir?: typeof pedir; bajar?: typeof bajar;
 }
 
 export const telegramConfigurado = () => !!process.env.TELEGRAM_BOT_TOKEN
+/**
+ * Un bot, un dueño: si dos instancias (la compu y la nube) escuchan el mismo bot, las dos contestan lo mismo.
+ * En la nube (MASTRO_NUBE=1) Telegram está apagado salvo MASTRO_TELEGRAM=1; en la compu, MASTRO_TELEGRAM=0 lo apaga.
+ */
+export const telegramActivo = () => telegramConfigurado() && (process.env.MASTRO_TELEGRAM != null ? process.env.MASTRO_TELEGRAM !== '0' : process.env.MASTRO_NUBE !== '1')
 const suChat = () => process.env.TELEGRAM_CHAT_ID?.trim() || null
 
 const estado = { escuchando: false, ultimoMensaje: null as number | null, ultimoError: null as string | null }
@@ -97,10 +106,21 @@ function pedazos(texto: string, max = 3500): string[] {
 type Botones = { texto: string; dato: string }[][]
 const teclado = (b?: Botones) => (b ? { reply_markup: { inline_keyboard: b.map((f) => f.map((x) => ({ text: x.texto, callback_data: x.dato }))) } } : {})
 
+/** Lo último que se mandó (texto → cuándo): el mismo mensaje largo dos veces en 2 minutos no sale dos veces. */
+const recientes = new Map<string, number>()
+function repetido(texto: string, ahora = Date.now()): boolean {
+  if (texto.length < 40) return false // «Anotado. ✓» puede repetirse
+  for (const [k, t] of recientes) if (ahora - t > 120_000) recientes.delete(k)
+  if (recientes.has(texto)) return true
+  recientes.set(texto, ahora)
+  return false
+}
+
 /** Manda un texto a su chat, con formato y botones opcionales. Devuelve el id del último mensaje. */
 export async function decir(texto: string, botones?: Botones): Promise<number | null> {
   const chat = suChat()
-  if (!telegramConfigurado() || !chat || !texto.trim()) return null
+  if (!telegramActivo() || !chat || !texto.trim()) return null
+  if (!botones && repetido(texto.trim())) return null
   const partes = pedazos(texto.replace(/\[#\d+\]/g, '').trim())
   let id: number | null = null
   for (const [i, p] of partes.entries()) {
@@ -115,7 +135,7 @@ export async function decir(texto: string, botones?: Botones): Promise<number | 
 /** Manda un audio (mp3) a su chat, con un texto corto debajo. */
 export async function mandarAudio(datos: Buffer, titulo: string, texto?: string): Promise<boolean> {
   const chat = suChat()
-  if (!telegramConfigurado() || !chat) return false
+  if (!telegramActivo() || !chat) return false
   const r = await mandarArchivo('sendAudio', { chat_id: chat, title: titulo, ...(texto ? { caption: texto.slice(0, 1000) } : {}) }, 'audio', datos, 'mastropiero.mp3')
   return !!r?.ok
 }
@@ -123,6 +143,39 @@ export async function mandarAudio(datos: Buffer, titulo: string, texto?: string)
 async function editar(mensajeId: number, texto: string, botones?: Botones) {
   const r = await pedir('editMessageText', { chat_id: suChat(), message_id: mensajeId, text: aHtml(texto), parse_mode: 'HTML', disable_web_page_preview: true, ...teclado(botones) })
   if (r && r.ok === false) await decir(texto, botones)
+}
+
+// ─── captura: fotos y textos que se registran solos ──────────────────────
+
+/** mensaje de Telegram → lo que se registró, para que responder «a ese mensaje» lo corrija. */
+const capturasEnviadas = new Map<number, { tabla: string; id: number; texto: string; foto: string | null }>()
+
+/** Si lo clasificado es un registro, lo anota y contesta con una línea (y ↩ para deshacer). false = no era un registro. */
+async function registrarYContar(db: Db, c: Captura | null, o: { foto?: string | null; texto: string; umbral?: number }): Promise<boolean> {
+  if (!c || c.tipo === 'otro' || c.confianza < (o.umbral ?? 0.7)) return false
+  const r = registrarCaptura(db, c, { foto: o.foto, fuente: 'telegram' })
+  if (!r) return false
+  const id = await decir(`${r.resumen}\n_Respondé a este mensaje para corregir._`, [[{ texto: '↩ Deshacer', dato: `x:${r.tabla === 'salud' ? 's' : 'm'}:${r.id}` }]])
+  if (id) capturasEnviadas.set(id, { tabla: r.tabla, id: r.id, texto: o.texto, foto: o.foto ?? null })
+  return true
+}
+
+/** Su corrección a un registro: se borra el anterior y se vuelve a clasificar con lo que dijo (y la foto, si había). */
+async function corregirCaptura(db: Db, previa: { tabla: string; id: number; texto: string; foto: string | null }, correccion: string) {
+  deshacerCaptura(db, previa.tabla, previa.id)
+  const imagen = previa.foto ? leerFoto(previa.foto) ?? undefined : undefined
+  const texto = `${previa.texto}\nCorrección del jugador (manda sobre lo anterior): ${correccion}`.trim()
+  const c = await clasificar(db, { imagen, texto }).catch(() => null)
+  if (!(await registrarYContar(db, c, { foto: previa.foto, texto, umbral: 0.4 }))) await decir('Lo borré, pero no entendí la corrección. Mandámelo de nuevo como querés que quede.')
+}
+
+/** A la mañana: ¿cuánto dormiste?, con botones (si ya lo anotó, nada). */
+export async function preguntarSueno(db: Db, ahora = Date.now()) {
+  if (!telegramActivo() || !suChat() || resumenDia(db, fechaLocal(ahora)).sueno?.horas != null) return
+  await decir('😴 ¿Cuánto dormiste anoche?', [
+    [{ texto: '≤5 h', dato: 'z:h:5' }, { texto: '6 h', dato: 'z:h:6' }, { texto: '7 h', dato: 'z:h:7' }, { texto: '8 h', dato: 'z:h:8' }, { texto: '9+ h', dato: 'z:h:9' }],
+    [{ texto: '😩 Mal', dato: 'z:c:1' }, { texto: '🙂 Bien', dato: 'z:c:2' }, { texto: '💪 Muy bien', dato: 'z:c:3' }],
+  ])
 }
 
 // ─── la run ─────────────────────────────────────────────────────────────
@@ -276,6 +329,15 @@ async function boton(db: Db, q: any) {
   await pedir('answerCallbackQuery', { callback_query_id: q.id }).catch(() => {})
   const [k, a, b] = String(q.data ?? '').split(':')
   const mensajeId = q.message?.message_id
+  if (k === 'x') {
+    deshacerCaptura(db, a === 's' ? 'salud' : 'movimientos', Number(b))
+    if (mensajeId) capturasEnviadas.delete(mensajeId)
+    return mensajeId ? editar(mensajeId, '↩ Deshecho: no quedó anotado.') : decir('↩ Deshecho.')
+  }
+  if (k === 'z') {
+    const r = registrarSalud(db, { tipo: 'sueno', datos: a === 'h' ? { horas: Number(b) } : { calidad: Number(b) }, fuente: 'telegram' })
+    return decir(`😴 ${r.titulo}${r.datos.calidad ? ` (${['', 'mal', 'bien', 'muy bien'][r.datos.calidad]})` : ''}. Anotado.`)
+  }
   if (k === 'm') {
     const m = marcarSecundaria(db, Number(a), b as any)
     return decir(`Marcada «${m.titulo}» como ${b === 'parcial' ? 'a medias' : b}.`)
@@ -356,6 +418,12 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
   estado.ultimoMensaje = Date.now()
   if (u.callback_query) return boton(db, u.callback_query)
   const texto: string | undefined = msg.text ?? msg.caption
+  // Responder a un registro que anotó (una comida, un gasto): lo corrige.
+  const aCaptura = msg.reply_to_message ? capturasEnviadas.get(msg.reply_to_message.message_id) : undefined
+  if (aCaptura && texto) {
+    capturasEnviadas.delete(msg.reply_to_message.message_id)
+    return corregirCaptura(db, aCaptura, texto)
+  }
   // Responder a una pregunta que mandó: la contesta.
   const aPregunta = msg.reply_to_message ? preguntasEnviadas.get(msg.reply_to_message.message_id) : undefined
   if (aPregunta && texto) {
@@ -374,12 +442,21 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
     const { datos, nombre } = await bajar(voz.file_id)
     const t = await transcribir(db, datos, nombre.endsWith('.oga') ? nombre.replace(/\.oga$/, '.ogg') : nombre)
     if (!t.trim()) return decir('No entendí el audio.')
+    if (PARECE_REGISTRO.test(t) && (await registrarYContar(db, await clasificar(db, { texto: t }).catch(() => null), { texto: t }))) return
     return conversar(db, t, { porVoz: true })
   }
   if (msg.photo?.length) {
-    const { datos } = await bajar(msg.photo.at(-1).file_id)
-    const descripcion = await ver(db, datos)
+    // Una foto (una comida, un ticket, la balanza…): se registra sola si es un registro; si no, se charla.
+    const { datos, nombre } = await bajar(msg.photo.at(-1).file_id)
+    let foto: ReturnType<typeof guardarFoto> | null = null
+    try { foto = guardarFoto(nombre, datos) } catch { /* sin ffmpeg ni nada raro: se sigue con la original */ }
+    const c = await clasificar(db, { imagen: foto ? { datos: foto.datos, mime: foto.mime } : { datos, mime: 'image/jpeg' }, texto }).catch(() => null)
+    if (await registrarYContar(db, c, { foto: foto?.url ?? null, texto: texto ?? '' })) return
+    const descripcion = c?.descripcion || await ver(db, datos)
     return conversar(db, `(Te mandé una foto por Telegram. Lo que se ve: ${descripcion})${texto ? `\n${texto}` : ''}`)
+  }
+  if (texto && !/https?:\/\//.test(texto) && PARECE_REGISTRO.test(texto)) {
+    if (await registrarYContar(db, await clasificar(db, { texto }).catch(() => null), { texto })) return
   }
   if (texto) {
     // Un link (un reel, una nota): entra al corpus como compartido, y además lo charlamos.
@@ -391,13 +468,23 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
 
 let offset = 0
 /** El bucle de long polling: pregunta, procesa de a una (en orden), y vuelve a preguntar. */
+let dbDeError: Db | null = null
 export function escucharTelegram(db: Db) {
-  if (estado.escuchando || !telegramConfigurado()) return
+  if (estado.escuchando || !telegramActivo()) return
   estado.escuchando = true
+  dbDeError = db
   void pedir('setMyCommands', { commands: COMANDOS.map(([command, description]) => ({ command, description })) }).catch(() => {})
   const vuelta = async () => {
     try {
       const r = await pedir('getUpdates', { offset, timeout: 50, allowed_updates: ['message', 'edited_message', 'callback_query'] })
+      if (r?.ok === false && (r.error_code === 409 || /conflict/i.test(r.description ?? ''))) {
+        // Otra instancia escucha el mismo bot: las dos contestarían lo mismo. Se avisa y se espera más.
+        estado.ultimoError = 'Otra instancia está escuchando este bot (¿la compu y la nube a la vez?). Dejá Telegram prendido en una sola.'
+        if (dbDeError) registrarError(dbDeError, 'servidor', `telegram: ${estado.ultimoError}`)
+        await new Promise((ok) => setTimeout(ok, 60_000))
+        if (estado.escuchando) setTimeout(vuelta, 300)
+        return
+      }
       if (r?.ok === false) throw new Error(r.description ?? 'Telegram dijo que no')
       estado.ultimoError = null
       for (const u of r.result ?? []) {

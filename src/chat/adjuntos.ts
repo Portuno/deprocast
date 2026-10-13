@@ -25,8 +25,8 @@ export function _probarAdjuntos(f: typeof describir) {
 
 const limpia = (d: string) => d.replace(/[[\]|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 700)
 
-/** Guarda la imagen (achicada a JPEG si hace falta) y la describe. Devuelve la marca para el mensaje. */
-export async function guardarImagen(db: Db, nombre: string, datos: Buffer, ahora = Date.now()): Promise<{ url: string; descripcion: string; marca: string }> {
+/** Guarda una imagen en data/adjuntos (achicada a JPEG si hace falta). La usan el chat y la captura (comidas, tickets). */
+export function guardarFoto(nombre: string, datos: Buffer, ahora = Date.now()): { url: string; datos: Buffer; mime: string } {
   if (!datos.length) throw new Error('La imagen está vacía')
   if (datos.length > 25 * 1024 * 1024) throw new Error('La imagen pesa más de 25 MB')
   const tmp = path.join(os.tmpdir(), `mastro-adj-${ahora}-${path.basename(nombre || 'imagen').replace(/[^\w.-]/g, '_')}`)
@@ -37,9 +37,21 @@ export async function guardarImagen(db: Db, nombre: string, datos: Buffer, ahora
   const archivo = `${ahora}-${crypto.createHash('sha1').update(img.datos).digest('hex').slice(0, 10)}.${ext}`
   fs.mkdirSync(dirAdjuntos(), { recursive: true })
   fs.writeFileSync(path.join(dirAdjuntos(), archivo), img.datos)
+  return { url: `/adjuntos/${archivo}`, datos: img.datos, mime: img.mime }
+}
+
+/** Una foto guardada, para volver a mirarla (la corrección de una captura). */
+export function leerFoto(url: string): { datos: Buffer; mime: string } | null {
+  const archivo = path.join(dirAdjuntos(), path.basename(url))
+  if (!fs.existsSync(archivo)) return null
+  return { datos: fs.readFileSync(archivo), mime: archivo.endsWith('.png') ? 'image/png' : archivo.endsWith('.webp') ? 'image/webp' : 'image/jpeg' }
+}
+
+/** Guarda la imagen (achicada a JPEG si hace falta) y la describe. Devuelve la marca para el mensaje. */
+export async function guardarImagen(db: Db, nombre: string, datos: Buffer, ahora = Date.now()): Promise<{ url: string; descripcion: string; marca: string }> {
+  const { url, datos: jpeg, mime } = guardarFoto(nombre, datos, ahora)
   let descripcion = ''
-  try { descripcion = limpia(await describir(db, img.datos, img.mime)) } catch { /* sin descripción: igual se ve en el turno */ }
-  const url = `/adjuntos/${archivo}`
+  try { descripcion = limpia(await describir(db, jpeg, mime)) } catch { /* sin descripción: igual se ve en el turno */ }
   return { url, descripcion, marca: `[imagen:${url}|${descripcion || 'sin descripción'}]` }
 }
 

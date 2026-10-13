@@ -14,6 +14,7 @@ import { metricas, momentos } from './directo.ts'
 import { agendaDelDia } from './calendario.ts'
 import { encolarPregunta } from './preguntas.ts'
 import { perfilDeRendimiento, textoDeRendimiento } from './rendimiento.ts'
+import { saludParaPrompt } from './salud.ts'
 
 export type Brujula = { fecha: string; cuerpo: string; mente: string; alma: string; foco: string; pregunta: string | null; creadaEn: number }
 const deFila = (r: any): Brujula => ({ fecha: r.fecha, cuerpo: r.cuerpo, mente: r.mente, alma: r.alma, foco: r.foco, pregunta: r.pregunta, creadaEn: r.creada_en })
@@ -54,14 +55,15 @@ export async function reunirDatos(db: Db, ahora = Date.now()): Promise<{ texto: 
     principal ? `Su misión principal: ${principal.titulo}.` : '',
     prims.length ? `Primarias de la semana: ${prims.map((m) => m.titulo).join('; ')}.` : '',
     rinde ? `Cómo rinde según sus runs:\n${rinde}` : '',
+    saludParaPrompt(db, ahora),
     memoria ? `Lo que sabés de él:\n${memoria}` : '',
   ].filter(Boolean)
-  return { texto: partes.join('\n'), poco: !p.total && !directo && !animo.length && !prims.length }
+  return { texto: partes.join('\n'), poco: !p.total && !directo && !animo.length && !prims.length && !saludParaPrompt(db, ahora) }
 }
 
 const SISTEMA = `Sos Mastropiero hablando como la Brújula: le das al jugador el tridente del día para arrancar. No es una lista de tareas.
 Forma: {"cuerpo": string, "mente": string, "alma": string, "foco": string, "pregunta": string | null}
-- «cuerpo» (Trinchera): cómo cuidar el cuerpo y la energía hoy (horas buenas, pausas, moverse), según lo que se sabe.
+- «cuerpo» (Trinchera): cómo cuidar el cuerpo y la energía hoy (horas buenas, pausas, moverse, comer, dormir), según lo que se sabe; si hay datos de su cuerpo (comida, ejercicio, sueño, peso, metas), usalos con números.
 - «mente» (Campamento): dónde poner la cabeza hoy, conectado con sus primarias y su agenda.
 - «alma» (Castillo): el sentido del día en una frase, conectado con su principal o con lo que compartió.
 - «foco»: una sola cosa que, si la hace, el día ya valió.
