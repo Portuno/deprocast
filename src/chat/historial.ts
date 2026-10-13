@@ -17,6 +17,7 @@
 import type { Db } from '../db.ts'
 import { llamarModelo } from '../modelo.ts'
 import type { Mensaje } from './index.ts'
+import { comoTexto as imagenComoTexto, conImagenes } from './adjuntos.ts'
 
 export const TOPE_VENTANA_HERRAMIENTA = 12_000
 export const ELIDIR_DESDE = 800
@@ -54,9 +55,9 @@ function bloques(ms: Mensaje[]): Bloque[] {
   return out
 }
 
-function aModelo(b: Bloque, o: { reciente: boolean; turnoEnCurso: boolean }): MsjModelo[] {
+function aModelo(b: Bloque, o: { reciente: boolean; turnoEnCurso: boolean; verImagenes?: boolean }): MsjModelo[] {
   return b.mensajes.map((m): MsjModelo => {
-    if (m.rol === 'operador') return { role: 'user', content: m.texto ?? '' }
+    if (m.rol === 'operador') return { role: 'user', content: o.verImagenes ? conImagenes(m.texto ?? '') : imagenComoTexto(m.texto ?? '') }
     if (m.rol === 'herramienta') {
       const t = m.texto ?? ''
       return { role: 'tool', tool_call_id: m.llamadaId, content: o.reciente ? recorte(t, TOPE_VENTANA_HERRAMIENTA) : t.length > ELIDIR_DESDE ? stub(t.length) : t }
@@ -98,14 +99,15 @@ const comoTexto = (bs: Bloque[]) => bs.flatMap((b) => b.mensajes).map((m) => {
  * Arma el historial para el próximo llamado. `cid` sirve para recordar el resumen (null: sin resumen recordado);
  * `resumirViejo` en false (el diario) solo elide y, si hace falta, descarta.
  */
-export async function armarHistorial(db: Db, ms: Mensaje[], o: { cid?: number | null; resumirViejo?: boolean } = {}): Promise<MsjModelo[]> {
+export async function armarHistorial(db: Db, ms: Mensaje[], o: { cid?: number | null; resumirViejo?: boolean; verImagenes?: boolean } = {}): Promise<MsjModelo[]> {
   const bs = bloques(ms)
   // La ventana reciente arranca en el anteúltimo mensaje del operador (sus dos últimos turnos).
   const operadores = bs.map((b, i) => (b.mensajes[0].rol === 'operador' ? i : -1)).filter((i) => i >= 0)
   const inicioReciente = operadores.length >= 2 ? operadores.at(-2)! : operadores.length ? operadores[0] : Math.max(0, bs.length - 1)
   const ultimoOperador = operadores.at(-1) ?? -1
   let medio = bs.slice(0, inicioReciente)
-  const reciente = bs.slice(inicioReciente).flatMap((b, k) => aModelo(b, { reciente: true, turnoEnCurso: inicioReciente + k > ultimoOperador }))
+  // Las imágenes se ven solo en el mensaje que se acaba de mandar; las anteriores viajan como su descripción.
+  const reciente = bs.slice(inicioReciente).flatMap((b, k) => aModelo(b, { reciente: true, turnoEnCurso: inicioReciente + k > ultimoOperador, verImagenes: o.verImagenes && inicioReciente + k === ultimoOperador }))
   const armar = (resumen: string | null) => [
     ...(resumen ? [{ role: 'system', content: `Resumen de lo anterior de esta conversación (lo armaste vos para no perder el hilo):\n${resumen}` }] : []),
     ...medio.flatMap((b) => aModelo(b, { reciente: false, turnoEnCurso: false })),

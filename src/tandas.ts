@@ -217,7 +217,7 @@ Forma: {"titulo": string (máx. 60: el título de la página si tiene, o de qué
 - Si la página está en blanco o no es una página de cuaderno, transcripcion vacía y legible 0.`
 
 /** Fotos enormes o en formatos raros (HEIC): a JPEG de hasta 2000 px con ffmpeg, si hace falta y se puede. */
-function aJpeg(ruta: string, bytes: number): { datos: Buffer; mime: string } {
+export function aJpeg(ruta: string, bytes: number): { datos: Buffer; mime: string } {
   const ext = path.extname(ruta).toLowerCase()
   const directo = ['.jpg', '.jpeg', '.png', '.webp'].includes(ext) && bytes <= 4 * 1024 * 1024
   if (directo) return { datos: fs.readFileSync(ruta), mime: ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg' }

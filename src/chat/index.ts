@@ -4,6 +4,7 @@
  * Todo se guarda mensaje a mensaje, así la pantalla ve el avance mientras el turno corre.
  */
 import { armarHistorial } from './historial.ts'
+import { comoTexto } from './adjuntos.ts'
 import { fechaLocal, type Db } from '../db.ts'
 import { CLASES } from '../clases.ts'
 import { asientos, especializacion } from '../auditor.ts'
@@ -320,8 +321,8 @@ export async function enviar(db: Db, cid: number, texto: string): Promise<void> 
   enVivo.set(cid, vivo)
   try {
     guardar(db, cid, { rol: 'operador', texto: texto.trim() })
-    if (!c.titulo) db.prepare('UPDATE conversaciones SET titulo = ? WHERE id = ?').run(recorte(texto.trim().replace(/\s+/g, ' '), 60), cid)
-    const previos = await armarHistorial(db, mensajes(db, cid), { cid, resumirViejo: !(c.con === MASTROPIERO && c.modo === 'diario') })
+    if (!c.titulo) db.prepare('UPDATE conversaciones SET titulo = ? WHERE id = ?').run(recorte(comoTexto(texto.trim()).replace(/\s+/g, ' '), 60), cid)
+    const previos = await armarHistorial(db, mensajes(db, cid), { cid, resumirViejo: !(c.con === MASTROPIERO && c.modo === 'diario'), verImagenes: true })
     const alGuardar = (m: Partial<Mensaje> & { rol: Mensaje['rol'] }) => guardar(db, cid, m)
     if (c.con === MASTROPIERO && c.modo === 'diario') {
       // Lo que cuenta en el diario es su voz: entra al corpus como propia.
@@ -350,7 +351,7 @@ export async function enviar(db: Db, cid: number, texto: string): Promise<void> 
     enVivo.delete(cid)
   }
   // Lo que vale recordar de lo que dijo (solo con Mastropiero; nunca de lo que dicen otros). No frena la respuesta.
-  if (c.con === MASTROPIERO) await escriba(db, texto, cid)
+  if (c.con === MASTROPIERO) await escriba(db, comoTexto(texto), cid)
 }
 
 /** Inyectable: en la app corre en segundo plano; en tests, se puede esperar o apagar. */

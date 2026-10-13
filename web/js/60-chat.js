@@ -1,7 +1,7 @@
 'use strict'
 // Chat
 
-const chat = { conversaciones: [], actual: null, mensajes: [], pensando: false, sondeo: null, borrador: '' }
+const chat = { conversaciones: [], actual: null, mensajes: [], pensando: false, sondeo: null, borrador: '', adjuntos: [] }
 
 /** Markdown mínimo y seguro: se escapa todo primero; después se marcan bloques, tablas, listas y referencias. */
 function md(texto) {
@@ -26,16 +26,26 @@ function md(texto) {
       while (i < lineas.length && /^\s*\|.*\|\s*$/.test(lineas[i])) filas.push(celdas(lineas[i++]))
       i--
       out.push(`<table><tr>${cab.map((c) => `<th>${c}</th>`).join('')}</tr>${filas.map((f) => `<tr>${f.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</table>`)
-    } else if (/^\s*[-*] /.test(l)) {
+    } else if (/^\s*[-*] /.test(l) || /^\s*\d+[.)] /.test(l)) {
+      // Una lista sigue aunque haya líneas en blanco entre los puntos (el modelo suele separarlos así), y las
+      // líneas con sangría debajo de un punto son parte de ese punto. Así la numeración no vuelve a 1.
+      const numerada = /^\s*\d+[.)] /.test(l)
+      const marca = numerada ? /^\s*\d+[.)] / : /^\s*[-*] /
+      const inicio = numerada ? Number(l.match(/\d+/)[0]) : 1
       const items = []
-      while (i < lineas.length && /^\s*[-*] /.test(lineas[i])) items.push(lineas[i++].replace(/^\s*[-*] /, ''))
+      while (i < lineas.length) {
+        const x = lineas[i]
+        if (marca.test(x)) { items.push(x.replace(marca, '')); i++; continue }
+        if (items.length && /^\s{2,}\S/.test(x)) { items[items.length - 1] += `<br>${x.trim()}`; i++; continue }
+        if (!x.trim()) {
+          let j = i
+          while (j < lineas.length && !lineas[j].trim()) j++
+          if (j < lineas.length && marca.test(lineas[j])) { i = j; continue }
+        }
+        break
+      }
       i--
-      out.push(`<ul>${items.map((x) => `<li>${x}</li>`).join('')}</ul>`)
-    } else if (/^\s*\d+[.)] /.test(l)) {
-      const items = []
-      while (i < lineas.length && /^\s*\d+[.)] /.test(lineas[i])) items.push(lineas[i++].replace(/^\s*\d+[.)] /, ''))
-      i--
-      out.push(`<ol>${items.map((x) => `<li>${x}</li>`).join('')}</ol>`)
+      out.push(numerada ? `<ol${inicio !== 1 ? ` start="${inicio}"` : ''}>${items.map((x) => `<li>${x}</li>`).join('')}</ol>` : `<ul>${items.map((x) => `<li>${x}</li>`).join('')}</ul>`)
     } else if (/^#{1,4} /.test(l)) out.push(`<h4>${l.replace(/^#+ /, '')}</h4>`)
     else if (/^&gt; /.test(l)) out.push(`<blockquote>${l.slice(5)}</blockquote>`)
     else if (!l.trim()) out.push('')
@@ -88,7 +98,9 @@ const hiloHTMLBase = () => `
   <div class="chat-compositor">
     ${E.chatConModelo ? '' : '<div class="aviso aviso-modelo">Sin modelo: Mastropiero necesita NAN_API_KEY en .env para conversar.</div>'}
     <div class="chat-acciones" id="chat-acciones" hidden></div>
+    <div class="chat-adjuntos" id="chat-adjuntos" hidden></div>
     <form id="chat-form">
+      <label class="btn btn-icono" id="chat-adjuntar" title="Adjuntar imágenes (también podés pegarlas con Ctrl+V o arrastrarlas)">📎<input type="file" accept="image/*" multiple hidden id="chat-img-in"></label>
       <label class="btn btn-icono" id="chat-audio" title="Subir un audio: se transcribe y entra como lo que contás" hidden>🎙<input type="file" accept="audio/*" hidden id="chat-audio-in"></label>
       <textarea id="chat-txt" rows="1" placeholder="Escribile a Mastropiero…" title="Enter envía. Shift+Enter, nueva línea."></textarea><button class="btn btn-primario" id="chat-enviar">Enviar</button>
     </form>
@@ -101,6 +113,20 @@ function engancharCompositor() {
   txt.oninput = () => { chat.borrador = txt.value; ajustar() }
   txt.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviarChat() } }
   $('#chat-form').onsubmit = (e) => { e.preventDefault(); enviarChat() }
+  $('#chat-img-in').onchange = (e) => { adjuntarImagenes([...e.target.files]); e.target.value = '' }
+  txt.onpaste = (e) => {
+    const imgs = [...(e.clipboardData?.files ?? [])].filter((f) => /^image\//.test(f.type))
+    if (imgs.length) { e.preventDefault(); adjuntarImagenes(imgs) }
+  }
+  const zona = $('.chat-compositor')
+  zona.ondragover = (e) => { if ([...e.dataTransfer.items].some((x) => x.kind === 'file')) { e.preventDefault(); zona.classList.add('soltando') } }
+  zona.ondragleave = () => zona.classList.remove('soltando')
+  zona.ondrop = (e) => {
+    zona.classList.remove('soltando')
+    const imgs = [...e.dataTransfer.files].filter((f) => /^image\//.test(f.type))
+    if (imgs.length) { e.preventDefault(); adjuntarImagenes(imgs) }
+  }
+  pintarAdjuntos()
   $('#chat-audio-in').onchange = async (e) => {
     const f = e.target.files[0]
     if (!f || !chat.actual) return
@@ -121,7 +147,7 @@ function engancharCompositor() {
 
 async function montarChat() {
   $('#principal').classList.add('lleno')
-  $('#principal').innerHTML = `<div class="chat"><aside class="chat-lado" id="chat-lado"></aside><section class="chat-main">${hiloHTMLBase()}</section></div>`
+  $('#principal').innerHTML = `<div class="chat ${pref.leer('mastro-chat-lado', 'no') === 'si' ? 'con-lado' : ''}" id="chat-vista"><aside class="chat-lado" id="chat-lado"></aside><section class="chat-main">${hiloHTMLBase()}</section></div>`
   engancharCompositor()
   await traerConversaciones()
   if (!chat.actual || chat.actual.modo === 'hoy' || !chat.conversaciones.some((c) => c.id === chat.actual.id)) {
@@ -228,8 +254,14 @@ function pintarChat() {
   const c = chat.actual
   const q = quienEs(c ?? { con: 'mastropiero' })
   const copiable = partirSeguir(ultimaRespuesta()).texto
-  $('#chat-cab').innerHTML = `<span class="avatar" style="--c:${q.color}">${q.glifo}</span><div class="chat-quien"><b>${esc(q.nombre)}</b><small>${esc(q.sub)}</small></div>
+  $('#chat-cab').innerHTML = `${$('#chat-vista') ? '<button class="btn btn-chico btn-icono" id="chat-ver-lado" type="button" title="Mostrar u ocultar las conversaciones">☰</button>' : ''}<span class="avatar" style="--c:${q.color}">${q.glifo}</span><div class="chat-quien"><b>${esc(q.nombre)}</b><small>${esc(q.sub)}</small></div>
     <div class="fila">${copiable ? '<button class="btn btn-chico" id="chat-copiar" type="button" title="Copiar la última respuesta">Copiar</button>' : ''}${c ? `<button class="btn btn-chico" id="chat-archivar" type="button" title="Sacar de la lista">Archivar</button>` : ''}</div>`
+  const verLado = $('#chat-ver-lado')
+  if (verLado) verLado.onclick = () => {
+    const v = $('#chat-vista')
+    v.classList.toggle('con-lado')
+    pref.guardar('mastro-chat-lado', v.classList.contains('con-lado') ? 'si' : 'no')
+  }
   const ar = $('#chat-archivar')
   if (ar) ar.onclick = async () => { await api(`/chat/${c.id}/archivar`, {}); chat.actual = null; await traerConversaciones(); pintarChat() }
   const copiar = $('#chat-copiar')
@@ -312,7 +344,7 @@ function hiloHTML(ms, q, vivo) {
 }
 
 function turnoHTML(t, q, vivo) {
-  let h = t.yo ? `<div class="m m-yo"><div>${conMenciones(esc(t.yo.texto))}</div></div>` : ''
+  let h = t.yo ? `<div class="m m-yo">${textoConImagenes(t.yo.texto)}</div>` : ''
   const actividad = t.herr.length ? `<details class="actividad"><summary><span>${esc(resumenActividad(t.herr))}</span></summary><ul>${t.herr.map((m) => {
     let cuerpo = m.texto ?? ''
     try { cuerpo = JSON.stringify(JSON.parse(cuerpo), null, 2) } catch {}
@@ -331,9 +363,40 @@ function turnoHTML(t, q, vivo) {
   return h + t.errores.map((m) => `<div class="m-error">${esc(m.texto)}</div>`).join('')
 }
 
+/** Sube cada imagen (se achica y se describe en el servidor) y la deja lista para mandar con el próximo mensaje. */
+async function adjuntarImagenes(archivos) {
+  for (const f of archivos) {
+    const a = { id: Math.random(), vista: URL.createObjectURL(f), subiendo: true, marca: null }
+    chat.adjuntos.push(a)
+    pintarAdjuntos()
+    try {
+      const r = await fetch(`/api/chat/imagen?nombre=${encodeURIComponent(f.name || 'imagen.png')}`, { method: 'POST', body: f }).then(async (x) => { const j = await x.json(); if (!x.ok) throw new Error(j.error); return j })
+      Object.assign(a, { subiendo: false, marca: r.marca, descripcion: r.descripcion })
+    } catch (e) { error(e); chat.adjuntos = chat.adjuntos.filter((x) => x !== a) }
+    pintarAdjuntos()
+  }
+}
+
+function pintarAdjuntos() {
+  const cont = $('#chat-adjuntos')
+  if (!cont) return
+  cont.hidden = !chat.adjuntos.length
+  cont.innerHTML = chat.adjuntos.map((a) => `<span class="adj ${a.subiendo ? 'subiendo' : ''}" title="${esc(a.descripcion ?? 'Subiendo y mirando la imagen…')}"><img src="${a.vista}" alt=""><button type="button" data-quitar-adj="${a.id}" title="Quitar">✕</button></span>`).join('')
+  $$('[data-quitar-adj]', cont).forEach((b) => (b.onclick = () => { chat.adjuntos = chat.adjuntos.filter((a) => String(a.id) !== b.dataset.quitarAdj); pintarAdjuntos() }))
+}
+
+/** Lo que escribió él, con sus imágenes como miniaturas (la marca [imagen:url|descripción] no se muestra). */
+function textoConImagenes(texto) {
+  const imgs = []
+  const limpio = String(texto ?? '').replace(/\[imagen:(\/adjuntos\/[^\]|\s]+)\|([^\]]*)\]/g, (_, url, d) => { imgs.push({ url, d }); return '' }).trim()
+  return `${limpio ? `<div>${conMenciones(esc(limpio))}</div>` : ''}${imgs.length ? `<div class="m-imgs">${imgs.map((x) => `<a href="${esc(x.url)}" target="_blank" rel="noopener" title="${esc(x.d)}"><img src="${esc(x.url)}" alt="${esc(x.d)}" loading="lazy"></a>`).join('')}</div>` : ''}`
+}
+
 async function enviarChat() {
   const txt = $('#chat-txt')
-  const texto = txt.value.trim()
+  if (chat.adjuntos.some((a) => a.subiendo)) return toast('Esperá: todavía estoy mirando la imagen', 'suave')
+  const marcas = chat.adjuntos.map((a) => a.marca).filter(Boolean)
+  const texto = [txt.value.trim(), ...marcas].filter(Boolean).join('\n')
   if (!texto || chat.pensando) return
   try {
     if (!chat.actual) {
@@ -344,6 +407,8 @@ async function enviarChat() {
     await api(`/chat/${chat.actual.id}/mensajes`, { texto })
     txt.value = ''
     chat.borrador = ''
+    chat.adjuntos = []
+    pintarAdjuntos()
     txt.style.height = 'auto'
     chat.mensajes.push({ id: -1, rol: 'operador', texto })
     chat.pensando = true

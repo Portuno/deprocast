@@ -27,6 +27,7 @@ import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora
 import { cribar, deshacerUltima, marcador, siguiente } from './criba.ts'
 import { tabla as tablaEconomia, TARIFAS } from './economia.ts'
 import { exportarEstado, importarEstado } from './exportacion.ts'
+import { dirAdjuntos, guardarImagen } from './chat/adjuntos.ts'
 import { encolar as encolarTanda, listarTandas, procesarTandas, reintentar as reintentarTanda, retomarTandas } from './tandas.ts'
 import { brujulaDelDia, leerBrujula } from './brujula.ts'
 import { perfilDeRendimiento, textoDeRendimiento } from './rendimiento.ts'
@@ -622,7 +623,7 @@ const rutas: [string, RegExp, Ruta][] = [
 
 const TIPOS_MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
-  '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.png': 'image/png',
+  '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.png': 'image/png', '.webp': 'image/webp',
   '.webmanifest': 'application/manifest+json', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.mp3': 'audio/mpeg', '.mp4': 'video/mp4', '.json': 'application/json; charset=utf-8', '.webm': 'audio/webm',
 }
 
@@ -716,6 +717,13 @@ const servidor = http.createServer(async (req, res) => {
     return void res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify({ error: 'Origen no permitido' }))
   }
   // Lo que crea el Taller: siempre aislado (un juego escrito por el modelo no puede tocar la app ni la API).
+  // Imágenes adjuntas en el chat.
+  if (url.pathname.startsWith('/adjuntos/')) {
+    const archivo = path.join(dirAdjuntos(), path.basename(decodeURIComponent(url.pathname)))
+    if (!fs.existsSync(archivo)) return void res.writeHead(404).end('No encontrado')
+    res.writeHead(200, { 'content-type': TIPOS_MIME[path.extname(archivo).toLowerCase()] ?? 'image/jpeg', 'cache-control': 'private, max-age=31536000', 'x-content-type-options': 'nosniff' })
+    return void fs.createReadStream(archivo).pipe(res)
+  }
   if (url.pathname.startsWith('/taller/')) {
     const archivo = path.join(dirTaller(), path.normalize(decodeURIComponent(url.pathname.slice('/taller/'.length))))
     if (!archivo.startsWith(dirTaller()) || !fs.existsSync(archivo) || fs.statSync(archivo).isDirectory()) return void res.writeHead(404).end('No encontrado')
@@ -741,6 +749,11 @@ const servidor = http.createServer(async (req, res) => {
   if (url.pathname.startsWith('/api/')) {
     res.setHeader('content-type', 'application/json; charset=utf-8')
     try {
+      // Una imagen para el chat (cruda): se guarda, se describe y vuelve la marca para el mensaje.
+      if (req.method === 'POST' && url.pathname === '/api/chat/imagen') {
+        const r = await guardarImagen(db, url.searchParams.get('nombre') || 'imagen', await leerCrudo(req, 30 * 1024 * 1024))
+        return void res.end(JSON.stringify(r))
+      }
       // Una nota de voz o una página de cuaderno (cruda, de a un archivo; el navegador manda varias seguidas).
       if (req.method === 'POST' && url.pathname === '/api/tandas') {
         const q = url.searchParams
