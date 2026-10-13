@@ -699,6 +699,15 @@ CREATE TABLE IF NOT EXISTS conexiones (
 CREATE INDEX IF NOT EXISTS conexiones_a ON conexiones (a);
 CREATE INDEX IF NOT EXISTS conexiones_b ON conexiones (b);
 
+-- El resumen de lo viejo de una conversación larga (elisión por etapas). No es parte de la conversación: es lo que
+-- ve el modelo en lugar de los mensajes que cubre. Se recuerda para no rehacerlo en cada turno.
+CREATE TABLE IF NOT EXISTS chat_resumenes (
+  conversacion_id INTEGER PRIMARY KEY,
+  hasta_id INTEGER NOT NULL,
+  texto TEXT NOT NULL,
+  en INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS alertas (
   clave TEXT PRIMARY KEY,             -- tipo:id:fecha (una por día)
   texto TEXT NOT NULL,

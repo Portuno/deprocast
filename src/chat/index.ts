@@ -3,6 +3,7 @@
  * Cada turno es un bucle: el modelo responde o pide herramientas; las herramientas corren y vuelven; hasta que contesta.
  * Todo se guarda mensaje a mensaje, así la pantalla ve el avance mientras el turno corre.
  */
+import { armarHistorial } from './historial.ts'
 import { fechaLocal, type Db } from '../db.ts'
 import { CLASES } from '../clases.ts'
 import { asientos, especializacion } from '../auditor.ts'
@@ -26,7 +27,6 @@ import { ejecutarHerramienta, esquemas, herramientasPara, type Ctx, type Herrami
 
 export const MASTROPIERO = 'mastropiero'
 const MAX_VUELTAS = 10
-const VENTANA = 40
 
 // ─── conversaciones ─────────────────────────────────────────────────────
 
@@ -245,30 +245,7 @@ ${VOZ}`
 
 // ─── el bucle ───────────────────────────────────────────────────────────
 
-/** Mensajes guardados → formato del modelo. El razonamiento solo se devuelve dentro del turno en curso. */
-function historial(ms: Mensaje[]): Record<string, unknown>[] {
-  const recientes = ms.slice(-VENTANA)
-  while (recientes.length && recientes[0].rol === 'herramienta') recientes.shift()
-  const ultimoOperador = recientes.map((m) => m.rol).lastIndexOf('operador')
-  // Un pedido de herramienta sin su respuesta (un turno cortado por error) rompe la API: se le sacan los pedidos.
-  const respondidas = new Set(recientes.filter((m) => m.rol === 'herramienta').map((m) => m.llamadaId))
-  for (const m of recientes) {
-    if (m.rol === 'asistente' && m.llamadas?.some((l) => !respondidas.has(l.id))) m.llamadas = null
-  }
-  const huerfanas = new Set(recientes.filter((m) => m.rol === 'asistente').flatMap((m) => m.llamadas?.map((l) => l.id) ?? []))
-  return recientes.filter((m) => m.rol !== 'herramienta' || huerfanas.has(m.llamadaId!)).flatMap((m, i, arr): Record<string, unknown>[] => {
-    i = recientes.indexOf(arr[i])
-    if (m.rol === 'operador') return [{ role: 'user', content: m.texto ?? '' }]
-    if (m.rol === 'herramienta') return [{ role: 'tool', tool_call_id: m.llamadaId, content: i < ultimoOperador ? recorte(m.texto ?? '', 3000) : m.texto ?? '' }]
-    if (m.rol === 'asistente') {
-      const x: Record<string, unknown> = { role: 'assistant', content: m.texto ?? '' }
-      if (m.llamadas?.length) x.tool_calls = m.llamadas.map((l) => ({ id: l.id, type: 'function', function: { name: l.nombre, arguments: l.argumentos } }))
-      if (m.razonamiento && i > ultimoOperador) x.reasoning_content = m.razonamiento
-      return [x]
-    }
-    return []
-  })
-}
+// El historial que ve el modelo (elisión por etapas) vive en ./historial.ts.
 
 export { _probarModelo } from '../modelo.ts'
 
@@ -344,7 +321,7 @@ export async function enviar(db: Db, cid: number, texto: string): Promise<void> 
   try {
     guardar(db, cid, { rol: 'operador', texto: texto.trim() })
     if (!c.titulo) db.prepare('UPDATE conversaciones SET titulo = ? WHERE id = ?').run(recorte(texto.trim().replace(/\s+/g, ' '), 60), cid)
-    const previos = historial(mensajes(db, cid))
+    const previos = await armarHistorial(db, mensajes(db, cid), { cid, resumirViejo: !(c.con === MASTROPIERO && c.modo === 'diario') })
     const alGuardar = (m: Partial<Mensaje> & { rol: Mensaje['rol'] }) => guardar(db, cid, m)
     if (c.con === MASTROPIERO && c.modo === 'diario') {
       // Lo que cuenta en el diario es su voz: entra al corpus como propia.
