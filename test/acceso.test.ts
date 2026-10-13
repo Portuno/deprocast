@@ -38,6 +38,21 @@ test('acceso: en Vercel ni siquiera localhost saltea la clave', () => {
   delete process.env.MASTRO_CLAVE
 })
 
+test('acceso: en un contenedor en la nube (MASTRO_NUBE=1) tampoco: un proxy al lado parece local', () => {
+  process.env.MASTRO_NUBE = '1'
+  process.env.MASTRO_HOST = '0.0.0.0'
+  delete process.env.MASTRO_CLAVE
+  assert.match(validarAcceso()!, /MASTRO_CLAVE/, 'sin clave no arranca')
+  process.env.MASTRO_CLAVE = 'una-clave-larga'
+  assert.ok(!autorizado(pedido('127.0.0.1')), 'localhost no saltea la clave')
+  const c = cookieDeEntrada('una-clave-larga')!
+  assert.match(c, /Secure/)
+  assert.ok(autorizado(pedido('::1', c.split(';')[0])))
+  delete process.env.MASTRO_NUBE
+  delete process.env.MASTRO_HOST
+  delete process.env.MASTRO_CLAVE
+})
+
 test('formularios: urlencoded y multipart (lo que manda «Compartir» del celular)', () => {
   assert.deepEqual(leerFormulario(Buffer.from('clave=a%20b&x=1'), 'application/x-www-form-urlencoded'), { clave: 'a b', x: '1' })
   const b = '----XYZ'
