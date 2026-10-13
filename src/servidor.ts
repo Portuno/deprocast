@@ -19,7 +19,7 @@ import { catalogo } from './menciones.ts'
 import { pensar } from './alertas.ts'
 import { autorizado, cookieDeEntrada, enVercel, expuesto, host, leerFormulario, PAGINA_ENTRAR, validarAcceso } from './acceso.ts'
 import { alGuardar, bajarNube, esperarSubida, subirAhora } from './nube.ts'
-import { CONECTORES, guardarCuenta, listarCuentas, listarPublicaciones, MODOS, publicarPendientes, redactarPublicaciones, resolverPublicacion } from './cuentas.ts'
+import { CONECTORES, guardarCuenta, leerAgente, listarCuentas, listarPublicaciones, MODOS, publicarPendientes, redactarPublicaciones, resolverPublicacion } from './cuentas.ts'
 import { decir as decirPorTelegram, escucharTelegram, estadoTelegram, latidoTelegram, telegramConfigurado } from './telegram.ts'
 import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, hayFfmpeg, iterarArtefacto, listarArtefactos, VOCES } from './taller.ts'
 import { guardarRelacion, personas } from './personas.ts'
@@ -41,7 +41,7 @@ import { editarMovimiento, importarCSV, listarMovimientos, registrarMovimiento, 
 import { buscarOportunidades, listarOportunidades, marcarOportunidad, redactarOportunidad } from './radar.ts'
 import { cuotas, hayBuscadorWeb } from './web.ts'
 import { anotarPrediccion, calificarAMano, calificarDia, curva, paraElJugador, predecirDia, prediccionesDe, sumarPredicciones, textoDeCalificacion } from './gemelo.ts'
-import { cerrarDirecto, iniciarDirecto, latidoDirecto, leerSesion, listarSesiones, momentos as momentosDirecto, registrarAudio, registrarCuadro, sesionActiva, rehacerInforme } from './directo.ts'
+import { cerrarDirecto, iniciarDirecto, latidoDirecto, leerSesion, listarSesiones, momentos as momentosDirecto, registrarAudio, registrarCuadro, sesionActiva, rehacerInforme, resolverPropuestas } from './directo.ts'
 import { encolarPregunta, generandoPreguntas, generarPreguntas, listarPreguntas, reponerPreguntas, responderPregunta, siguientePregunta } from './preguntas.ts'
 import { aportes, ayudantesDe, pedirAportes, quitarAyudante, sumarAyudante } from './ayudantes.ts'
 import { agregarItem, editarItem, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, marcarJugador, personaje, resolverHistoria, TIPOS_INVENTARIO } from './personajes.ts'
@@ -382,6 +382,7 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/directo\/(\d+)$/, (_, [s]) => ({ ...leerSesion(db, id(s)), momentos: momentosDirecto(db, id(s)) })],
   ['POST', /^\/api\/directo\/iniciar$/, (b) => iniciarDirecto(db, Array.isArray(b.fuentes) ? b.fuentes : [])],
   ['POST', /^\/api\/directo\/(\d+)\/informe$/, async (_, [s]) => rehacerInforme(db, id(s))],
+  ['POST', /^\/api\/directo\/(\d+)\/propuesta$/, (b, [s]) => resolverPropuestas(db, id(s), Array.isArray(b.ids) ? b.ids.map(String) : [], b.accion)],
   ['POST', /^\/api\/directo\/(\d+)\/cerrar$/, async (_, [s]) => {
     await colasDirecto.get(id(s)) // lo último que mandó el navegador entra al informe
     const r = await cerrarDirecto(db, id(s))
@@ -390,6 +391,11 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['GET', /^\/api\/cuentas$/, () => ({ cuentas: listarCuentas(db), publicaciones: listarPublicaciones(db, { limite: 200 }), modos: MODOS, conectores: CONECTORES, telegram: telegramConfigurado() })],
   ['POST', /^\/api\/cuentas$/, (b) => guardarCuenta(db, { id: b.id ? Number(b.id) : undefined, red: b.red, usuario: b.usuario, modo: b.modo, conector: b.conector, reglas: b.reglas, activa: b.activa })],
+  ['GET', /^\/api\/cuentas\/(\d+)$/, (_, [c]) => {
+    const a = leerAgente(db, id(c))
+    if (!a) throw new Error(`No existe la cuenta ${c}`)
+    return a
+  }],
   ['POST', /^\/api\/cuentas\/(\d+)\/redactar$/, async (b, [c]) => redactarPublicaciones(db, id(c), { n: Number(b.n) || 3, tema: b.tema || null })],
   ['POST', /^\/api\/publicaciones\/(\d+)$/, (b, [p]) => resolverPublicacion(db, id(p), { accion: b.accion, texto: b.texto, cuando: b.cuando ? Number(b.cuando) : null, url: b.url || null })],
   ['GET', /^\/api\/taller$/, () => ({ artefactos: listarArtefactos(db, { limite: 80 }), voces: VOCES, ffmpeg: hayFfmpeg() })],
@@ -548,7 +554,7 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/entidades\/(\d+)\/soy-yo$/, (_, [e]) => marcarJugador(db, id(e))],
   ['POST', /^\/api\/inventario\/(\d+)$/, (b, [i]) => editarItem(db, id(i), b)],
   ['POST', /^\/api\/jugador\/procesar$/, async () => procesarJugador(db)],
-  ['POST', /^\/api\/rutinas\/([a-z]+)$/, (b, [r]) => (actualizarRutina(db, r, { hora: b.hora, dias: b.dias, activa: b.activa }), listarRutinas(db))],
+  ['POST', /^\/api\/rutinas\/([a-z_]+)$/, (b, [r]) => (actualizarRutina(db, r, { hora: b.hora, dias: b.dias, activa: b.activa }), listarRutinas(db))],
   ['GET', /^\/api\/memoria$/, (_, __, q) => memoriaVigente(db, { tipo: q.get('tipo') || undefined, horizonte: q.get('horizonte') || undefined })],
   ['POST', /^\/api\/memoria$/, (b) => recordar(db, { texto: String(b.texto ?? ''), tipo: b.tipo, horizonte: b.horizonte || null, creadaPor: 'operador', revisada: true })],
   ['POST', /^\/api\/memoria\/(\d+)$/, (b, [m]) => corregir(db, id(m), { texto: b.texto, tipo: b.tipo, horizonte: b.horizonte }, 'operador')],
