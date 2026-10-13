@@ -31,11 +31,12 @@ function md(texto) {
       // líneas con sangría debajo de un punto son parte de ese punto. Así la numeración no vuelve a 1.
       const numerada = /^\s*\d+[.)] /.test(l)
       const marca = numerada ? /^\s*\d+[.)] / : /^\s*[-*] /
-      const inicio = numerada ? Number(l.match(/\d+/)[0]) : 1
       const items = []
+      const nums = []
       while (i < lineas.length) {
         const x = lineas[i]
-        if (marca.test(x)) { items.push(x.replace(marca, '')); i++; continue }
+        const m = numerada ? x.match(/^\s*(\d+)[.)] /) : null
+        if (marca.test(x)) { if (m) nums.push(Number(m[1])); items.push(x.replace(marca, '')); i++; continue }
         if (items.length && /^\s{2,}\S/.test(x)) { items[items.length - 1] += `<br>${x.trim()}`; i++; continue }
         if (!x.trim()) {
           let j = i
@@ -45,7 +46,9 @@ function md(texto) {
         break
       }
       i--
-      out.push(numerada ? `<ol${inicio !== 1 ? ` start="${inicio}"` : ''}>${items.map((x) => `<li>${x}</li>`).join('')}</ol>` : `<ul>${items.map((x) => `<li>${x}</li>`).join('')}</ul>`)
+      // El número escrito se respeta uno a uno (value en cada ítem): una lista «1., 7., 3.» no se renumerada 1, 2, 3.
+      if (numerada) out.push(`<ol>${items.map((x, k) => `<li value="${nums[k] ?? k + 1}">${x}</li>`).join('')}</ol>`)
+      else out.push(`<ul>${items.map((x) => `<li>${x}</li>`).join('')}</ul>`)
     } else if (/^#{1,4} /.test(l)) out.push(`<h4>${l.replace(/^#+ /, '')}</h4>`)
     else if (/^&gt; /.test(l)) out.push(`<blockquote>${l.slice(5)}</blockquote>`)
     else if (!l.trim()) out.push('')

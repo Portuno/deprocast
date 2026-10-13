@@ -8,6 +8,7 @@ import { _probarEscriba, _probarModelo, crearConversacion, enviar, listarPropues
 _probarEscriba(async () => {})
 import { HERRAMIENTAS, lineamientos } from '../src/chat/herramientas.ts'
 import { forjar, leer, listar } from '../src/roster.ts'
+import { numerosDeLista } from '../src/texto.ts'
 
 type Pedido = { sistema: string; mensajes: any[]; herramientas: string[]; clase: string }
 
@@ -135,4 +136,16 @@ test('todas las herramientas tienen esquema y familia', () => {
     assert.equal((h.parametros as any).type, 'object')
     if (h.familia === 'destructiva') assert.ok('confirmado' in (h.parametros as any).properties, `${h.nombre} sin confirmado`)
   }
+})
+
+test('respeta numeración literal en listas', () => {
+  // Los números escritos se preservan uno a uno: una lista «1., 7., 3.» no se renumerada 1, 2, 3.
+  assert.deepEqual(numerosDeLista('1. primero\n7. séptimo\n3. tercero'), [1, 7, 3])
+  // «1)» y «01.» también cuentan como número explícito.
+  assert.deepEqual(numerosDeLista('1) uno\n2) dos'), [1, 2])
+  assert.deepEqual(numerosDeLista('01. arranco\n02. sigo'), [1, 2])
+  // Un bloque sin número explícito no trae nada: el render auto-numera recién ahí.
+  assert.deepEqual(numerosDeLista('- uno\n- dos'), [])
+  assert.deepEqual(numerosDeLista('charla suelta\nsin listas'), [])
+  assert.deepEqual(numerosDeLista('texto\n1. a\n2. b'), [1, 2])
 })
