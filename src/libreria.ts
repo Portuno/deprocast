@@ -7,6 +7,9 @@
  */
 import { fechaLocal, type Db } from './db.ts'
 import { pedirJson } from './modelo.ts'
+import { asegurarFuente, insertar } from './corpus.ts'
+import { buscarWeb, hayBuscadorWeb, leerPagina } from './web.ts'
+import { crearCuaderno, sumarFuentes } from './cuadernos.ts'
 
 export const TIPOS_OBRA = ['libro', 'pelicula', 'serie', 'videojuego', 'paper', 'repositorio'] as const
 export type TipoObra = (typeof TIPOS_OBRA)[number]
@@ -15,12 +18,14 @@ export const ESTADOS_OBRA = ['quiero', 'en_curso', 'terminado', 'abandonado', 'r
 export type Obra = {
   id: number; tipo: TipoObra; titulo: string; autor: string | null; anio: number | null; estado: string; valoracion: number | null
   url: string | null; notas: string | null; etiquetas: string[]; piezas: number[]; origen: 'operador' | 'mastropiero'; revisada: boolean
+  resumen: string | null; expandidaEn: number | null; expansion: string | null
   creadaEn: number; editadaEn: number
 }
 
 const deFila = (r: any): Obra => ({
   id: r.id, tipo: r.tipo, titulo: r.titulo, autor: r.autor, anio: r.anio, estado: r.estado, valoracion: r.valoracion, url: r.url, notas: r.notas,
   etiquetas: r.etiquetas ? JSON.parse(r.etiquetas) : [], piezas: r.piezas ? JSON.parse(r.piezas) : [], origen: r.origen, revisada: !!r.revisada,
+  resumen: r.resumen ?? null, expandidaEn: r.expandida_en ?? null, expansion: r.expansion ?? null,
   creadaEn: r.creada_en, editadaEn: r.editada_en,
 })
 
@@ -173,4 +178,134 @@ export async function poblarLibreria(db: Db, o: { limite?: number; ahora?: numbe
 export function libreriaParaPrompt(db: Db): string {
   const en = listarObras(db, { estado: 'en_curso', limite: 6 })
   return en.length ? `Lo que está leyendo/viendo (${fechaLocal()}): ${en.map((o) => `${o.titulo}${o.autor ? ` (${o.autor})` : ''} [${o.tipo}]`).join('; ')}.` : ''
+}
+
+// ─── usar la Librería: expandir el corpus con cada obra ─────────────────
+
+const TIPO_LEGIBLE: Record<string, string> = { libro: 'libro', pelicula: 'película', serie: 'serie', videojuego: 'videojuego', paper: 'paper', repositorio: 'repositorio' }
+
+/** Inyectables (tests): bajar una URL y buscar en la web. */
+let bajarTexto = async (url: string): Promise<{ titulo: string; texto: string } | null> => {
+  if (/raw\.githubusercontent\.com/.test(url)) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(20_000), headers: { 'user-agent': 'Deprocast/1.0' } })
+      return r.ok ? { titulo: url.split('/').slice(3, 5).join('/'), texto: (await r.text()).slice(0, 20_000) } : null
+    } catch { return null }
+  }
+  return leerPagina(url, 20_000)
+}
+let buscar = (db: Db, q: string) => buscarWeb(db, q, { n: 5 })
+export function _probarExpansion(o: { bajar?: typeof bajarTexto; buscar?: typeof buscar }) {
+  if (o.bajar) bajarTexto = o.bajar
+  if (o.buscar) buscar = o.buscar
+}
+
+/** De dónde sacar la fuente de una obra: su README, su página, o la mejor página que aparezca buscándola (Wikipedia primero). */
+async function fuenteDe(db: Db, o: Obra): Promise<{ url: string; titulo: string; texto: string } | null> {
+  const gh = o.url ? /github\.com\/([\w.-]+)\/([\w.-]+)/.exec(o.url) : null
+  if (gh) {
+    for (const archivo of ['README.md', 'readme.md', 'README.rst', 'README']) {
+      const url = `https://raw.githubusercontent.com/${gh[1]}/${gh[2].replace(/\.git$/, '')}/HEAD/${archivo}`
+      const r = await bajarTexto(url)
+      if (r?.texto?.trim()) return { url: o.url!, titulo: `${gh[1]}/${gh[2]} · README`, texto: r.texto }
+    }
+  }
+  if (o.url) {
+    const r = await bajarTexto(o.url)
+    if (r?.texto?.trim()) return { url: o.url, titulo: r.titulo || o.titulo, texto: r.texto }
+  }
+  let rs: { url: string; titulo: string }[] = []
+  try { rs = await buscar(db, `${o.titulo}${o.autor ? ` ${o.autor}` : ''} ${TIPO_LEGIBLE[o.tipo] ?? ''}`.trim()) } catch { /* sin buscador */ }
+  for (const r of [...rs.filter((x) => /wikipedia\.org/.test(x.url)), ...rs.filter((x) => !/wikipedia\.org/.test(x.url))].slice(0, 3)) {
+    const p = await bajarTexto(r.url)
+    if (p?.texto && p.texto.length > 300) return { url: r.url, titulo: p.titulo || r.titulo, texto: p.texto }
+  }
+  return null
+}
+
+const SISTEMA_RESUMEN_OBRA = `Te paso una obra de la Librería del operador (libro, película, serie, videojuego, paper o repositorio) y el texto de una fuente sobre ella.
+Forma: {"es_la_obra": boolean, "resumen": string}
+- «es_la_obra»: false si la fuente habla de otra cosa (otra obra con nombre parecido, una página genérica).
+- «resumen»: 2 o 3 oraciones en castellano: de qué trata y qué tiene de distintivo. Solo lo que dice la fuente.`
+
+/**
+ * Expande el corpus con una obra: busca su fuente, la guarda como pieza primaria (enlazada a la obra) y le escribe un
+ * resumen corto. Si la fuente no es de esa obra, no guarda nada.
+ */
+export async function expandirObra(db: Db, id: number, ahora = Date.now()): Promise<{ obra: Obra; piezaId: number | null; aviso: string | null }> {
+  const o = leerObra(db, id)
+  if (!o) throw new Error(`No existe la obra ${id}`)
+  const f = await fuenteDe(db, o)
+  if (!f) {
+    db.prepare('UPDATE obras SET expandida_en = ?, expansion = ? WHERE id = ?').run(ahora, 'sin fuente', id)
+    return { obra: leerObra(db, id)!, piezaId: null, aviso: `No encontré una fuente para «${o.titulo}»${hayBuscadorWeb() ? '' : ' (sin clave de búsqueda web, solo pruebo con su link y Wikipedia)'}.` }
+  }
+  let resumen: string | null = null
+  try {
+    const { datos } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'libreria' }, SISTEMA_RESUMEN_OBRA,
+      `OBRA: [${o.tipo}] ${o.titulo}${o.autor ? ` — ${o.autor}` : ''}${o.anio ? ` (${o.anio})` : ''}\n\nFUENTE (${f.url}):\n${f.texto.slice(0, 8000)}`, { temperatura: 0.2, maxTokens: 600 })
+    if (datos.es_la_obra === false) {
+      db.prepare('UPDATE obras SET expandida_en = ?, expansion = ? WHERE id = ?').run(ahora, 'fuente dudosa', id)
+      return { obra: leerObra(db, id)!, piezaId: null, aviso: `Lo que encontré para «${o.titulo}» habla de otra cosa: no lo guardé.` }
+    }
+    resumen = typeof datos.resumen === 'string' ? datos.resumen.trim().slice(0, 600) : null
+  } catch { /* sin resumen igual se guarda la fuente */ }
+  asegurarFuente(db, { id: 'libreria', nombre: 'Librería', nivel: 'primaria', descripcion: 'Lo que se trae de las obras de tu Librería: READMEs, abstracts, fichas.' })
+  const pieza = insertar(db, {
+    fuente: 'libreria', nivel: 'primaria', tipo: 'referencia', estado: 'disponible',
+    titulo: `${o.titulo}${o.autor ? ` — ${o.autor}` : ''} · ${TIPO_LEGIBLE[o.tipo] ?? o.tipo}`,
+    contenido: [resumen ? `${resumen}\n` : '', f.texto].join('\n').trim(), url: f.url,
+    etiquetas: ['libreria', o.tipo, ...o.etiquetas], origenId: `obra:${o.id}`, datos: { obraId: o.id, fuente: f.titulo },
+  }, ahora) ?? (db.prepare('SELECT id FROM corpus WHERE origen_id = ?').get(`obra:${o.id}`) as any)?.id ?? null
+  const piezas = [...new Set([...(pieza ? [pieza] : []), ...o.piezas])]
+  db.prepare('UPDATE obras SET piezas = ?, resumen = COALESCE(?, resumen), expandida_en = ?, expansion = ?, url = COALESCE(url, ?) WHERE id = ?')
+    .run(JSON.stringify(piezas), resumen, ahora, 'ok', f.url, id)
+  return { obra: leerObra(db, id)!, piezaId: pieza, aviso: null }
+}
+
+export const expandiendo = { activo: false, hechas: 0, total: 0, actual: '' }
+
+/** Las que más valen primero: en curso, quiero, valoradas 7+; después lo que él revisó. Las ya expandidas no se repiten. */
+export function paraExpandir(db: Db, limite = 20): Obra[] {
+  return listarObras(db, { limite: 5000 })
+    .filter((o) => !o.expandidaEn && (o.estado === 'en_curso' || o.estado === 'quiero' || (o.valoracion ?? 0) >= 7 || o.revisada))
+    .sort((a, b) => Number(b.estado === 'en_curso') - Number(a.estado === 'en_curso') || (b.valoracion ?? 0) - (a.valoracion ?? 0) || Number(b.estado === 'quiero') - Number(a.estado === 'quiero'))
+    .slice(0, limite)
+}
+
+export async function expandirTanda(db: Db, limite = 20): Promise<{ hechas: number; sinFuente: number }> {
+  if (expandiendo.activo) throw new Error('Ya estoy expandiendo')
+  const os = paraExpandir(db, limite)
+  Object.assign(expandiendo, { activo: true, hechas: 0, total: os.length, actual: '' })
+  let sinFuente = 0
+  try {
+    for (const o of os) {
+      expandiendo.actual = o.titulo
+      try { if (!(await expandirObra(db, o.id)).piezaId) sinFuente++ } catch { sinFuente++ }
+      expandiendo.hechas++
+    }
+  } finally {
+    expandiendo.activo = false
+    expandiendo.actual = ''
+  }
+  return { hechas: os.length - sinFuente, sinFuente }
+}
+
+/** Un cuaderno con lo que hay de una obra (su fuente y las piezas donde aparece), para preguntarle. */
+export async function cuadernoDeObra(db: Db, id: number) {
+  const o = leerObra(db, id)
+  if (!o) throw new Error(`No existe la obra ${id}`)
+  if (!o.piezas.length) throw new Error('Esa obra todavía no tiene nada en el corpus: expandila primero')
+  const c = crearCuaderno(db, o.titulo, `De la Librería: ${TIPO_LEGIBLE[o.tipo] ?? o.tipo}${o.autor ? ` de ${o.autor}` : ''}.`)
+  await sumarFuentes(db, c.id, { piezas: o.piezas })
+  return c
+}
+
+/** Para la cabecera: cuántas hay, cuántas por revisar, en curso, valoradas y ya en el corpus. */
+export function panorama(db: Db) {
+  const n = (w: string) => (db.prepare(`SELECT COUNT(*) AS n FROM obras ${w}`).get() as any).n as number
+  return {
+    total: n(''), sinRevisar: n('WHERE revisada = 0'), enCurso: n(`WHERE estado = 'en_curso'`), quiero: n(`WHERE estado = 'quiero'`),
+    valoradas: n('WHERE valoracion IS NOT NULL'), enCorpus: n(`WHERE expansion = 'ok'`), porExpandir: paraExpandir(db, 5000).length,
+  }
 }

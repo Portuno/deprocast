@@ -1272,3 +1272,21 @@ a.mencion { color: var(--acento-texto); text-decoration: none; background: var(-
 .forja-fila .que b { display: block; font-weight: 500; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .forja-fila .que small { color: var(--debil); font-size: 11.5px; }
 @media (max-width: 640px) { .forja-fila { grid-template-columns: minmax(0, 1fr) auto; } .forja-fila .num { display: none; } }
+
+/* Librería: el recorrido y la planilla */
+.lib-flujo { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 10px; margin: 6px 0 12px; }
+.lib-paso { background: var(--panel); border: 1px solid var(--linea); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.lib-paso-cab { font: 600 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--tenue); display: flex; align-items: center; gap: 8px; }
+.lib-paso-cab b { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--acento-suave); color: var(--acento-texto); font-size: 11px; }
+.lib-paso p { margin: 0; font-size: 13px; color: var(--tenue); line-height: 1.45; flex: 1; }
+.lib-paso p strong { color: var(--texto, inherit); font-size: 15px; }
+.lib-barra { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 10px 0; }
+.lib-barra #lib-nueva { flex: 1; min-width: min(100%, 420px); }
+.lib-tabla select.lib-estado { border-radius: 999px; padding: 2px 6px; border: 1px solid var(--linea); }
+.lib-tabla select.lib-estado.en_curso { color: var(--acento-texto); border-color: var(--acento); background: var(--acento-suave); }
+.lib-tabla select.lib-estado.terminado { color: var(--ok); }
+.lib-tabla select.lib-estado.abandonado { color: var(--debil); }
+.lib-tabla td.lib-usar, .lib-tabla td.lib-acc { white-space: nowrap; }
+.lib-tabla td.lib-usar .estado-chip { margin-right: 4px; }
+.lib-tabla td.lib-link span[contenteditable] { display: inline-block; min-width: 2em; }
+.lib-obra-mini { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%; }

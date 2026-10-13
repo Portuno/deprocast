@@ -32,7 +32,7 @@ import { brujulaDelDia, leerBrujula } from './brujula.ts'
 import { perfilDeRendimiento, textoDeRendimiento } from './rendimiento.ts'
 import { listarRecomendaciones, recomendar, resolverRecomendacion } from './mentor.ts'
 import { listarPuentes, proponerPuentes, resolverPuente } from './puentes.ts'
-import { aCsv, agregarObra, conteos as conteosLibreria, editarObra, listarObras, poblando, poblarLibreria } from './libreria.ts'
+import { aCsv, agregarObra, conteos as conteosLibreria, cuadernoDeObra, editarObra, expandiendo, expandirObra, expandirTanda, listarObras, panorama, poblando, poblarLibreria } from './libreria.ts'
 import { aplicarForja, descartarForja, forjarMejora, leerForja, listarForjas, pasoDeForja, ramaActual, retomarFragua } from './fragua.ts'
 import { borrarCuaderno, charla, componentesDeEntidad, crearCuaderno, guia, haciendo, leerCuaderno, listarCuadernos, notas, preguntar, quitarFuente, sumarFuentes } from './cuadernos.ts'
 import { buscarHibrido, estadoVectores, nivelesDe, vectorizarPendientes } from './semantica.ts'
@@ -422,7 +422,17 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/puentes\/(\d+)$/, (b, [p]) => resolverPuente(db, id(p), b.estado === 'hecho' ? 'hecho' : 'descartado')],
 
   // Librería
-  ['GET', /^\/api\/libreria$/, (_, __, q) => ({ obras: listarObras(db, { tipo: q.get('tipo') || null, q: q.get('q') || null, estado: q.get('estado') || null }), conteos: conteosLibreria(db), poblando: poblando.activo ? poblando.paso : null })],
+  ['GET', /^\/api\/libreria$/, (_, __, q) => ({
+    obras: listarObras(db, { tipo: q.get('tipo') || null, q: q.get('q') || null, estado: q.get('estado') || null }), conteos: conteosLibreria(db), panorama: panorama(db),
+    poblando: poblando.activo ? poblando.paso : null, expandiendo: expandiendo.activo ? { ...expandiendo } : null,
+  })],
+  ['POST', /^\/api\/libreria\/expandir$/, (b) => {
+    void expandirTanda(db, Math.min(Number(b.limite) || 20, 100)).then((r) => mensajeDeMastropiero(db, conversacionHoy(db).id, `Expandí tu Librería: ${r.hechas} obras con su fuente en el corpus${r.sinFuente ? ` (${r.sinFuente} sin fuente encontrada)` : ''}.`))
+      .catch((e) => console.error('  libreria:', e instanceof Error ? e.message : e))
+    return { empezada: true }
+  }],
+  ['POST', /^\/api\/libreria\/(\d+)\/expandir$/, async (_, [o]) => expandirObra(db, id(o))],
+  ['POST', /^\/api\/libreria\/(\d+)\/cuaderno$/, async (_, [o]) => cuadernoDeObra(db, id(o))],
   ['POST', /^\/api\/libreria$/, (b) => agregarObra(db, { ...b, origen: 'operador' })],
   ['POST', /^\/api\/libreria\/poblar$/, () => {
     void poblarLibreria(db).then((r) => mensajeDeMastropiero(db, conversacionHoy(db).id, `Poblé la Librería: ${r.porUrl + r.nuevas} obras nuevas (${r.porUrl} repos y papers por su link, ${r.nuevas} leyendo ${r.leidas} piezas). Están marcadas para que las revises.`))

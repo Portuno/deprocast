@@ -565,6 +565,9 @@ CREATE TABLE IF NOT EXISTS obras (
   piezas TEXT,                             -- JSON: piezas del corpus donde aparece
   origen TEXT NOT NULL,                    -- operador | mastropiero
   revisada INTEGER NOT NULL DEFAULT 0,
+  resumen TEXT,                            -- 2-3 oraciones, de su fuente
+  expandida_en INTEGER,                    -- cuándo se trajo su fuente al corpus
+  expansion TEXT,                          -- ok | sin fuente | fuente dudosa
   huella TEXT NOT NULL UNIQUE,
   creada_en INTEGER NOT NULL,
   editada_en INTEGER NOT NULL
@@ -758,6 +761,9 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   ],
   publicaciones: [
     ['tipo', 'TEXT'],
+  ],
+  obras: [
+    ['resumen', 'TEXT'], ['expandida_en', 'INTEGER'], ['expansion', 'TEXT'],
   ],
   memoria: [
     ['pieza_id', 'INTEGER'], // la pieza del corpus de la que salió, si salió de una

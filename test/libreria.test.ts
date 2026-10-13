@@ -47,3 +47,44 @@ test('librería: se puebla desde el corpus (repos y papers por URL, el resto con
   assert.deepEqual(r2, { porUrl: 0, leidas: 0, nuevas: 0 })
   assert.equal(llamadas, 1, 'lo leído no se vuelve a leer')
 })
+
+test('librería: expandir trae la fuente al corpus (README del repo, o la página que encuentra), con resumen; si no es la obra, no guarda', async () => {
+  const { _probarExpansion, expandirObra, cuadernoDeObra, panorama, paraExpandir } = await import('../src/libreria.ts')
+  const { leerPieza } = await import('../src/corpus.ts')
+  const { leerCuaderno } = await import('../src/cuadernos.ts')
+  const db = abrir(':memory:')
+  const repo = agregarObra(db, { tipo: 'repositorio', titulo: 'dueno/proyecto', url: 'https://github.com/dueno/proyecto', estado: 'en_curso' }).obra
+  const libro = agregarObra(db, { tipo: 'libro', titulo: 'Dune', autor: 'Frank Herbert', estado: 'quiero' }).obra
+  const nada = agregarObra(db, { tipo: 'pelicula', titulo: 'Película inexistente', estado: 'quiero' }).obra
+  agregarObra(db, { tipo: 'serie', titulo: 'Referencia sin valorar', origen: 'mastropiero' })
+  const orden = paraExpandir(db).map((o) => o.titulo)
+  assert.equal(orden[0], 'dueno/proyecto', 'en curso primero')
+  assert.deepEqual(orden.slice(1).sort(), ['Dune', 'Película inexistente'], 'lo no revisado ni valorado, no')
+  const pedidas: string[] = []
+  _probarExpansion({
+    bajar: async (url) => { pedidas.push(url); return url.includes('raw.githubusercontent.com/dueno/proyecto/HEAD/README.md') ? { titulo: 'x', texto: '# Proyecto\nUn motor de prueba.' } : url.includes('wiki/Dune') ? { titulo: 'Dune', texto: 'Dune es una novela de Frank Herbert. '.repeat(20) } : url.includes('wiki/Otra') ? { titulo: 'Otra', texto: 'Algo que no es. '.repeat(40) } : null },
+    buscar: async (_db, q) => (q.startsWith('Dune') ? [{ titulo: 'Dune', url: 'https://es.wikipedia.org/wiki/Dune', extracto: '', proveedor: 'wikipedia' }] : q.startsWith('Película') ? [{ titulo: 'Otra', url: 'https://es.wikipedia.org/wiki/Otra', extracto: '', proveedor: 'wikipedia' }] : []),
+  })
+  _probarModelo(async (_l, o) => {
+    const u = String(o.mensajes[1].content)
+    const datos = u.includes('Película inexistente') ? { es_la_obra: false } : { es_la_obra: true, resumen: u.includes('Dune') ? 'Novela de ciencia ficción en un planeta desierto.' : 'Un motor de prueba.' }
+    return { texto: JSON.stringify(datos), llamadas: [], razonamiento: null, modelo: 'f', tokens: 1 }
+  })
+  const r1 = await expandirObra(db, repo.id)
+  assert.ok(pedidas[0].endsWith('/HEAD/README.md'))
+  const p1 = leerPieza(db, r1.piezaId!)!
+  assert.equal(p1.nivel, 'primaria')
+  assert.match(p1.contenido, /^Un motor de prueba\.\n\n# Proyecto/)
+  assert.deepEqual(r1.obra.piezas, [r1.piezaId])
+  const r2 = await expandirObra(db, libro.id)
+  assert.equal(r2.obra.resumen, 'Novela de ciencia ficción en un planeta desierto.')
+  assert.equal(r2.obra.url, 'https://es.wikipedia.org/wiki/Dune')
+  const r3 = await expandirObra(db, nada.id)
+  assert.equal(r3.piezaId, null)
+  assert.match(r3.aviso!, /habla de otra cosa/)
+  assert.equal(r3.obra.expansion, 'fuente dudosa')
+  assert.deepEqual([panorama(db).enCorpus, panorama(db).porExpandir], [2, 0])
+  const c = await cuadernoDeObra(db, libro.id)
+  assert.deepEqual(leerCuaderno(db, c.id)!.fuentes.map((f) => f.id), [r2.piezaId])
+  await assert.rejects(cuadernoDeObra(db, nada.id), /expandila primero/)
+})
