@@ -23,6 +23,8 @@ import { CONECTORES, guardarCuenta, leerAgente, listarCuentas, listarPublicacion
 import { decir as decirPorTelegram, escucharTelegram, estadoTelegram, latidoTelegram, telegramActivo, telegramConfigurado } from './telegram.ts'
 import { borrarSalud, editarSalud, fijarMetasSalud, registrarSalud, resumenDia, resumenSemana } from './salud.ts'
 import { clasificar, registrarCaptura } from './captura.ts'
+import { diaDelPlan, guardarNota, guardarWoop, mapaDelPlan, marcarHabito, marcarTarea, votar } from './cien.ts'
+import { crearAprendizaje, editarAprendizaje, leerAprendizaje, listarAprendizajes, practicasDe, prepararRepaso, recursosDe, registrarPractica } from './aprender.ts'
 import { guardarFoto } from './chat/adjuntos.ts'
 import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, hayFfmpeg, iterarArtefacto, listarArtefactos, VOCES } from './taller.ts'
 import { guardarRelacion, personas } from './personas.ts'
@@ -463,6 +465,35 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/salud$/, (b) => registrarSalud(db, { ...b, fuente: 'pantalla' })],
   ['POST', /^\/api\/salud\/metas$/, (b) => fijarMetasSalud(db, b)],
   ['POST', /^\/api\/salud\/(\d+)$/, (b, [r]) => (b.borrar ? (borrarSalud(db, id(r)), { ok: true }) : editarSalud(db, id(r), b))],
+  // Los Cien Días: el día (verbos, hábitos, WOOP, tareas), el mapa y lo que se marca
+  ['GET', /^\/api\/cien$/, (_, __, q) => {
+    const d = diaDelPlan(db, /^\d{4}-\d{2}-\d{2}$/.test(q.get('fecha') ?? '') ? q.get('fecha')! : fechaLocal())
+    return d ? { ...d, mapa: mapaDelPlan(db, d.plan) } : { plan: null }
+  }],
+  ['POST', /^\/api\/cien\/voto$/, (b) => votar(db, String(b.fecha), String(b.verbo), typeof b.valor === 'boolean' ? b.valor : undefined)],
+  ['POST', /^\/api\/cien\/habito$/, (b) => marcarHabito(db, String(b.fecha), String(b.id), typeof b.valor === 'boolean' ? b.valor : undefined)],
+  ['POST', /^\/api\/cien\/woop$/, (b) => guardarWoop(db, String(b.fecha), b)],
+  ['POST', /^\/api\/cien\/nota$/, (b) => guardarNota(db, String(b.fecha), { nota: b.nota, peso: b.peso === '' ? null : b.peso })],
+  ['POST', /^\/api\/cien\/tarea\/(\d+)$/, (b, [m]) => marcarTarea(db, id(m), !!b.hecha)],
+  // Quiero aprender: temas, prácticas, recursos y el repaso espaciado
+  ['GET', /^\/api\/aprender$/, () => ({
+    aprendizajes: listarAprendizajes(db),
+    repaso: (db.prepare(`SELECT id, texto, por_que, tema, vuelve_en, repaso FROM preguntas WHERE origen = 'repaso' AND estado = 'pendiente' ORDER BY vuelve_en`).all() as any[])
+      .map((p) => ({ id: p.id, texto: p.texto, porQue: p.por_que, tema: p.tema, vuelveEn: p.vuelve_en, vuelta: p.repaso, toca: p.vuelve_en <= Date.now() })),
+  })],
+  ['POST', /^\/api\/aprender$/, (b) => crearAprendizaje(db, { tema: b.tema, porQue: b.porQue, nivelActual: b.nivelActual, nivelObjetivo: b.nivelObjetivo })],
+  ['GET', /^\/api\/aprender\/(\d+)$/, (_, [a]) => {
+    const x = leerAprendizaje(db, id(a))
+    if (!x) throw new Error(`No existe el aprendizaje ${a}`)
+    return { aprendizaje: x, practicas: practicasDe(db, x.id), recursos: recursosDe(db, x.tema) }
+  }],
+  ['POST', /^\/api\/aprender\/(\d+)$/, (b, [a]) => editarAprendizaje(db, id(a), b) ?? { ok: true }],
+  ['POST', /^\/api\/aprender\/(\d+)\/practica$/, (b, [a]) => {
+    const r = registrarPractica(db, { aprendizajeId: id(a), minutos: b.minutos, que: b.que, notas: b.notas, fecha: b.fecha, fuente: 'pantalla' })
+    void prepararRepaso(db, r.aprendizaje, r.practica).catch(() => {})
+    return r
+  }],
+  ['POST', /^\/api\/repaso\/(\d+)$/, async (b, [p]) => responderPregunta(db, id(p), b.respuesta ?? null)],
   // Captura con palabras («almorcé milanesa con ensalada», «gasté 12 en el súper»): se clasifica y se registra
   ['POST', /^\/api\/captura$/, async (b) => {
     const c = await clasificar(db, { texto: String(b.texto ?? '') })

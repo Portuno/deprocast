@@ -8,6 +8,7 @@ const VISTAS = {
   personas: { montar: montarPersonas, refrescar: refrescarPersonas },
   directo: { montar: montarDirecto, refrescar: refrescarDirecto },
   salud: { montar: montarSalud, refrescar: () => {} },
+  aprender: { montar: montarAprender, refrescar: () => {} },
   radar: { montar: montarRadar, refrescar: refrescarRadar },
   taller: { montar: montarTaller, refrescar: refrescarTaller },
   cuentas: { montar: montarCuentas, refrescar: refrescarCuentas },

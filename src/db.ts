@@ -744,6 +744,82 @@ CREATE TABLE IF NOT EXISTS salud (
 );
 CREATE INDEX IF NOT EXISTS salud_fecha ON salud(fecha, tipo);
 
+-- Un plan con fecha (los Cien Días): frentes («qué significa ganar»), hábitos con su ritmo semanal, y cada día los
+-- seis verbos votados, los hábitos hechos, el WOOP, el peso y una nota. Sus tareas viven como side quests (misiones).
+CREATE TABLE IF NOT EXISTS planes (
+  id TEXT PRIMARY KEY,
+  nombre TEXT NOT NULL,
+  desde TEXT NOT NULL,                -- YYYY-MM-DD
+  hasta TEXT NOT NULL,
+  semana0 TEXT NOT NULL,              -- el lunes de la semana 0
+  creado_en INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS frentes (
+  id TEXT PRIMARY KEY,
+  plan_id TEXT NOT NULL,
+  nombre TEXT NOT NULL,
+  corto TEXT,
+  ganar TEXT,                         -- qué significa ganar al final del plan
+  principio TEXT,
+  orden INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS habitos (
+  id TEXT PRIMARY KEY,
+  plan_id TEXT,
+  titulo TEXT NOT NULL,
+  frente_id TEXT,
+  por_semana INTEGER NOT NULL DEFAULT 7,
+  dias TEXT NOT NULL DEFAULT '[]',    -- JSON: días ISO (1 lunes … 7 domingo); vacío = cualquiera
+  orden INTEGER NOT NULL DEFAULT 0,
+  activo INTEGER NOT NULL DEFAULT 1
+);
+CREATE TABLE IF NOT EXISTS plan_dias (
+  fecha TEXT PRIMARY KEY,
+  verbos TEXT NOT NULL DEFAULT '{}',  -- JSON {estudio, trabajo, entreno, ensenio, construyo, disenio}: boolean
+  habitos TEXT NOT NULL DEFAULT '{}', -- JSON {habito_id: boolean}
+  woop TEXT,                          -- JSON {w, o, ob, p}
+  peso REAL,
+  nota TEXT,
+  actualizado_en INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS plan_semanas (
+  plan_id TEXT NOT NULL,
+  n INTEGER NOT NULL,
+  foco TEXT NOT NULL,
+  PRIMARY KEY (plan_id, n)
+);
+CREATE TABLE IF NOT EXISTS plan_tareas (
+  origen TEXT PRIMARY KEY,            -- id de la tarea en el plan original (para reimportar sin duplicar)
+  plan_id TEXT NOT NULL,
+  mision_id INTEGER NOT NULL,
+  frente_id TEXT,
+  obligatoria INTEGER NOT NULL DEFAULT 0,
+  hito INTEGER NOT NULL DEFAULT 0
+);
+
+-- Lo que quiere aprender (temas o habilidades) y lo que practica de cada uno.
+CREATE TABLE IF NOT EXISTS aprendizajes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tema TEXT NOT NULL UNIQUE,
+  por_que TEXT,
+  nivel_actual TEXT,
+  nivel_objetivo TEXT,
+  estado TEXT NOT NULL DEFAULT 'activo', -- activo | pausado | logrado
+  frente_id TEXT,
+  creado_en INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS practicas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  aprendizaje_id INTEGER NOT NULL,
+  fecha TEXT NOT NULL,
+  minutos INTEGER,
+  que TEXT,
+  notas TEXT,
+  fuente TEXT NOT NULL DEFAULT 'manual',
+  creado_en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS practicas_aprendizaje ON practicas(aprendizaje_id, fecha);
+
 -- Lo que se rompió (errores del servidor, rutas que no existen): la materia de la autocrítica. Uno por texto y día.
 CREATE TABLE IF NOT EXISTS errores (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -799,6 +875,10 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   propuestas: [
     ['origen', 'TEXT'], // chat | autocritica
   ],
+  preguntas: [
+    ['vuelve_en', 'INTEGER'], // repaso espaciado: no se muestra antes de esto
+    ['repaso', 'INTEGER'], // en qué vuelta del repaso va (0 = la primera)
+  ],
   movimientos: [
     ['entidad_id', 'INTEGER'], // el proyecto (o la persona) al que pertenece: cuánto deja o cuesta cada cosa suya
     ['mision_id', 'INTEGER'],
@@ -826,6 +906,7 @@ const RUTINAS_SISTEMA = [
   { id: 'fragua', nombre: 'La Fragua forja las propuestas abiertas', hora: '03:00', dias: '0123456', accion: 'fragua' },
   { id: 'lectura', nombre: 'Lectura nocturna: expandir la Librería', hora: '04:00', dias: '0123456', accion: 'lectura' },
   { id: 'matinal', nombre: 'El audio de la mañana', hora: '07:50', dias: '0123456', accion: 'matinal' },
+  { id: 'voto', nombre: 'El voto de los seis verbos (plan en curso)', hora: '22:15', dias: '0123456', accion: 'voto' },
 ]
 /** La única plantilla de run de fábrica: genérica, sin nada del operador. */
 const PLANTILLAS_SISTEMA = [

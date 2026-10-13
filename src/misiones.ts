@@ -21,6 +21,7 @@ import { aportesParaRun } from './ayudantes.ts'
 import { menciones, sinArrobas } from './menciones.ts'
 import { perfilDeRendimiento, textoDeRendimiento } from './rendimiento.ts'
 import { finanzasParaPrompt } from './finanzas.ts'
+import { aprenderParaPrompt } from './aprender.ts'
 
 export const NIVELES_MISION = ['principal', 'primaria', 'secundaria', 'terciaria'] as const
 export type NivelMision = (typeof NIVELES_MISION)[number]
@@ -667,6 +668,7 @@ async function generar(
     `\n${calibracion(db, o.ahora) || 'Todavía no hay runs anteriores para calibrar.'}`,
     textoDeRendimiento(perfilDeRendimiento(db, o.ahora)) ? `\nCómo rinde según sus runs (datos, no opiniones):\n${textoDeRendimiento(perfilDeRendimiento(db, o.ahora))}` : '',
     finanzasParaPrompt(db, o.ahora) ? `\nSu plata (tenela en cuenta: lo que trae ingresos pesa más si la meta viene lejos):\n${finanzasParaPrompt(db, o.ahora)}` : '',
+    aprenderParaPrompt(db, o.ahora) ? `\nLo que quiere aprender (si entra, una banda corta de práctica de lo que lleva más días quieto):\n${aprenderParaPrompt(db, o.ahora)}` : '',
   ].filter(Boolean).join('\n')
   const { datos, modelo } = await pedirJson<{ resumen?: string; misiones?: any[] }>({ db, clase: 'mastropiero', agenteId: 'run' }, SISTEMA_RUN, usuario, { temperatura: 0.6, maxTokens: 6000 })
   const ps = (datos.misiones ?? []).map(deModelo).filter((x): x is Propuesta => !!x)

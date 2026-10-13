@@ -1331,3 +1331,34 @@ a.mencion { color: var(--acento-texto); text-decoration: none; background: var(-
 
 .pl-ticket { width: 28px; height: 28px; object-fit: cover; border-radius: 4px; display: block; }
 .pl-proy { max-width: 11em; font-size: 12px; }
+
+/* Aprender: el plan de los cien y lo que querés aprender */
+.apr-int { font: 600 13px var(--mono); color: var(--acento-texto, var(--acento)); letter-spacing: 2px; }
+.apr-foco { font-size: 16px; line-height: 1.4; margin: 4px 0 12px; max-width: 70ch; }
+.apr-verbos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.apr-verbos button { border: 1px solid var(--linea); background: var(--panel); color: var(--texto); border-radius: 8px; padding: 9px 6px; cursor: pointer; font-size: 14px; }
+.apr-verbos button.on { background: var(--acento); border-color: var(--acento); color: #fff; }
+.apr-hab { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: 13.5px; padding: 3px 0; }
+.apr-woop { display: flex; flex-direction: column; gap: 6px; }
+.apr-woop label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--tenue); }
+.apr-woop textarea { width: 100%; }
+.apr-tarea { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; border-top: 1px solid var(--linea); }
+.apr-tarea:first-of-type { border-top: 0; }
+.apr-tarea.hecha span { text-decoration: line-through; color: var(--tenue); }
+.apr-oblig { color: var(--acento-texto, var(--acento)); font-weight: 600; }
+.apr-cien { display: grid; grid-template-columns: minmax(0, 560px) minmax(0, 1fr); gap: 24px; align-items: start; }
+@media (max-width: 860px) { .apr-cien { grid-template-columns: 1fr; } }
+.apr-grilla { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 5px; }
+.apr-celda { aspect-ratio: 1; border: 0; border-radius: 5px; font: 10px var(--mono); color: var(--tenue); background: var(--linea); cursor: pointer; position: relative; }
+.apr-celda.fut { background: transparent; border: 1px solid var(--linea); }
+.apr-celda.i1 { background: color-mix(in srgb, var(--acento) 25%, var(--linea)); }
+.apr-celda.i2 { background: color-mix(in srgb, var(--acento) 50%, var(--linea)); color: #fff; }
+.apr-celda.i3 { background: color-mix(in srgb, var(--acento) 75%, var(--linea)); color: #fff; }
+.apr-celda.i4 { background: var(--acento); color: #fff; }
+.apr-celda.hoy { outline: 2px solid var(--texto); outline-offset: 1px; }
+.apr-celda.hito::after { content: ''; position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; background: #c9a24a; transform: rotate(45deg); }
+.apr-grande { font-size: clamp(56px, 10vw, 104px); line-height: .9; color: var(--acento); font-weight: 600; }
+.apr-tema.pausado { opacity: .7; }
+.apr-recursos ul { margin: 4px 0 0; padding-left: 18px; font-size: 13px; }
+.apr-rep { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-top: 1px solid var(--linea); }
+.apr-rep:first-of-type { border-top: 0; }

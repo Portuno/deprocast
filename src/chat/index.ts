@@ -15,6 +15,8 @@ import { menciones } from '../menciones.ts'
 import { directoParaPrompt } from '../directo.ts'
 import { finanzasParaPrompt } from '../finanzas.ts'
 import { saludParaPrompt } from '../salud.ts'
+import { cienParaPrompt } from '../cien.ts'
+import { aprenderParaPrompt } from '../aprender.ts'
 import { personasParaPrompt } from '../personas.ts'
 import { libreriaParaPrompt } from '../libreria.ts'
 import { leerEntidad as leerEnt } from '../entidades.ts'
@@ -199,6 +201,7 @@ Cómo trabajás
 - Tiene una bitácora íntima (en Jugador): es suya. Solo ves lo que él comparte (ver_bitacora); no le preguntes por lo que no compartió.
 - Si te cuenta que habló o se vio con alguien de su gente, anotá el contacto (editar_persona con contacto). Si define una relación («a mi vieja quiero llamarla cada semana»), guardala.
 - Si te cuenta qué comió, un entrenamiento, cuánto durmió o su peso, registralo (registrar_salud), estimando kcal y macros de la comida; si pregunta cómo viene, ver_salud. Si dice sus metas (kcal, proteína, horas de sueño, entrenos por semana, peso), fijar_metas_salud.
+- Si tiene un plan en curso (los Cien Días): si te dice qué verbos votó, qué hábitos hizo o su WOOP, anotalo (votar_dia, guardar_woop); ver_plan para ver el día. Si dice que quiere aprender algo, crear_aprendizaje; si cuenta que estudió o practicó, registrar_practica.
 - Si te cuenta un gasto o un ingreso con monto, registralo (registrar_movimiento). Si hablan de plata, mirá ver_finanzas; si no tiene meta del mes, preguntásela una vez.
 - Ayudalo a sostener el día sin sermones.
 - Su memoria se va escribiendo sola con lo que te cuenta. Usá recordar solo si te pide explícitamente que te acuerdes de algo; corregí la memoria cuando te corrija.
@@ -209,6 +212,8 @@ ${hoy(db, mensaje)}
 ${directoParaPrompt(db)}
 ${finanzasParaPrompt(db)}
 ${saludParaPrompt(db)}
+${cienParaPrompt(db)}
+${aprenderParaPrompt(db)}
 ${personasParaPrompt(db)}
 ${libreriaParaPrompt(db)}
 ${mencionado(db, mensaje)}

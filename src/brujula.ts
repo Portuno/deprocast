@@ -16,6 +16,8 @@ import { encolarPregunta } from './preguntas.ts'
 import { perfilDeRendimiento, textoDeRendimiento } from './rendimiento.ts'
 import { saludParaPrompt } from './salud.ts'
 import { finanzasParaPrompt } from './finanzas.ts'
+import { cienParaPrompt } from './cien.ts'
+import { aprenderParaPrompt } from './aprender.ts'
 
 export type Brujula = { fecha: string; cuerpo: string; mente: string; alma: string; foco: string; pregunta: string | null; creadaEn: number }
 const deFila = (r: any): Brujula => ({ fecha: r.fecha, cuerpo: r.cuerpo, mente: r.mente, alma: r.alma, foco: r.foco, pregunta: r.pregunta, creadaEn: r.creada_en })
@@ -58,6 +60,8 @@ export async function reunirDatos(db: Db, ahora = Date.now()): Promise<{ texto: 
     rinde ? `Cómo rinde según sus runs:\n${rinde}` : '',
     saludParaPrompt(db, ahora),
     finanzasParaPrompt(db, ahora),
+    cienParaPrompt(db, ahora),
+    aprenderParaPrompt(db, ahora),
     memoria ? `Lo que sabés de él:\n${memoria}` : '',
   ].filter(Boolean)
   return { texto: partes.join('\n'), poco: !p.total && !directo && !animo.length && !prims.length && !saludParaPrompt(db, ahora) }

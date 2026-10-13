@@ -8,6 +8,8 @@ import path from 'node:path'
 import { ATRIBUTOS, CLASE_IDS, CLASES } from '../clases.ts'
 import { fechaLocal, fijarAjuste, type Db } from '../db.ts'
 import { fijarMetasSalud, registrarSalud, resumenDia, resumenSemana, TIPOS_SALUD } from '../salud.ts'
+import { diaDelPlan, guardarWoop, habitos as listarHabitos, marcarHabito, VERBOS, votar } from '../cien.ts'
+import { crearAprendizaje, listarAprendizajes, prepararRepaso, recursosDe, registrarPractica } from '../aprender.ts'
 import { CATEGORIAS, listarMovimientos, registrarMovimiento, resumenMes, resumenPorProyecto, ritmoMeta } from '../finanzas.ts'
 import { guardarRelacion, personas, VINCULOS } from '../personas.ts'
 import { archivar, corregir, HORIZONTES, memoriaVigente, recordar, TIPOS_MEMORIA } from '../memoria.ts'
@@ -591,6 +593,49 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `anotó ${a.tipo === 'comida' ? 'una comida' : a.tipo === 'ejercicio' ? 'un entrenamiento' : a.tipo === 'sueno' ? 'el sueño' : 'una medida'}${a.titulo ? ` (${recorte(a.titulo, 40)})` : ''}`,
   },
   {
+    nombre: 'votar_dia', familia: 'accion',
+    descripcion: 'Anota en su plan (los Cien Días) los verbos que votó con hechos (Estudio, Trabajo, Entreno, Enseño, Construyo, Diseño) y los hábitos que hizo, cuando te lo cuenta.',
+    parametros: S({ fecha: str('YYYY-MM-DD; vacío = hoy'), verbos: { type: 'array', items: { type: 'string', enum: VERBOS.map(([k]) => k) } }, habitos: { type: 'array', items: { type: 'string' }, description: 'Títulos o ids de los hábitos que hizo' } }),
+    ejecutar: (a, { db }) => {
+      const fecha = a.fecha || fechaLocal()
+      for (const v of a.verbos ?? []) votar(db, fecha, v, true)
+      const hs = listarHabitos(db)
+      const hechos: string[] = []
+      for (const h of a.habitos ?? []) {
+        const x = hs.find((y) => y.id === h || y.titulo.toLowerCase().includes(String(h).toLowerCase()))
+        if (x) { marcarHabito(db, fecha, x.id, true); hechos.push(x.titulo) }
+      }
+      const d = diaDelPlan(db, fecha)
+      return { fecha, verbos: d?.dia.verbos, habitos: hechos, intensidad: d?.intensidad }
+    },
+    resumen: (a) => `anotó en el plan ${[...(a.verbos ?? []), ...(a.habitos ?? [])].join(', ') || 'el día'}`,
+  },
+  {
+    nombre: 'guardar_woop', familia: 'accion',
+    descripcion: 'Guarda su WOOP del día: deseo (w), resultado (o), obstáculo interno (ob) y plan si-entonces (p). Lo que no dijo, vacío.',
+    parametros: S({ fecha: str('YYYY-MM-DD; vacío = hoy'), w: str('Deseo'), o: str('Resultado'), ob: str('Obstáculo interno'), p: str('Plan si-entonces') }),
+    ejecutar: (a, { db }) => guardarWoop(db, a.fecha || fechaLocal(), a).woop,
+    resumen: () => 'guardó el WOOP',
+  },
+  {
+    nombre: 'crear_aprendizaje', familia: 'accion',
+    descripcion: 'Anota algo que quiere aprender (un tema o una habilidad), con por qué y hasta dónde quiere llegar.',
+    parametros: S({ tema: str('Corto: «Francés», «SQL», «Teórico de conducir»'), por_que: str('Para qué'), nivel_actual: str('Dónde está hoy'), nivel_objetivo: str('Hasta dónde quiere llegar') }, ['tema']),
+    ejecutar: (a, { db }) => { const r = crearAprendizaje(db, { tema: a.tema, porQue: a.por_que, nivelActual: a.nivel_actual, nivelObjetivo: a.nivel_objetivo }); return { ...r, recursos: recursosDe(db, r.tema) } },
+    resumen: (a) => `anotó que quiere aprender ${recorte(a.tema, 40)}`,
+  },
+  {
+    nombre: 'registrar_practica', familia: 'accion',
+    descripcion: 'Anota lo que estudió o practicó de algo que aprende («30 min de francés: los verbos en pasado»). Después le llegan preguntas de repaso espaciado.',
+    parametros: S({ tema: str('El tema'), minutos: int('Minutos'), que: str('Qué practicó, concreto'), fecha: str('YYYY-MM-DD; vacío = hoy') }, ['tema']),
+    ejecutar: (a, { db }) => {
+      const r = registrarPractica(db, { tema: a.tema, minutos: a.minutos, que: a.que, fecha: a.fecha, fuente: 'chat' })
+      void prepararRepaso(db, r.aprendizaje, r.practica).catch(() => {})
+      return r
+    },
+    resumen: (a) => `anotó práctica de ${recorte(a.tema, 40)}`,
+  },
+  {
     nombre: 'fijar_metas_salud', familia: 'accion',
     descripcion: 'Fija sus metas de salud cuando las dice: kcal por día, gramos de proteína por día, horas de sueño, entrenos por semana, peso objetivo (kg). 0 borra una meta.',
     parametros: S({ kcal: { type: 'number' }, proteina: { type: 'number' }, sueno: { type: 'number' }, entrenos: { type: 'number' }, peso: { type: 'number' } }),
@@ -853,6 +898,22 @@ export const HERRAMIENTAS: Herramienta[] = [
       const d = resumenDia(db, fecha)
       return { ...d, registros: d.registros.map((r) => ({ hora: r.hora, tipo: r.tipo, titulo: r.titulo, datos: r.datos })), semana: resumenSemana(db, fecha) }
     },
+  },
+  {
+    nombre: 'ver_plan', familia: 'lectura',
+    descripcion: 'Su plan con fecha (los Cien Días): el día (número, semana, foco), frentes, hábitos de hoy y de la semana, verbos votados, WOOP, tareas del día y obligatorias atrasadas.',
+    parametros: S({ fecha: str('YYYY-MM-DD; vacío = hoy') }),
+    ejecutar: (a, { db }) => {
+      const d = diaDelPlan(db, a.fecha || fechaLocal())
+      if (!d) return { plan: null }
+      return { ...d, tareas: d.tareas.map((t) => ({ id: t.id, titulo: t.titulo, estado: t.estado, obligatoria: t.obligatoria, hito: t.hito })), atrasadas: d.atrasadas.map((t) => ({ id: t.id, titulo: t.titulo, vence: t.vence, obligatoria: t.obligatoria })) }
+    },
+  },
+  {
+    nombre: 'ver_aprendizajes', familia: 'lectura',
+    descripcion: 'Lo que quiere aprender: cada tema con minutos, racha y última práctica; con un tema, también sus recursos (Librería y corpus).',
+    parametros: S({ tema: str('Un tema, para ver sus recursos') }),
+    ejecutar: (a, { db }) => ({ aprendizajes: listarAprendizajes(db), recursos: a.tema ? recursosDe(db, a.tema) : undefined }),
   },
   {
     nombre: 'ver_finanzas', familia: 'lectura',

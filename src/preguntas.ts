@@ -95,9 +95,14 @@ export function listarPreguntas(db: Db, f: { estado?: string; limite?: number } 
     : db.prepare('SELECT * FROM preguntas ORDER BY id DESC LIMIT ?').all(f.limite ?? 50)).map(deFila)
 }
 
-export function siguientePregunta(db: Db): Pregunta | null {
-  return listarPreguntas(db, { estado: 'pendiente', limite: 1 })[0] ?? null
+/** La que toca: la más vieja pendiente, salvo los repasos que todavía no vuelven. */
+export function siguientePregunta(db: Db, ahora = Date.now()): Pregunta | null {
+  const r = db.prepare(`SELECT * FROM preguntas WHERE estado = 'pendiente' AND (vuelve_en IS NULL OR vuelve_en <= ?) ORDER BY id LIMIT 1`).get(ahora)
+  return r ? deFila(r) : null
 }
+
+/** Días hasta cada vuelta del repaso espaciado (la misma lista que aprender.ts). */
+const VUELTAS = [1, 3, 7, 16]
 
 /** Encola una pregunta (sin repetir una igual que ya esté pendiente o respondida). */
 export function encolarPregunta(db: Db, p: { texto: string; porQue?: string | null; tipo?: string; opciones?: string[]; tema?: string | null; origen?: string }, ahora = Date.now()): Pregunta | null {
@@ -124,6 +129,12 @@ export async function responderPregunta(db: Db, id: number, respuesta: string | 
   if (!p) throw new Error(`No existe la pregunta ${id}`)
   const r = respuesta?.trim() || null
   db.prepare('UPDATE preguntas SET estado = ?, respuesta = ?, respondida_en = ? WHERE id = ?').run(r ? 'respondida' : 'salteada', r, ahora, id)
+  // Un repaso respondido vuelve más tarde (1, 3, 7, 16 días); salteado, vuelve mañana. No va a la memoria: es práctica.
+  if ((p as any).origen === 'repaso') {
+    const vuelta = Number((p as any).repaso ?? 0) + (r ? 1 : 0)
+    if (vuelta < VUELTAS.length) db.prepare(`UPDATE preguntas SET estado = 'pendiente', vuelve_en = ?, repaso = ? WHERE id = ?`).run(ahora + VUELTAS[vuelta] * 86_400_000, vuelta, id)
+    return deFila(db.prepare('SELECT * FROM preguntas WHERE id = ?').get(id))
+  }
   const q = deFila(db.prepare('SELECT * FROM preguntas WHERE id = ?').get(id))
   if (r) await escriba(db, `Mastropiero le preguntó: «${q.texto}». Él respondió: ${r}`)
   return q

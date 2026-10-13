@@ -3,6 +3,7 @@
  * sabe de él) y le propone qué leer, ver, jugar o estudiar ahora, ya convertido en algo hacible: una banda para la
  * próxima run o una side quest. Él acepta o descarta; aceptar lo anota y pone la obra «en curso».
  */
+import { aprenderParaPrompt } from './aprender.ts'
 import type { Db } from './db.ts'
 import { pedirJson } from './modelo.ts'
 import { memoriaParaPrompt } from './memoria.ts'
@@ -41,6 +42,7 @@ export async function recomendar(db: Db, ahora = Date.now()): Promise<Recomendac
   const usuario = [
     principal ? `Su misión principal: ${principal.titulo}` : '',
     prims.length ? `Primarias de la semana:\n${prims.map((m) => `- ${m.titulo}${m.detalle ? ` — ${m.detalle.slice(0, 140)}` : ''}`).join('\n')}` : 'Sin primarias esta semana.',
+    aprenderParaPrompt(db, ahora) ? `${aprenderParaPrompt(db, ahora)} (una obra que sirva para aprender eso también vale)` : '',
     `Lo que sabés de él:\n${memoriaParaPrompt(db, 25) || '(poco)'}`,
     `Su Librería (candidatas):\n${lista.map((o, i) => `${i + 1}. [${o.tipo}] ${o.titulo}${o.autor ? ` — ${o.autor}` : ''} · ${o.estado}${o.valoracion ? ` · ${o.valoracion}/12` : ''}${o.notas ? ` · ${o.notas.slice(0, 100)}` : ''}`).join('\n')}`,
   ].filter(Boolean).join('\n\n')

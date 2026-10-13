@@ -15,7 +15,9 @@ import { forjarPendientes } from './fragua.ts'
 import { expandirTanda, paraExpandir } from './libreria.ts'
 import { guionMatinal } from './matinal.ts'
 import { sintetizar } from './taller.ts'
-import { mandarAudio, preguntarSueno, telegramActivo } from './telegram.ts'
+import { mandarAudio, mandarVotoNoche, preguntarSueno, telegramActivo } from './telegram.ts'
+import { diaDelPlan } from './cien.ts'
+import { listarAprendizajes } from './aprender.ts'
 import { calificarDia, predecirDia, textoDeCalificacion } from './gemelo.ts'
 import { buscarOportunidades } from './radar.ts'
 import { enEspera, reanudarIngesta } from './bus.ts'
@@ -25,7 +27,7 @@ import { brujulaDelDia, textoDeBrujula } from './brujula.ts'
 import { recomendar } from './mentor.ts'
 import { proponerPuentes } from './puentes.ts'
 import { enFondo, topeAlcanzado } from './nan.ts'
-import { conAvance, listarMisiones, proponerPrimarias, reporteSemana, semanaDe, seguimientos, sideQuestsRelevantes } from './misiones.ts'
+import { anotarSideQuest, conAvance, listarMisiones, proponerPrimarias, reporteSemana, semanaDe, seguimientos, sideQuestsRelevantes } from './misiones.ts'
 
 export type Rutina = { id: string; nombre: string; hora: string; dias: string; accion: string; activa: boolean; ultimaFecha: string | null }
 
@@ -117,8 +119,18 @@ export const ACCIONES: Acciones = {
     if (!r.nuevas.length) return r.aviso ? `El radar no pudo salir: ${r.aviso}` : null
     return `El radar encontró ${r.nuevas.length} oportunidad${r.nuevas.length > 1 ? 'es' : ''}: ${r.nuevas.slice(0, 5).map((o) => o.titulo).join(' · ')}. Están en Radar, con por qué te sirven; si una te interesa, te armo el borrador.`
   },
-  /** El lunes: primarias sugeridas para la semana (si no las tiene ya). */
+  /** A la noche, si hay un plan en curso: el voto de los seis verbos y los hábitos del día (botones por Telegram). */
+  async voto(db, fecha) {
+    const d = diaDelPlan(db, fecha)
+    if (!d || fecha < d.plan.desde || fecha > d.plan.hasta) return null
+    await mandarVotoNoche(db, fecha).catch(() => {})
+    return null
+  },
+  /** El lunes: primarias sugeridas para la semana (si no las tiene ya), y una práctica para lo que quiere aprender y quedó quieto. */
   async semana(db, _fecha, ahora) {
+    for (const a of listarAprendizajes(db, { estado: 'activo' }, ahora).filter((x) => x.diasSinPracticar == null || x.diasSinPracticar >= 7)) {
+      anotarSideQuest(db, { titulo: `Practicar ${a.tema} (20 min)`, detalle: a.ultima ? `La última vez fue el ${a.ultima}.` : 'Todavía no hay práctica anotada.', sugerida: true, creadaPor: 'mastropiero' }, ahora)
+    }
     const semana = semanaDe(ahora)
     if (listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana, estados: ['activa', 'sugerida'] }).length) return null
     const ps = await proponerPrimarias(db, semana, { ahora })

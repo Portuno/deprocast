@@ -12,6 +12,8 @@ import { conAvance, listarMisiones, semanaDe, seguimientos } from './misiones.ts
 import { pedirJson } from './modelo.ts'
 import { saludParaPrompt } from './salud.ts'
 import { finanzasParaPrompt } from './finanzas.ts'
+import { cienParaPrompt, diaDelPlan } from './cien.ts'
+import { aprenderParaPrompt } from './aprender.ts'
 
 const SISTEMA = `Sos Mastropiero y grabás el audio de la mañana para el jugador: lo escucha caminando, antes de arrancar.
 Escribí el guion para leer en voz alta, de 2 a 3 minutos (entre 300 y 450 palabras):
@@ -53,6 +55,9 @@ export async function materialMatinal(db: Db, fecha: string, ahora = Date.now())
     forjas.length ? `La Fragua dejó ${forjas.length} mejora${forjas.length > 1 ? 's' : ''} lista${forjas.length > 1 ? 's' : ''} para aplicar: ${forjas.map((f) => f.pedido.split('\n')[0].slice(0, 80)).join(' · ')}` : '',
     saludParaPrompt(db, ahora),
     finanzasParaPrompt(db, ahora),
+    cienParaPrompt(db, ahora),
+    aprenderParaPrompt(db, ahora),
+    (() => { const d = diaDelPlan(db, fecha); return d && fecha >= d.plan.desde && fecha <= d.plan.hasta && !d.dia.woop?.w ? 'Tiene un plan con WOOP diario y hoy todavía no lo hizo: tu pregunta final es que te dicte su WOOP de hoy (deseo, resultado, obstáculo interno, plan si-entonces) en una nota de voz.' : '' })(),
     aportes.length ? `Aportes nuevos de sus ayudantes: ${aportes.map((a) => a.titulo).join(' · ')}` : '',
     `Lo que sabés de él:\n${memoriaParaPrompt(db, 20)}`,
   ].filter(Boolean).join('\n')
