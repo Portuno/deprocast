@@ -1414,3 +1414,60 @@ a.mencion { color: var(--acento-texto); text-decoration: none; background: var(-
 @media (max-width: 1100px) { .mis-prims { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 900px) { .mis-tablero, .mis-abajo { grid-template-columns: 1fr; } }
 @media (max-width: 520px) { .mis-prims { grid-template-columns: 1fr; } }
+
+/* El HUD de Hoy: estado, seis modos, el widget del modo y acciones rápidas. Alto fijo, sin scroll de página. */
+.hud-hoy { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto; height: 100%; min-height: 0; gap: 0; }
+.hud-estado { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 12px 8px; border-bottom: 1px solid var(--linea); }
+.hud-estado b { display: block; font-size: 14px; font-weight: 600; text-transform: capitalize; }
+.hud-estado small { font: 11px var(--mono); color: var(--tenue); }
+.hud-estado-acc { display: flex; gap: 4px; }
+.hud-modos { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border-bottom: 1px solid var(--linea); }
+.hud-modos button { position: relative; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 8px 0 7px; background: none; border: 0; color: var(--tenue); cursor: pointer; font-size: 11px; transition: color .12s, background .12s; }
+.hud-modos button i { font-style: normal; font-size: 17px; line-height: 1.1; }
+.hud-modos button kbd { position: absolute; top: 3px; right: 5px; font: 9px var(--mono); color: var(--debil); background: none; border: 0; padding: 0; }
+.hud-modos button:hover { color: var(--texto); background: var(--panel-2); }
+.hud-modos button.on { color: var(--acento-texto, var(--acento)); box-shadow: inset 0 -2px 0 var(--acento); }
+.hud-cuerpo { min-height: 0; overflow: hidden; padding: 12px; }
+.hud-widget { display: flex; flex-direction: column; gap: 7px; height: 100%; animation: hud-entra .12s ease-out; }
+@keyframes hud-entra { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+.hud-etq { font: 600 10.5px var(--sans, inherit); letter-spacing: .08em; text-transform: uppercase; color: var(--debil); margin-top: 4px; }
+.hud-titulo { margin: 0; font-size: 16px; font-weight: 600; line-height: 1.3; }
+.hud-texto { margin: 0; font-size: 12.5px; color: var(--tenue); line-height: 1.45; }
+.hud-fila { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; min-width: 0; }
+.hud-fila > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hud-fila.tenue { color: var(--tenue); font-size: 12px; }
+.hud-num { font: 500 12px var(--mono); color: var(--texto); white-space: nowrap; }
+.hud-barra { display: block; height: 6px; border-radius: 3px; background: var(--linea); overflow: hidden; background-image: repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), var(--panel) calc(10% - 1px) 10%); }
+.hud-barra i { display: block; height: 100%; background: var(--acento); }
+.hud-marcas { display: flex; gap: 6px; flex-wrap: wrap; }
+.hud-marcas button, .hud-chips button, .hud-votos button { border: 1px solid var(--linea); background: var(--panel-2); color: var(--texto); border-radius: 8px; padding: 6px 10px; font-size: 12.5px; cursor: pointer; }
+.hud-marcas button.on, .hud-votos button.on { background: var(--acento); border-color: var(--acento); color: #fff; }
+.hud-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.hud-check { display: flex; align-items: center; gap: 7px; font-size: 13px; min-width: 0; }
+.hud-check em { margin-left: auto; font: 11px var(--mono); color: var(--debil); font-style: normal; }
+.hud-linea { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.hud-linea li { display: grid; grid-template-columns: 3.4em minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: 13px; padding-left: 8px; border-left: 2px solid var(--linea); }
+.hud-linea li > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hud-linea li em { font: 10px var(--mono); color: var(--debil); font-style: normal; }
+.hud-linea li.evento { border-left-color: #6fa7db; }
+.hud-linea li.banda { border-left-color: var(--acento); }
+.hud-linea li.hecha span { text-decoration: line-through; color: var(--tenue); }
+.hud-linea li.hud-ahora { border-left-color: var(--mal, #d27272); color: var(--mal, #d27272); font: 600 10px var(--mono); text-transform: uppercase; }
+.hud-semana { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; height: 34px; align-items: end; }
+.hud-semana span { height: 100%; background: var(--linea); border-radius: 3px; display: flex; align-items: flex-end; overflow: hidden; }
+.hud-semana i { display: block; width: 100%; background: var(--acento); }
+.hud-tarjeta { text-align: left; border: 1px solid var(--linea); background: var(--panel-2); color: var(--texto); border-radius: 8px; padding: 8px 10px; font-size: 13px; cursor: pointer; line-height: 1.4; }
+.hud-tarjeta:hover { border-color: var(--acento); }
+.hud-pie { margin-top: auto; display: flex; justify-content: space-between; align-items: center; padding-top: 8px; border-top: 1px solid var(--linea); font-size: 12px; }
+.hud-pie a { color: var(--tenue); }
+.hud-pop { border-top: 1px solid var(--linea); padding: 8px 10px; background: var(--panel-2); animation: hud-entra .12s ease-out; }
+.hud-pop-form { display: flex; gap: 6px; }
+.hud-pop-form input { flex: 1; min-width: 0; }
+.hud-votos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.hud-rapidas { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-top: 1px solid var(--linea); }
+.hud-rapidas button { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 7px 0 8px; background: none; border: 0; color: var(--tenue); cursor: pointer; font-size: 11px; }
+.hud-rapidas button i { font-style: normal; font-size: 15px; }
+.hud-rapidas button:hover { color: var(--texto); background: var(--panel-2); }
+.m-evento { font: 11.5px var(--mono); color: var(--debil); padding: 2px 0 2px 44px; }
+.hoy-dia:has(> .hud-hoy) { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.hoy-dia > .hud-hoy { flex: 1; }

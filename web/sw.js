@@ -1,7 +1,7 @@
 // Service worker mínimo: hace instalable la app y guarda la cáscara (HTML, estilos, scripts) para abrir rápido.
 // Los datos (/api) siempre van al servidor. Solo lo propio (no los scripts que mete un proxy, como el de Cloudflare)
 // y solo respuestas buenas: una redirección o la página de la clave no se guardan nunca.
-const CACHE = 'mastro-v6'
+const CACHE = 'mastro-v7'
 self.addEventListener('install', () => { self.skipWaiting() })
 self.addEventListener('activate', (e) => {
   // Las versiones viejas se borran (una pudo haber guardado una redirección).

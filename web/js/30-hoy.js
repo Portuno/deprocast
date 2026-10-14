@@ -10,7 +10,7 @@ const aMinJs = (h) => Number(h.slice(0, 2)) * 60 + Number(h.slice(3, 5))
 
 async function montarHoy() {
   $('#principal').classList.add('lleno')
-  $('#principal').innerHTML = `<div class="hoy ${pref.leer('mastro-hoy-foco', 'no') === 'si' ? 'foco' : ''}" id="hoy" style="--hoy-dia:${Number(pref.leer('mastro-hoy-ancho', '400')) || 400}px">
+  $('#principal').innerHTML = `<div class="hoy ${pref.leer('mastro-hoy-foco', 'no') === 'si' ? 'foco' : ''}" id="hoy" style="--hoy-dia:${Number(pref.leer('mastro-hoy-ancho', '')) || Math.max(340, Math.round(window.innerWidth * 0.3))}px">
     <section class="chat-main hoy-chat">${hiloHTMLBase()}<button class="hoy-mostrar" id="hoy-mostrar" title="Mostrar las tareas del día">⇤ ☀ <span id="hoy-mini"></span></button></section>
     <div class="hoy-divisor" id="hoy-divisor" title="Arrastrá para repartir el espacio entre el chat y las tareas (doble clic: ocultar las tareas)"></div>
     <section class="hoy-dia" id="hoy-dia"></section></div>`
@@ -74,58 +74,14 @@ async function traerHoy() {
   } catch (e) { error(e) }
 }
 
+/** El panel derecho de Hoy es el HUD (31-hud.js): estado, seis modos y acciones rápidas. */
 function pintarHoy() {
   const cont = $('#hoy-dia')
   if (!cont || !hoyDatos) return
-  const { fecha, jornada: j, progreso: p, semana, run, calendarios } = hoyDatos
-  const fechaTxt = new Date(`${fecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })
-  const barras = semana.map((d) => {
-    const dia = new Date(`${d.fecha}T12:00:00`)
-    return `<div class="sem-dia ${d.fecha === fecha ? 'hoy' : ''}" title="${dia.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric' })}: ${d.hechos} de ${d.total} bandas">
-      <span><i style="height:${d.total ? Math.round((d.hechos / d.total) * 100) : 0}%"></i></span><small>${DIA_LETRA[dia.getDay()]}</small></div>`
-  }).join('')
-  const avisoNotif = 'Notification' in window && Notification.permission === 'default'
-  cont.innerHTML = `
-    <header class="hoy-cab">
-      <div><small>Hoy</small><h1>${esc(fechaTxt)}</h1>
-        <p class="tenue">${p.total ? `${p.hechos} de ${p.total} bandas${p.parciales ? ` · ${p.parciales} a medias` : ''}` : 'Todavía sin bandas trabajadas'}</p></div>
-      <div class="semana" title="Bandas hechas por día">${barras}</div>
-    </header>
-    <div class="fila hoy-acciones">
-      <button class="btn btn-chico btn-icono" id="hoy-ajustes" title="Rutinas, plantillas y tope de gasto">⚙</button>
-      <button class="btn btn-chico" id="hoy-ocultar" title="Ocultar las tareas: el chat ocupa toda la pantalla">Ocultar tareas ⇥</button>
-      ${avisoNotif ? '<button class="btn btn-chico" id="hoy-notif">Activar avisos</button>' : ''}
-    </div>
-    <div class="hoy-cola" id="hoy-cola">
-      <button type="button" class="cola-item" data-dia="pregunta" id="cola-pregunta"><small>Pregunta</small><b>Mirando…</b><em>Abrir</em></button>
-      ${colaRunHTML()}
-      <button type="button" class="cola-item" data-dia="gemelo" id="cola-gemelo"><small>Gemelo</small><b>Mirando el día…</b><em>Abrir</em></button>
-    </div>
-    ${brujulaHTML()}
-    ${hoyDatos.proximas?.length ? `<section class="hoy-semana"><h3 class="sub">Próximas runs</h3>${hoyDatos.proximas.map((r) => `<details class="run-pasada"><summary><b>${esc(new Date(`${r.fecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric' }))}</b> ${r.inicio}–${r.fin} · ${r.misiones.length} bandas · propuesta</summary>
-      ${r.resumen ? `<p class="hoy-resumen">${esc(r.resumen)}</p>` : ''}<ol class="bandas">${r.misiones.map((m) => bandaHTML(m, { propuesta: true })).join('')}</ol>
-      <p class="tenue chico">Ese día aparece en Hoy para arrancarla (o rehacerla).</p></details>`).join('')}</section>` : ''}
-    ${semanaHoyHTML()}
-    ${j?.cierre ? `<div class="hoy-cierre"><small>Tu cierre</small><p>${esc(j.cierre)}</p></div>` : ''}
-    ${calendarios ? '' : `<p class="hoy-nota">Para que tenga en cuenta tu agenda: en Google Calendar, Configuración del calendario → «Dirección secreta en formato iCal», y pegala en <code>.env</code> como <code>GCAL_ICS_URLS</code>.</p>`}`
-  $('#hoy-ajustes').onclick = modalAjustesHoy
-  const bru = $('#hoy-brujula')
-  if (bru) bru.onclick = async () => { bru.disabled = true; bru.textContent = 'Mirando cómo venís…'; try { await api('/brujula', {}); traerHoy() } catch (e) { error(e); bru.disabled = false } }
-  const det = $('#hoy-dia details.brujula')
-  if (det) det.ontoggle = () => pref.guardar('mastro-brujula-caja', det.open ? 'si' : 'no')
-  $('#hoy-ocultar').onclick = () => window.ocultarDia?.()
+  pintarHud(cont)
+  traerHud()
   pintarMiniHoy()
-  const nb = $('#hoy-notif')
-  if (nb) nb.onclick = async () => { await Notification.requestPermission(); pintarHoy() }
-  engancharCola(cont)
-  engancharSemanaHoy(cont)
-  traerPregunta()
-  traerGemelo(hoyDatos.fecha)
   if (diaAbierto && $('#modal .dia-modal') && !focoEnCampo()) pintarDiaModal()
-  if (!hoyScrolleado) {
-    hoyScrolleado = true
-    $('.banda.ahora', cont)?.scrollIntoView({ block: 'center' })
-  }
 }
 
 const corto = (s, n = 110) => (s && s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s || '')

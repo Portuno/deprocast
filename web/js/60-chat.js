@@ -333,7 +333,9 @@ function resumenActividad(herr) {
 function hiloHTML(ms, q, vivo) {
   const turnos = []
   for (const m of ms) {
-    if (m.rol === 'operador' || !turnos.length) turnos.push({ yo: m.rol === 'operador' ? m : null, herr: [], textos: [], errores: [], tokens: 0, modelo: null })
+    // Una línea de registro (lo que hizo desde el HUD): sola, discreta, y corta el turno.
+    if (m.rol === 'evento') { turnos.push({ evento: m }); continue }
+    if (m.rol === 'operador' || !turnos.length || turnos.at(-1).evento) turnos.push({ yo: m.rol === 'operador' ? m : null, herr: [], textos: [], errores: [], tokens: 0, modelo: null })
     const t = turnos.at(-1)
     if (m.rol === 'herramienta') t.herr.push(m)
     else if (m.rol === 'error') t.errores.push(m)
@@ -343,7 +345,7 @@ function hiloHTML(ms, q, vivo) {
       t.modelo = m.modelo ?? t.modelo
     }
   }
-  return turnos.map((t, i) => turnoHTML(t, q, i === turnos.length - 1 ? vivo : null)).join('')
+  return turnos.map((t, i) => (t.evento ? `<div class="m-evento">· ${t.evento.en ? new Date(t.evento.en).toTimeString().slice(0, 5) : ''} ${esc(t.evento.texto ?? '')}</div>` : turnoHTML(t, q, i === turnos.length - 1 ? vivo : null))).join('')
 }
 
 function turnoHTML(t, q, vivo) {
@@ -407,7 +409,7 @@ async function enviarChat() {
       chat.actual = c
       chat.conversaciones.unshift(c)
     }
-    await api(`/chat/${chat.actual.id}/mensajes`, { texto })
+    await api(`/chat/${chat.actual.id}/mensajes`, { texto, hud: window.hudModoActual?.() ?? null })
     txt.value = ''
     chat.borrador = ''
     chat.adjuntos = []

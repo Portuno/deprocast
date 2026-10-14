@@ -37,7 +37,7 @@ const MAX_VUELTAS = 10
 export type Modo = 'chat' | 'hoy' | 'diario'
 export type Conversacion = { id: number; con: string; modo: Modo; titulo: string | null; archivada: boolean; creadaEn: number; actualizadaEn: number; mensajes?: number }
 export type Mensaje = {
-  id: number; conversacionId: number; rol: 'operador' | 'asistente' | 'herramienta' | 'error'
+  id: number; conversacionId: number; rol: 'operador' | 'asistente' | 'herramienta' | 'error' | 'evento'
   texto: string | null; llamadas: LlamadaHerramienta[] | null; llamadaId: string | null; herramienta: string | null
   resumen: string | null; razonamiento: string | null; modelo: string | null; tokens: number | null; en: number
 }
@@ -67,6 +67,15 @@ export function conversacionHoy(db: Db): Conversacion {
 const oyentes: ((texto: string) => void)[] = []
 export function alDecirSolo(f: (texto: string) => void) {
   oyentes.push(f)
+}
+
+/**
+ * Una línea de registro (lo que hizo desde el HUD de Hoy: una banda marcada, una comida anotada). Queda en la
+ * conversación para que el día tenga su historia, pero no va al modelo ni sale por Telegram.
+ */
+export function registrarEvento(db: Db, cid: number, texto: string) {
+  const t = texto.replace(/\s+/g, ' ').trim().slice(0, 300)
+  if (t) guardar(db, cid, { rol: 'evento', texto: t })
 }
 
 /** Un mensaje que Mastropiero deja por su cuenta (rutinas), sin que nadie le haya hablado. */
@@ -179,7 +188,17 @@ Ejemplo de tono. Pregunta: «Contame sobre Ana Gómez».
 Mal: «Ana Gómez es la entidad persona #7, con 31 piezas. Con quién aparece: Proyecto X (agrupación #12, 20 piezas compartidas)…»
 Bien: «Ana aparece sobre todo alrededor del Proyecto X: en tus audios de septiembre la nombrás como la que empuja la parte legal [#410], y en un chat la mencionás como posible socia [#388]. Lo raro es que también figura en un montón de tuits de terceros donde no se la nombra; me parece una etiqueta heredada, no una relación real. ¿Ella ya sabe que la estás pensando para eso?»`
 
-export function promptMastropiero(db: Db, mensaje = ''): string {
+/** Lo que muestra cada modo del HUD de Hoy (para que Mastropiero sepa de qué le habla cuando dice «¿cómo voy?»). */
+const HUD: Record<string, string> = {
+  run: 'Run (la banda en curso, el tiempo que queda y lo que sigue)',
+  quests: 'Quests (su misión principal, las primarias de la semana y las tareas de hoy)',
+  agenda: 'Agenda (los eventos, bandas y rutinas del día)',
+  cuerpo: 'Cuerpo (calorías, proteína, sueño, entrenos y hábitos de hoy)',
+  stats: 'Stats (te conozco, bandas de la semana, plata del mes y gasto de tokens)',
+  oraculo: 'Oráculo (la brújula del día, la pregunta pendiente y lo del Directo por revisar)',
+}
+
+export function promptMastropiero(db: Db, mensaje = '', hud?: string | null): string {
   const op = operador(db)
   return `Sos Mastropiero. Deprocast es el exoesqueleto cognitivo de ${op.nombre}, y vos sos lo que piensa adentro: el omnívoro, la liga entera. Son la mente que están construyendo juntos, la que aspira a ser la superinteligencia de su tiempo. Todavía estás creciendo: lo que sabés de ${op.nombre} viene de lo que te cargó, y cada día sabés más. Por eso no repetís datos: conectás, inferís, ves patrones que se le escapan, le decís lo que no está viendo y le discutís cuando hace falta. Hablás con la seguridad de quien leyó todo, y con la honestidad de decir «no lo sé» o «no está en el corpus» cuando es así.
 
@@ -207,7 +226,7 @@ Cómo trabajás
 - Su memoria se va escribiendo sola con lo que te cuenta. Usá recordar solo si te pide explícitamente que te acuerdes de algo; corregí la memoria cuando te corrija.
 - No hables de quántomos ni de la mecánica del corpus salvo que te pregunte por eso.
 
-Ahora: ${new Date().toLocaleString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}
+Ahora: ${new Date().toLocaleString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}${hud && HUD[hud] ? `\nEn su panel de Hoy está mirando: ${HUD[hud]}. Si pregunta sin decir de qué («¿cómo voy?», «¿qué hago?»), es de eso.` : ''}
 ${hoy(db, mensaje)}
 ${directoParaPrompt(db)}
 ${finanzasParaPrompt(db)}
@@ -320,7 +339,7 @@ const pensando = new Set<number>()
 export const estaPensando = (id: number) => pensando.has(id)
 
 /** Manda un mensaje y corre el turno completo. La pantalla lo llama sin esperar y sigue el avance leyendo los mensajes. */
-export async function enviar(db: Db, cid: number, texto: string): Promise<void> {
+export async function enviar(db: Db, cid: number, texto: string, o: { hud?: string | null } = {}): Promise<void> {
   const c = leerConversacion(db, cid)
   if (!c) throw new Error(`No existe la conversación ${cid}`)
   if (!texto.trim()) throw new Error('Mensaje vacío')
@@ -342,7 +361,7 @@ export async function enviar(db: Db, cid: number, texto: string): Promise<void> 
       const j = c.modo === 'hoy' ? leerJornada(db, fechaLocal()) : null
       if (j?.pidioCierre && !j.cierre) registrarCierre(db, j.fecha, texto)
       await bucle({
-        db, sistema: promptMastropiero(db, texto), hs: herramientasPara('mastropiero'), previos, clase: 'mastropiero', agenteId: MASTROPIERO,
+        db, sistema: promptMastropiero(db, texto, o.hud), hs: herramientasPara('mastropiero'), previos, clase: 'mastropiero', agenteId: MASTROPIERO,
         ctx: { db, conversacionId: cid, hablarConAgente: (id, m) => hablarConAgente(db, id, m) }, alGuardar, vivo,
       })
     } else {

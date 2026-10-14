@@ -48,20 +48,20 @@ import { editarMovimiento, importarCSV, listarMovimientos, registrarMovimiento, 
 import { buscarOportunidades, listarOportunidades, marcarOportunidad, redactarOportunidad } from './radar.ts'
 import { cuotas, hayBuscadorWeb } from './web.ts'
 import { anotarPrediccion, calificarAMano, calificarDia, curva, paraElJugador, predecirDia, prediccionesDe, sumarPredicciones, textoDeCalificacion } from './gemelo.ts'
-import { cerrarDirecto, iniciarDirecto, latidoDirecto, tramoDirecto, tramosDe, leerSesion, listarSesiones, momentos as momentosDirecto, registrarAudio, registrarCuadro, sesionActiva, rehacerInforme, resolverPropuestas } from './directo.ts'
+import { cerrarDirecto, iniciarDirecto, latidoDirecto, tramoDirecto, tramosDe, leerSesion, listarSesiones, momentos as momentosDirecto, registrarAudio, registrarCuadro, sesionActiva, rehacerInforme, resolverPropuestas, propuestasPendientes } from './directo.ts'
 import { encolarPregunta, generandoPreguntas, generarPreguntas, listarPreguntas, reponerPreguntas, responderPregunta, siguientePregunta } from './preguntas.ts'
 import { aportes, ayudantesDe, pedirAportes, quitarAyudante, sumarAyudante } from './ayudantes.ts'
 import { agregarItem, editarItem, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, marcarJugador, personaje, resolverHistoria, TIPOS_INVENTARIO } from './personajes.ts'
 import { aprender, archivar, corregir, estadoAprendizaje, fuentesParaAprender, memoriaVigente, recordar, revisar } from './memoria.ts'
 import { actualizarRutina, correrRutinas, listarRutinas } from './rutinas.ts'
-import { urlsCalendario } from './calendario.ts'
+import { agendaDelDia, urlsCalendario } from './calendario.ts'
 import { asientos, especializacion } from './auditor.ts'
 import { enEspera, leerTarea, pausarIngesta, publicar, reanudarIngesta, tareas } from './bus.ts'
 import { asegurarFuente, fuentes, leerPieza, listarPiezas, NIVELES, TIPOS } from './corpus.ts'
 import { deshacer, descartar, ejecutar as ejecutarCarga, IMPORTADORES, leerCarga, listarCargas, reetiquetar, subir } from './cargas/index.ts'
 import { contarEntidades, coocurrencias, duplicadosProbables, editarEntidad, entidadesPorId, fusionarEntidades, noSonLoMismo, quitarAliasCruzados, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from './entidades.ts'
 import {
-  alDecirSolo, archivarConversacion, conversacionHoy, crearConversacion, enviar, estadoEnVivo, estaPensando, leerConversacion, listarConversaciones, listarPropuestas, mensajeDeMastropiero, mensajes, resolverPropuesta,
+  alDecirSolo, archivarConversacion, registrarEvento, conversacionHoy, crearConversacion, enviar, estadoEnVivo, estaPensando, leerConversacion, listarConversaciones, listarPropuestas, mensajeDeMastropiero, mensajes, resolverPropuesta,
 } from './chat/index.ts'
 import { celda, DOMINIOS } from './geometria72.ts'
 import { crearProyecto, cronica, estadoLiga, ingerir, numeroDeTick, tickEnCurso, tickUnico } from './mastropiero.ts'
@@ -277,7 +277,7 @@ const rutas: [string, RegExp, Ruta][] = [
     if (estaPensando(cid)) throw new Error('Esperá: todavía está contestando')
     if (!String(b.texto ?? '').trim()) throw new Error('Mensaje vacío')
     // El turno corre en segundo plano; la pantalla sigue el avance leyendo los mensajes.
-    void enviar(db, cid, String(b.texto))
+    void enviar(db, cid, String(b.texto), { hud: typeof b.hud === 'string' ? b.hud : null })
     return { ok: true }
   }],
   ['POST', /^\/api\/chat\/(\d+)\/archivar$/, (_, [c]) => (archivarConversacion(db, id(c)), { ok: true })],
@@ -301,6 +301,28 @@ const rutas: [string, RegExp, Ruta][] = [
       ajustes: { primarias_semana: ajuste(db, 'primarias_semana'), tokens_dia_max: ajuste(db, 'tokens_dia_max'), pensar_cada_horas: ajuste(db, 'pensar_cada_horas'), meta_ingresos_mes: ajuste(db, 'meta_ingresos_mes'), directo_auto: ajuste(db, 'directo_auto'), fragua_por_noche: ajuste(db, 'fragua_por_noche') },
     }
   }],
+  // El HUD de Hoy: lo de cada modo que no viene en /api/hoy, y las líneas de registro de lo que se hace desde ahí
+  ['GET', /^\/api\/hoy\/hud$/, async () => {
+    const fecha = fechaLocal()
+    const ahora = new Date()
+    const hhmm = ahora.toTimeString().slice(0, 5)
+    const { eventos } = await agendaDelDia(fecha).catch(() => ({ eventos: [] as { titulo: string; inicio: number; fin: number; todoElDia: boolean }[] }))
+    const plan = diaDelPlan(db, fecha)
+    const enPlan = plan && fecha >= plan.plan.desde && fecha <= plan.plan.hasta
+    const salud = resumenDia(db, fecha)
+    return {
+      agenda: eventos.map((e) => ({ titulo: e.titulo, inicio: e.inicio, fin: e.fin, todoElDia: e.todoElDia })),
+      rutinas: listarRutinas(db).filter((r) => r.activa && r.dias.includes(String(ahora.getDay())) && r.hora > hhmm).map((r) => ({ nombre: r.nombre, hora: r.hora })).slice(0, 4),
+      salud: { kcal: salud.kcal, proteina: salud.proteina, comidas: salud.comidas, ejercicio: salud.ejercicio, sueno: salud.sueno, peso: salud.peso, metas: salud.metas, entrenosSemana: resumenSemana(db, fecha).entrenos },
+      plan: enPlan ? { habitos: plan.habitos.filter((h) => h.toca), verbos: plan.dia.verbos, tareas: plan.tareas.map((t) => ({ id: t.id, titulo: t.titulo, estado: t.estado, hito: t.hito, obligatoria: t.obligatoria })) } : null,
+      plata: { resumen: resumenMes(db), ritmo: ritmoMeta(db) },
+      teConozco: curva(db, fecha, 21).total,
+      gasto: { ...tokensHoy(db), tope: topeDiario(db) },
+      pregunta: siguientePregunta(db)?.texto ?? null,
+      directo: propuestasPendientes(db),
+    }
+  }],
+  ['POST', /^\/api\/hoy\/evento$/, (b) => (registrarEvento(db, conversacionHoy(db).id, String(b.texto ?? '')), { ok: true })],
   ['POST', /^\/api\/ajustes$/, (b) => {
     for (const k of ['primarias_semana', 'tokens_dia_max', 'pensar_cada_horas', 'directo_auto', 'fragua_por_noche']) if (b[k] != null && String(b[k]).trim()) fijarAjuste(db, k, String(b[k]).trim())
     if (b.meta_ingresos_mes != null) fijarAjuste(db, 'meta_ingresos_mes', String(b.meta_ingresos_mes).trim())
