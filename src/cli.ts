@@ -21,6 +21,7 @@ import {
 import { CAPAS, umbral } from './xp.ts'
 import { PREGUNTA_EJEMPLO, sembrarEjemplo } from './semilla.ts'
 import { respaldar, restaurar } from './respaldo.ts'
+import { mudar } from './mudanza.ts'
 import { exportarEstado, importarEstado } from './exportacion.ts'
 import { chequear, informe } from './doctor.ts'
 import { arrancarRun, cerrarRun, conAvance, enCurso, listarMisiones, misionesDeRun, prepararRun, principalDe, runActual, semanaDe } from './misiones.ts'
@@ -147,6 +148,7 @@ const AYUDA = `
   MUDANZA
     respaldo                        copia la base y las cargas a data/respaldos/
     restaurar <carpeta> [--forzar]  la pone en esta compu
+    mudar <url> [--sin-cargas]      manda la base y los archivos a la instancia de la nube (clave en MASTRO_CLAVE_NUBE)
     exportar [--sin-archivos]       todo el estado en un JSON (data/exportaciones/)
     importar-estado <json> [--forzar]  deja esta base igual a la exportada (respalda antes)
     doctor [--rapido]               revisa que esta compu tenga todo
@@ -168,6 +170,11 @@ async function main() {
     const ruta = path.resolve('data', 'demo.db')
     for (const sufijo of ['', '-wal', '-shm']) fs.rmSync(ruta + sufijo, { force: true })
     process.env.MASTRO_DB = ruta
+  }
+  if (cmd === 'mudar') {
+    // La clave de la nube va en MASTRO_CLAVE_NUBE (en el .env o en la consola): no se escribe en el comando.
+    const r = await mudar(pos[0] ?? '', process.env.MASTRO_CLAVE_NUBE ?? '', { sinCargas: !!flags['sin-cargas'], log: (t) => console.log(`  ${t}`) })
+    return console.log(`  Listo: la nube tiene ${Object.entries(r.conteos).map(([k, v]) => `${v} ${k}`).join(' · ')}`)
   }
   if (cmd === 'restaurar') {
     const r = restaurar(pos[0] ?? '', { forzar: !!flags.forzar })

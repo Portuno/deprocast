@@ -16,6 +16,8 @@ COPY . .
 ENV MASTRO_HOST=0.0.0.0 \
     MASTRO_PUERTO=3000 \
     MASTRO_NUBE=1 \
-    MASTRO_DB=/data/mastro.db
+    MASTRO_DB=/data/mastro.db \
+    MASTRO_CARGAS=/data/cargas \
+    MASTRO_BITACORA=/data/bitacora.md
 EXPOSE 3000
 CMD ["node", "--disable-warning=ExperimentalWarning", "src/servidor.ts"]

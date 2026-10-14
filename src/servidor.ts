@@ -26,6 +26,7 @@ import { clasificar, registrarCaptura } from './captura.ts'
 import { diaDelPlan, guardarNota, guardarWoop, mapaDelPlan, marcarHabito, marcarTarea, votar } from './cien.ts'
 import { crearAprendizaje, editarAprendizaje, leerAprendizaje, listarAprendizajes, practicasDe, prepararRepaso, recursosDe, registrarPractica } from './aprender.ts'
 import { guardarFoto } from './chat/adjuntos.ts'
+import { aplicarBaseEntrante, recibirArchivo, recibirBase } from './mudanza.ts'
 import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, hayFfmpeg, iterarArtefacto, listarArtefactos, VOCES } from './taller.ts'
 import { guardarRelacion, personas } from './personas.ts'
 import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora.ts'
@@ -102,6 +103,9 @@ function dirWeb(): string {
 const WEB = dirWeb()
 const PUERTO = Number(process.env.MASTRO_PUERTO ?? 7272)
 const MAX_CARGA = 1024 * 1024 * 1024
+// Si llegó una base por mudanza (la compu se mudó a la nube), se pone en su lugar antes de abrirla.
+const mudanza = aplicarBaseEntrante()
+if (mudanza) console.log(`  ⇣ Arranco con la base que llegó por mudanza${mudanza.anterior ? ` (la anterior quedó en ${mudanza.anterior})` : ''}`)
 const db = abrir()
 alGuardar(() => { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)') } catch { /* todavía no */ } })
 
@@ -499,6 +503,12 @@ const rutas: [string, RegExp, Ruta][] = [
     const c = await clasificar(db, { texto: String(b.texto ?? '') })
     return { captura: c, registrado: c.tipo !== 'otro' && c.confianza >= 0.5 ? registrarCaptura(db, c, { fuente: 'pantalla' }) : null }
   }],
+  // Mudanza: lo que la nube tiene (para que la compu vea que llegó todo)
+  ['GET', /^\/api\/mudanza$/, () => ({
+    conteos: Object.fromEntries(['corpus', 'memoria', 'entidades', 'misiones', 'mensajes', 'movimientos', 'salud', 'obras', 'cargas'].map((t) => {
+      try { return [t, (db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n] } catch { return [t, 0] }
+    })),
+  })],
   ['GET', /^\/api\/telegram$/, () => ({ ...estadoTelegram(), voz: ajuste(db, 'telegram_voz'), bandas: ajuste(db, 'telegram_bandas') })],
   ['POST', /^\/api\/telegram\/probar$/, async () => {
     if (!telegramConfigurado()) throw new Error('Falta TELEGRAM_BOT_TOKEN en .env (y reiniciar)')
@@ -810,6 +820,17 @@ const servidor = http.createServer(async (req, res) => {
     res.setHeader('content-type', 'application/json; charset=utf-8')
     try {
       // Una imagen para el chat (cruda): se guarda, se describe y vuelve la marca para el mensaje.
+      // Mudanza a esta instancia: los archivos de a uno y la base al final (después se reinicia para abrirla).
+      if (req.method === 'POST' && url.pathname === '/api/mudanza/archivo') {
+        return void res.end(JSON.stringify(recibirArchivo(url.searchParams.get('ruta') ?? '', await leerCrudo(req, MAX_CARGA))))
+      }
+      if (req.method === 'POST' && url.pathname === '/api/mudanza/base') {
+        const r = recibirBase(await leerCrudo(req, MAX_CARGA))
+        res.end(JSON.stringify({ ...r, reinicio: true }))
+        console.log('  ⇣ Llegó una base por mudanza: reinicio para abrirla')
+        setTimeout(() => process.exit(0), 500) // el contenedor (o quien lo levante) lo vuelve a arrancar
+        return
+      }
       // Una foto para registrar (una comida, un ticket, la balanza): cruda, con su explicación en ?texto=
       if (req.method === 'POST' && url.pathname === '/api/captura/foto') {
         const foto = guardarFoto(url.searchParams.get('nombre') || 'foto.jpg', await leerCrudo(req, 30 * 1024 * 1024))
