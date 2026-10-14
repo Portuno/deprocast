@@ -18,6 +18,7 @@ import { sintetizar } from './taller.ts'
 import { mandarAudio, mandarVotoNoche, preguntarSueno, telegramActivo } from './telegram.ts'
 import { diaDelPlan } from './cien.ts'
 import { listarAprendizajes } from './aprender.ts'
+import { escribirCronica, sintesisSemanal } from './gnosis.ts'
 import { calificarDia, predecirDia, textoDeCalificacion } from './gemelo.ts'
 import { buscarOportunidades } from './radar.ts'
 import { enEspera, reanudarIngesta } from './bus.ts'
@@ -218,6 +219,18 @@ export const ACCIONES: Acciones = {
     mensajeDeMastropiero(db, conversacionHoy(db).id, `🎧 **La mañana**${enAudio ? ' (te lo mandé en audio por Telegram)' : ''}\n\n${guion}`, { canales: !enAudio })
     await preguntarSueno(db, ahora).catch(() => {})
     return null
+  },
+  /** Antes de medianoche: lo vivido hoy (cuerpo, plata, plan, aprendizaje, trabajo) entra al corpus como crónica propia. */
+  async cronica(db, fecha, ahora) {
+    escribirCronica(db, fecha, ahora)
+    return null
+  },
+  /** El domingo: la semana destilada; los patrones quedan como quántomos para pesar y como recuerdos. */
+  async gnosis(db, fecha, ahora) {
+    if (topeAlcanzado(db, ahora)) return null
+    const r = await sintesisSemanal(db, fecha, ahora)
+    if (!r?.texto) return null
+    return `🜂 **La semana destilada**\n\n${r.texto}${r.patrones ? `\n\nEncontré ${r.patrones} patrón${r.patrones > 1 ? 'es' : ''}: quedaron como quántomos para que los peses (Corpus → Quántomos).` : ''}${r.preguntas ? ` Y te dejé ${r.preguntas === 1 ? 'una pregunta' : `${r.preguntas} preguntas`}.` : ''}`
   },
   /** El domingo a la noche: el reporte de la semana que termina. */
   async reporte_semanal(db, _fecha, ahora) {

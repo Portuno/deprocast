@@ -907,6 +907,8 @@ const RUTINAS_SISTEMA = [
   { id: 'lectura', nombre: 'Lectura nocturna: expandir la Librería', hora: '04:00', dias: '0123456', accion: 'lectura' },
   { id: 'matinal', nombre: 'El audio de la mañana', hora: '07:50', dias: '0123456', accion: 'matinal' },
   { id: 'voto', nombre: 'El voto de los seis verbos (plan en curso)', hora: '22:15', dias: '0123456', accion: 'voto' },
+  { id: 'cronica', nombre: 'La crónica del día entra al corpus', hora: '23:55', dias: '0123456', accion: 'cronica' },
+  { id: 'gnosis', nombre: 'Síntesis de la semana: patrones como quántomos', hora: '21:30', dias: '0', accion: 'gnosis' },
 ]
 /** La única plantilla de run de fábrica: genérica, sin nada del operador. */
 const PLANTILLAS_SISTEMA = [

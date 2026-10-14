@@ -6,6 +6,7 @@
 import { fechaLocal, type Db } from './db.ts'
 import { buscar } from './corpus.ts'
 import { pedirJson } from './modelo.ts'
+import { asegurarPorNombre } from './entidades.ts'
 
 export type Aprendizaje = { id: number; tema: string; porQue: string | null; nivelActual: string | null; nivelObjetivo: string | null; estado: 'activo' | 'pausado' | 'logrado'; frenteId: string | null; creadoEn: number }
 export type Practica = { id: number; aprendizajeId: number; fecha: string; minutos: number | null; que: string | null; notas: string | null; fuente: string }
@@ -34,6 +35,7 @@ export function crearAprendizaje(db: Db, a: { tema: string; porQue?: string | nu
   if (ya && norm(ya.tema) === norm(tema)) return { ...ya, nuevo: false }
   const r = db.prepare('INSERT INTO aprendizajes (tema, por_que, nivel_actual, nivel_objetivo, frente_id, creado_en) VALUES (?, ?, ?, ?, ?, ?)')
     .run(tema, a.porQue?.trim() || null, a.nivelActual?.trim() || null, a.nivelObjetivo?.trim() || null, a.frenteId ?? null, ahora)
+  try { asegurarPorNombre(db, tema, 'dominio', ahora) } catch { /* el grafo es un plus: sin entidad, igual aprende */ }
   return { ...leerAprendizaje(db, Number(r.lastInsertRowid))!, nuevo: true }
 }
 
