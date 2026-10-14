@@ -1418,7 +1418,7 @@ a.mencion { color: var(--acento-texto); text-decoration: none; background: var(-
 /* El HUD de Hoy: estado, seis modos, el widget del modo y acciones rápidas. Alto fijo, sin scroll de página. */
 .hud-hoy { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto; height: 100%; min-height: 0; gap: 0; }
 .hud-estado { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 12px 8px; border-bottom: 1px solid var(--linea); }
-.hud-estado b { display: block; font-size: 14px; font-weight: 600; text-transform: capitalize; }
+.hud-estado b { display: block; font-size: 14px; font-weight: 600; }
 .hud-estado small { font: 11px var(--mono); color: var(--tenue); }
 .hud-estado-acc { display: flex; gap: 4px; }
 .hud-modos { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border-bottom: 1px solid var(--linea); }
@@ -1471,3 +1471,93 @@ a.mencion { color: var(--acento-texto); text-decoration: none; background: var(-
 .m-evento { font: 11.5px var(--mono); color: var(--debil); padding: 2px 0 2px 44px; }
 .hoy-dia:has(> .hud-hoy) { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
 .hoy-dia > .hud-hoy { flex: 1; }
+
+/* Onda: anillos, héroes, brillo en lo activo y tarjetas con color. Todo con tokens, así anda en oscuro y en claro. */
+.hud-hoy { background: radial-gradient(120% 60% at 100% 0, var(--acento-suave), transparent 60%); }
+.hud-estado b { font-size: 15px; letter-spacing: -.01em; }
+.hud-modos { gap: 4px; padding: 6px; }
+.hud-modos button { border-radius: 9px; padding: 7px 0 6px; transition: color .15s, background .15s, transform .15s, box-shadow .15s; }
+.hud-modos button:hover { transform: translateY(-1px); }
+.hud-modos button.on { background: var(--acento-suave); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acento) 45%, transparent), 0 0 18px -4px color-mix(in srgb, var(--acento) 60%, transparent); }
+.hud-modos button.on i { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--acento) 70%, transparent)); }
+.hud-cuerpo { overflow-y: auto; scrollbar-width: thin; }
+.hud-widget { gap: 9px; height: auto; min-height: 100%; }
+.hud-hero { display: flex; flex-direction: column; gap: 8px; padding: 12px 13px; border-radius: 12px; background: linear-gradient(160deg, var(--panel-2), color-mix(in srgb, var(--panel-2) 70%, var(--acento-suave))); border: 1px solid var(--linea); box-shadow: 0 6px 20px -10px rgba(0, 0, 0, .5); }
+.hud-hero .hud-etq { margin-top: 0; }
+.hud-hero-fila { display: flex; flex-direction: row; align-items: center; gap: 13px; }
+.hud-hero-fila > div:last-child { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.hud-hero-centro { align-items: center; text-align: center; padding: 18px 14px; }
+.hud-hero-centro .hud-chips { justify-content: center; }
+.hud-glifo { font-size: 30px; line-height: 1; color: var(--acento-texto); filter: drop-shadow(0 0 10px color-mix(in srgb, var(--acento) 60%, transparent)); }
+.hud-norte { position: relative; overflow: hidden; background: linear-gradient(140deg, color-mix(in srgb, var(--acento) 22%, var(--panel-2)), var(--panel-2) 70%); border-color: color-mix(in srgb, var(--acento) 40%, var(--linea)); }
+.hud-norte::after { content: '✦'; position: absolute; right: -6px; top: -18px; font-size: 84px; line-height: 1; color: var(--acento); opacity: .12; pointer-events: none; }
+.hud-norte .hud-etq { color: var(--acento-texto); }
+.hud-norte .hud-titulo { font-size: 17px; }
+.hud-tridente { display: flex; flex-direction: column; gap: 6px; }
+.hud-tridente p { display: flex; gap: 8px; margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--tenue); }
+.hud-tridente p i { font-style: normal; flex: none; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--acento-suave); color: var(--acento-texto); font-size: 12px; }
+.hud-tridente p b { color: var(--texto); font-weight: 600; }
+.hud-anillo { --p: 0; --c: var(--acento); width: 84px; height: 84px; flex: none; border-radius: 50%; display: grid; place-items: center; align-content: center; text-align: center; background: radial-gradient(closest-side, var(--panel-2) 76%, transparent 77% 100%), conic-gradient(var(--c) calc(var(--p) * 1%), var(--linea) 0); filter: drop-shadow(0 0 10px color-mix(in srgb, var(--c) 28%, transparent)); }
+.hud-anillo.verde { --c: var(--ok); }
+.hud-anillo b { font: 600 17px var(--mono); line-height: 1.1; }
+.hud-anillo small { font-size: 9.5px; color: var(--tenue); max-width: 64px; line-height: 1.2; }
+.hud-anillos { display: flex; justify-content: space-around; gap: 10px; padding: 12px 6px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--linea); }
+.hud-anillos .hud-anillo { width: 96px; height: 96px; background: radial-gradient(closest-side, var(--panel-2) 76%, transparent 77% 100%), conic-gradient(var(--c) calc(var(--p) * 1%), var(--linea-2) 0); }
+.hud-fichas { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: 6px; }
+.hud-ficha { display: flex; flex-direction: column; gap: 1px; padding: 8px 10px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--linea); min-width: 0; }
+.hud-ficha small { font: 600 9.5px var(--cuerpo); letter-spacing: .08em; text-transform: uppercase; color: var(--debil); }
+.hud-ficha b { font: 600 18px var(--mono); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hud-ficha em { font: 10.5px var(--mono); font-style: normal; color: var(--tenue); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hud-barra { height: 7px; border-radius: 4px; background-image: none; }
+.hud-barra i, .mp-barra i, .mr-barra i { border-radius: inherit; background: linear-gradient(90deg, color-mix(in srgb, var(--acento) 65%, transparent), var(--acento)); box-shadow: 0 0 8px color-mix(in srgb, var(--acento) 50%, transparent); }
+.hud-prims { display: flex; flex-direction: column; gap: 6px; }
+.hud-prim { display: flex; flex-direction: column; gap: 5px; padding: 7px 9px; border-radius: 9px; background: var(--panel-2); border: 1px solid var(--linea); }
+.hud-prim.hecha .hud-barra i { background: var(--ok); }
+.hud-sq button { opacity: 0; transition: opacity .15s; }
+.hud-sq:hover button, .hud-sq button:focus-visible { opacity: 1; }
+.hud-semana { height: 60px; gap: 6px; padding: 8px 10px 6px; box-sizing: content-box; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--linea); }
+.hud-semana span { display: grid; grid-template-rows: minmax(0, 1fr) auto; row-gap: 3px; background: none; overflow: visible; }
+.hud-semana span::before { content: ''; grid-area: 1 / 1; border-radius: 4px; background: var(--linea); opacity: .6; }
+.hud-semana span i { grid-area: 1 / 1; align-self: end; border-radius: 4px; min-height: 3px; background: linear-gradient(0deg, color-mix(in srgb, var(--acento) 55%, transparent), var(--acento)); box-shadow: 0 0 8px color-mix(in srgb, var(--acento) 40%, transparent); }
+.hud-semana span small { font: 9px var(--mono); color: var(--debil); text-align: center; }
+.hud-tarjeta { display: flex; flex-direction: column; gap: 2px; border-radius: 10px; padding: 9px 11px; transition: border-color .15s, transform .15s, box-shadow .15s; }
+.hud-tarjeta small { font: 600 9.5px var(--cuerpo); letter-spacing: .08em; text-transform: uppercase; color: var(--debil); }
+.hud-tarjeta:hover { transform: translateY(-1px); box-shadow: 0 8px 18px -10px color-mix(in srgb, var(--acento) 60%, transparent); }
+.hud-marcas button, .hud-chips button { transition: border-color .15s, background .15s, transform .15s; }
+.hud-marcas button:hover, .hud-chips button:hover { border-color: var(--acento); transform: translateY(-1px); }
+.hud-marcas button.on, .hud-votos button.on { color: var(--sobre-acento); }
+.hud-check { padding: 3px 0; }
+.hud-check input { accent-color: var(--acento); }
+.hud-rapidas { gap: 4px; padding: 6px; }
+.hud-rapidas button { border-radius: 9px; transition: color .15s, background .15s, transform .15s; }
+.hud-rapidas button:hover { color: var(--acento-texto); background: var(--acento-suave); transform: translateY(-1px); }
+
+/* Misiones con onda: la North Star manda, cada primaria con su color y los botones que aparecen al pasar. */
+.mis-card { transition: border-color .15s, box-shadow .15s; }
+.mis-card:hover { border-color: var(--linea-2); }
+.mis-norte { position: relative; overflow: hidden; background: linear-gradient(145deg, color-mix(in srgb, var(--acento) 20%, var(--panel)), var(--panel) 72%); border-color: color-mix(in srgb, var(--acento) 40%, var(--linea)); box-shadow: 0 10px 30px -12px color-mix(in srgb, var(--acento) 45%, transparent); }
+.mis-norte::after { content: '✦'; position: absolute; right: -10px; bottom: -34px; font-size: 140px; line-height: 1; color: var(--acento); opacity: .1; pointer-events: none; }
+.mis-norte > * { position: relative; z-index: 1; }
+.mis-norte h2 { font-size: 21px; letter-spacing: -.01em; text-shadow: 0 0 22px color-mix(in srgb, var(--acento) 35%, transparent); }
+.mis-norte .mis-card-cab h3 { color: var(--acento-texto); }
+.mis-prim { --c: var(--acento); position: relative; overflow: hidden; padding-top: 13px; background: linear-gradient(180deg, color-mix(in srgb, var(--c) 9%, var(--panel-2)), var(--panel-2) 60%); transition: border-color .15s, transform .15s, box-shadow .15s; }
+.mis-prim::before { content: ''; position: absolute; inset: 0 0 auto; height: 3px; background: var(--c); box-shadow: 0 0 12px var(--c); }
+.mis-prim:hover { border-color: color-mix(in srgb, var(--c) 55%, var(--linea)); transform: translateY(-2px); box-shadow: 0 12px 26px -12px color-mix(in srgb, var(--c) 55%, transparent); }
+.mis-prim.sugerida::before { opacity: .4; box-shadow: none; }
+.mis-prim .mp-barra i { background: linear-gradient(90deg, color-mix(in srgb, var(--c) 55%, transparent), var(--c)); box-shadow: 0 0 8px color-mix(in srgb, var(--c) 50%, transparent); }
+.mis-prim.hecha .mp-barra i { background: var(--ok); }
+.mp-estado { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--c, var(--acento)) 16%, transparent); color: var(--texto); font: 500 10px var(--mono); white-space: nowrap; }
+.mis-prim.hecha .mp-estado { background: color-mix(in srgb, var(--ok) 20%, transparent); color: var(--ok); }
+.mis-prim.sugerida .mp-estado { background: none; border: 1px dashed var(--linea-2); color: var(--tenue); }
+.mp-acc { opacity: .55; transition: opacity .15s; }
+.mis-prim:hover .mp-acc, .mp-acc:focus-within { opacity: 1; }
+.mis-hueco { display: grid; place-items: center; background: repeating-linear-gradient(135deg, transparent 0 10px, color-mix(in srgb, var(--linea) 40%, transparent) 10px 11px); transition: border-color .15s, color .15s, background-color .15s; }
+.mis-hueco:hover { background-color: var(--acento-suave); }
+.mr-anillo { background: radial-gradient(closest-side, var(--panel) 74%, transparent 75% 100%), conic-gradient(var(--acento) calc(var(--p) * 1%), var(--linea) 0); filter: drop-shadow(0 0 12px color-mix(in srgb, var(--acento) 30%, transparent)); }
+.mis-lista .sq { padding: 7px 8px; margin: 0 -8px; border-radius: 8px; border-bottom-color: transparent; transition: background .12s; }
+.mis-lista .sq:hover { background: var(--panel-2); }
+.mis-lista .sq .fila .btn-chico { opacity: 0; padding: 2px 7px; background: none; border-color: transparent; transition: opacity .12s, border-color .12s; }
+.mis-lista .sq:hover .fila .btn-chico, .mis-lista .sq .fila .btn-chico:focus-visible { opacity: 1; border-color: var(--linea-2); }
+.mis-lista .sq.sugerida .fila .btn-chico[data-m-estado='activa'] { opacity: 1; }
+@media (hover: none) { .hud-sq button, .mis-lista .sq .fila .btn-chico, .mp-acc { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .hud-modos button, .hud-tarjeta, .mis-prim, .hud-rapidas button { transition: none; transform: none !important; } }

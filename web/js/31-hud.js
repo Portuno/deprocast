@@ -53,7 +53,7 @@ function pintarHud(cont) {
   const modo = modoHud()
   cont.innerHTML = `<div class="hud-hoy">
     <header class="hud-estado">
-      <div><b>${esc(fecha.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</b><small>${esc(estadoRun)}</small></div>
+      <div><b>${esc(mayuscula(fecha.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })))}</b><small>${esc(estadoRun)}</small></div>
       <span class="hud-estado-acc"><button class="btn btn-chico btn-icono" id="hoy-ajustes" title="Rutinas, plantillas y tope de gasto">⚙</button><button class="btn btn-chico btn-icono" id="hoy-ocultar" title="Ocultar el panel (Alt+F)">⇥</button></span>
     </header>
     <nav class="hud-modos" role="tablist">${HUD_MODOS.map(([k, n, ic], i) => `<button role="tab" data-hud="${k}" class="${k === modo ? 'on' : ''}" title="${n} (Alt+${i + 1})"><i>${ic}</i><span>${n}</span><kbd>${i + 1}</kbd></button>`).join('')}</nav>
@@ -75,6 +75,11 @@ function cambiarModoHud(modo) {
   pintarModoHud()
 }
 
+const mayuscula = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s)
+/** Un anillo de progreso (como en un juego): el valor en el centro y una línea abajo. */
+const anilloHud = (v, max, centro, sub, clase = '') => `<div class="hud-anillo ${clase}" style="--p:${max ? Math.min(100, Math.round((v / max) * 100)) : 0}"><b>${centro}</b>${sub ? `<small>${sub}</small>` : ''}</div>`
+/** Una ficha chica de número: etiqueta arriba, valor grande. */
+const fichaHud = (etq, valor, sub = '') => `<div class="hud-ficha"><small>${etq}</small><b>${valor}</b>${sub ? `<em>${sub}</em>` : ''}</div>`
 const barraHud = (v, max) => `<span class="hud-barra"><i style="width:${max ? Math.min(100, Math.round((v / max) * 100)) : 0}%"></i></span>`
 const filaHud = (izq, der, extra = '') => `<div class="hud-fila ${extra}"><span>${izq}</span><span class="hud-num">${der}</span></div>`
 const pieHud = (texto, ir, irNombre) => `<footer class="hud-pie">${ir ? `<a href="#" data-hud-ir="${ir}">${irNombre} →</a>` : '<span></span>'}<button class="btn-link" data-hud-preguntar="${esc(texto)}">Preguntarle ↗</button></footer>`
@@ -86,36 +91,41 @@ function widgetRun() {
     const ms = run.misiones
     const hechas = ms.filter((m) => m.estado === 'hecha').length
     const siguientes = ms.filter((m) => aMinJs(m.inicio) > minutosAhora()).slice(0, 3)
-    const transcurrido = actual ? Math.min(100, Math.round(((minutosAhora() - aMinJs(actual.inicio)) / Math.max(1, aMinJs(actual.fin) - aMinJs(actual.inicio))) * 100)) : 0
-    return `<small class="hud-etq">${actual ? `Banda actual · ${actual.inicio}–${actual.fin}` : `Run ${run.inicio}–${run.fin} · entre bandas`}</small>
-      <h3 class="hud-titulo">${esc(actual ? actual.titulo : proxima ? `Lo que sigue: ${proxima.titulo}` : 'Terminaste las bandas')}</h3>
-      ${actual ? `${barraHud(transcurrido, 100)}${filaHud(`${Math.max(0, aMinJs(actual.fin) - minutosAhora())}′ restantes`, `${hechas}/${ms.length} hechas`)}
-      <div class="hud-marcas">${[['hecha', '✓ Hecha'], ['parcial', '◐ A medias'], ['no', '✗ No']].map(([e, n]) => `<button data-hud-marcar="${e}" data-mid="${actual.id}" class="${actual.estado === e ? 'on' : ''}">${n}</button>`).join('')}</div>` : filaHud('Hechas', `${hechas}/${ms.length}`)}
-      ${siguientes.length ? `<small class="hud-etq">Después</small>${siguientes.map((m) => filaHud(esc(corto(m.titulo, 38)), m.inicio)).join('')}` : ''}
+    const dur = actual ? Math.max(1, aMinJs(actual.fin) - aMinJs(actual.inicio)) : 1
+    const quedan = actual ? Math.max(0, aMinJs(actual.fin) - minutosAhora()) : 0
+    return `<div class="hud-hero">
+        <div class="hud-hero-fila">${anilloHud(actual ? dur - quedan : hechas, actual ? dur : ms.length, actual ? `${quedan}′` : `${hechas}/${ms.length}`, actual ? 'quedan' : 'hechas')}
+          <div><small class="hud-etq">${actual ? `Banda actual · ${actual.inicio}–${actual.fin}` : `Run ${run.inicio}–${run.fin}`}</small>
+          <h3 class="hud-titulo">${esc(actual ? actual.titulo : proxima ? `Lo que sigue: ${proxima.titulo}` : 'Terminaste las bandas')}</h3>
+          <small class="hud-texto">${hechas} de ${ms.length} bandas hechas</small></div></div>
+        ${actual ? `<div class="hud-marcas">${[['hecha', '✓ Hecha'], ['parcial', '◐ A medias'], ['no', '✗ No']].map(([e, n]) => `<button data-hud-marcar="${e}" data-mid="${actual.id}" class="${actual.estado === e ? 'on' : ''}">${n}</button>`).join('')}</div>` : ''}
+      </div>
+      ${siguientes.length ? `<small class="hud-etq">Después</small><ol class="hud-linea">${siguientes.map((m) => `<li class="banda"><span class="hud-num">${m.inicio}</span><span>${esc(corto(m.titulo, 40))}</span><em>${m.minutos ?? ''}′</em></li>`).join('')}</ol>` : ''}
       <button class="btn btn-chico" data-dia="run">Abrir la run</button>
       ${pieHud('¿Cómo voy con la run?')}`
   }
   if (run?.estado === 'propuesta') {
-    return `<small class="hud-etq">Run propuesta · ${run.inicio}–${run.fin}</small><h3 class="hud-titulo">${run.misiones.length} bandas listas</h3>
+    return `<div class="hud-hero"><small class="hud-etq">Run propuesta · ${run.inicio}–${run.fin}</small><h3 class="hud-titulo">${run.misiones.length} bandas listas para arrancar</h3>
       ${run.resumen ? `<p class="hud-texto">${esc(corto(run.resumen, 220))}</p>` : ''}
-      <button class="btn btn-chico btn-primario" data-dia="run">Ver y arrancar</button>${pieHud('¿Esta run está bien armada para hoy?')}`
+      <button class="btn btn-primario" data-dia="run">▶ Ver y arrancar</button></div>${pieHud('¿Esta run está bien armada para hoy?')}`
   }
-  return `<small class="hud-etq">Sin run</small><h3 class="hud-titulo">¿Armamos una?</h3>
-    ${hoyDatos.plantillas?.length ? `<div class="hud-chips">${hoyDatos.plantillas.map((p) => `<button data-plantilla="${p.id}">${esc(p.nombre)}</button>`).join('')}</div>` : ''}
-    <button class="btn btn-chico" id="run-nueva">Armarla con palabras</button>
+  return `<div class="hud-hero hud-hero-centro"><span class="hud-glifo">⚔</span><h3 class="hud-titulo">¿Armamos una run?</h3>
+      <p class="hud-texto">Elegí una plantilla o contale a Mastropiero cuánto tiempo tenés.</p>
+      ${hoyDatos.plantillas?.length ? `<div class="hud-chips">${hoyDatos.plantillas.map((p) => `<button data-plantilla="${p.id}">⚡ ${esc(p.nombre)}</button>`).join('')}</div>` : ''}
+      <button class="btn btn-chico" id="run-nueva">Armarla con palabras</button></div>
     ${hoyDatos.proximas?.length ? `<small class="hud-etq">Próximas</small>${hoyDatos.proximas.slice(0, 3).map((r) => filaHud(esc(new Date(`${r.fecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric' })), `${r.inicio}–${r.fin}`)).join('')}` : ''}
     ${pieHud('¿Qué run me conviene ahora?')}`
 }
 
 function widgetQuests() {
-  const prims = (hoyDatos.primarias ?? []).filter((m) => m.estado !== 'descartada').slice(0, 5)
+  const prims = (hoyDatos.primarias ?? []).filter((m) => m.estado !== 'descartada').slice(0, 4)
   const tareas = hudDatos?.plan?.tareas ?? []
   const lado = (hoyDatos.terciarias ?? []).filter((m) => m.estado === 'activa').slice(0, 3)
-  return `<small class="hud-etq">North Star</small><h3 class="hud-titulo">${esc(hoyDatos.principal?.titulo ?? 'Sin fijar')}</h3>
+  return `<div class="hud-hero hud-norte"><small class="hud-etq">✦ North Star</small><h3 class="hud-titulo">${esc(hoyDatos.principal?.titulo ?? 'Sin fijar')}</h3></div>
     <small class="hud-etq">Primarias de la semana</small>
-    ${prims.length ? prims.map((m) => `${filaHud(`${m.estado === 'hecha' ? '●' : m.estado === 'sugerida' ? '○' : '◐'} ${esc(corto(m.titulo, 34))}`, `${m.avance.progreso}%`)}${barraHud(m.avance.progreso, 100)}`).join('') : '<p class="hud-texto">Sin primarias esta semana.</p>'}
-    ${tareas.length ? `<small class="hud-etq">Para hoy</small>${tareas.slice(0, 4).map((t) => `<label class="hud-check"><input type="checkbox" data-hud-tarea="${t.id}" ${t.estado === 'hecha' ? 'checked' : ''}> ${t.hito ? '◆ ' : ''}${esc(corto(t.titulo, 44))}</label>`).join('')}` : ''}
-    ${lado.length ? `<small class="hud-etq">Side quests</small>${lado.map((m) => `<div class="hud-fila"><span>⚑ ${esc(corto(m.titulo, 36))}</span><button class="btn-link" data-hud-hecha="${m.id}" title="Cumplida">✓</button></div>`).join('')}` : ''}
+    ${prims.length ? `<div class="hud-prims">${prims.map((m) => `<div class="hud-prim ${m.estado}"><div class="hud-fila"><span>${m.estado === 'hecha' ? '●' : m.estado === 'sugerida' ? '○' : '◐'} ${esc(corto(m.titulo, 40))}</span><span class="hud-num">${m.avance.progreso}%</span></div>${barraHud(m.avance.progreso, 100)}</div>`).join('')}</div>` : '<p class="hud-texto">Sin primarias esta semana.</p>'}
+    ${tareas.length ? `<small class="hud-etq">Para hoy</small>${tareas.slice(0, 3).map((t) => `<label class="hud-check"><input type="checkbox" data-hud-tarea="${t.id}" ${t.estado === 'hecha' ? 'checked' : ''}> ${t.hito ? '◆ ' : ''}${esc(corto(t.titulo, 44))}</label>`).join('')}` : ''}
+    ${lado.length ? `<small class="hud-etq">Side quests</small>${lado.map((m) => `<div class="hud-fila hud-sq"><span>⚑ ${esc(corto(m.titulo, 36))}</span><button class="btn-link" data-hud-hecha="${m.id}" title="Cumplida">✓</button></div>`).join('')}` : ''}
     ${pieHud('¿En qué primaria me conviene meter foco hoy?', 'misiones', 'Misiones')}`
 }
 
@@ -143,12 +153,9 @@ function widgetCuerpo() {
   if (!s) return '<p class="hud-texto">Cargando…</p>'
   const m = s.metas
   const habitos = hudDatos.plan?.habitos ?? []
-  return `${filaHud('Calorías', `${s.kcal}${m.kcal ? ` / ${m.kcal}` : ''}`)}${m.kcal ? barraHud(s.kcal, m.kcal) : ''}
-    ${filaHud('Proteína', `${s.proteina}${m.proteina ? ` / ${m.proteina}` : ''} g`)}${m.proteina ? barraHud(s.proteina, m.proteina) : ''}
-    ${filaHud('Sueño', s.sueno?.horas != null ? `${s.sueno.horas} h${s.sueno.calidad ? ` · ${['', 'mal', 'bien', 'muy bien'][s.sueno.calidad]}` : ''}` : '—')}
-    ${filaHud('Entrenos de la semana', `${s.entrenosSemana}${m.entrenos ? ` / ${m.entrenos}` : ''}`)}
-    ${s.peso ? filaHud('Peso', `${s.peso.peso} kg`) : ''}
-    ${habitos.length ? `<small class="hud-etq">Hábitos de hoy</small>${habitos.slice(0, 6).map((h) => `<label class="hud-check"><input type="checkbox" data-hud-habito="${esc(h.id)}" ${h.hecho ? 'checked' : ''}> ${esc(corto(h.titulo, 40))} <em>${h.enSemana}/${h.porSemana}</em></label>`).join('')}` : ''}
+  return `<div class="hud-anillos">${anilloHud(s.kcal, m.kcal ?? s.kcal ?? 1, `${s.kcal}`, m.kcal ? `de ${m.kcal} kcal` : 'kcal')}${anilloHud(s.proteina, m.proteina ?? s.proteina ?? 1, `${s.proteina}g`, m.proteina ? `de ${m.proteina} g prot.` : 'proteína', 'verde')}</div>
+    <div class="hud-fichas">${fichaHud('Sueño', s.sueno?.horas != null ? `${s.sueno.horas}h` : '—', s.sueno?.calidad ? ['', 'mal', 'bien', 'muy bien'][s.sueno.calidad] : '')}${fichaHud('Entrenos', `${s.entrenosSemana}${m.entrenos ? `/${m.entrenos}` : ''}`, 'esta semana')}${fichaHud('Peso', s.peso ? `${s.peso.peso}` : '—', s.peso ? 'kg' : '')}</div>
+    ${habitos.length ? `<small class="hud-etq">Hábitos de hoy</small>${habitos.slice(0, 5).map((h) => `<label class="hud-check"><input type="checkbox" data-hud-habito="${esc(h.id)}" ${h.hecho ? 'checked' : ''}> ${esc(corto(h.titulo, 40))} <em>${h.enSemana}/${h.porSemana}</em></label>`).join('')}` : ''}
     ${pieHud('¿Cómo viene mi cuerpo hoy?', 'salud', 'Salud')}`
 }
 
@@ -159,21 +166,23 @@ function widgetStats() {
   const total = sem.reduce((a, x) => a + x.total, 0)
   const r = d?.plata?.resumen
   const ritmo = d?.plata?.ritmo
-  return `${d?.teConozco != null ? `${filaHud('Te conozco', `${d.teConozco}%`)}${barraHud(d.teConozco, 100)}` : ''}
-    ${filaHud('Bandas de la semana', `${hechas} / ${total}`)}<div class="hud-semana">${sem.map((x) => `<span title="${x.fecha}: ${x.hechos} de ${x.total}"><i style="height:${x.total ? Math.round((x.hechos / x.total) * 100) : 0}%"></i></span>`).join('')}</div>
-    ${r ? `${filaHud('Plata del mes', `${Math.round(r.ingresos)}${r.meta ? ` / ${r.meta}` : ''} €`)}${r.meta ? barraHud(r.ingresos, r.meta) : ''}${ritmo?.falta ? filaHud('Para llegar', `${Math.round(ritmo.porDia)} € por día`, 'tenue') : ''}` : ''}
-    ${d?.gasto ? filaHud('Tokens hoy', `${fmtTokens(d.gasto.total)}${d.gasto.tope ? ` · solo ${fmtTokens(d.gasto.liga + (d.gasto.fondo ?? 0))} de ${fmtTokens(d.gasto.tope)}` : ''}`) : ''}
+  return `<div class="hud-hero hud-hero-fila">${anilloHud(d?.teConozco ?? 0, 100, d?.teConozco != null ? `${d.teConozco}%` : '—', 'te conozco')}
+      <div><small class="hud-etq">El gemelo</small><p class="hud-texto">Cuánto acierta Mastropiero cuando predice tu día (últimas 3 semanas).</p></div></div>
+    <div class="hud-fichas">${fichaHud('Bandas', `${hechas}/${total}`, 'esta semana')}${r ? fichaHud('Plata del mes', `${Math.round(r.ingresos)}€`, r.meta ? `de ${r.meta} €` : '') : ''}${d?.gasto ? fichaHud('Tokens hoy', fmtTokens(d.gasto.total), d.gasto.tope ? `tope ${fmtTokens(d.gasto.tope)}` : '') : ''}</div>
+    <div class="hud-semana">${sem.map((x) => `<span title="${x.fecha}: ${x.hechos} de ${x.total}"><i style="height:${x.total ? Math.round((x.hechos / x.total) * 100) : 0}%"></i><small>${DIA_LETRA[new Date(`${x.fecha}T12:00:00`).getDay()]}</small></span>`).join('')}</div>
+    ${r?.meta ? barraHud(r.ingresos, r.meta) : ''}${ritmo?.falta ? filaHud('Para llegar a la meta', `${Math.round(ritmo.porDia)} € por día`, 'tenue') : ''}
     ${pieHud('Leeme los números de la semana: ¿qué ves?')}`
 }
 
 function widgetOraculo() {
   const b = hoyDatos.brujula
-  return `${b ? `<small class="hud-etq">Brújula · foco del día</small><h3 class="hud-titulo">${esc(b.foco)}</h3>
-      <p class="hud-texto"><b>Cuerpo.</b> ${esc(corto(b.cuerpo, 110))}</p><p class="hud-texto"><b>Mente.</b> ${esc(corto(b.mente, 110))}</p>`
-    : '<small class="hud-etq">Brújula</small><button class="btn btn-chico" id="hoy-brujula">Pedir la brújula del día</button>'}
-    ${hudDatos?.pregunta ? `<small class="hud-etq">Pregunta pendiente</small><button class="hud-tarjeta" data-dia="pregunta">${esc(corto(hudDatos.pregunta, 120))}</button>` : ''}
-    <small class="hud-etq">El gemelo</small><button class="hud-tarjeta" data-dia="gemelo">Qué predijo de tu día →</button>
-    ${hudDatos?.directo ? `<small class="hud-etq">Del Directo</small><button class="hud-tarjeta" data-hud-ir-btn="directo">${hudDatos.directo} propuesta${hudDatos.directo === 1 ? '' : 's'} para revisar →</button>` : ''}
+  return `${b
+    ? `<div class="hud-hero hud-norte"><small class="hud-etq">✦ Brújula · foco del día</small><h3 class="hud-titulo">${esc(b.foco)}</h3>
+        <div class="hud-tridente"><p><i>♥</i><span><b>Cuerpo.</b> ${esc(corto(b.cuerpo, 120))}</span></p><p><i>◈</i><span><b>Mente.</b> ${esc(corto(b.mente, 120))}</span></p><p><i>✦</i><span><b>Alma.</b> ${esc(corto(b.alma, 120))}</span></p></div></div>`
+    : `<div class="hud-hero hud-hero-centro"><span class="hud-glifo">✦</span><h3 class="hud-titulo">La brújula del día</h3><p class="hud-texto">Cuerpo, mente y alma en tres frases, y el foco que hace que el día valga.</p><button class="btn btn-primario" id="hoy-brujula">Pedirla</button></div>`}
+    ${hudDatos?.pregunta ? `<button class="hud-tarjeta" data-dia="pregunta"><small>❓ Pregunta pendiente</small>${esc(corto(hudDatos.pregunta, 130))}</button>` : ''}
+    <button class="hud-tarjeta" data-dia="gemelo"><small>◎ El gemelo</small>Qué predijo de tu día →</button>
+    ${hudDatos?.directo ? `<button class="hud-tarjeta" data-hud-ir-btn="directo"><small>◉ Del Directo</small>${hudDatos.directo} propuesta${hudDatos.directo === 1 ? '' : 's'} para revisar →</button>` : ''}
     ${pieHud('¿Qué no estoy viendo de mi día?')}`
 }
 

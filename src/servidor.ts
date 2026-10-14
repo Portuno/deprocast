@@ -102,6 +102,7 @@ function dirWeb(): string {
 }
 const WEB = dirWeb()
 /** La versión de la pantalla: una huella de sus archivos (cambia con cada cambio, no con cada reinicio). */
+const ARRANCO = new Date().toISOString()
 const VERSION_WEB = (() => {
   const h = crypto.createHash('sha1')
   const recorrer = (d: string) => { for (const e of fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) { const f = path.join(d, e.name); if (e.isDirectory()) recorrer(f); else h.update(e.name).update(fs.readFileSync(f)) } }
@@ -805,6 +806,8 @@ const servidor = http.createServer(async (req, res) => {
     }
     return void res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(PAGINA_ENTRAR())
   }
+  // Qué versión de la pantalla sirve (pública: para saber si un deploy llegó, sin datos de nadie).
+  if (url.pathname === '/version') return void res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ web: VERSION_WEB, arranco: ARRANCO }))
   if (!autorizado(req) && !['/manifest.webmanifest', '/icono.svg'].includes(url.pathname)) {
     if (url.pathname.startsWith('/api/')) return void res.writeHead(401, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify({ error: 'Falta la clave' }))
     return void res.writeHead(303, { location: '/entrar' }).end()

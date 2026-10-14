@@ -133,6 +133,8 @@ async function procesarme(boton) {
   })
 }
 
+/** Un color estable por categoría (ventas, producto, cuerpo…), para la franja de cada tarjeta. */
+const colorCategoria = (c) => { let h = 0; for (const ch of String(c ?? '')) h = (h * 31 + ch.charCodeAt(0)) % 360; return c ? `hsl(${h} 55% 62%)` : 'var(--acento)' }
 const ESTADO_PRIM = { sugerida: ['○', 'pendiente: aceptala o cambiala'], activa: ['◐', 'en progreso'], hecha: ['●', 'cumplida'], parcial: ['◑', 'a medias'], no: ['✕', 'no salió'] }
 
 async function traerMisiones() {
@@ -143,8 +145,8 @@ async function traerMisiones() {
     misFirma = JSON.stringify(E.hoy)
     const prim = (m) => {
       const [ico, est] = ESTADO_PRIM[m.estado] ?? ['·', m.estado]
-      return `<article class="mis-prim ${m.estado}" data-mid="${m.id}">
-        <div class="mp-top"><span class="mp-ico" title="${esc(est)}">${ico}</span>${m.categoria ? `<span class="tipo-chip">${esc(m.categoria)}</span>` : ''}${m.ayudantes?.length ? `<span class="mp-ayu" title="Ayudantes de la liga">✦ ${m.ayudantes.length}</span>` : ''}</div>
+      return `<article class="mis-prim ${m.estado}" data-mid="${m.id}" style="--c:${colorCategoria(m.categoria)}">
+        <div class="mp-top"><span class="mp-estado" title="${esc(est)}">${ico} ${esc(est.split(':')[0])}</span>${m.categoria ? `<span class="tipo-chip">${esc(m.categoria)}</span>` : ''}${m.ayudantes?.length ? `<span class="mp-ayu" title="Ayudantes de la liga">✦ ${m.ayudantes.length}</span>` : ''}</div>
         <h4 title="${esc(m.detalle ?? m.titulo)}">${esc(m.titulo)}</h4>
         ${m.estado === 'sugerida'
           ? `<div class="mp-acc"><button class="btn btn-chico btn-primario" data-m-estado="activa">Aceptar</button><button class="btn btn-chico" data-m-editar>Cambiar</button><button class="btn btn-chico" data-m-estado="descartada" title="Descartar">✕</button></div>`

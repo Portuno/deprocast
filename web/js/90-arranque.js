@@ -28,7 +28,9 @@ const VISTAS = {
 }
 
 function irA(v) {
+  if (!VISTAS[v]) v = 'hoy'
   vista = v
+  if (location.hash.slice(1) !== v) history.replaceState(null, '', `#${v}`) // un link directo a cada vista
   const enMaquina = VISTAS_MAQUINA.has(v)
   document.body.classList.toggle('en-maquina', enMaquina)
   if (enMaquina) abrirMaquina(true)
@@ -187,7 +189,8 @@ async function iniciar() {
   await traerMencionables()
   $('#btn-directo').onclick = modalDirecto
   pintarIndicadorDirecto()
-  irA('hoy')
+  irA(location.hash.slice(1) || 'hoy')
+  window.addEventListener('hashchange', () => { if (location.hash.slice(1) !== vista) irA(location.hash.slice(1)) })
   firma = JSON.stringify(E)
   setInterval(() => { if (!tickEnCurso && $('#velo').hidden && vista !== 'forja') refrescar({ forzar: false }).catch(() => {}) }, 7000)
 }
