@@ -807,7 +807,7 @@ const servidor = http.createServer(async (req, res) => {
     return void res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(PAGINA_ENTRAR())
   }
   // Qué versión de la pantalla sirve (pública: para saber si un deploy llegó, sin datos de nadie).
-  if (url.pathname === '/version') return void res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ web: VERSION_WEB, arranco: ARRANCO }))
+  if (url.pathname === '/version') return void res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ web: VERSION_WEB, commit: process.env.MASTRO_COMMIT ?? null, arranco: ARRANCO }))
   if (!autorizado(req) && !['/manifest.webmanifest', '/icono.svg'].includes(url.pathname)) {
     if (url.pathname.startsWith('/api/')) return void res.writeHead(401, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify({ error: 'Falta la clave' }))
     return void res.writeHead(303, { location: '/entrar' }).end()

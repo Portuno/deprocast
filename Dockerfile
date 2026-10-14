@@ -18,6 +18,11 @@ ENV MASTRO_HOST=0.0.0.0 \
     MASTRO_NUBE=1 \
     MASTRO_DB=/data/mastro.db \
     MASTRO_CARGAS=/data/cargas \
-    MASTRO_BITACORA=/data/bitacora.md
+    MASTRO_BITACORA=/data/bitacora.md \
+    MASTRO_CODIGO=/data/codigo \
+    MASTRO_REPO=Portuno/deprocast \
+    MASTRO_RAMA=main
 EXPOSE 3000
-CMD ["node", "--disable-warning=ExperimentalWarning", "src/servidor.ts"]
+# El arranque baja de GitHub la última versión de la rama (y se actualiza solo cada 5 min): cada push llega a la nube
+# aunque la plataforma no vuelva a desplegar la imagen. Sin MASTRO_REPO corre el servidor de la imagen, como siempre.
+CMD ["node", "--disable-warning=ExperimentalWarning", "src/arranque-nube.ts"]
