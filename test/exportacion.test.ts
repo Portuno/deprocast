@@ -7,7 +7,7 @@ import { abrir, ajuste, fijarAjuste } from '../src/db.ts'
 import { buscar, insertar } from '../src/corpus.ts'
 import { recordar } from '../src/memoria.ts'
 import { escribir, leerBitacora } from '../src/bitacora.ts'
-import { exportarEstado, importarEstado, leerExportacion, tablasDe } from '../src/exportacion.ts'
+import { exportarEstado, importarEstado, importarEstadoArchivo, leerExportacion, tablasDe } from '../src/exportacion.ts'
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mastro-export-'))
 process.env.MASTRO_DB = path.join(tmp, 'esta', 'mastro.db') // los respaldos automáticos caen acá, no en data/
@@ -20,13 +20,15 @@ function compu(nombre: string) {
   return dir
 }
 
-test('exportación: todo el estado en un JSON y de vuelta en otra compu, igual', () => {
+test('exportación: todo el estado en un JSON y de vuelta en otra compu, igual', async () => {
   // Compu A, con uso.
   const a = compu('a')
   const db = abrir(':memory:')
   const pieza = insertar(db, { fuente: 'operador', titulo: 'Plan de la película', contenido: 'rodaje en otoño', nivel: 'propia', origenId: 'x:1' })!
   db.prepare('INSERT INTO vectores (pieza_id, modelo, dims, vec, en) VALUES (?, ?, ?, ?, ?)').run(pieza, 'm', 2, Buffer.from(new Float32Array([0.6, 0.8]).buffer), 1)
   recordar(db, { tipo: 'hecho', texto: 'Prefiere trabajar de mañana' })
+  recordar(db, { tipo: 'hecho', texto: 'Pegado de un PDF: con separador de línea' }) // JSON lo deja crudo: no corta la línea
+  recordar(db, { tipo: 'hecho', texto: 'Pegado de un PDF:2028con separador de línea' })
   escribir(db, { texto: 'secreto', clave: 'clave-larga' })
   fijarAjuste(db, 'meta_ingresos_mes', '3000')
   db.prepare(`INSERT INTO cargas (importador, archivo, ruta, estado, creada_en) VALUES ('texto', 'nota.md', ?, 'hecha', 1)`).run(path.join('C:', 'otra', 'cargas', 'nota.md'))
@@ -70,4 +72,23 @@ test('exportación: todo el estado en un JSON y de vuelta en otra compu, igual',
   assert.ok(rr.respaldo && fs.existsSync(path.join(rr.respaldo, 'mastro.db')))
   assert.throws(() => importarEstado(otra, '{"format":"deprocast-backup"}'), /No es una exportación de estado/)
   assert.throws(() => importarEstado(otra, '{"format":"deprocast-estado","version":99}'), /versión más nueva/)
+
+  // Desde el archivo, de a líneas (un respaldo grande no entra en memoria): mismo resultado.
+  const c = compu('c')
+  const tercera = abrir(':memory:')
+  let avance = 0
+  const imp2 = await importarEstadoArchivo(tercera, r.ruta, { alAvanzar: (l, t) => { avance = l / t } })
+  assert.deepEqual([imp2.filas, imp2.archivos, imp2.manifiesto.counts.corpus], [imp.filas, imp.archivos, 1])
+  for (const t of tablasDe(db)) assert.equal(tercera.prepare(`SELECT * FROM "${t}"`).all().length, db.prepare(`SELECT * FROM "${t}"`).all().length, t)
+  assert.equal(buscar(tercera, 'película', 5)[0]?.id, pieza)
+  assert.deepEqual([...fs.readFileSync(path.join(c, 'taller', '3', 'voz.mp3'))], [1, 2, 3])
+  assert.equal(avance, 1)
+
+  // Cortada a la mitad: no toca nada de lo que había.
+  const corta = path.join(tmp, 'corta.json')
+  fs.writeFileSync(corta, texto.slice(0, texto.indexOf('"files":{')))
+  await assert.rejects(importarEstadoArchivo(tercera, corta, { forzar: true }), /cortada/)
+  assert.equal(tercera.prepare('SELECT COUNT(*) AS n FROM corpus').get()!.n, 1)
+  fs.writeFileSync(corta, '{"format":"deprocast-backup"}\n')
+  await assert.rejects(importarEstadoArchivo(tercera, corta), /cortada|No es una exportación/)
 })

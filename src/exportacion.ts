@@ -114,16 +114,57 @@ export function leerExportacion(texto: string): { datos: any; manifiesto: Omit<M
 
 const tieneDatos = (db: Db) => ['corpus', 'mensajes', 'memoria', 'misiones'].some((t) => { try { return contar(db, t) > 0 } catch { return false } })
 
+type ResultadoImportacion = { tablas: number; filas: number; archivos: number; respaldo: string | null; manifiesto: ReturnType<typeof leerExportacion>['manifiesto'] }
+
+/** Con datos, importar pide confirmar y deja un respaldo antes. */
+function respaldarAntes(db: Db, o: { forzar?: boolean }, ahora: number): string | null {
+  if (tieneDatos(db) && !o.forzar) throw new Error('Esta base ya tiene datos: importar los reemplaza. Confirmá (forzar) y antes guardo un respaldo.')
+  return tieneDatos(db) ? respaldar(db, { ahora }).carpeta : null
+}
+
+/** El que inserta las filas de una tabla exportada (solo las columnas que esta base tiene), o null si no hay dónde. */
+function insertadorDe(db: Db, t: string, cols: string[]): ((fila: unknown[]) => void) | null {
+  if (SALTEAR.test(t) || !tablasDe(db).includes(t)) return null
+  const aca = new Set(columnas(db, t))
+  const idx = cols.map((c, i) => [c, i] as const).filter(([c]) => aca.has(c))
+  if (!idx.length) return null
+  const ins = db.prepare(`INSERT OR REPLACE INTO "${t}" (${idx.map(([c]) => `"${c}"`).join(', ')}) VALUES (${idx.map(() => '?').join(', ')})`)
+  return (fila) => void ins.run(...(idx.map(([, i]) => deJson(fila[i])) as any[]))
+}
+
+/** Lo de fábrica que falte, el índice, y lo que era de la otra compu (rutas de las cargas, forjas a medio camino). */
+function cerrarImportacion(db: Db, ahora: number) {
+  migrar(db)
+  db.exec(`INSERT INTO corpus_fts(corpus_fts) VALUES ('rebuild')`)
+  const upd = db.prepare('UPDATE cargas SET ruta = ? WHERE id = ?')
+  for (const c of db.prepare('SELECT id, ruta FROM cargas WHERE ruta IS NOT NULL').all() as { id: number; ruta: string }[]) upd.run(path.join(dirCargas(), path.basename(c.ruta.replace(/\\/g, '/'))), c.id)
+  db.prepare(`UPDATE fragua SET estado = 'descartada', salida = COALESCE(salida, '') || '\n(la rama quedó en la otra compu)', resuelta_en = ? WHERE estado IN ('haciendo', 'lista', 'rota')`).run(ahora)
+}
+
+/** Un archivo exportado a su carpeta de esta compu (lo que ya está igual, no se toca). false si no es de acá. */
+function guardarArchivo(rel: string, buf: Buffer): boolean {
+  const limpio = path.normalize(rel).replace(/^([/\\])+/, '')
+  if (limpio.startsWith('..')) return false
+  const [raiz, ...resto] = limpio.split(/[/\\]/)
+  const destino = raiz === 'cargas' ? path.join(dirCargas(), ...resto)
+    : raiz === 'taller' ? path.join(dirTaller(), ...resto)
+      : raiz === 'bitacora.md' ? path.resolve(process.env.MASTRO_BITACORA ?? path.join(process.cwd(), 'data', 'bitacora.md'))
+        : null
+  if (!destino) return false
+  fs.mkdirSync(path.dirname(destino), { recursive: true })
+  if (!fs.existsSync(destino) || fs.statSync(destino).size !== buf.length) fs.writeFileSync(destino, buf)
+  return true
+}
+
 /**
  * Reemplaza el estado de esta base por el de la exportación. Si esta base ya tiene datos, pide `forzar` y antes
  * guarda un respaldo (carpeta en data/respaldos/). Las tablas que la exportación no trae quedan vacías, salvo lo de
  * fábrica (rutinas, ajustes, fuentes, plantillas), que se vuelve a sembrar.
  */
-export function importarEstado(db: Db, texto: string, o: { forzar?: boolean; ahora?: number } = {}): { tablas: number; filas: number; archivos: number; respaldo: string | null; manifiesto: ReturnType<typeof leerExportacion>['manifiesto'] } {
+export function importarEstado(db: Db, texto: string, o: { forzar?: boolean; ahora?: number } = {}): ResultadoImportacion {
   const ahora = o.ahora ?? Date.now()
   const { datos, manifiesto } = leerExportacion(texto)
-  if (tieneDatos(db) && !o.forzar) throw new Error('Esta base ya tiene datos: importar los reemplaza. Confirmá (forzar) y antes guardo un respaldo.')
-  const respaldo = tieneDatos(db) ? respaldar(db, { ahora }).carpeta : null
+  const respaldo = respaldarAntes(db, o, ahora)
 
   const exp: Record<string, { columns: string[]; rows: unknown[][] }> = datos.tables ?? {}
   let filas = 0
@@ -131,15 +172,11 @@ export function importarEstado(db: Db, texto: string, o: { forzar?: boolean; aho
   db.exec('PRAGMA foreign_keys = OFF')
   db.exec('BEGIN')
   try {
-    for (const t of tablasDe(db)) {
-      db.exec(`DELETE FROM "${t}"`)
-      const e = exp[t]
-      if (!e?.rows?.length) continue
-      const aca = new Set(columnas(db, t))
-      const idx = e.columns.map((c, i) => [c, i] as const).filter(([c]) => aca.has(c))
-      if (!idx.length) continue
-      const ins = db.prepare(`INSERT OR REPLACE INTO "${t}" (${idx.map(([c]) => `"${c}"`).join(', ')}) VALUES (${idx.map(() => '?').join(', ')})`)
-      for (const r of e.rows) { ins.run(...(idx.map(([, i]) => deJson(r[i])) as any[])); filas++ }
+    for (const t of tablasDe(db)) db.exec(`DELETE FROM "${t}"`)
+    for (const [t, e] of Object.entries(exp)) {
+      const ins = e?.rows?.length ? insertadorDe(db, t, e.columns) : null
+      if (!ins) continue
+      for (const r of e.rows) { ins(r); filas++ }
       tablas++
     }
     db.exec('COMMIT')
@@ -149,29 +186,101 @@ export function importarEstado(db: Db, texto: string, o: { forzar?: boolean; aho
   } finally {
     db.exec('PRAGMA foreign_keys = ON')
   }
-  migrar(db) // lo de fábrica que falte (rutinas o ajustes nuevos) y el índice
-  db.exec(`INSERT INTO corpus_fts(corpus_fts) VALUES ('rebuild')`)
-
-  // Archivos: a sus carpetas de esta compu (lo que ya está igual, no se toca).
+  cerrarImportacion(db, ahora)
   let archivos = 0
-  for (const [rel, b64] of Object.entries<string>(datos.files ?? {})) {
-    const limpio = path.normalize(rel).replace(/^([/\\])+/, '')
-    if (limpio.startsWith('..')) continue
-    const [raiz, ...resto] = limpio.split(/[/\\]/)
-    const destino = raiz === 'cargas' ? path.join(dirCargas(), ...resto)
-      : raiz === 'taller' ? path.join(dirTaller(), ...resto)
-        : raiz === 'bitacora.md' ? path.resolve(process.env.MASTRO_BITACORA ?? path.join(process.cwd(), 'data', 'bitacora.md'))
-          : null
-    if (!destino) continue
-    fs.mkdirSync(path.dirname(destino), { recursive: true })
-    const buf = Buffer.from(b64, 'base64')
-    if (!fs.existsSync(destino) || fs.statSync(destino).size !== buf.length) fs.writeFileSync(destino, buf)
-    archivos++
-  }
-  // Las rutas de las cargas eran de la otra compu.
-  const upd = db.prepare('UPDATE cargas SET ruta = ? WHERE id = ?')
-  for (const c of db.prepare('SELECT id, ruta FROM cargas WHERE ruta IS NOT NULL').all() as { id: number; ruta: string }[]) upd.run(path.join(dirCargas(), path.basename(c.ruta.replace(/\\/g, '/'))), c.id)
-  // Las forjas a medio camino vivían en ramas de la otra compu.
-  db.prepare(`UPDATE fragua SET estado = 'descartada', salida = COALESCE(salida, '') || '\n(la rama quedó en la otra compu)', resuelta_en = ? WHERE estado IN ('haciendo', 'lista', 'rota')`).run(ahora)
+  for (const [rel, b64] of Object.entries<string>(datos.files ?? {})) if (guardarArchivo(rel, Buffer.from(b64, 'base64'))) archivos++
   return { tablas, filas, archivos, respaldo, manifiesto }
+}
+
+/** Las líneas de un archivo, cortando solo en \n (readline también corta en los separadores Unicode que JSON deja crudos). */
+async function* lineasDe(ruta: string): AsyncGenerator<string> {
+  let resto: string[] = [] // una línea larga (un audio en base64) se junta una sola vez, no en cada pedazo
+  for await (const pedazo of fs.createReadStream(ruta, { encoding: 'utf8', highWaterMark: 1 << 20 }) as AsyncIterable<string>) {
+    if (!pedazo.includes('\n')) { resto.push(pedazo); continue }
+    const partes = pedazo.split('\n')
+    resto.push(partes[0])
+    yield resto.join('')
+    yield* partes.slice(1, -1)
+    resto = [partes[partes.length - 1]]
+  }
+  if (resto.join('')) yield resto.join('')
+}
+
+const INICIO_TABLA = /^("(?:[^"\\]|\\.)*"):\{"columns":(\[.*\]),"rows":\[(\]\})?$/
+const INICIO_ARCHIVO = /^("(?:[^"\\]|\\.)*"):"/
+
+/**
+ * Lo mismo que importarEstado, pero leyendo el archivo de a líneas: no carga la exportación entera en memoria (un
+ * respaldo con audios pesa cientos de MB). Se apoya en cómo la escribe exportarEstado: una fila o un archivo por línea.
+ */
+export async function importarEstadoArchivo(db: Db, ruta: string, o: { forzar?: boolean; ahora?: number; alAvanzar?: (leidos: number, total: number) => void } = {}): Promise<ResultadoImportacion> {
+  const ahora = o.ahora ?? Date.now()
+  const total = fs.statSync(ruta).size
+  const lineas = lineasDe(ruta)
+  const cortada = () => new Error('La exportación está cortada o no tiene el formato de Deprocast')
+  let etapa: 'cabecera' | 'tablas' | 'archivos' | 'fin' = 'cabecera'
+  let cabecera = ''
+  let manifiesto: ResultadoImportacion['manifiesto'] | null = null
+  let respaldo: string | null = null
+  let filas = 0
+  let archivos = 0
+  const conFilas = new Set<string>()
+  let tabla = ''
+  let insertar: ((fila: unknown[]) => void) | null = null
+  let abierta = false
+  let leidos = 0
+  try {
+    for await (const cruda of lineas) {
+      leidos += cruda.length + 1
+      const linea = cruda.endsWith(',') ? cruda.slice(0, -1) : cruda
+      if (etapa === 'cabecera') {
+        cabecera += `${cruda}\n`
+        if (cruda === '"tables":{') {
+          manifiesto = leerExportacion(`${cabecera}}}`).manifiesto
+          respaldo = respaldarAntes(db, o, ahora)
+          db.exec('PRAGMA foreign_keys = OFF')
+          db.exec('BEGIN')
+          abierta = true
+          for (const t of tablasDe(db)) db.exec(`DELETE FROM "${t}"`)
+          etapa = 'tablas'
+        } else if (cabecera.length > 4 * 1024 * 1024) throw cortada()
+      } else if (etapa === 'tablas') {
+        if (linea === '}') {
+          db.exec('COMMIT')
+          abierta = false
+          db.exec('PRAGMA foreign_keys = ON')
+          cerrarImportacion(db, ahora)
+          etapa = 'archivos'
+        } else if (linea.startsWith('[')) {
+          let fila: unknown[]
+          try { fila = JSON.parse(linea) } catch { fila = JSON.parse(linea.slice(0, -2)) } // la última fila trae el «]}» de la tabla
+          if (insertar) { insertar(fila); filas++; conFilas.add(tabla) }
+        } else {
+          const m = INICIO_TABLA.exec(linea)
+          if (!m) throw cortada()
+          tabla = JSON.parse(m[1])
+          insertar = m[3] ? null : insertadorDe(db, tabla, JSON.parse(m[2]))
+        }
+      } else if (etapa === 'archivos') {
+        if (linea === '"files":{') continue
+        if (linea === '}}') { etapa = 'fin'; continue }
+        const m = INICIO_ARCHIVO.exec(linea)
+        if (!m || !linea.endsWith('"')) throw cortada()
+        if (guardarArchivo(JSON.parse(m[1]), Buffer.from(linea.slice(m[0].length, -1), 'base64'))) archivos++
+      }
+      o.alAvanzar?.(Math.min(leidos, total), total)
+    }
+    if (etapa !== 'fin') throw cortada()
+    o.alAvanzar?.(total, total)
+  } catch (err) {
+    if (abierta) {
+      db.exec('ROLLBACK')
+      db.exec('PRAGMA foreign_keys = ON')
+    }
+    if (etapa === 'cabecera' && !(err instanceof Error && /exportación|versión/.test(err.message))) throw cortada()
+    throw err
+  } finally {
+    await lineas.return(undefined)
+  }
+  return { tablas: conFilas.size, filas, archivos, respaldo, manifiesto: manifiesto! }
 }

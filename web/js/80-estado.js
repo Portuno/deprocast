@@ -47,10 +47,44 @@ function modalEstado() {
       b.disabled = true
       b.textContent = 'Importando…'
       try {
-        const r = await fetch('/api/importar-estado?forzar=1', { method: 'POST', body: archivo }).then(async (x) => { const j = await x.json(); if (!x.ok) throw new Error(j.error); return j })
+        const r = await importarEnPedazos(archivo, (t) => { b.textContent = t })
         $('#es-info').innerHTML = `<p>Listo: ${r.filas.toLocaleString('es-AR')} filas en ${r.tablas} tablas y ${r.archivos} archivos.${r.respaldo ? `<br><span class="tenue">Lo que había quedó en ${esc(r.respaldo)}</span>` : ''}</p><button class="btn btn-primario" onclick="location.reload()">Recargar</button>`
       } catch (e) { error(e); b.disabled = false; b.textContent = 'Reemplazar esta base con esa exportación' }
     }
+  }
+}
+
+/**
+ * Sube la exportación en pedazos de 16 MB (la nube corta los pedidos grandes) y espera a que el servidor la importe
+ * de fondo. Cada pedazo va con su posición: si uno falla, se reintenta sin duplicar nada.
+ */
+async function importarEnPedazos(archivo, avisar) {
+  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+  const PEDAZO = 16 * 1024 * 1024
+  const pedir = async (ruta, cuerpo) => {
+    for (let intento = 1; ; intento++) {
+      try {
+        const x = await fetch(ruta, cuerpo ? { method: 'POST', body: cuerpo } : {})
+        const j = await x.json().catch(() => ({ error: `El servidor respondió ${x.status}` }))
+        if (!x.ok) throw new Error(j.error || `El servidor respondió ${x.status}`)
+        return j
+      } catch (e) {
+        if (intento >= 4) throw e
+        await new Promise((ok) => setTimeout(ok, 2000 * intento))
+      }
+    }
+  }
+  for (let desde = 0; desde < archivo.size; desde += PEDAZO) {
+    avisar(`Subiendo… ${Math.round((desde / archivo.size) * 100)}%`)
+    await pedir(`/api/importar-estado/parte?id=${id}&desde=${desde}`, archivo.slice(desde, desde + PEDAZO))
+  }
+  await pedir(`/api/importar-estado/fin?id=${id}&forzar=1&total=${archivo.size}`, new Blob([]))
+  for (;;) {
+    await new Promise((ok) => setTimeout(ok, 1500))
+    const e = await pedir(`/api/importar-estado/estado?id=${id}`)
+    if (e.estado === 'listo') return e.resultado
+    if (e.estado === 'error') throw new Error(e.error)
+    avisar(`Importando… ${Math.min(99, Math.round((e.leidos / e.total) * 100))}%`)
   }
 }
 

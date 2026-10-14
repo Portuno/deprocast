@@ -8,7 +8,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { ATRIBUTO_MAX, ATRIBUTOS, CLASE_IDS, CLASES, PUNTOS_LIBRES } from './clases.ts'
-import { abrir, ajuste, fechaLocal, fijarAjuste, type Db } from './db.ts'
+import { abrir, ajuste, fechaLocal, fijarAjuste, resolverRuta, type Db } from './db.ts'
 import { leerJornada, progreso, semana } from './jornada.ts'
 import {
   actualizarMision, ajustarMinutos, anotarSideQuest, arrancarRun, asignarMision, borrarPlantilla, cerrarRun, comentarRun, conAvance, crearMision, descartarRun, enCurso, guardarPlantilla,
@@ -32,7 +32,7 @@ import { guardarRelacion, personas } from './personas.ts'
 import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora.ts'
 import { cribar, deshacerUltima, marcador, siguiente } from './criba.ts'
 import { tabla as tablaEconomia, TARIFAS } from './economia.ts'
-import { exportarEstado, importarEstado } from './exportacion.ts'
+import { exportarEstado, importarEstado, importarEstadoArchivo } from './exportacion.ts'
 import { dirAdjuntos, guardarImagen } from './chat/adjuntos.ts'
 import { encolar as encolarTanda, listarTandas, procesarTandas, reintentar as reintentarTanda, retomarTandas } from './tandas.ts'
 import { brujulaDelDia, leerBrujula } from './brujula.ts'
@@ -746,6 +746,10 @@ function origenPermitido(req: http.IncomingMessage): boolean {
   return o === `http://127.0.0.1:${PUERTO}` || o === `http://localhost:${PUERTO}` || extra.includes(o)
 }
 
+type Importacion = { estado: 'importando' | 'listo' | 'error'; leidos: number; total: number; resultado?: { tablas: number; filas: number; archivos: number; respaldo: string | null }; error?: string }
+/** Las importaciones grandes en curso o recién terminadas (la página pregunta por su id). */
+const importaciones = new Map<string, Importacion>()
+
 function leerCrudo(req: http.IncomingMessage, max: number): Promise<Buffer> {
   if (enVercel()) max = Math.min(max, 4 * 1024 * 1024)
   return new Promise((ok, mal) => {
@@ -896,6 +900,42 @@ const servidor = http.createServer(async (req, res) => {
         const r = encolarTanda(db, { tipo: (q.get('tipo') as any) || undefined, nombre: q.get('nombre') || 'archivo', datos: await leerCrudo(req, 300 * 1024 * 1024), fecha: q.get('fecha') || null, cuaderno: q.get('cuaderno') || null, hoja: q.get('hoja') ? Number(q.get('hoja')) : null })
         void procesarTandas(db).catch((e) => console.error('  tandas:', e instanceof Error ? e.message : e))
         return void res.end(JSON.stringify(r))
+      }
+      // Importar un estado grande desde la página: llega en pedazos al disco (ningún pedido pasa de 32 MB) y después se
+      // importa de fondo leyéndolo de a líneas, sin cargarlo entero en memoria. La página pregunta cómo va.
+      const imp = /^\/api\/importar-estado\/(parte|fin|estado)$/.exec(url.pathname)
+      if (imp) {
+        const idImp = url.searchParams.get('id') ?? ''
+        if (!/^[\w-]{8,64}$/.test(idImp)) throw new Error('Falta el id de la importación')
+        const ruta = path.join(path.dirname(resolverRuta()), 'importaciones', `${idImp}.json`)
+        if (imp[1] === 'parte' && req.method === 'POST') {
+          const desde = Number(url.searchParams.get('desde') ?? 0)
+          const datos = await leerCrudo(req, 32 * 1024 * 1024)
+          fs.mkdirSync(path.dirname(ruta), { recursive: true })
+          if (desde > 0 && (!fs.existsSync(ruta) || fs.statSync(ruta).size < desde)) throw new Error('Falta un pedazo anterior: volvé a empezar')
+          const fd = fs.openSync(ruta, desde === 0 ? 'w' : 'r+')
+          try { fs.writeSync(fd, datos, 0, datos.length, desde) } finally { fs.closeSync(fd) }
+          return void res.end(JSON.stringify({ ok: true, bytes: fs.statSync(ruta).size }))
+        }
+        if (imp[1] === 'fin' && req.method === 'POST') {
+          if (importaciones.has(idImp)) return void res.end(JSON.stringify({ ok: true })) // un reintento: ya arrancó
+          if (!fs.existsSync(ruta)) throw new Error('No llegó el archivo')
+          const total = Number(url.searchParams.get('total') ?? 0)
+          if (total && fs.statSync(ruta).size !== total) throw new Error(`Llegaron ${fs.statSync(ruta).size} de ${total} bytes: volvé a subirlo`)
+          if ([...importaciones.values()].some((x) => x.estado === 'importando')) throw new Error('Ya hay una importación en curso')
+          const estado: Importacion = { estado: 'importando', leidos: 0, total: fs.statSync(ruta).size }
+          importaciones.set(idImp, estado)
+          void importarEstadoArchivo(db, ruta, { forzar: url.searchParams.get('forzar') === '1', alAvanzar: (l) => { estado.leidos = l } })
+            .then((r) => { estado.estado = 'listo'; estado.resultado = { tablas: r.tablas, filas: r.filas, archivos: r.archivos, respaldo: r.respaldo } })
+            .catch((e) => { estado.estado = 'error'; estado.error = e instanceof Error ? e.message : String(e) })
+            .finally(() => fs.rmSync(ruta, { force: true }))
+          return void res.end(JSON.stringify({ ok: true }))
+        }
+        if (imp[1] === 'estado') {
+          const e = importaciones.get(idImp)
+          if (!e) throw new Error('No conozco esa importación')
+          return void res.end(JSON.stringify(e))
+        }
       }
       // Importar un estado exportado (crudo). Reemplaza esta base: con datos, pide forzar y respalda antes.
       if (req.method === 'POST' && url.pathname === '/api/importar-estado') {
