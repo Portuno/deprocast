@@ -94,26 +94,28 @@ const fmtSemana = (d) => `${new Date(`${d.desde}T12:00:00`).toLocaleDateString('
 function montarMisionesVida() {
   $('#principal').innerHTML = `
     <div class="cabecera"><div class="cabecera-texto"><h1>Misiones</h1><p>La principal, las de la semana y lo que encargaste.</p></div>
-      <div class="fila"><button class="btn" id="mi-procesar" title="Lee tu memoria y tu material propio y propone historia, inventario, candidatas a misión principal y primarias">Procesarme</button></div></div>
-    <details class="panel" id="mi-rinde"><summary><b>Cómo rendís</b> <span class="tenue">según tus runs: franjas, largo de bandas y días (lo usa la próxima run)</span></summary><div id="mi-rinde-cuerpo"></div></details>
+      <div class="fila"><button class="btn btn-primario" id="mi-procesar" title="Lee tu memoria y tu material propio y propone historia, inventario, candidatas a misión principal y primarias">Procesarme</button></div></div>
     <div id="mis"></div>`
   $('#mi-procesar').onclick = () => procesarme($('#mi-procesar'))
-  $('#mi-rinde').ontoggle = (e) => { if (e.target.open) pintarRendimiento() }
   traerMisiones()
 }
 
+/** «Cómo rendís», compacto: un anillo con la tasa general y lo mejor y lo peor de tus runs. */
 async function pintarRendimiento() {
   const cont = $('#mi-rinde-cuerpo')
   if (!cont) return
   let p
-  try { p = await api('/rendimiento') } catch (e) { return error(e) }
-  if (p.bandas < 3) return void (cont.innerHTML = '<p class="tenue">Todavía hay pocas bandas marcadas para sacar conclusiones. Marcá las de tus runs (hecha, a medias, no) y esto se llena solo.</p>')
-  const fila = (g) => `<div class="cu-fuente"><span style="width:9em">${esc(g.clave)}</span><span class="barrita" style="flex:1"><b style="width:${Math.round(g.tasa * 100)}%"></b></span><span>${Math.round(g.tasa * 100)} %</span><small class="tenue">${g.n} bandas</small></div>`
-  cont.innerHTML = `<p>${esc(p.texto.split('\n')[0])}</p>
-    <h4>Por franja horaria</h4>${p.porFranja.map(fila).join('')}
-    <h4>Por largo de banda</h4>${p.porLargo.map(fila).join('')}
-    <h4>Por día</h4>${p.porDia.map(fila).join('')}
-    <p class="tenue">Con menos de 3 bandas en un grupo, no se saca conclusión. Hecha = 100 %, a medias = 50 %.</p>`
+  try { p = await api('/rendimiento') } catch { return void (cont.innerHTML = '<p class="tenue chico">No pude leer tus runs.</p>') }
+  if (p.bandas < 3) return void (cont.innerHTML = '<p class="tenue chico">Todavía hay pocas bandas marcadas. Marcá las de tus runs (hecha, a medias, no) y esto se llena solo.</p>')
+  const pct = Math.round((p.tasa ?? 0) * 100)
+  const mejor = (gs) => [...gs].filter((g) => g.n >= 3).sort((a, b) => b.tasa - a.tasa)[0]
+  const peor = (gs) => [...gs].filter((g) => g.n >= 3).sort((a, b) => a.tasa - b.tasa)[0]
+  const fila = (etq, g) => g ? `<div class="mr-fila"><span>${etq}</span><span class="mr-barra"><i style="width:${Math.round(g.tasa * 100)}%"></i></span><b>${esc(g.clave)}</b></div>` : ''
+  cont.innerHTML = `<div class="mr">
+      <div class="mr-anillo" style="--p:${pct}"><b>${pct}%</b><small>de ${p.bandas} bandas</small></div>
+      <div class="mr-datos">${fila('Mejor franja', mejor(p.porFranja))}${fila('Peor franja', peor(p.porFranja))}${fila('Mejor largo', mejor(p.porLargo))}${fila('Mejor día', mejor(p.porDia))}</div>
+    </div>
+    <details class="mr-mas"><summary>Detalle</summary><p class="tenue chico">${esc(p.texto.split('\n')[0])}</p></details>`
 }
 
 function refrescarMisionesVida() {
@@ -131,64 +133,97 @@ async function procesarme(boton) {
   })
 }
 
+const ESTADO_PRIM = { sugerida: ['○', 'pendiente: aceptala o cambiala'], activa: ['◐', 'en progreso'], hecha: ['●', 'cumplida'], parcial: ['◑', 'a medias'], no: ['✕', 'no salió'] }
+
 async function traerMisiones() {
   const cont = $('#mis')
   if (!cont) return
   try {
     const d = await api(`/misiones${misSemana ? `?semana=${misSemana}` : ''}`)
     misFirma = JSON.stringify(E.hoy)
-    const prim = (m) => `<div class="prim ${m.estado}" data-mid="${m.id}">
-      <div class="p-top">${m.categoria ? `<span class="tipo-chip">${esc(m.categoria)}</span>` : ''}${m.estado === 'sugerida' ? '<span class="nivel-badge">sugerida</span>' : m.estado !== 'activa' ? `<span class="tipo-chip">${esc(m.estado)}</span>` : ''}</div>
-      <h3>${esc(m.titulo)}</h3>
-      ${m.detalle ? `<p class="recorte">${esc(m.detalle)}</p>` : ''}
-      ${m.entidadId ? `<a href="#" class="ref" data-ref-ent="${m.entidadId}">ver el proyecto</a>` : ''}
-      ${m.estado === 'sugerida'
-        ? `<div class="fila p-acc"><button class="btn btn-chico btn-primario" data-m-estado="activa">Aceptar</button><button class="btn btn-chico" data-m-editar>Cambiar</button><button class="btn btn-chico" data-m-estado="descartada">Descartar</button></div>`
-        : `<div class="p-avance"><input type="range" min="0" max="100" step="5" value="${m.avance.progreso}" data-m-prog><b>${m.avance.progreso}%</b></div>
-           <small class="tenue">${m.avance.bandas.total ? `${m.avance.bandas.hechas} bandas hechas${m.avance.bandas.parciales ? `, ${m.avance.bandas.parciales} a medias` : ''} · ${m.avance.minutos} min de foco` : 'Todavía sin bandas'}</small>
-           <div class="fila p-acc">${m.estado === 'activa' ? '<button class="btn btn-chico" data-m-estado="hecha">✓ Cumplida</button>' : '<button class="btn btn-chico" data-m-estado="activa">Reabrir</button>'}<button class="btn btn-chico" data-m-editar>✎</button><button class="btn btn-chico" data-m-estado="descartada" title="Descartar">✕</button></div>
-           ${m.estado === 'activa' ? ayudantesHTML(m) : ''}`}
-    </div>`
+    const prim = (m) => {
+      const [ico, est] = ESTADO_PRIM[m.estado] ?? ['·', m.estado]
+      return `<article class="mis-prim ${m.estado}" data-mid="${m.id}">
+        <div class="mp-top"><span class="mp-ico" title="${esc(est)}">${ico}</span>${m.categoria ? `<span class="tipo-chip">${esc(m.categoria)}</span>` : ''}${m.ayudantes?.length ? `<span class="mp-ayu" title="Ayudantes de la liga">✦ ${m.ayudantes.length}</span>` : ''}</div>
+        <h4 title="${esc(m.detalle ?? m.titulo)}">${esc(m.titulo)}</h4>
+        ${m.estado === 'sugerida'
+          ? `<div class="mp-acc"><button class="btn btn-chico btn-primario" data-m-estado="activa">Aceptar</button><button class="btn btn-chico" data-m-editar>Cambiar</button><button class="btn btn-chico" data-m-estado="descartada" title="Descartar">✕</button></div>`
+          : `<div class="mp-avance"><span class="mp-barra"><i style="width:${m.avance.progreso}%"></i></span><b>${m.avance.progreso}%</b></div>
+             <small class="tenue">${m.avance.bandas.total ? `${m.avance.bandas.hechas} bandas · ${m.avance.minutos} min` : 'sin bandas todavía'}</small>
+             <div class="mp-acc">${m.estado === 'activa' ? '<button class="btn btn-chico" data-m-estado="hecha" title="Cumplida">✓</button>' : '<button class="btn btn-chico" data-m-estado="activa" title="Reabrir">↺</button>'}<button class="btn btn-chico" data-m-detalle title="Avance, ayudantes y aportes">⋯</button><button class="btn btn-chico" data-m-editar title="Cambiar">✎</button><button class="btn btn-chico" data-m-estado="descartada" title="Descartar">✕</button></div>`}
+      </article>`
+    }
+    const huecos = Math.max(0, 6 - d.primarias.length)
+    const nRuns = d.runs.length
+    const semanales = d.reportes.filter((r) => r.tipo === 'semana')
     cont.innerHTML = `
-      <section class="panel mi-principal">
-        <small>Misión principal</small>
-        ${d.principal ? `<h2>◎ ${esc(d.principal.titulo)}</h2>${d.principal.detalle ? `<p class="recorte">${esc(d.principal.detalle)}</p>` : ''}` : '<h2 class="tenue">Sin fijar</h2><p class="tenue">Tu objetivo de vida, en una frase. Solo vos la fijás.</p>'}
-        ${d.candidatas.length ? `<div class="candidatas"><small>Mastropiero sugiere:</small>${d.candidatas.map((c) => `<div class="fila"><span class="cand-txt"><b>${esc(c.titulo)}</b>${c.detalle ? `<small class="tenue recorte una">${esc(c.detalle)}</small>` : ''}</span><button class="btn btn-chico" data-elegir="${c.id}">Elegir esta</button></div>`).join('')}</div>` : ''}
-        <div class="fila"><button class="btn btn-chico" id="mi-fijar">${d.principal ? 'Cambiar' : 'Fijarla'}</button></div>
-      </section>
-      <div class="mi-semana-cab">
-        <button class="btn btn-chico btn-icono" data-sem="${d.anterior}" title="Semana anterior">‹</button>
-        <h2>Semana ${esc(d.semana.split('-W')[1])} <small>${esc(fmtSemana(d))}</small></h2>
-        <button class="btn btn-chico btn-icono" data-sem="${d.siguiente}" title="Semana siguiente">›</button>
-        <span style="flex:1"></span>
-        <button class="btn btn-chico" id="mi-proponer">Proponer primarias</button>
-        <button class="btn btn-chico" id="mi-nueva">+ Primaria</button>
-        <button class="btn btn-chico" id="mi-reporte">Reporte de la semana</button>
-        ${d.primarias.some((m) => m.ayudantes?.length) ? '<button class="btn btn-chico" id="mi-aportes" title="Cada ayudante deja un aporte ahora (gasta tokens de la liga, dentro del tope)">Pedir aportes a todos</button>' : ''}
+      <div class="mis-tablero">
+        <div class="mis-izq">
+          <section class="mis-card mis-norte">
+            <div class="mis-card-cab"><h3>North Star</h3><button class="btn btn-chico" id="mi-fijar">${d.principal ? 'Cambiar' : 'Fijarla'}</button></div>
+            <small class="mis-etq">Misión principal</small>
+            ${d.principal ? `<h2>◎ ${esc(d.principal.titulo)}</h2>${d.principal.detalle ? `<p class="recorte">${esc(d.principal.detalle)}</p>` : ''}` : '<h2 class="sin">Sin fijar</h2><p class="tenue">Tu objetivo de vida, en una frase. Solo vos la fijás.</p>'}
+            ${d.candidatas.length ? `<div class="candidatas"><small>Mastropiero sugiere:</small>${d.candidatas.map((c) => `<div class="fila"><span class="cand-txt"><b>${esc(c.titulo)}</b>${c.detalle ? `<small class="tenue recorte una">${esc(c.detalle)}</small>` : ''}</span><button class="btn btn-chico" data-elegir="${c.id}">Elegir</button></div>`).join('')}</div>` : ''}
+          </section>
+          <section class="mis-card"><div class="mis-card-cab"><h3>Cómo rendís</h3></div><div id="mi-rinde-cuerpo"><p class="tenue chico">…</p></div></section>
+        </div>
+        <div class="mis-der">
+          <div class="mis-semana">
+            <button class="btn btn-chico btn-icono" data-sem="${d.anterior}" title="Semana anterior">‹</button>
+            <h2>Semana ${esc(d.semana.split('-W')[1])} <small>${esc(fmtSemana(d))}</small></h2>
+            <button class="btn btn-chico btn-icono" data-sem="${d.siguiente}" title="Semana siguiente">›</button>
+            <span style="flex:1"></span>
+            ${d.primarias.some((m) => m.ayudantes?.length) ? '<button class="btn btn-chico" id="mi-aportes" title="Cada ayudante deja un aporte ahora (gasta tokens, dentro del tope)">Pedir aportes</button>' : ''}
+            <button class="btn btn-chico" id="mi-reporte">Reporte de la semana</button>
+          </div>
+          <section class="mis-card mis-semanal">
+            <div class="mis-card-cab"><h3>Primarias de la semana <small class="tenue">${d.primarias.filter((m) => m.estado === 'activa').length} activas · ${d.primarias.filter((m) => m.estado === 'hecha').length} cumplidas</small></h3><button class="btn btn-chico" id="mi-proponer">✦ Proponer primarias</button></div>
+            <div class="mis-prims">${d.primarias.map(prim).join('')}${Array.from({ length: huecos }, () => '<button class="mis-hueco" data-nueva-prim>+ Primaria</button>').join('')}</div>
+          </section>
+        </div>
       </div>
-      ${d.primarias.length ? `<div class="prim-grid">${d.primarias.map(prim).join('')}</div>` : `<div class="vacio"><div class="gran">⚔</div><h2>Sin primarias esta semana</h2><p>Hasta seis focos para la semana. Pedile a Mastropiero que te las proponga, o anotalas vos.</p></div>`}
-      <div class="mi-cols">
-        <section class="panel"><h3>Side quests</h3>
-          ${d.terciarias.map((m) => `<div class="sq ${m.estado}" data-mid="${m.id}"><span>⚑ ${esc(m.titulo)}${m.disparador ? `<small>${esc(Object.values(m.disparador).filter(Boolean).join(' · '))}</small>` : ''}${m.estado === 'sugerida' ? '<small class="sugerida">sugerida</small>' : ''}</span>
-            <span class="fila">${m.estado === 'sugerida' ? '<button class="btn btn-chico" data-m-estado="activa">Aceptar</button>' : '<button class="btn btn-chico" data-m-estado="hecha" title="Cumplida">✓</button>'}<button class="btn btn-chico" data-m-estado="descartada" title="Descartar">✕</button></span></div>`).join('') || '<p class="tenue chico">Ninguna abierta. Las anota Mastropiero cuando contás algo de pasada («cuando pase por…»).</p>'}
-          <div class="form-sq"><input class="campo-suelto" id="sq-titulo" placeholder="Qué hacer…"><input class="campo-suelto" id="sq-donde" placeholder="Dónde o cuándo se activa (zona, lugar, actividad)"><button class="btn btn-chico" id="sq-agregar">Anotar</button></div>
+      <div class="mis-abajo">
+        <section class="mis-card">
+          <div class="mis-card-cab"><h3>Side quests <small class="tenue">${d.terciarias.length}</small></h3></div>
+          <div class="mis-lista">${d.terciarias.map((m) => `<div class="sq ${m.estado}" data-mid="${m.id}"><span>⚑ ${esc(m.titulo)}${m.disparador ? `<small>${esc(Object.values(m.disparador).filter(Boolean).join(' · '))}</small>` : m.vence ? `<small class="${m.vence < E.hoy.fecha ? 'vencida' : ''}">${esc(m.vence)}</small>` : ''}${m.estado === 'sugerida' ? '<small class="sugerida">sugerida</small>' : ''}</span>
+            <span class="fila">${m.estado === 'sugerida' ? '<button class="btn btn-chico" data-m-estado="activa">Aceptar</button>' : '<button class="btn btn-chico" data-m-estado="hecha" title="Cumplida">✓</button>'}<button class="btn btn-chico" data-m-estado="descartada" title="Descartar">✕</button></span></div>`).join('') || '<p class="tenue chico">Ninguna abierta. Las anota Mastropiero cuando contás algo de pasada («cuando pase por…»).</p>'}</div>
+          <form class="mis-form" id="sq-form"><input class="campo-suelto" id="sq-titulo" placeholder="Qué hacer…"><input class="campo-suelto" id="sq-donde" placeholder="Dónde o cuándo se activa"><button class="btn btn-chico">Anotar</button></form>
         </section>
-        <section class="panel"><h3>Lo que les encargaste a otros</h3>
-          ${d.deOtros.map((m) => `<div class="sq" data-mid="${m.id}"><span><b>${esc(m.quien)}</b>: ${esc(m.titulo)}${m.vence ? `<small class="${m.vence < E.hoy.fecha ? 'vencida' : ''}">vence ${esc(m.vence)}</small>` : ''}</span>
-            <span class="fila"><button class="btn btn-chico" data-m-estado="hecha" title="Lo hizo">✓</button><button class="btn btn-chico" data-m-estado="descartada" title="Ya no">✕</button></span></div>`).join('') || '<p class="tenue chico">Nada pendiente de otros.</p>'}
-          <div class="form-sq"><input class="campo-suelto" id="ot-quien" placeholder="Quién"><input class="campo-suelto" id="ot-que" placeholder="Qué tiene que hacer"><input class="campo-suelto" id="ot-vence" type="date"><button class="btn btn-chico" id="ot-agregar">Asignar</button></div>
+        <section class="mis-card">
+          <div class="mis-card-cab"><h3>Lo que les encargaste a otros <small class="tenue">${d.deOtros.length}</small></h3></div>
+          <div class="mis-lista">${d.deOtros.map((m) => `<div class="sq" data-mid="${m.id}"><span><b>${esc(m.quien)}</b>: ${esc(m.titulo)}${m.vence ? `<small class="${m.vence < E.hoy.fecha ? 'vencida' : ''}">vence ${esc(m.vence)}</small>` : ''}</span>
+            <span class="fila"><button class="btn btn-chico" data-m-estado="hecha" title="Lo hizo">✓</button><button class="btn btn-chico" data-m-estado="descartada" title="Ya no">✕</button></span></div>`).join('') || '<p class="tenue chico">Nada pendiente de otros.</p>'}</div>
+          <form class="mis-form" id="ot-form"><input class="campo-suelto" id="ot-quien" placeholder="Quién"><input class="campo-suelto" id="ot-que" placeholder="Qué tiene que hacer"><input class="campo-suelto" id="ot-vence" type="date" title="Para cuándo"><button class="btn btn-chico">Asignar</button></form>
         </section>
       </div>
-      <h3 class="sub">Runs de la semana</h3>
-      ${d.runs.length ? d.runs.map((r) => {
-        const h = r.misiones.filter((m) => m.estado === 'hecha').length
-        return `<details class="run-pasada"><summary><b>${esc(new Date(`${r.fecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric' }))}</b> ${r.inicio}–${r.fin} · ${h} de ${r.misiones.length} hechas${r.estado === 'en_curso' ? ' · en curso' : ''}</summary>
-          <ol class="bandas">${r.misiones.map((m) => `<li class="banda ${m.estado}"><span class="b-hora">${m.inicio}</span><div class="b-cuerpo"><b>${esc(m.titulo)}</b>${m.feedback ? `<small class="b-nota">“${esc(m.feedback)}”</small>` : ''}</div><span>${MARCA[m.estado] ?? ''}</span></li>`).join('')}</ol>
-          ${r.reporte ? `<div class="md">${md(r.reporte)}</div>` : ''}</details>`
-      }).join('') : '<p class="tenue chico">Ninguna todavía.</p>'}
-      ${d.reportes.filter((r) => r.tipo === 'semana').length ? `<h3 class="sub">Reportes semanales</h3>${d.reportes.filter((r) => r.tipo === 'semana').map((r) => `<details class="run-pasada"><summary>${esc(new Date(r.creadoEn).toLocaleDateString('es-AR', { day: 'numeric', month: 'long' }))}</summary><div class="md">${md(r.texto)}</div></details>`).join('')}` : ''}`
+      ${nRuns || semanales.length ? `<details class="mis-card mis-historial"><summary><b>Runs y reportes de la semana</b> <span class="tenue">${nRuns} run${nRuns === 1 ? '' : 's'}${semanales.length ? ` · ${semanales.length} reporte${semanales.length === 1 ? '' : 's'}` : ''}</span></summary>
+        ${d.runs.map((r) => {
+          const h = r.misiones.filter((m) => m.estado === 'hecha').length
+          return `<details class="run-pasada"><summary><b>${esc(new Date(`${r.fecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric' }))}</b> ${r.inicio}–${r.fin} · ${h} de ${r.misiones.length} hechas${r.estado === 'en_curso' ? ' · en curso' : ''}</summary>
+            <ol class="bandas">${r.misiones.map((m) => `<li class="banda ${m.estado}"><span class="b-hora">${m.inicio}</span><div class="b-cuerpo"><b>${esc(m.titulo)}</b>${m.feedback ? `<small class="b-nota">“${esc(m.feedback)}”</small>` : ''}</div><span>${MARCA[m.estado] ?? ''}</span></li>`).join('')}</ol>
+            ${r.reporte ? `<div class="md">${md(r.reporte)}</div>` : ''}</details>`
+        }).join('')}
+        ${semanales.map((r) => `<details class="run-pasada"><summary>Reporte · ${esc(new Date(r.creadoEn).toLocaleDateString('es-AR', { day: 'numeric', month: 'long' }))}</summary><div class="md">${md(r.texto)}</div></details>`).join('')}
+      </details>` : ''}`
     engancharMisiones(cont, d)
+    pintarRendimiento()
   } catch (e) { error(e) }
+}
+
+/** El detalle de una primaria (avance, ayudantes de la liga y sus aportes), en un modal: la tarjeta queda chica. */
+function detallePrimaria(m, recargar) {
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button>
+    <div class="mis-detalle" data-mid="${m.id}">
+      <small class="mis-etq">${esc(ESTADO_PRIM[m.estado]?.[1] ?? m.estado)}${m.categoria ? ` · ${esc(m.categoria)}` : ''}</small>
+      <h2>${esc(m.titulo)}</h2>
+      ${m.detalle ? `<p>${esc(m.detalle)}</p>` : ''}
+      ${m.entidadId ? `<p><a href="#" class="ref" data-ref-ent="${m.entidadId}">ver el proyecto</a></p>` : ''}
+      <div class="p-avance"><input type="range" min="0" max="100" step="5" value="${m.avance.progreso}" data-m-prog><b>${m.avance.progreso}%</b></div>
+      <small class="tenue">${m.avance.bandas.total ? `${m.avance.bandas.hechas} bandas hechas${m.avance.bandas.parciales ? `, ${m.avance.bandas.parciales} a medias` : ''} · ${m.avance.minutos} min de foco` : 'Todavía sin bandas'}</small>
+      ${m.estado === 'activa' ? ayudantesHTML(m) : ''}
+    </div>`)
+  engancharPrimaria($('#modal'), recargar)
+  engancharRecortes($('#modal'))
 }
 
 const haceCuanto = (ms) => {
@@ -208,40 +243,50 @@ function ayudantesHTML(m) {
   </div>`
 }
 
-function engancharMisiones(cont, d) {
-  const recargar = async () => { await refrescar(); traerMisiones() }
-  $$('[data-ayu-clase]', cont).forEach((sel) => (sel.onchange = async () => {
+/** Lo de una primaria (estado, avance, ayudantes, aportes): sirve para el tablero y para el modal de detalle. */
+function engancharPrimaria(raiz, recargar) {
+  $$('[data-ayu-clase]', raiz).forEach((sel) => (sel.onchange = async () => {
     if (!sel.value) return
     const mid = sel.closest('[data-mid]').dataset.mid
     try {
       const r = await api(`/misiones/${mid}/ayudantes`, { clase: sel.value })
       toast(`${esc(r.agente)} ayuda en esta primaria<small>Nace en prueba. Pedile un aporte cuando quieras; con las rutinas prendidas, trabaja solo cada mañana.</small>`)
+      cerrarModal()
       await recargar()
     } catch (e) { error(e); sel.value = '' }
   }))
-  $$('[data-quitar-ayu]', cont).forEach((b) => (b.onclick = async () => {
-    try { await api(`/ayudantes/${b.dataset.quitarAyu}/quitar`, {}); await recargar() } catch (e) { error(e) }
+  $$('[data-quitar-ayu]', raiz).forEach((b) => (b.onclick = async () => {
+    try { await api(`/ayudantes/${b.dataset.quitarAyu}/quitar`, {}); cerrarModal(); await recargar() } catch (e) { error(e) }
   }))
-  const pedir = (boton, primariaId) => trabajando(boton, 'Trabajando…', async () => {
-    const r = await api('/aportes', primariaId ? { primariaId } : {})
+  $$('[data-pedir-aporte]', raiz).forEach((b) => (b.onclick = () => trabajando(b, 'Trabajando…', async () => {
+    const r = await api('/aportes', { primariaId: Number(b.closest('[data-mid]').dataset.mid) })
     toast(`${r.aportes.length} aporte${r.aportes.length === 1 ? '' : 's'} nuevo${r.aportes.length === 1 ? '' : 's'}${r.fallas.length ? `<small>${esc(r.fallas.join(' · '))}</small>` : ''}${r.frenado ? `<small>Frenado: ${esc(r.frenado)}</small>` : ''}`, r.aportes.length ? '' : 'suave')
+    cerrarModal()
     await recargar()
-  })
-  $$('[data-pedir-aporte]', cont).forEach((b) => (b.onclick = () => pedir(b, Number(b.closest('[data-mid]').dataset.mid))))
-  const todos = $('#mi-aportes', cont)
-  if (todos) todos.onclick = () => pedir(todos)
-  $$('[data-sem]', cont).forEach((b) => (b.onclick = () => { misSemana = b.dataset.sem; traerMisiones() }))
-  $$('[data-m-estado]', cont).forEach((b) => (b.onclick = async () => {
+  })))
+  $$('[data-m-estado]', raiz).forEach((b) => (b.onclick = async () => {
     try { await api(`/misiones/${b.closest('[data-mid]').dataset.mid}`, { estado: b.dataset.mEstado }); await recargar() } catch (e) { error(e) }
   }))
-  $$('[data-m-prog]', cont).forEach((r) => {
+  $$('[data-m-prog]', raiz).forEach((r) => {
     r.oninput = () => (r.nextElementSibling.textContent = `${r.value}%`)
-    r.onchange = async () => { try { await api(`/misiones/${r.closest('[data-mid]').dataset.mid}`, { progreso: Number(r.value) }) } catch (e) { error(e) } }
+    r.onchange = async () => { try { await api(`/misiones/${r.closest('[data-mid]').dataset.mid}`, { progreso: Number(r.value) }); recargar() } catch (e) { error(e) } }
   })
-  $$('[data-m-editar]', cont).forEach((b) => (b.onclick = () => {
-    const m = d.primarias.find((x) => x.id === Number(b.closest('[data-mid]').dataset.mid))
-    modalMision(m, recargar)
-  }))
+}
+
+function engancharMisiones(cont, d) {
+  const recargar = async () => { await refrescar(); traerMisiones() }
+  engancharPrimaria(cont, recargar)
+  const deTarjeta = (b) => d.primarias.find((x) => x.id === Number(b.closest('[data-mid]').dataset.mid))
+  $$('[data-m-detalle]', cont).forEach((b) => (b.onclick = () => detallePrimaria(deTarjeta(b), recargar)))
+  $$('[data-m-editar]', cont).forEach((b) => (b.onclick = () => modalMision(deTarjeta(b), recargar)))
+  $$('[data-nueva-prim]', cont).forEach((b) => (b.onclick = () => modalMision({ nivel: 'primaria', semana: d.semana }, recargar)))
+  const todos = $('#mi-aportes', cont)
+  if (todos) todos.onclick = () => trabajando(todos, 'Trabajando…', async () => {
+    const r = await api('/aportes', {})
+    toast(`${r.aportes.length} aporte${r.aportes.length === 1 ? '' : 's'} nuevo${r.aportes.length === 1 ? '' : 's'}${r.frenado ? `<small>Frenado: ${esc(r.frenado)}</small>` : ''}`, r.aportes.length ? '' : 'suave')
+    await recargar()
+  })
+  $$('[data-sem]', cont).forEach((b) => (b.onclick = () => { misSemana = b.dataset.sem; traerMisiones() }))
   $$('[data-elegir]', cont).forEach((b) => (b.onclick = async () => {
     if (!confirm('¿Esta pasa a ser tu misión principal?')) return
     try { await api('/personajes/jugador/principal', { id: Number(b.dataset.elegir) }); await recargar() } catch (e) { error(e) }
@@ -257,18 +302,19 @@ function engancharMisiones(cont, d) {
     toast(`${r.length} primarias sugeridas`, 'suave')
     await recargar()
   })
-  $('#mi-nueva').onclick = () => modalMision({ nivel: 'primaria', semana: d.semana }, recargar)
   $('#mi-reporte').onclick = () => trabajando($('#mi-reporte'), 'Escribiendo…', async () => {
     const r = await api('/reportes/semana', { semana: d.semana })
     abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Semana ${esc(d.semana.split('-W')[1])}</h2><div class="md">${md(r.texto)}</div>`)
     await recargar()
   })
-  $('#sq-agregar').onclick = async () => {
+  $('#sq-form').onsubmit = async (ev) => {
+    ev.preventDefault()
     const titulo = $('#sq-titulo').value.trim()
     if (!titulo) return
     try { await api('/misiones', { nivel: 'terciaria', titulo, disparador: $('#sq-donde').value.trim() ? { zona: $('#sq-donde').value.trim() } : null }); await recargar() } catch (e) { error(e) }
   }
-  $('#ot-agregar').onclick = async () => {
+  $('#ot-form').onsubmit = async (ev) => {
+    ev.preventDefault()
     const quien = $('#ot-quien').value.trim()
     const que = $('#ot-que').value.trim()
     if (!quien || !que) return toast('Decime quién y qué', 'error')
