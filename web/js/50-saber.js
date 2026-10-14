@@ -44,7 +44,7 @@ function montarCorpus() {
   $('#principal').innerHTML = `
     <div class="titulo"><h1>Corpus</h1>
       <p>Todo lo que Mastropiero sabe, por la voz que habla en cada pieza. Lo estructurado entra listo; lo crudo pasa por extractor → clasificador → vectorizador.</p>
-      <div class="fila"><button class="btn" id="c-quantomos" title="Las unidades mínimas que destila la pipeline">Quántomos</button><button class="btn" id="c-fuentes">Fuentes</button><button class="btn" id="c-voces" title="Muchos audios de una: se transcriben y entran como tuyos">🎙 Notas de voz</button><button class="btn" id="c-paginas" title="Fotos o escaneos de tus cuadernos">📓 Cuaderno escaneado</button><button class="btn btn-primario" id="c-ingerir">＋ Ingerir</button></div>
+      <div class="fila"><button class="btn" id="c-quantomos" title="Las unidades mínimas que destila la pipeline">Quántomos</button><button class="btn" id="c-fuentes">Fuentes</button><button class="btn" id="c-voces" title="Muchos audios de una: se transcriben y entran como tuyos">🎙 Notas de voz</button><button class="btn" id="c-paginas" title="Fotos o escaneos de tus cuadernos">📓 Cuaderno escaneado</button><button class="btn" id="c-takeout" title="Gemini y NotebookLM: cómo va la importación, temas y nombres para confirmar">🗂 Takeout</button><button class="btn btn-primario" id="c-ingerir">＋ Ingerir</button></div>
     </div>
     <div class="niveles" id="c-niveles"></div>
     <div class="corpus-barra">
@@ -59,6 +59,7 @@ function montarCorpus() {
   $('#c-ingerir').onclick = () => modalIngesta()
   $('#c-voces').onclick = () => modalTandas('audio')
   $('#c-paginas').onclick = () => modalTandas('pagina')
+  $('#c-takeout').onclick = () => modalTakeout()
   $('#c-fuentes').onclick = modalFuentes
   $('#c-quantomos').onclick = () => irA('quantomos')
   let espera

@@ -512,6 +512,76 @@ CREATE TABLE IF NOT EXISTS tandas (
   hecha_en INTEGER
 );
 
+-- Google Takeout (Gemini y NotebookLM): un lote por exportación; los medios se escuchan o se miran y se borran,
+-- cada pieza se destila (ideas, proyectos, personas, temas) y al final cada proyecto recibe su historia por eras.
+CREATE TABLE IF NOT EXISTS takeout_lotes (
+  id TEXT PRIMARY KEY,
+  estado TEXT NOT NULL,                    -- subiendo | ingiriendo | procesando | historia | terminado | error
+  resumen TEXT,                            -- JSON: lo que trajo y lo que va dejando
+  error TEXT,
+  creado_en INTEGER NOT NULL,
+  subido_en INTEGER,
+  terminado_en INTEGER
+);
+CREATE TABLE IF NOT EXISTS takeout_medios (
+  huella TEXT PRIMARY KEY,                 -- sha1 del archivo original: el mismo archivo en varios lados entra una vez
+  lote TEXT NOT NULL,
+  clase TEXT NOT NULL,                     -- audio | imagen | documento
+  ext TEXT NOT NULL,
+  nombre TEXT NOT NULL,
+  apariciones TEXT NOT NULL,               -- JSON: dónde apareció (chat o cuaderno, fecha, nivel)
+  ruta TEXT,                               -- mientras espera; se borra al procesarlo
+  estado TEXT NOT NULL,                    -- esperando | pendiente | procesando | hecho | fallo | salteado
+  pieza_id INTEGER,
+  intentos INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  creado_en INTEGER NOT NULL,
+  hecho_en INTEGER
+);
+CREATE TABLE IF NOT EXISTS takeout_destilado (
+  pieza_id INTEGER PRIMARY KEY,
+  lote TEXT NOT NULL,
+  prioridad INTEGER NOT NULL DEFAULT 0,
+  estado TEXT NOT NULL,                    -- pendiente | procesando | hecho | fallo
+  intentos INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  salida TEXT,                             -- JSON del destilado (lo lee la historia de cada proyecto)
+  hecho_en INTEGER
+);
+-- Cada vez que algo apareció (aunque el contenido sea el mismo): cuántas veces y cuándo se volvió a un tema.
+CREATE TABLE IF NOT EXISTS takeout_apariciones (
+  id INTEGER PRIMARY KEY,
+  pieza_id INTEGER NOT NULL,
+  origen TEXT NOT NULL,                    -- gemini | notebooklm
+  contexto TEXT,                           -- el chat o el cuaderno
+  titulo TEXT,
+  fecha TEXT,
+  UNIQUE (pieza_id, origen, contexto, fecha)
+);
+CREATE TABLE IF NOT EXISTS temas_pulso (
+  id INTEGER PRIMARY KEY,
+  clave TEXT NOT NULL,                     -- el tema normalizado
+  tema TEXT NOT NULL,
+  fecha TEXT,
+  pieza_id INTEGER NOT NULL,
+  origen TEXT,
+  UNIQUE (clave, pieza_id)
+);
+-- Personas y proyectos que el destilado encontró y no estaban: esperan su ok (aceptar, fusionar con una que ya existe o descartar).
+CREATE TABLE IF NOT EXISTS takeout_nombres (
+  clave TEXT PRIMARY KEY,
+  nombre TEXT NOT NULL,
+  tipo TEXT NOT NULL,                      -- persona | proyecto
+  veces INTEGER NOT NULL DEFAULT 0,
+  piezas TEXT NOT NULL DEFAULT '[]',
+  primera TEXT,
+  ultima TEXT,
+  nota TEXT,
+  estado TEXT NOT NULL DEFAULT 'propuesta', -- propuesta | aceptada | descartada
+  entidad_id INTEGER,
+  creada_en INTEGER NOT NULL
+);
+
 -- La brújula del día: el tridente Cuerpo · Mente · Alma.
 CREATE TABLE IF NOT EXISTS brujulas (
   fecha TEXT PRIMARY KEY,

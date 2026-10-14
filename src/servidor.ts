@@ -33,6 +33,7 @@ import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora
 import { cribar, deshacerUltima, marcador, siguiente } from './criba.ts'
 import { tabla as tablaEconomia, TARIFAS } from './economia.ts'
 import { exportarEstado, importarEstado, importarEstadoArchivo } from './exportacion.ts'
+import { cerrarLote, estadoTakeout, faltan, huellaValida, ingerirPaquete, loteValido, paqueteListo, recibirMedio, recibirParte, reintentarTakeout, resolverNombre, retomarTakeout, trabajarTakeout } from './takeout/nube.ts'
 import { dirAdjuntos, guardarImagen } from './chat/adjuntos.ts'
 import { encolar as encolarTanda, listarTandas, procesarTandas, reintentar as reintentarTanda, retomarTandas } from './tandas.ts'
 import { brujulaDelDia, leerBrujula } from './brujula.ts'
@@ -901,6 +902,47 @@ const servidor = http.createServer(async (req, res) => {
         void procesarTandas(db).catch((e) => console.error('  tandas:', e instanceof Error ? e.message : e))
         return void res.end(JSON.stringify(r))
       }
+      // Google Takeout: la compu sube el paquete (texto) y los medios ya achicados; la nube hace todo lo pesado de fondo.
+      const tko = /^\/api\/takeout(?:\/(paquete\/parte|paquete\/fin|faltan|medio|cerrar|reintentar|nombre))?$/.exec(url.pathname)
+      if (tko) {
+        const q = url.searchParams
+        const loteQ = q.get('lote') ?? ''
+        const que = tko[1] ?? ''
+        if (!que && req.method === 'GET') return void res.end(JSON.stringify(estadoTakeout(db)))
+        if (req.method !== 'POST') throw new Error('Método no permitido')
+        if (['paquete/parte', 'paquete/fin', 'medio', 'cerrar'].includes(que) && !loteValido(loteQ)) throw new Error('Lote inválido')
+        if (que === 'paquete/parte') return void res.end(JSON.stringify({ ok: true, bytes: recibirParte(loteQ, Number(q.get('desde') ?? 0), await leerCrudo(req, 32 * 1024 * 1024)) }))
+        if (que === 'paquete/fin') {
+          paqueteListo(db, loteQ, Number(q.get('total') ?? 0))
+          void ingerirPaquete(db, loteQ).then(() => trabajarTakeout(db)).catch((e) => console.error('  takeout ingesta:', e instanceof Error ? e.message : e))
+          return void res.end(JSON.stringify({ ok: true }))
+        }
+        if (que === 'faltan') {
+          const b = JSON.parse((await leerCrudo(req, 4 * 1024 * 1024)).toString('utf8') || '{}')
+          return void res.end(JSON.stringify({ faltan: faltan(db, (Array.isArray(b.huellas) ? b.huellas : []).filter((h: unknown) => typeof h === 'string' && huellaValida(h))) }))
+        }
+        if (que === 'medio') {
+          const h = q.get('huella') ?? ''
+          if (!huellaValida(h)) throw new Error('Huella inválida')
+          const r = recibirMedio(db, loteQ, h, q.get('ext') ?? '', await leerCrudo(req, 64 * 1024 * 1024))
+          void trabajarTakeout(db).catch(() => {})
+          return void res.end(JSON.stringify(r))
+        }
+        if (que === 'cerrar') {
+          cerrarLote(db, loteQ)
+          void trabajarTakeout(db).catch(() => {})
+          return void res.end(JSON.stringify({ ok: true }))
+        }
+        if (que === 'reintentar') {
+          const r = reintentarTakeout(db)
+          void trabajarTakeout(db).catch(() => {})
+          return void res.end(JSON.stringify(r))
+        }
+        if (que === 'nombre') {
+          const b = JSON.parse((await leerCrudo(req, 64 * 1024)).toString('utf8') || '{}')
+          return void res.end(JSON.stringify(resolverNombre(db, String(b.clave ?? ''), b.accion === 'descartar' ? 'descartar' : 'aceptar', { entidadId: b.entidadId ? Number(b.entidadId) : null, tipo: b.tipo })))
+        }
+      }
       // Importar un estado grande desde la página: llega en pedazos al disco (ningún pedido pasa de 32 MB) y después se
       // importa de fondo leyéndolo de a líneas, sin cargarlo entero en memoria. La página pregunta cómo va.
       const imp = /^\/api\/importar-estado\/(parte|fin|estado)$/.exec(url.pathname)
@@ -1092,6 +1134,10 @@ if (!enVercel()) {
   retomarTandas(db)
   retomarFragua(db)
   void procesarTandas(db).catch(() => {})
+  // El Takeout sigue donde quedó: un paquete sin leer se lee, y la cola de medios y destilado sigue.
+  const sinLeer = retomarTakeout(db)
+  void Promise.all(sinLeer.map((l) => ingerirPaquete(db, l).catch((e) => console.error('  takeout ingesta:', e instanceof Error ? e.message : e))))
+    .then(() => trabajarTakeout(db)).catch(() => {})
 }
 if (telegramActivo() && !enVercel()) {
   escucharTelegram(db)

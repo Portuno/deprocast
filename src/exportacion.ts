@@ -193,7 +193,7 @@ export function importarEstado(db: Db, texto: string, o: { forzar?: boolean; aho
 }
 
 /** Las líneas de un archivo, cortando solo en \n (readline también corta en los separadores Unicode que JSON deja crudos). */
-async function* lineasDe(ruta: string): AsyncGenerator<string> {
+export async function* lineasDe(ruta: string): AsyncGenerator<string> {
   let resto: string[] = [] // una línea larga (un audio en base64) se junta una sola vez, no en cada pedazo
   for await (const pedazo of fs.createReadStream(ruta, { encoding: 'utf8', highWaterMark: 1 << 20 }) as AsyncIterable<string>) {
     if (!pedazo.includes('\n')) { resto.push(pedazo); continue }

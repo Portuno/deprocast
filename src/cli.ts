@@ -22,6 +22,7 @@ import { CAPAS, umbral } from './xp.ts'
 import { PREGUNTA_EJEMPLO, sembrarEjemplo } from './semilla.ts'
 import { respaldar, restaurar } from './respaldo.ts'
 import { mudar } from './mudanza.ts'
+import { loteDe, prepararTakeout, subirTakeout } from './takeout/cliente.ts'
 import { exportarEstado, importarEstado } from './exportacion.ts'
 import { chequear, informe } from './doctor.ts'
 import { arrancarRun, cerrarRun, conAvance, enCurso, listarMisiones, misionesDeRun, prepararRun, principalDe, runActual, semanaDe } from './misiones.ts'
@@ -149,6 +150,9 @@ const AYUDA = `
     respaldo                        copia la base y las cargas a data/respaldos/
     restaurar <carpeta> [--forzar]  la pone en esta compu
     mudar <url> [--sin-cargas]      manda la base y los archivos a la instancia de la nube (clave en MASTRO_CLAVE_NUBE)
+    takeout <carpeta> [<url>] [--solo-preparar]
+                                    Google Takeout (Gemini y NotebookLM): arma el paquete en la compu (sin tokens) y lo
+                                    sube a la nube, que transcribe, describe, destila y arma la historia de cada proyecto
     exportar [--sin-archivos]       todo el estado en un JSON (data/exportaciones/)
     importar-estado <json> [--forzar]  deja esta base igual a la exportada (respalda antes)
     doctor [--rapido]               revisa que esta compu tenga todo
@@ -175,6 +179,17 @@ async function main() {
     // La clave de la nube va en MASTRO_CLAVE_NUBE (en el .env o en la consola): no se escribe en el comando.
     const r = await mudar(pos[0] ?? '', process.env.MASTRO_CLAVE_NUBE ?? '', { sinCargas: !!flags['sin-cargas'], log: (t) => console.log(`  ${t}`) })
     return console.log(`  Listo: la nube tiene ${Object.entries(r.conteos).map(([k, v]) => `${v} ${k}`).join(' · ')}`)
+  }
+  if (cmd === 'takeout') {
+    // Acá no se gasta un token: se leen los zips, se achican los medios y se sube. Lo pesado lo hace la nube.
+    const carpeta = path.resolve(pos[0] ?? '')
+    if (!fs.existsSync(carpeta)) throw new Error('Decime la carpeta con los zips del Takeout')
+    const log = (t: string) => console.log(`  ${t}`)
+    const listo = path.join(process.cwd(), 'data', 'takeout', loteDe(carpeta), 'paquete.jsonl')
+    const r = fs.existsSync(listo) && !flags.rehacer ? { lote: loteDe(carpeta), dir: path.dirname(listo) } : await prepararTakeout(carpeta, { log })
+    if (flags['solo-preparar'] || !pos[1]) return console.log(`  Paquete listo en ${r.dir}. Para subirlo: npm run mastro -- takeout "${pos[0]}" <url de la nube>`)
+    const e = await subirTakeout(pos[1], process.env.MASTRO_CLAVE_NUBE ?? '', r.dir, r.lote, { log })
+    return console.log(`  Estado: ${JSON.stringify(e.lotes?.[0]?.resumen ?? {})}`)
   }
   if (cmd === 'restaurar') {
     const r = restaurar(pos[0] ?? '', { forzar: !!flags.forzar })
