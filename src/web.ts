@@ -3,7 +3,7 @@
  * sin clave, solo Wikipedia: para encontrar comunidades y gente hace falta una clave gratis de Tavily o Brave). Cada búsqueda cuenta en la tabla `cuotas` del mes.
  */
 import type { Db } from './db.ts'
-import { htmlATexto } from './motores.ts'
+import { _probarLector, leer } from './lector/index.ts'
 
 export type Resultado = { titulo: string; url: string; extracto: string; proveedor: string }
 
@@ -15,6 +15,7 @@ const sinTags = (s: string) => s.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').
 let pedir = (url: string, init: RequestInit = {}) => fetch(url, { ...init, signal: AbortSignal.timeout(20_000) })
 export function _probarWeb(f: typeof pedir) {
   pedir = f
+  _probarLector(f) // leer páginas también pasa por acá
 }
 
 const PROVEEDORES: Proveedor[] = [
@@ -85,14 +86,8 @@ export async function buscarWeb(db: Db, consulta: string, o: { n?: number; ahora
   return []
 }
 
-/** Lee una página: su título y el texto, recortado. */
+/** Lee una página en Markdown limpio (src/lector): su título y el texto, recortado. */
 export async function leerPagina(url: string, max = 6000): Promise<{ titulo: string; texto: string } | null> {
-  try {
-    const r = await pedir(url, { headers: { 'user-agent': UA, accept: 'text/html,*/*' } })
-    if (!r.ok || !/html|text/.test(r.headers.get('content-type') ?? '')) return null
-    const { titulo, texto } = htmlATexto(await r.text())
-    return { titulo, texto: texto.slice(0, max) }
-  } catch {
-    return null
-  }
+  const l = await leer(url)
+  return l.markdown ? { titulo: l.titulo, texto: l.markdown.slice(0, max) } : null
 }

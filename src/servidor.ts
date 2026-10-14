@@ -527,6 +527,15 @@ const rutas: [string, RegExp, Ruta][] = [
     return r
   }],
   ['POST', /^\/api\/repaso\/(\d+)$/, async (b, [p]) => responderPregunta(db, id(p), b.respuesta ?? null)],
+  // Un link: se lee y se guarda en Markdown; si es un sitio con índice (o se pide), se rastrea y arma un cuaderno
+  ['POST', /^\/api\/links$/, async (b) => {
+    const { procesarLink } = await import('./lector/index.ts')
+    const r = await procesarLink(db, String(b.url ?? ''), {
+      nota: b.nota ?? null, rastrear: typeof b.rastrear === 'boolean' ? b.rastrear : undefined,
+      alTerminar: (x) => mensajeDeMastropiero(db, conversacionHoy(db).id, `🕸 Rastreé ${x.paginas} página${x.paginas === 1 ? '' : 's'} de «${x.titulo}»: están juntas en un cuaderno (Cuadernos).`),
+    })
+    return { pieza: r.piezaId, nueva: r.nueva, titulo: r.lectura?.titulo ?? null, palabras: r.lectura?.palabras ?? null, aviso: r.lectura?.aviso ?? null, rastreando: r.rastreando }
+  }],
   // Captura con palabras («almorcé milanesa con ensalada», «gasté 12 en el súper»): se clasifica y se registra
   ['POST', /^\/api\/captura$/, async (b) => {
     const c = await clasificar(db, { texto: String(b.texto ?? '') })
@@ -849,6 +858,13 @@ const servidor = http.createServer(async (req, res) => {
     res.setHeader('content-type', 'application/json; charset=utf-8')
     try {
       // Una imagen para el chat (cruda): se guarda, se describe y vuelve la marca para el mensaje.
+      // Una pieza o un cuaderno como archivo .md (para bajar)
+      const md = /^\/api\/(corpus|cuadernos)\/(\d+)\.md$/.exec(url.pathname)
+      if (req.method === 'GET' && md) {
+        const { cuadernoComoMd, piezaComoMd } = await import('./lector/index.ts')
+        const a = md[1] === 'corpus' ? piezaComoMd(db, Number(md[2])) : cuadernoComoMd(db, Number(md[2]))
+        return void res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8', 'content-disposition': `attachment; filename="${a.nombre}"`, 'cache-control': 'no-store' }).end(a.texto)
+      }
       // Mudanza a esta instancia: los archivos de a uno y la base al final (después se reinicia para abrirla).
       if (req.method === 'POST' && url.pathname === '/api/mudanza/archivo') {
         return void res.end(JSON.stringify(recibirArchivo(url.searchParams.get('ruta') ?? '', await leerCrudo(req, MAX_CARGA))))

@@ -5,6 +5,8 @@
  *   llm            → cualquier otro endpoint compatible con OpenAI (Groq, Ollama, LM Studio…)
  *   funcion:<n>    → función registrada en la lista blanca (obligatorio para ejecutivos)
  */
+import { leerHtml } from './lector/html.ts'
+import { leer } from './lector/index.ts'
 import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
@@ -65,15 +67,10 @@ export function embeddingLocal(texto: string, dims = 64): number[] {
   return v.map((x) => Math.round((x / norma) * 1e4) / 1e4)
 }
 
+/** HTML → { título, texto }: ahora es el Markdown limpio del lector (sin menús, pies ni avisos). */
 export function htmlATexto(html: string): { titulo: string; texto: string } {
-  const titulo = html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? ''
-  const texto = html
-    .replace(/<(script|style|noscript)[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-  return { titulo, texto }
+  const l = leerHtml(html)
+  return { titulo: l.titulo, texto: l.markdown }
 }
 
 const local: Motor = async ({ db, ficha, contexto, lector, efectos }) => {
@@ -98,10 +95,10 @@ const local: Motor = async ({ db, ficha, contexto, lector, efectos }) => {
     case 'crawler': {
       const url = typeof p.url === 'string' ? p.url : null
       if (!url) return { items: [] }
-      const res = await fetch(url, { signal: AbortSignal.timeout(15_000), headers: { 'user-agent': 'Mastropiero/1.0' } })
-      if (!res.ok) throw new Error(`HTTP ${res.status} en ${url}`)
-      const { titulo, texto: cuerpo } = htmlATexto(await res.text())
-      return { items: [{ titulo: titulo || url, contenido: cuerpo.slice(0, 20_000), url }] }
+      // El lector: Markdown limpio, y las fuentes especiales (GitHub, Wikipedia, Reddit, YouTube, PDF).
+      const l = await leer(url)
+      if (!l.markdown) throw new Error(l.aviso ?? `No pude leer ${url}`)
+      return { items: [{ titulo: l.titulo || url, contenido: l.markdown.slice(0, 20_000), url }] }
     }
     case 'vectorizador':
       return { embedding: embeddingLocal(texto) }

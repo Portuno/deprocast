@@ -349,6 +349,12 @@ export async function enviar(db: Db, cid: number, texto: string, o: { hud?: stri
   enVivo.set(cid, vivo)
   try {
     guardar(db, cid, { rol: 'operador', texto: texto.trim() })
+    // Un link en lo que escribe: se lee y se guarda en Markdown de fondo (una vez por URL); si es un sitio, se rastrea.
+    for (const link of [...new Set(texto.match(/https?:\/\/[^\s<>)"']+/g) ?? [])].slice(0, 3)) {
+      void import('../lector/index.ts').then(({ procesarLink }) => procesarLink(db, link, {
+        alTerminar: (x) => mensajeDeMastropiero(db, cid, `🕸 Rastreé ${x.paginas} página${x.paginas === 1 ? '' : 's'} de «${x.titulo}»: están juntas en un cuaderno (Cuadernos).`),
+      })).catch(() => {})
+    }
     if (!c.titulo) db.prepare('UPDATE conversaciones SET titulo = ? WHERE id = ?').run(recorte(comoTexto(texto.trim()).replace(/\s+/g, ' '), 60), cid)
     const previos = await armarHistorial(db, mensajes(db, cid), { cid, resumirViejo: !(c.con === MASTROPIERO && c.modo === 'diario'), verImagenes: true })
     const alGuardar = (m: Partial<Mensaje> & { rol: Mensaje['rol'] }) => guardar(db, cid, m)

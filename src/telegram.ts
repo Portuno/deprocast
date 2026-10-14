@@ -28,6 +28,7 @@ import { descartar, ejecutar, leerCarga, subir } from './cargas/index.ts'
 import { sintetizar } from './taller.ts'
 import { brujulaDelDia, textoDeBrujula } from './brujula.ts'
 import { recomendar } from './mentor.ts'
+import { cuadernoComoMd, descartarLink, piezaComoMd, procesarLink } from './lector/index.ts'
 
 const api = (metodo: string) => `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/${metodo}`
 
@@ -204,6 +205,31 @@ export async function mandarVotoNoche(db: Db, fecha = fechaLocal()) {
   if (t) await decir(t.texto, t.botones)
 }
 
+// ─── links: leer, guardar y bajar en .md ─────────────────────────────────
+
+async function guardarLinkTelegram(db: Db, url: string, nota: string): Promise<{ piezaId: number; titulo: string } | null> {
+  try {
+    const r = await procesarLink(db, url, {
+      nota,
+      alTerminar: (x) => void decir(`🕸 Rastreé ${x.paginas} página${x.paginas === 1 ? '' : 's'} de «${x.titulo}»: están juntas en un cuaderno.`, [[{ texto: '📄 MD del cuaderno', dato: `md:c:${x.cuadernoId}` }]]).catch(() => {}),
+    })
+    if (!r.nueva || !r.lectura) {
+      await decir(`📄 Ese link ya lo tenía guardado (pieza #${r.piezaId}).`, [[{ texto: '📄 MD', dato: `md:p:${r.piezaId}` }]])
+      return { piezaId: r.piezaId, titulo: String((db.prepare('SELECT titulo FROM corpus WHERE id = ?').get(r.piezaId) as any)?.titulo ?? url) }
+    }
+    const l = r.lectura
+    await decir([
+      `📄 Guardé «${l.titulo}»${l.palabras ? ` (${l.palabras.toLocaleString('es-AR')} palabras)` : ''}.`,
+      l.meta.descripcion ? `_${l.meta.descripcion.slice(0, 240)}_` : '',
+      l.aviso ? `_${l.aviso}_` : '',
+      r.rastreando ? '🕸 Es un sitio con índice: rastreo hasta 20 páginas y te aviso.' : '',
+    ].filter(Boolean).join('\n'), [[{ texto: '📄 MD', dato: `md:p:${r.piezaId}` }, { texto: '🗑 No guardar', dato: `md:x:${r.piezaId}` }]])
+    return { piezaId: r.piezaId, titulo: l.titulo }
+  } catch {
+    return null
+  }
+}
+
 // ─── la run ─────────────────────────────────────────────────────────────
 
 const botonesBanda = (id: number): Botones => [[{ texto: '✓ Hecha', dato: `m:${id}:hecha` }, { texto: '◐ A medias', dato: `m:${id}:parcial` }, { texto: '✗ No', dato: `m:${id}:no` }]]
@@ -355,6 +381,14 @@ async function boton(db: Db, q: any) {
   await pedir('answerCallbackQuery', { callback_query_id: q.id }).catch(() => {})
   const [k, a, b] = String(q.data ?? '').split(':')
   const mensajeId = q.message?.message_id
+  if (k === 'md') {
+    if (a === 'x') {
+      descartarLink(db, Number(b))
+      return mensajeId ? editar(mensajeId, '🗑 No lo guardé.') : decir('🗑 No lo guardé.')
+    }
+    const md = a === 'c' ? cuadernoComoMd(db, Number(b)) : piezaComoMd(db, Number(b))
+    return mandarArchivo('sendDocument', { chat_id: suChat()! }, 'document', Buffer.from(md.texto, 'utf8'), md.nombre)
+  }
   if (k === 'x') {
     deshacerCaptura(db, TABLA[a] ?? 'salud', b)
     if (mensajeId) capturasEnviadas.delete(mensajeId)
@@ -498,10 +532,11 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
     if (await registrarYContar(db, await clasificar(db, { texto }).catch(() => null), { texto })) return
   }
   if (texto) {
-    // Un link (un reel, una nota): entra al corpus como compartido, y además lo charlamos.
+    // Un link: se lee y se guarda en Markdown (y si es un sitio con índice, se rastrea); después lo charlamos.
     const link = /https?:\/\/\S+/.exec(texto)?.[0]
-    if (link) ingerir(db, { fuente: 'operador', titulo: `Compartido · ${(texto.replace(link, '').trim() || link).slice(0, 80)}`, contenido: texto, url: link, dominio: 'compartido' })
-    return conversar(db, link ? `Te comparto esto por Telegram:\n${texto}` : texto)
+    if (!link) return conversar(db, texto)
+    const g = await guardarLinkTelegram(db, link, texto.replace(link, '').trim())
+    return conversar(db, `Te comparto esto por Telegram:\n${texto}${g ? `\n(Ya quedó guardado en el corpus como pieza #${g.piezaId}: «${g.titulo}».)` : ''}`)
   }
 }
 

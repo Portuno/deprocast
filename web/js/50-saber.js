@@ -177,6 +177,7 @@ async function modalPieza(id) {
       <h2 style="margin-top:8px">${esc(p.titulo)}</h2>
       ${p.autor || p.fecha ? `<p class="tenue">${esc(p.autor ?? '')} ${esc(String(p.fecha ?? '').slice(0, 10))}</p>` : ''}
       ${p.url ? `<p><a href="${esc(p.url)}" target="_blank" rel="noopener" style="color:var(--oro-2)">${esc(p.url)}</a></p>` : ''}
+      <div class="fila" style="margin:6px 0"><a class="btn btn-chico" href="/api/corpus/${p.id}.md" download title="Bajar esta pieza como Markdown">📄 MD</a></div>
       ${p.tipo === 'enlace' && p.estado === 'pendiente' ? `<div class="fila" style="margin:10px 0"><button class="btn btn-primario" id="p-crawl">≋ Mandar a un crawler</button></div>` : ''}
       ${entidades.length ? `<div class="tags" style="margin:8px 0">${entidades.map((e) => `<span class="ent">${esc(e.tipo)} · ${esc(e.nombre)}</span>`).join('')}</div>` : ''}
       ${p.etiquetas.length ? `<div class="tags" style="margin:8px 0">${p.etiquetas.map((t) => `<span>${esc(t)}</span>`).join('')}</div>` : ''}
@@ -237,12 +238,26 @@ function modalIngesta(nivel = null) {
       <div class="ingesta-niveles">${NIVEL_ORDEN.map((n) => `
         <button class="nivel-tile" style="--n:var(--nivel-${n})" data-ing="${n}"><span class="nt-glifo">${NIVEL_GLIFO[n]}</span><span class="nt-num">${META.niveles[n].numero}</span>
           <b>${esc(INGESTA[n].titulo)}</b><small>${esc(INGESTA[n].ayuda)}</small></button>`).join('')}</div>
+      <form class="fila ing-link" id="ing-link"><input id="ing-url" type="url" placeholder="O pegá un link: lo leo, lo guardo en Markdown y, si es un sitio, lo rastreo" style="flex:1"><button class="btn btn-primario">Guardar link</button></form>
       <label class="soltar" id="soltar">
         <input type="file" id="ing-archivo" hidden>
         <b>⇪ Subir un archivo</b>
         <span>Respaldo o ficha de Deprocast 0.7 · CSV · texto · Markdown. Detecto el formato, lo parto en segmentos y elegís qué entra. Arrastralo acá.</span>
       </label>`)
     $$('[data-ing]').forEach((b) => (b.onclick = () => modalIngesta(b.dataset.ing)))
+    $('#ing-link').onsubmit = async (ev) => {
+      ev.preventDefault()
+      const url = $('#ing-url').value.trim()
+      if (!url) return
+      const boton = ev.target.querySelector('button')
+      await trabajando(boton, 'Leyendo…', async () => {
+        const r = await api('/links', { url })
+        cerrarModal()
+        toast(`${r.nueva ? 'Guardado' : 'Ya estaba'}: ${esc(r.titulo ?? url)}<small>${r.palabras ? `${r.palabras} palabras · ` : ''}${r.aviso ? esc(r.aviso) : ''}${r.rastreando ? ' · rastreando el sitio (te aviso en Hoy)' : ''}</small>`)
+        await refrescar()
+        modalPieza(r.pieza)
+      })
+    }
     const s = $('#soltar')
     $('#ing-archivo').onchange = (e) => e.target.files[0] && subirArchivo(e.target.files[0])
     s.ondragover = (e) => { e.preventDefault(); s.classList.add('encima') }

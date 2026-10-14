@@ -942,10 +942,21 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a, r) => `buscó en la web «${recorte(a.consulta, 40)}» → ${r?.resultados?.length ?? 0}`,
   },
   {
-    nombre: 'leer_pagina', familia: 'lectura', descripcion: 'Lee una página web (su texto, recortado).',
+    nombre: 'leer_pagina', familia: 'lectura', descripcion: 'Lee una página web en Markdown limpio (sin menús ni pies; GitHub, Wikipedia, Reddit, YouTube y PDF incluidos), recortada. No la guarda.',
     parametros: S({ url: str('URL') }, ['url']),
     ejecutar: async (a) => (await leerPagina(a.url, 8000)) ?? { error: 'No pude leer esa página' },
     resumen: (a) => `leyó ${recorte(a.url, 50)}`,
+  },
+  {
+    nombre: 'guardar_link', familia: 'accion',
+    descripcion: 'Lee un link y lo guarda en el corpus en Markdown (una vez por URL). Si es un sitio con índice (documentación, blog, wiki), lo rastrea (hasta 20 páginas) y arma un cuaderno. Los links que él escribe ya se guardan solos: usalo para uno que encontraste vos o si pide rastrear.',
+    parametros: S({ url: str('URL'), nota: str('Para qué lo guarda, si lo dijo'), rastrear: bool('true para rastrear el sitio aunque no parezca uno con índice; false para no rastrear') }, ['url']),
+    ejecutar: async (a, { db }) => {
+      const { procesarLink } = await import('../lector/index.ts')
+      const r = await procesarLink(db, a.url, { nota: a.nota, rastrear: typeof a.rastrear === 'boolean' ? a.rastrear : undefined })
+      return { pieza: r.piezaId, nueva: r.nueva, titulo: r.lectura?.titulo, palabras: r.lectura?.palabras, aviso: r.lectura?.aviso, rastreando: r.rastreando, md: `/api/corpus/${r.piezaId}.md` }
+    },
+    resumen: (a) => `guardó ${recorte(a.url, 50)}`,
   },
   {
     nombre: 'buscar_oportunidades', familia: 'accion',

@@ -42,12 +42,14 @@ export function ingerir(
   p: {
     fuente: string; titulo: string; contenido: string; nivel?: string; tipo?: TipoPieza; autor?: string | null; fecha?: string | null
     url?: string | null; proyectoId?: string | null; dominio?: string | null; por?: string
+    /** Para no guardar dos veces lo mismo (un link: «url:<normalizada>»). */
+    origenId?: string | null; meta?: Record<string, unknown> | null
   },
   ahora = Date.now(),
 ): { corpusId: number; tarea: Tarea } {
   if (!p.contenido.trim()) throw new Error('Nada que ingerir: el contenido está vacío')
   const etiquetas = p.dominio ? [p.dominio] : undefined
-  const corpusId = insertar(db, { ...p, etiquetas, meta: p.proyectoId ? { proyecto: p.proyectoId } : null }, ahora)!
+  const corpusId = insertar(db, { ...p, etiquetas, meta: p.proyectoId || p.meta ? { ...(p.meta ?? {}), ...(p.proyectoId ? { proyecto: p.proyectoId } : {}) } : null }, ahora)!
   const tarea = publicar(db, {
     clase: PIPELINE_INGESTA[0].clase,
     tipo: 'ingesta',
