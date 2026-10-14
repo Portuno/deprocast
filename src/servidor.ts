@@ -101,6 +101,13 @@ function dirWeb(): string {
   return candidatos.find((d) => fs.existsSync(path.join(d, 'index.html'))) ?? candidatos[0]
 }
 const WEB = dirWeb()
+/** La versión de la pantalla: una huella de sus archivos (cambia con cada cambio, no con cada reinicio). */
+const VERSION_WEB = (() => {
+  const h = crypto.createHash('sha1')
+  const recorrer = (d: string) => { for (const e of fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) { const f = path.join(d, e.name); if (e.isDirectory()) recorrer(f); else h.update(e.name).update(fs.readFileSync(f)) } }
+  try { recorrer(WEB) } catch { h.update(String(Date.now())) }
+  return h.digest('hex').slice(0, 10)
+})()
 const PUERTO = Number(process.env.MASTRO_PUERTO ?? 7272)
 const MAX_CARGA = 1024 * 1024 * 1024
 // Si llegó una base por mudanza (la compu se mudó a la nube), se pone en su lugar antes de abrirla.
@@ -906,6 +913,12 @@ const servidor = http.createServer(async (req, res) => {
   const archivo = path.join(WEB, url.pathname === '/' ? 'index.html' : path.normalize(url.pathname))
   if (!archivo.startsWith(WEB) || !fs.existsSync(archivo) || fs.statSync(archivo).isDirectory()) {
     return void res.writeHead(404).end('No encontrado')
+  }
+  // La página pide sus scripts y estilos con la versión (?v=…): un proxy que guarde los .js por horas (Cloudflare,
+  // delante de la nube, pisa el no-store) no puede servir los de antes de un deploy.
+  if (path.basename(archivo) === 'index.html') {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+    return void res.end(fs.readFileSync(archivo, 'utf8').replace(/(src|href)="(\/(?:js\/[^"?]+\.js|estilo\.css))"/g, `$1="$2?v=${VERSION_WEB}"`))
   }
   res.writeHead(200, { 'content-type': TIPOS_MIME[path.extname(archivo)] ?? 'application/octet-stream', 'cache-control': 'no-store' })
   fs.createReadStream(archivo).pipe(res)
