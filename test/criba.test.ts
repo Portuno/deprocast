@@ -130,3 +130,17 @@ test('criba: título limpio, orden a elección y notas con @ que entran al corpu
   assert.equal(siguiente(db, { orden: 'id_asc' })!.notas.length, 2, 'la carta trae sus notas')
   assert.equal(db.prepare('SELECT peso FROM corpus WHERE id = ?').get(vieja)!.peso, null, 'anotar no la pesa')
 })
+
+test('criba: la nota que sale con la puntuación decide sola si es para hacer', async () => {
+  const { anotarSolo, _probarNotas, pareceTarea } = await import('../src/criba.ts')
+  const { listarMisiones } = await import('../src/misiones.ts')
+  const db = abrir(':memory:')
+  const p = insertar(db, { fuente: 'operador', titulo: 'Idea', contenido: 'algo', nivel: 'propia', origenId: 'n:1' })!
+  _probarNotas(async () => ({ hacer: true, tarea: 'Llamar a la productora' }))
+  const r = await anotarSolo(db, p, 'tengo que llamar a la productora por esto')
+  assert.equal(listarMisiones(db, { nivel: 'terciaria', abiertas: true }).find((m) => m.id === r!.mision)!.titulo, 'Llamar a la productora')
+  _probarNotas(async () => { throw new Error('sin modelo') })
+  const r2 = await anotarSolo(db, p, 'qué linda idea, me recuerda a otra cosa')
+  assert.equal(r2!.mision, null, 'sin modelo, por las palabras: un comentario no es tarea')
+  assert.ok(pareceTarea('Acordate de mandarle el mail'))
+})

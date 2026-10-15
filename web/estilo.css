@@ -1173,10 +1173,12 @@ details.puentes > summary { cursor: pointer; padding: 6px 0; }
 .criba-pesos button { padding: 10px 0; font: 600 14px var(--mono); }
 .criba-pesos button[data-peso="0"] { color: var(--malo, #d27272); }
 .criba-ayuda { font-size: 12px; color: var(--tenue); text-align: center; }
-.criba-nota { display: grid; gap: 6px; }
-.criba-nota textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 54px; background: var(--panel); color: var(--texto); border: 1px solid var(--linea); border-radius: 10px; padding: 8px 10px; font: inherit; }
+.criba-mesa { display: grid; grid-template-columns: minmax(0, 720px) minmax(260px, 360px); gap: 18px; justify-content: center; align-items: start; }
+.criba-mesa .criba { margin: 0; }
+.criba-nota { display: grid; gap: 6px; position: sticky; top: 12px; margin-top: 42px; }
+.criba-nota textarea { width: 100%; box-sizing: border-box; resize: vertical; min-height: 220px; background: var(--panel); color: var(--texto); border: 1px solid var(--linea); border-radius: 12px; padding: 10px 12px; font: inherit; }
 .criba-nota textarea:focus { outline: none; border-color: var(--acento); }
-.criba-nota .fila { justify-content: space-between; }
+@media (max-width: 1100px) { .criba-mesa { grid-template-columns: minmax(0, 720px); } .criba-nota { position: static; margin-top: 0; } .criba-nota textarea { min-height: 80px; } }
 @media (max-width: 640px) { .criba-pesos { grid-template-columns: repeat(7, 1fr); } }
 
 /* Cuadernos */

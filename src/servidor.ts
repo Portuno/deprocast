@@ -31,7 +31,7 @@ import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, c
 import { conMatriz, desvincularDeProyecto, guardarRelacion, nuevaPersona, personas, vincularAProyecto } from './personas.ts'
 import { guardarYo, leerYo } from './yo.ts'
 import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora.ts'
-import { anotar as anotarEnCriba, cribar, deshacerUltima, marcador, siguiente } from './criba.ts'
+import { anotar as anotarEnCriba, anotarSolo, cribar, deshacerUltima, marcador, siguiente } from './criba.ts'
 import { tabla as tablaEconomia, TARIFAS } from './economia.ts'
 import { exportarEstado, importarEstado, importarEstadoArchivo } from './exportacion.ts'
 import { aplicarZona, recibirZona } from './zona.ts'
@@ -613,9 +613,18 @@ const rutas: [string, RegExp, Ruta][] = [
 
   // Criba lúdica
   ['GET', /^\/api\/criba$/, (_, __, q) => ({ pieza: siguiente(db, { nivel: q.get('nivel') || null, orden: q.get('orden') || null, saltear: (q.get('saltear') ?? '').split(',').filter(Boolean).map(Number) }), marcador: marcador(db) })],
-  ['POST', /^\/api\/criba\/(\d+)\/nota$/, (b, [p]) => anotarEnCriba(db, id(p), String(b.texto ?? ''), { hacer: !!b.hacer })],
+  // La nota sale con la puntuación (o al saltear): se guarda de fondo y el sistema decide si es algo para hacer.
+  ['POST', /^\/api\/criba\/(\d+)\/nota$/, (b, [p]) => {
+    if (b.hacer != null) return anotarEnCriba(db, id(p), String(b.texto ?? ''), { hacer: !!b.hacer })
+    void anotarSolo(db, id(p), String(b.texto ?? '')).catch((e) => console.error('  criba nota:', e instanceof Error ? e.message : e))
+    return { ok: true }
+  }],
   ['POST', /^\/api\/criba\/deshacer$/, () => deshacerUltima(db)],
-  ['POST', /^\/api\/criba\/(\d+)$/, (b, [p]) => cribar(db, id(p), Number(b.peso))],
+  ['POST', /^\/api\/criba\/(\d+)$/, (b, [p]) => {
+    const m = cribar(db, id(p), Number(b.peso))
+    if (String(b.nota ?? '').trim()) void anotarSolo(db, id(p), String(b.nota)).catch((e) => console.error('  criba nota:', e instanceof Error ? e.message : e))
+    return m
+  }],
 
   // Bitácora íntima (la clave viaja en el cuerpo, se usa y se olvida)
   ['GET', /^\/api\/bitacora$/, () => ({ disparador: disparadorDe(), entradas: leerBitacora(db) })],

@@ -16,19 +16,21 @@ function montarCriba() {
     <div class="titulo"><h1>Criba</h1>
       <div class="fila"><select class="campo-suelto" style="width:auto;margin:0" id="cr-nivel"><option value="">Todo</option><option value="propia">Lo mío</option><option value="primaria">Fuentes primarias</option><option value="investigacion">Investigación</option></select>
         <select class="campo-suelto" style="width:auto;margin:0" id="cr-orden" title="En qué orden salen">${ORDENES_CRIBA.map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></div></div>
-    <div class="criba">
-      <div class="criba-marcador" id="cr-marcador"></div>
-      <div class="criba-carta" id="cr-carta"></div>
-      <div class="criba-pesos" id="cr-pesos">
-        <button class="btn" data-peso="0" title="Descartar (x)">✕</button>
-        ${Array.from({ length: 12 }, (_, i) => `<button class="btn" data-peso="${i + 1}" title="Tecla ${i + 1 === 10 ? '0' : i + 1 === 11 ? 'q' : i + 1 === 12 ? 'w' : i + 1}">${i + 1}</button>`).join('')}
+    <div class="criba-mesa">
+      <div class="criba">
+        <div class="criba-marcador" id="cr-marcador"></div>
+        <div class="criba-carta" id="cr-carta"></div>
+        <div class="criba-pesos" id="cr-pesos">
+          <button class="btn" data-peso="0" title="Descartar (x)">✕</button>
+          ${Array.from({ length: 12 }, (_, i) => `<button class="btn" data-peso="${i + 1}" title="Tecla ${i + 1 === 10 ? '0' : i + 1 === 11 ? 'q' : i + 1 === 12 ? 'w' : i + 1}">${i + 1}</button>`).join('')}
+        </div>
+        <div class="fila" style="justify-content:center"><button class="btn btn-chico" id="cr-saltear" title="Espacio">Saltear</button><button class="btn btn-chico" id="cr-deshacer" title="z">Deshacer</button></div>
       </div>
-      <div class="fila" style="justify-content:center"><button class="btn btn-chico" id="cr-saltear" title="Espacio">Saltear</button><button class="btn btn-chico" id="cr-deshacer" title="z">Deshacer</button></div>
-      <div class="criba-nota">
-        <textarea id="cr-nota" rows="2" placeholder="Anotá algo sobre esto… (@ para nombrar a alguien o un proyecto)"></textarea>
-        <div class="fila"><label class="fila" style="gap:6px"><input type="checkbox" id="cr-hacer"> Es algo para hacer</label><button class="btn btn-chico btn-primario" id="cr-anotar" title="Ctrl+Enter">Anotar</button></div>
+      <aside class="criba-nota">
+        <textarea id="cr-nota" placeholder="Anotá algo sobre esto… (@ para nombrar a alguien o un proyecto)"></textarea>
+        <small class="tenue">Se guarda al puntuar. Si es algo para hacer, queda como side quest solo.</small>
         <div id="cr-notas"></div>
-      </div>
+      </aside>
     </div>`
   $('#cr-nivel').value = cribaNivel
   $('#cr-orden').value = cribaOrden
@@ -37,8 +39,8 @@ function montarCriba() {
   $$('#cr-pesos [data-peso]').forEach((b) => (b.onclick = () => pesar(Number(b.dataset.peso))))
   $('#cr-saltear').onclick = saltearCriba
   $('#cr-deshacer').onclick = deshacerCriba
-  $('#cr-anotar').onclick = anotarCriba
-  $('#cr-nota').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); anotarCriba() } })
+  // Escape suelta la caja: las teclas vuelven a puntuar.
+  $('#cr-nota').addEventListener('keydown', (e) => { if (e.key === 'Escape') e.target.blur() })
   traerCriba()
 }
 
@@ -72,36 +74,38 @@ async function traerCriba() {
   } catch (e) { error(e) }
 }
 
+/** Lo escrito en la caja (y la vacía): viaja con la puntuación. */
+function notaPendiente() {
+  const c = $('#cr-nota')
+  const t = c?.value.trim() ?? ''
+  if (c) c.value = ''
+  return t
+}
+
 async function pesar(peso) {
   if (!cribaPieza) return
   document.activeElement?.blur?.() // que Enter o espacio no vuelvan a apretar el último botón tocado
+  const nota = notaPendiente()
   try {
-    const m = await api(`/criba/${cribaPieza.id}`, { peso })
+    const m = await api(`/criba/${cribaPieza.id}`, { peso, nota })
     pintarMarcador(m)
-    if (m.hoy && m.hoy % 25 === 0) toast(`¡${m.hoy} hoy!<small>Seguís afilando lo que sabe Mastropiero.</small>`)
+    if (nota) toast('Nota guardada<small>Si es algo para hacer, queda como side quest.</small>', 'suave')
+    else if (m.hoy && m.hoy % 25 === 0) toast(`¡${m.hoy} hoy!<small>Seguís afilando lo que sabe Mastropiero.</small>`)
     traerCriba()
   } catch (e) { error(e) }
 }
 
-function saltearCriba() { if (cribaPieza) { cribaSaltear.push(cribaPieza.id); traerCriba() } }
+/** Saltear tampoco pierde lo escrito: la nota se guarda igual. */
+async function saltearCriba() {
+  if (!cribaPieza) return
+  const nota = notaPendiente()
+  if (nota) await api(`/criba/${cribaPieza.id}/nota`, { texto: nota }).then(() => toast('Nota guardada', 'suave')).catch(error)
+  cribaSaltear.push(cribaPieza.id)
+  traerCriba()
+}
 
 async function deshacerCriba() {
   try { const r = await api('/criba/deshacer', {}); pintarMarcador(r.marcador); if (r.pieza) pintarCarta(r.pieza) } catch (e) { error(e) }
-}
-
-/** La nota va al corpus con la pieza citada; si es para hacer, también queda como side quest. La pieza no se pesa sola. */
-async function anotarCriba() {
-  const t = $('#cr-nota')?.value.trim()
-  if (!cribaPieza || !t) return
-  const hacer = $('#cr-hacer').checked
-  try {
-    const r = await api(`/criba/${cribaPieza.id}/nota`, { texto: t, hacer })
-    $('#cr-nota').value = ''
-    $('#cr-hacer').checked = false
-    cribaPieza.notas = r.notas
-    pintarNotas(r.notas)
-    toast(`${hacer ? 'Anotado para hacer (side quest)' : 'Nota guardada'}${r.entidades.length ? `<small>Con ${r.entidades.map(esc).join(', ')}</small>` : ''}`, 'suave')
-  } catch (e) { error(e) }
 }
 
 document.addEventListener('keydown', (e) => {

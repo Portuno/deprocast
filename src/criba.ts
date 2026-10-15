@@ -7,6 +7,7 @@ import { fechaLocal, json, type Db } from './db.ts'
 import { insertar, leerPieza, tituloLimpio, type Pieza } from './corpus.ts'
 import { menciones, sinArrobas } from './menciones.ts'
 import { crearMision } from './misiones.ts'
+import { pedirJson } from './modelo.ts'
 
 /** En qué orden salen: lo de siempre (links y lo suyo primero), por fecha, por número o al azar. */
 export const ORDENES: Record<string, string> = {
@@ -47,7 +48,7 @@ export function notasDe(db: Db, piezaId: number): Nota[] {
  * las entidades que nombró con @ (que además quedan enlazadas a la pieza). Si es «para hacer», también es una side quest
  * que lleva la referencia.
  */
-export function anotar(db: Db, piezaId: number, texto: string, o: { hacer?: boolean } = {}, ahora = Date.now()) {
+export function anotar(db: Db, piezaId: number, texto: string, o: { hacer?: boolean; tarea?: string | null } = {}, ahora = Date.now()) {
   const p = leerPieza(db, piezaId)
   if (!p) throw new Error(`No existe la pieza ${piezaId}`)
   const t = texto.trim()
@@ -61,7 +62,7 @@ export function anotar(db: Db, piezaId: number, texto: string, o: { hacer?: bool
   let mision: number | null = null
   if (o.hacer) {
     mision = crearMision(db, {
-      nivel: 'terciaria', titulo: primeraLinea.slice(0, 140), estado: 'activa', creadaPor: 'operador',
+      nivel: 'terciaria', titulo: (o.tarea?.trim() || primeraLinea).slice(0, 140), estado: 'activa', creadaPor: 'operador',
       detalle: `${t}\n\nSale de la criba: «${titulo}» [#${p.id}]${p.fecha ? ` (${String(p.fecha).slice(0, 10)})` : ''}.`,
       entidadId: nombradas[0] ?? null,
     }, { ahora }).id
@@ -74,6 +75,32 @@ export function anotar(db: Db, piezaId: number, texto: string, o: { hacer?: bool
     meta: { de: p.id, texto: t, hacer: !!o.hacer, mision },
   }, ahora)!
   return { nota: id, mision, entidades: ms.map((m) => m.nombre), notas: notasDe(db, p.id) }
+}
+
+// ─── ¿es algo para hacer? ───────────────────────────────────────────────
+
+/** Sin modelo: lo que suena a pendiente («tengo que», «llamar a», «mandarle», «acordate de»…). */
+export const pareceTarea = (t: string) =>
+  /(?<![a-záéíóúñ])(tengo que|hay que|tendr[ií]a que|deber[ií]a|acord[aá]te|pendiente|to ?do|hacer|llamar|escribir(le)?|mandar(le)?|enviar|comprar|pedir(le)?|preguntar(le)?|agendar|armar|revisar|probar|contactar|buscar|subir|publicar|terminar|preparar|pagar|reservar|leer|ver si|averiguar)(?![a-záéíóúñ])/i.test(t)
+
+const SISTEMA_TAREA = `Te paso una nota que el operador escribió sobre una pieza de su archivo. Decidí si es algo para HACER (una tarea, un pendiente, una acción concreta que tiene que hacer él) o solo un comentario, una idea o una reflexión.
+Si es para hacer, «tarea» es la acción corta en infinitivo, como un título de tarea («Llamar a Ana por el contacto de la productora»), sin @. Si no, null.
+Forma: {"hacer": boolean, "tarea": string | null}`
+
+let clasificarNota = async (db: Db, texto: string): Promise<{ hacer: boolean; tarea: string | null }> => {
+  const d = (await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'criba' }, SISTEMA_TAREA, texto.slice(0, 2000), { temperatura: 0, maxTokens: 300 })).datos
+  return { hacer: !!d?.hacer, tarea: typeof d?.tarea === 'string' && d.tarea.trim() ? d.tarea.trim() : null }
+}
+export function _probarNotas(f: typeof clasificarNota) {
+  clasificarNota = f
+}
+
+/** La nota que escribió mientras puntuaba: el sistema decide solo si es para hacer (y le pone el título a la tarea). */
+export async function anotarSolo(db: Db, piezaId: number, texto: string, ahora = Date.now()) {
+  const t = texto.trim()
+  if (!t) return null
+  const d = await clasificarNota(db, t).catch(() => ({ hacer: pareceTarea(t), tarea: null }))
+  return anotar(db, piezaId, t, { hacer: d.hacer, tarea: d.tarea }, ahora)
 }
 
 export function cribar(db: Db, id: number, peso: number, ahora = Date.now()) {
