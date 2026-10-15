@@ -30,7 +30,7 @@ import { aplicarBaseEntrante, recibirArchivo, recibirBase } from './mudanza.ts'
 import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, hayFfmpeg, iterarArtefacto, listarArtefactos, VOCES } from './taller.ts'
 import { guardarRelacion, personas } from './personas.ts'
 import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora.ts'
-import { cribar, deshacerUltima, marcador, siguiente } from './criba.ts'
+import { anotar as anotarEnCriba, cribar, deshacerUltima, marcador, siguiente } from './criba.ts'
 import { tabla as tablaEconomia, TARIFAS } from './economia.ts'
 import { exportarEstado, importarEstado, importarEstadoArchivo } from './exportacion.ts'
 import { aplicarZona, recibirZona } from './zona.ts'
@@ -611,7 +611,8 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/cuadernos\/(\d+)\/borrar$/, (_, [c]) => (borrarCuaderno(db, id(c)), { ok: true })],
 
   // Criba lúdica
-  ['GET', /^\/api\/criba$/, (_, __, q) => ({ pieza: siguiente(db, { nivel: q.get('nivel') || null, saltear: (q.get('saltear') ?? '').split(',').filter(Boolean).map(Number) }), marcador: marcador(db) })],
+  ['GET', /^\/api\/criba$/, (_, __, q) => ({ pieza: siguiente(db, { nivel: q.get('nivel') || null, orden: q.get('orden') || null, saltear: (q.get('saltear') ?? '').split(',').filter(Boolean).map(Number) }), marcador: marcador(db) })],
+  ['POST', /^\/api\/criba\/(\d+)\/nota$/, (b, [p]) => anotarEnCriba(db, id(p), String(b.texto ?? ''), { hacer: !!b.hacer })],
   ['POST', /^\/api\/criba\/deshacer$/, () => deshacerUltima(db)],
   ['POST', /^\/api\/criba\/(\d+)$/, (b, [p]) => cribar(db, id(p), Number(b.peso))],
 

@@ -144,6 +144,17 @@ export function insertar(db: Db, p: NuevaPieza, ahora = Date.now()): number | nu
   return r.changes ? Number(r.lastInsertRowid) : null
 }
 
+/**
+ * El título sin la etiqueta de dónde salió («Lo que le dije a Gemini · », «Nota de voz · », «Destilado · »…): para
+ * mostrar el contenido directo. La etiqueta queda en la fuente y en el título guardado.
+ */
+export function tituloLimpio(titulo: string): string {
+  const ETIQUETA = /^(lo que le dije a gemini|lo que le pregunt[eé] a notebooklm|chat en notebooklm|gemini|notebooklm|nota de voz|fuente|contexto|destilado|audio adjunto|audio|imagen|documento|nota|para hacer|historia de|tailored_report|slides|infographic|app|table|audio_overview|explainer_video|file|artefacto)\s*·\s*/i
+  let t = titulo.trim()
+  for (let i = 0; i < 3 && ETIQUETA.test(t); i++) t = t.replace(ETIQUETA, '')
+  return t || titulo
+}
+
 export function leerPieza(db: Db, id: number): Pieza | null {
   const r = db.prepare('SELECT * FROM corpus WHERE id = ?').get(id)
   return r ? deFila(r) : null

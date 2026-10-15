@@ -94,3 +94,39 @@ test('sellado por lotes', () => {
   // Sellar con peso inválido lanza error
   assert.throws(() => sellarLote(db, [ids1[0]], 13), /1 a 12/)
 })
+
+test('criba: título limpio, orden a elección y notas con @ que entran al corpus (y lo «para hacer», como side quest)', async () => {
+  const { tituloLimpio } = await import('../src/corpus.ts')
+  const { anotar, notasDe } = await import('../src/criba.ts')
+  const { asegurarEntidad } = await import('../src/entidades.ts')
+  const { listarMisiones } = await import('../src/misiones.ts')
+  assert.equal(tituloLimpio('Lo que le dije a Gemini · Estoy viendo la estructura actual'), 'Estoy viendo la estructura actual')
+  assert.equal(tituloLimpio('Destilado · Nota de voz · Paseo por el puerto'), 'Paseo por el puerto')
+  assert.equal(tituloLimpio('Gemini · '), 'Gemini · ', 'si no queda nada, el original')
+
+  const db = abrir(':memory:')
+  const vieja = insertar(db, { fuente: 'operador', titulo: 'Lo que le dije a Gemini · La idea vieja', contenido: 'algo de marzo', nivel: 'propia', fecha: '2026-03-01', origenId: 'o:1' })!
+  const nueva = insertar(db, { fuente: 'operador', titulo: 'Nota de voz · La idea nueva', contenido: 'algo de octubre', nivel: 'propia', fecha: '2026-10-01', origenId: 'o:2' })!
+  assert.equal(siguiente(db, { orden: 'fecha_asc' })!.id, vieja)
+  assert.equal(siguiente(db, { orden: 'fecha_desc' })!.id, nueva)
+  assert.equal(siguiente(db, { orden: 'id_desc' })!.id, nueva)
+  assert.equal(siguiente(db, { orden: 'id_asc' })!.titulo, 'La idea vieja', 'la criba muestra el título directo')
+  assert.ok([vieja, nueva].includes(siguiente(db, { orden: 'azar' })!.id))
+
+  const ana = asegurarEntidad(db, { tipo: 'persona', nombre: 'Ana Gómez' })
+  const r = anotar(db, vieja, 'Llamar a @Ana Gómez por esto\nque tiene el contacto', { hacer: true })
+  assert.deepEqual(r.entidades, ['Ana Gómez'])
+  const nota = db.prepare('SELECT * FROM corpus WHERE id = ?').get(r.nota) as any
+  assert.equal(nota.nivel, 'propia')
+  assert.match(nota.contenido, /Sobre «La idea vieja» \[#\d+\], del 2026-03-01[\s\S]*> algo de marzo/, 'la nota lleva la pieza citada')
+  assert.ok(JSON.parse(nota.entidades).includes(ana))
+  assert.ok(JSON.parse((db.prepare('SELECT entidades FROM corpus WHERE id = ?').get(vieja) as any).entidades).includes(ana), 'la @ también queda en la pieza')
+  const sq = listarMisiones(db, { nivel: 'terciaria', abiertas: true }).find((m) => m.id === r.mision)!
+  assert.equal(sq.titulo, 'Llamar a Ana Gómez por esto')
+  assert.equal(sq.entidadId, ana)
+  assert.match(sq.detalle ?? '', /Sale de la criba: «La idea vieja»/)
+  anotar(db, vieja, 'Me gusta cómo arranca')
+  assert.deepEqual(notasDe(db, vieja).map((n) => n.hacer), [true, false])
+  assert.equal(siguiente(db, { orden: 'id_asc' })!.notas.length, 2, 'la carta trae sus notas')
+  assert.equal(db.prepare('SELECT peso FROM corpus WHERE id = ?').get(vieja)!.peso, null, 'anotar no la pesa')
+})
