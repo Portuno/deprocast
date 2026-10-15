@@ -1104,7 +1104,6 @@ const AJUSTES_SISTEMA: Record<string, string> = {
   destilar_por_dia: '15', // con la ingesta en pausa, cuántas piezas propias despierta por día la rutina «destilar»
   vectorizar_auto: '1', // calcular solos los vectores del corpus (búsqueda por significado); 0 = no
   reproceso_activo: '0', // el reproceso (pasajes, destilado, eventos, relaciones) corre de fondo en la nube; lo prende él
-  reproceso_tokens_dia: '80000000', // tope diario del reproceso, aparte del de la liga
   reproceso_rerank: '1', // el chat reordena con un modelo chico lo que trae del archivo; 0 = solo por puntaje
   directo_auto: '1', // del Directo, las ideas y lo que miró entran solas (tareas, personas y conexiones esperan su ok); 0 = todo espera
   fragua_por_noche: '3', // cuántas propuestas forja la rutina «fragua» por noche; 0 = ninguna

@@ -117,7 +117,7 @@ async function modalTakeout() {
 /** El reproceso: cuánto va (pasajes, recuerdos, destilado, eventos, relaciones, crónicas), lo gastado y lo último destilado. */
 async function modalReproceso() {
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>♻ Reproceso</h2>
-    <p class="tenue">Deprocast relee todo tu archivo con los modelos de NaN: lo corta en pasajes para encontrar cualquier cosa, destila cada pieza (resumen, temas, ideas, decisiones, personas, lugares), saca los eventos con fecha para tu <a href="#" id="rp-linea">Línea</a> y las relaciones entre tu gente para el grafo. Corre en la nube, de fondo, con su propio tope diario.</p>
+    <p class="tenue">Deprocast relee todo tu archivo con los modelos de NaN: lo corta en pasajes para encontrar cualquier cosa, destila cada pieza (resumen, temas, ideas, decisiones, personas, lugares), saca los eventos con fecha para tu <a href="#" id="rp-linea">Línea</a> y las relaciones entre tu gente para el grafo. Corre en la nube, de fondo, hasta terminar.</p>
     <div id="rp-cuerpo"><p class="tenue">Cargando…</p></div>`)
   $('#rp-linea').onclick = (e) => { e.preventDefault(); cerrarModal(); irA('linea') }
   const mill = (n) => (n >= 1e6 ? `${(n / 1e6).toLocaleString('es-AR', { maximumFractionDigits: 1 })} M` : n >= 1e3 ? `${Math.round(n / 1e3)} mil` : String(n))
@@ -136,7 +136,7 @@ async function modalReproceso() {
         <span class="hud-ficha"><small>🧠 Recuerdos y quántomos</small><b>${d.items.hechos}</b><em>${d.items.faltan ? `faltan ${d.items.faltan}` : 'al día'}</em></span>
         <span class="hud-ficha"><small>⟿ Eventos</small><b>${d.eventos}</b><em>${d.cronicas} crónicas</em></span>
         <span class="hud-ficha"><small>☍ Relaciones</small><b>${d.relaciones}</b><em>tipadas</em></span>
-        <span class="hud-ficha"><small>⚡ Tokens hoy</small><b>${mill(d.tokens.hoy)}</b><em>de ${mill(d.tokens.tope)} · total ${mill(d.tokens.total)}</em></span>
+        <span class="hud-ficha"><small>⚡ Tokens hoy</small><b>${mill(d.tokens.hoy)}</b><em>total ${mill(d.tokens.total)}</em></span>
       </div>
       <span class="hud-barra" style="margin:10px 0 4px" title="Destilado"><i style="width:${pct(d.destilado.hechos, dTotal)}%"></i></span>
       <span class="hud-barra" style="margin:0 0 10px" title="Pasajes"><i style="width:${pct(d.pasajes.piezas, d.pasajes.total)}%"></i></span>

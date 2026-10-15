@@ -71,7 +71,7 @@ test('recuerdos por sentido: la memoria del prompt trae lo que tiene que ver aun
   assert.ok(memoriaVigente(db).some((r) => r.id === perro.id) || memoriaVigente(db).some((r) => /gata/.test(r.texto)))
 })
 
-test('reproceso: destila lo que no vino del Takeout (entidades, lugares, eventos con fecha resuelta, relaciones) y respeta tope, pausa y nube', async () => {
+test('reproceso: destila lo que no vino del Takeout (entidades, lugares, eventos con fecha resuelta, relaciones) y respeta la pausa y la nube; sin tope diario', async () => {
   juguete()
   const db = abrir(':memory:')
   const yo = asegurarEntidad(db, { tipo: 'persona', nombre: 'Jugador Prueba' })
@@ -133,11 +133,11 @@ test('reproceso: destila lo que no vino del Takeout (entidades, lugares, eventos
   const sq = resolverEvento(db, l.futuros[0].id, 'agendar') as any
   assert.equal(sq.vence, '2026-10-09')
 
-  // Presupuesto: con el tope gastado, no sigue; y no le come el tope a la liga.
+  // Sin tope diario: aunque haya gastado mucho hoy, sigue; y lo suyo no le come el tope a la liga.
   insertar(db, { fuente: 'operador', titulo: 'Nueva', nivel: 'propia', origenId: 'r:nueva', contenido: 'y'.repeat(600) })
   db.prepare(`INSERT INTO llamadas (motor, modelo, clase, agente_id, tokens_in, tokens_out, latencia_ms, status, en) VALUES ('nan', 'm', 'extractor', 'reproceso', 90000000, 0, 1, 200, ?)`).run(Date.now())
   await trabajarReproceso(db)
-  assert.equal(estadoReproceso(db).destilado.hechos, 1, 'tope del día: no destiló la nueva')
+  assert.equal(estadoReproceso(db).destilado.hechos, 2, 'destiló la nueva igual')
   assert.equal(tokensHoy(db).liga, 0)
   assert.ok(tokensReproceso(db).hoy >= 90_000_000)
   delete process.env.MASTRO_REPROCESO_LOCAL

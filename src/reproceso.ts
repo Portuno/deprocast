@@ -5,7 +5,8 @@
  * - Destilado de todo el corpus (lo que el Takeout ya tuvo): resumen, temas, ideas, decisiones, lo abierto, entidades
  *   enlazadas, lugares, eventos con fecha y relaciones entre personas.
  * - Con eso: la crónica de cada mes y la historia de cada proyecto (con todo el archivo, no solo el del Takeout).
- * Tiene su propio presupuesto diario (aparte del tope de la liga) y lo prende él. En la compu no corre: gasta tokens.
+ * Sin tope diario (NaN no lo tiene): corre hasta terminar, y lo que gasta no cuenta para el tope de la liga. Lo prende él;
+ * en la compu no corre (gasta tokens).
  */
 import { ajuste, fijarAjuste, json, type Db } from './db.ts'
 import { nanConfigurado, tokensReproceso } from './nan.ts'
@@ -27,8 +28,6 @@ export function encolarReproceso(db: Db): number {
     FROM corpus c WHERE ${ELEGIBLES} AND NOT EXISTS (SELECT 1 FROM takeout_destilado d WHERE d.pieza_id = c.id)`).run().changes)
 }
 
-const tope = (db: Db) => Number(ajuste(db, 'reproceso_tokens_dia') ?? 0) || 0
-const agotado = (db: Db, ahora = Date.now()) => { const t = tope(db); return t > 0 && tokensReproceso(db, ahora).hoy >= t }
 
 const fallo = (db: Db, pieza: number, paso: string, e: unknown) =>
   db.prepare(`INSERT INTO reproceso_fallos (pieza_id, paso, intentos, error) VALUES (?, ?, 1, ?) ON CONFLICT (pieza_id, paso) DO UPDATE SET intentos = intentos + 1, error = excluded.error`)
@@ -110,7 +109,7 @@ async function hacerSintesis(db: Db): Promise<boolean> {
     if (hechos < antes + 25) return false
     const proyectos = proyectosConHistoria(db, REPROCESO)
     for (const [i, x] of proyectos.entries()) {
-      if (!estado.trabajando || agotado(db)) return true
+      if (!estado.trabajando) return true
       estado.paso = `historia de ${x.nombre} (${i + 1} de ${proyectos.length})`
       try { await historiaDe(db, REPROCESO, x, false, Date.now()) } catch (e) { console.error('  reproceso historia:', e instanceof Error ? e.message : e) }
     }
@@ -123,7 +122,7 @@ async function hacerSintesis(db: Db): Promise<boolean> {
 
 const CARRILES = 4
 
-/** Trabaja hasta que no quede nada, se pause o se gaste el tope del día. Si ya anda, no hace nada. */
+/** Trabaja hasta que no quede nada o se pause. Si ya anda, no hace nada. */
 export async function trabajarReproceso(db: Db): Promise<void> {
   if (estado.trabajando || !enLaNube() || !nanConfigurado()) return
   estado.trabajando = true
@@ -133,7 +132,6 @@ export async function trabajarReproceso(db: Db): Promise<void> {
     let vuelta = 0
     for (;;) {
       if (ajuste(db, 'reproceso_activo') !== '1') { estado.paso = 'en pausa'; break }
-      if (agotado(db)) { estado.paso = 'llegó al tope de hoy: sigue mañana'; break }
       // El Takeout tiene prioridad: si está trabajando, espera.
       if (takeoutTrabajando()) { estado.paso = 'esperando al Takeout'; await new Promise((ok) => setTimeout(ok, 30_000)); continue }
       if (vuelta++ % 20 === 0) encolarReproceso(db)
@@ -168,7 +166,7 @@ export function estadoReproceso(db: Db, ahora = Date.now()) {
     destilado: { hechos: destilado.hecho ?? 0, pendientes, fallos: destilado.fallo ?? 0, porHora: ultimaHora, horasQueFaltan: ultimaHora ? Math.ceil(pendientes / ultimaHora) : null },
     eventos: n('SELECT COUNT(*) AS n FROM eventos'), relaciones: n(`SELECT COUNT(*) AS n FROM conexiones WHERE origen LIKE 'destilado:%'`),
     cronicas: n(`SELECT COUNT(*) AS n FROM corpus WHERE origen_id LIKE 'linea:mes:%'`),
-    tokens: { hoy: t.hoy, total: t.total, tope: tope(db) },
+    tokens: { hoy: t.hoy, total: t.total },
     ultimos: (db.prepare(`SELECT d.pieza_id AS id, c.titulo, d.salida, d.hecho_en FROM takeout_destilado d JOIN corpus c ON c.id = d.pieza_id WHERE d.lote = ? AND d.estado = 'hecho' ORDER BY d.hecho_en DESC LIMIT 6`).all(REPROCESO) as any[])
       .map((r) => ({ id: r.id, titulo: r.titulo, resumen: String(json<any>(r.salida, {})?.resumen ?? '').slice(0, 300), en: r.hecho_en })),
   }
