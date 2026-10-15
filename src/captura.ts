@@ -49,12 +49,19 @@ const SISTEMA = `Clasificás lo que el jugador le manda a su asistente (una foto
   otro: {}
 Forma: {"tipo": string, "confianza": number, "fecha": string|null, "hora": string|null, "titulo": string, "descripcion": string, "datos": object}`
 
+/** Para resolver «ayer», «el martes» o «anoche» contra el día de hoy (en su hora). */
+const hoyParaCaptura = () => `Hoy es ${new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} (${fechaLocal()}). Resolvé las fechas relativas contra hoy y devolvelas como YYYY-MM-DD.`
+
 let modelo = async (db: Db, o: { imagen?: { datos: Buffer; mime: string }; texto: string }): Promise<any> => {
   if (o.imagen) {
-    const r = await nanVision({ db, clase: 'mastropiero', agenteId: 'captura' }, { sistema: SISTEMA, texto: o.texto || 'Te mandó esta foto, sin texto.', imagen: `data:${o.imagen.mime};base64,${o.imagen.datos.toString('base64')}`, maxTokens: 1500 })
+    const r = await nanVision({ db, clase: 'mastropiero', agenteId: 'captura' }, { sistema: SISTEMA, texto: `${hoyParaCaptura()}
+
+${o.texto || 'Te mandó esta foto, sin texto.'}`, imagen: `data:${o.imagen.mime};base64,${o.imagen.datos.toString('base64')}`, maxTokens: 1500 })
     return leerJson(r.texto)
   }
-  return (await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'captura' }, SISTEMA, o.texto, { temperatura: 0.1, maxTokens: 1200 })).datos
+  return (await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'captura' }, SISTEMA, `${hoyParaCaptura()}
+
+${o.texto}`, { temperatura: 0.1, maxTokens: 1200 })).datos
 }
 export function _probarCaptura(f: typeof modelo) {
   modelo = f

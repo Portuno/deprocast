@@ -9,7 +9,7 @@ function md(texto) {
   // Citas al corpus: [#410] o [#410, #388] → notas al pie numeradas en el orden en que aparecen.
   const citas = new Map()
   let t = esc(texto ?? '')
-    .replace(/```[a-z]*\n?([\s\S]*?)```/g, (_, c) => `\u0000${bloques.push(c) - 1}\u0000`)
+    .replace(/```[a-z]*\n?([\s\S]*?)```/g, (_, c) => (c.trim() ? `\u0000${bloques.push(c) - 1}\u0000` : '')) // un bloque vacío no se pinta
     .replace(/\s?\[((?:#\d+\s*,?\s*)+)\]/g, (_, ids) => `<sup class="cita">${ids.match(/\d+/g).map((id) => {
       if (!citas.has(id)) citas.set(id, citas.size + 1)
       return `<a data-pieza="${id}" title="Ver la fuente">${citas.get(id)}</a>`
@@ -253,12 +253,23 @@ function ultimaRespuesta() {
   return ''
 }
 
+/** La charla entera para pegar en otro lado: quién dice qué y a qué hora (sin la actividad de herramientas). */
+function charlaComoTexto(ms, nombre) {
+  const hora = (en) => (en ? ` (${new Date(en).toLocaleString('es-AR', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })})` : '')
+  return ms.map((m) => {
+    if (m.rol === 'operador' && m.texto?.trim()) return `**Usuario**${hora(m.en)}:\n${m.texto.trim()}`
+    if (m.rol === 'asistente' && m.texto?.trim()) return `**${m.modelo === 'rutina' ? `${nombre} (rutina)` : nombre}**${hora(m.en)}:\n${partirSeguir(m.texto).texto.trim()}`
+    if (m.rol === 'evento' && m.texto?.trim()) return `· ${m.texto.trim()}`
+    return ''
+  }).filter(Boolean).join('\n\n')
+}
+
 function pintarChat() {
   const c = chat.actual
   const q = quienEs(c ?? { con: 'mastropiero' })
   const copiable = partirSeguir(ultimaRespuesta()).texto
   $('#chat-cab').innerHTML = `${$('#chat-vista') ? '<button class="btn btn-chico btn-icono" id="chat-ver-lado" type="button" title="Mostrar u ocultar las conversaciones">☰</button>' : ''}<span class="avatar" style="--c:${q.color}">${q.glifo}</span><div class="chat-quien"><b>${esc(q.nombre)}</b><small>${esc(q.sub)}</small></div>
-    <div class="fila">${copiable ? '<button class="btn btn-chico" id="chat-copiar" type="button" title="Copiar la última respuesta">Copiar</button>' : ''}${c ? `<button class="btn btn-chico" id="chat-archivar" type="button" title="Sacar de la lista">Archivar</button>` : ''}</div>`
+    <div class="fila">${copiable ? '<button class="btn btn-chico" id="chat-copiar" type="button" title="Copiar la última respuesta">Copiar</button><button class="btn btn-chico" id="chat-copiar-todo" type="button" title="Copiar la charla entera, con quién dice qué">Copiar charla</button>' : ''}${c ? `<button class="btn btn-chico" id="chat-archivar" type="button" title="Sacar de la lista">Archivar</button>` : ''}</div>`
   const verLado = $('#chat-ver-lado')
   if (verLado) verLado.onclick = () => {
     const v = $('#chat-vista')
@@ -270,6 +281,10 @@ function pintarChat() {
   const copiar = $('#chat-copiar')
   if (copiar) copiar.onclick = async () => {
     try { await navigator.clipboard.writeText(copiable); toast('Respuesta copiada', 'suave') } catch (e) { error(e) }
+  }
+  const copiarTodo = $('#chat-copiar-todo')
+  if (copiarTodo) copiarTodo.onclick = async () => {
+    try { await navigator.clipboard.writeText(charlaComoTexto(chat.mensajes, q.nombre)); toast('Charla copiada', 'suave') } catch (e) { error(e) }
   }
   $('#chat-txt').placeholder = c && c.con !== 'mastropiero' ? `Escribile a ${q.nombre}…` : 'Escribile a Mastropiero…'
   const col = $('#hilo-col')
@@ -335,7 +350,9 @@ function hiloHTML(ms, q, vivo) {
   for (const m of ms) {
     // Una línea de registro (lo que hizo desde el HUD): sola, discreta, y corta el turno.
     if (m.rol === 'evento') { turnos.push({ evento: m }); continue }
-    if (m.rol === 'operador' || !turnos.length || turnos.at(-1).evento) turnos.push({ yo: m.rol === 'operador' ? m : null, herr: [], textos: [], errores: [], tokens: 0, modelo: null })
+    // Lo que manda una rutina (el saludo, el cierre, la calificación) es su propio mensaje: no se pega a la respuesta anterior.
+    if (m.rol === 'asistente' && m.modelo === 'rutina') { turnos.push({ yo: null, herr: [], textos: m.texto ? [m.texto] : [], errores: [], tokens: 0, modelo: 'rutina', rutina: true, en: m.en }); continue }
+    if (m.rol === 'operador' || !turnos.length || turnos.at(-1).evento || turnos.at(-1).rutina) turnos.push({ yo: m.rol === 'operador' ? m : null, herr: [], textos: [], errores: [], tokens: 0, modelo: null })
     const t = turnos.at(-1)
     if (m.rol === 'herramienta') t.herr.push(m)
     else if (m.rol === 'error') t.errores.push(m)
@@ -360,7 +377,7 @@ function turnoHTML(t, q, vivo) {
   const texto = [...t.textos.map((x) => partirSeguir(x).texto), borrador].filter(Boolean).join('\n\n')
   const haciendo = vivo && !borrador
     ? `<div class="pensando"><span><i></i><i></i><i></i></span>${esc(vivo.herramienta ? (VIVO[vivo.herramienta]?.(vivo.argumentos) ?? 'trabajando') : t.herr.length ? 'pensando qué decirte' : 'pensando')}…</div>` : ''
-  const meta = !vivo && t.modelo ? `<div class="m-meta">${esc(t.modelo)}${t.tokens ? ` · ${t.tokens.toLocaleString('es-AR')} tokens` : ''}</div>` : ''
+  const meta = !vivo && t.modelo ? `<div class="m-meta">${t.rutina ? `rutina${t.en ? ` · ${new Date(t.en).toTimeString().slice(0, 5)}` : ''}` : `${esc(t.modelo)}${t.tokens ? ` · ${t.tokens.toLocaleString('es-AR')} tokens` : ''}`}</div>` : ''
   if (actividad || texto || haciendo) {
     h += `<div class="m m-el"><span class="avatar" style="--c:${q.color}">${q.glifo}</span><div>${actividad}
       ${texto ? `<div class="md">${md(texto)}${borrador ? '<span class="cursor"></span>' : ''}</div>` : ''}${haciendo}${meta}</div></div>`
@@ -454,7 +471,7 @@ async function modalPropuestas() {
         <div class="q-top"><span class="pill ${p.estado === 'aceptada' ? 'activo' : p.estado === 'abierta' ? 'prueba' : 'banca'}">${p.estado}</span>
           ${p.area ? `<span class="tipo-chip">${esc(p.area)}</span>` : ''}${p.prioridad ? `<span class="tipo-chip">${esc(p.prioridad)}</span>` : ''}<span>#${p.id} · ${new Date(p.creada_en).toLocaleDateString('es-AR')}</span></div>
         <div class="q-texto"><b>${esc(p.titulo)}</b></div><div class="md tenue">${md(p.detalle)}</div>
-        ${p.estado === 'abierta' ? `<div class="q-acciones"><button class="btn btn-chico btn-primario" data-prop="${p.id}" data-estado="aceptada">Aceptar</button><button class="btn btn-chico" data-prop="${p.id}" data-estado="descartada">Descartar</button></div>` : ''}
+        ${p.estado === 'abierta' ? `<div class="q-acciones"><button class="btn btn-chico btn-primario" data-prop="${p.id}" data-estado="aceptada" title="Sigue abierta y La Fragua la forja primero esta noche">Mandar a La Fragua</button><button class="btn btn-chico" data-prop="${p.id}" data-estado="descartada">Descartar</button></div>` : ''}
       </div>`).join('') : '<p class="tenue">Ninguna todavía. Pedile a Mastropiero que lea sus lineamientos y te proponga mejoras.</p>'}`)
     $$('[data-prop]').forEach((b) => (b.onclick = async () => {
       try { await api(`/propuestas/${b.dataset.prop}`, { estado: b.dataset.estado }); await refrescar(); modalPropuestas() } catch (e) { error(e) }

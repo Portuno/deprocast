@@ -191,6 +191,11 @@ async function iniciar() {
   pintarIndicadorDirecto()
   irA(location.hash.slice(1) || 'hoy')
   window.addEventListener('hashchange', () => { if (location.hash.slice(1) !== vista) irA(location.hash.slice(1)) })
+  // Su hora, no la del servidor: la zona del navegador viaja una vez (o cuando cambia, si viaja).
+  try {
+    const z = Intl.DateTimeFormat().resolvedOptions().timeZone
+    if (z && pref.leer('mastro-zona', '') !== z) api('/zona', { zona: z }).then(() => pref.guardar('mastro-zona', z)).catch(() => {})
+  } catch { /* sin Intl: queda la del servidor */ }
   firma = JSON.stringify(E)
   setInterval(() => { if (!tickEnCurso && $('#velo').hidden && vista !== 'forja') refrescar({ forzar: false }).catch(() => {}) }, 7000)
 }

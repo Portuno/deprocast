@@ -33,6 +33,7 @@ import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora
 import { cribar, deshacerUltima, marcador, siguiente } from './criba.ts'
 import { tabla as tablaEconomia, TARIFAS } from './economia.ts'
 import { exportarEstado, importarEstado, importarEstadoArchivo } from './exportacion.ts'
+import { aplicarZona, recibirZona } from './zona.ts'
 import { cerrarLote, estadoTakeout, faltan, huellaValida, ingerirPaquete, loteValido, paqueteListo, recibirMedio, recibirParte, reintentarTakeout, resolverNombre, retomarTakeout, trabajarTakeout } from './takeout/nube.ts'
 import { dirAdjuntos, guardarImagen } from './chat/adjuntos.ts'
 import { encolar as encolarTanda, listarTandas, procesarTandas, reintentar as reintentarTanda, retomarTandas } from './tandas.ts'
@@ -116,6 +117,8 @@ const MAX_CARGA = 1024 * 1024 * 1024
 const mudanza = aplicarBaseEntrante()
 if (mudanza) console.log(`  ⇣ Arranco con la base que llegó por mudanza${mudanza.anterior ? ` (la anterior quedó en ${mudanza.anterior})` : ''}`)
 const db = abrir()
+// La hora del operador, no la del servidor (la nube corre en UTC): antes de que nada formatee una hora.
+const zona = aplicarZona(db)
 alGuardar(() => { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)') } catch { /* todavía no */ } })
 
 function vista(db: Db, f: Ficha) {
@@ -325,6 +328,7 @@ const rutas: [string, RegExp, Ruta][] = [
     }
   }],
   ['POST', /^\/api\/hoy\/evento$/, (b) => (registrarEvento(db, conversacionHoy(db).id, String(b.texto ?? '')), { ok: true })],
+  ['POST', /^\/api\/zona$/, (b) => recibirZona(db, b.zona)],
   ['POST', /^\/api\/ajustes$/, (b) => {
     for (const k of ['primarias_semana', 'tokens_dia_max', 'pensar_cada_horas', 'directo_auto', 'fragua_por_noche']) if (b[k] != null && String(b[k]).trim()) fijarAjuste(db, k, String(b[k]).trim())
     if (b.meta_ingresos_mes != null) fijarAjuste(db, 'meta_ingresos_mes', String(b.meta_ingresos_mes).trim())

@@ -3,6 +3,7 @@
  * Cada turno es un bucle: el modelo responde o pide herramientas; las herramientas corren y vuelven; hasta que contesta.
  * Todo se guarda mensaje a mensaje, así la pantalla ve el avance mientras el turno corre.
  */
+import { ahoraEnPalabras } from '../zona.ts'
 import { armarHistorial } from './historial.ts'
 import { comoTexto } from './adjuntos.ts'
 import { fechaLocal, type Db } from '../db.ts'
@@ -226,7 +227,7 @@ Cómo trabajás
 - Su memoria se va escribiendo sola con lo que te cuenta. Usá recordar solo si te pide explícitamente que te acuerdes de algo; corregí la memoria cuando te corrija.
 - No hables de quántomos ni de la mecánica del corpus salvo que te pregunte por eso.
 
-Ahora: ${new Date().toLocaleString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}${hud && HUD[hud] ? `\nEn su panel de Hoy está mirando: ${HUD[hud]}. Si pregunta sin decir de qué («¿cómo voy?», «¿qué hago?»), es de eso.` : ''}
+Ahora: ${ahoraEnPalabras()}${hud && HUD[hud] ? `\nEn su panel de Hoy está mirando: ${HUD[hud]}. Si pregunta sin decir de qué («¿cómo voy?», «¿qué hago?»), es de eso.` : ''}
 ${hoy(db, mensaje)}
 ${directoParaPrompt(db)}
 ${finanzasParaPrompt(db)}
@@ -403,7 +404,12 @@ export function listarPropuestas(db: Db) {
   return db.prepare(`SELECT * FROM propuestas ORDER BY estado = 'abierta' DESC, id DESC LIMIT 100`).all()
 }
 
+/**
+ * «Aceptar» una propuesta es mandarla a La Fragua: sigue abierta (para que se forje) y sube al frente de la cola. Queda
+ * «aceptada» recién cuando La Fragua la aplica. Descartar sí la cierra.
+ */
 export function resolverPropuesta(db: Db, id: number, estado: 'aceptada' | 'descartada' | 'abierta') {
   if (!['aceptada', 'descartada', 'abierta'].includes(estado)) throw new Error('Estado inválido')
+  if (estado === 'aceptada') return void db.prepare(`UPDATE propuestas SET estado = 'abierta', prioridad = 'alta', resuelta_en = NULL WHERE id = ?`).run(id)
   db.prepare('UPDATE propuestas SET estado = ?, resuelta_en = ? WHERE id = ?').run(estado, estado === 'abierta' ? null : Date.now(), id)
 }
