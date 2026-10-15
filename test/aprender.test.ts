@@ -81,7 +81,7 @@ test('cien días: votar, hábitos por semana, intensidad, mapa y prompt', () => 
   assert.equal(mapa.length, 100)
   assert.equal(mapa.find((c) => c.fecha === '2026-10-14')!.intensidad, 2)
   assert.ok(mapa.find((c) => c.fecha === '2026-10-14')!.hito)
-  assert.match(cienParaPrompt(db, new Date(2026, 9, 14, 9).getTime()), /día 22 de 100 \(semana 3, foco: Cerrar el primer acto\.\)[\s\S]*Obligatorias atrasadas: Pedir cita para los análisis \(2026-10-05\)/)
+  assert.match(cienParaPrompt(db, new Date(2026, 9, 14, 9).getTime()), /día 22 de 100 \(semana 3, foco: Cerrar el primer acto\.\)[\s\S]*Obligatorias atrasadas: Pedir cita para los análisis \(vencía lun 5\/10/)
 })
 
 test('aprender: práctica, racha y repaso espaciado (1, 3, 7, 16 días; salteado vuelve mañana)', async () => {

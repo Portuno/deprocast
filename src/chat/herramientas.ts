@@ -3,6 +3,7 @@
  * que un modelo puede pedir. Tres familias: lectura, acción y destructiva (esta última exige `confirmado`).
  * Los agentes de la liga, cuando conversan, reciben solo un subconjunto de lectura.
  */
+import { capacidades } from '../capacidades.ts'
 import fs from 'node:fs'
 import path from 'node:path'
 import { ATRIBUTOS, CLASE_IDS, CLASES } from '../clases.ts'
@@ -265,6 +266,12 @@ export const HERRAMIENTAS: Herramienta[] = [
     descripcion: 'Tus propios lineamientos: el README de Deprocast 1.0 (diseño, reglas, clases, corpus, quántomos) y un mapa del código. Usalo para explicar la plataforma o proponer mejoras.',
     parametros: S({ seccion: str('Título (o parte) de una sección del README; vacío trae todo') }),
     ejecutar: (a) => lineamientos(a.seccion),
+  },
+  {
+    nombre: 'que_puede_deprocast', familia: 'lectura',
+    descripcion: 'Qué puede hacer Deprocast hoy (Telegram con notas de voz y fotos, links, agenda, runs, plan, salud, plata, cargas, Takeout, cuadernos, taller, liga…). Consultalo ANTES de decir que algo no existe o no se puede.',
+    parametros: S({ tema: str('De qué (ej.: «audio por telegram», «calendario»); vacío trae todo') }),
+    ejecutar: (a) => capacidades(String(a.tema ?? '')).map((c) => `${c.area}: ${c.que}`),
   },
   {
     nombre: 'listar_propuestas', familia: 'lectura', descripcion: 'Las propuestas de mejora a la plataforma ya registradas y su estado.', parametros: S({}),

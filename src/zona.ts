@@ -41,3 +41,19 @@ export function ahoraEnPalabras(ahora = Date.now()): string {
   const t = new Date(ahora).toLocaleString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
   return `${t} (${zonaActual()})`
 }
+
+const DIAS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb']
+
+/** «jue 9/10»: una fecha con su día de la semana (para que «el viernes» no se lea como el de esta semana). */
+export function diaSemana(fecha: string | null | undefined): string {
+  if (!fecha || !/^\d{4}-\d{2}-\d{2}/.test(fecha)) return fecha ?? ''
+  const d = new Date(`${fecha.slice(0, 10)}T12:00:00`)
+  return `${DIAS[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`
+}
+
+/** Los días alrededor de hoy, con su nombre: el chat resuelve «mañana», «el viernes» o «el martes pasado» contra esto. */
+export function calendarioCorto(ahora = Date.now()): string {
+  const iso = (ms: number) => { const d = new Date(ms); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
+  const marca = (k: number) => (k === -1 ? ' (ayer)' : k === 0 ? ' (HOY)' : k === 1 ? ' (mañana)' : '')
+  return Array.from({ length: 11 }, (_, i) => i - 3).map((k) => `${diaSemana(iso(ahora + k * 86_400_000))}${marca(k)}`).join(' · ')
+}

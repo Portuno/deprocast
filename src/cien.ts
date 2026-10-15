@@ -3,6 +3,7 @@
  * a la noche, los hábitos hechos, el WOOP de la mañana, el peso y una nota. Las tareas del plan viven como side quests
  * (misiones terciarias con fecha), así entran solas a las runs, al gemelo y a las alertas.
  */
+import { diaSemana } from './zona.ts'
 import { fechaLocal, json, type Db } from './db.ts'
 import { actualizarMision, leerMision, type Mision } from './misiones.ts'
 
@@ -181,7 +182,7 @@ export function cienParaPrompt(db: Db, ahora = Date.now()): string {
     d.frentes.length ? `Frentes: ${d.frentes.map((f) => `${f.corto ?? f.nombre} (${f.ganar ?? ''})`).join('; ')}.` : '',
     tocan.length ? `Hábitos que le tocan hoy: ${tocan.map((h) => `${h.titulo} (${h.enSemana}/${h.porSemana} esta semana)`).join('; ')}.` : '',
     d.tareas.length ? `Tareas del plan para hoy: ${d.tareas.map((t) => `${t.hito ? '◆ ' : ''}${t.titulo}${t.obligatoria ? ' (obligatoria)' : ''} [${t.estado}]`).join('; ')}.` : '',
-    atrasadasOblig.length ? `Obligatorias atrasadas: ${atrasadasOblig.slice(0, 6).map((t) => `${t.titulo} (${t.vence})`).join('; ')}.` : '',
+    atrasadasOblig.length ? `Obligatorias atrasadas: ${atrasadasOblig.slice(0, 6).map((t) => `${t.titulo} (vencía ${diaSemana(t.vence)}: lo que diga de días, «el viernes», es de esa semana)`).join('; ')}.` : '',
     `Ayer votó ${votados.length ? votados.join(', ') : 'ningún verbo'}.${d.dia.woop?.w ? ` Su WOOP de hoy: deseo «${d.dia.woop.w}», obstáculo «${d.dia.woop.ob ?? '—'}», plan «${d.dia.woop.p ?? '—'}».` : ''}`,
   ].filter(Boolean).join(' ')
 }

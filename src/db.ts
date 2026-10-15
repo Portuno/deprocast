@@ -582,6 +582,15 @@ CREATE TABLE IF NOT EXISTS takeout_nombres (
   creada_en INTEGER NOT NULL
 );
 
+-- Lo que él le corrigió a Mastropiero en una charla: manda en el prompt de esa charla (y lo duradero va a la memoria).
+CREATE TABLE IF NOT EXISTS correcciones (
+  id INTEGER PRIMARY KEY,
+  conversacion_id INTEGER,
+  texto TEXT NOT NULL,
+  duradera INTEGER NOT NULL DEFAULT 0,
+  en INTEGER NOT NULL
+);
+
 -- La brújula del día: el tridente Cuerpo · Mente · Alma.
 CREATE TABLE IF NOT EXISTS brujulas (
   fecha TEXT PRIMARY KEY,

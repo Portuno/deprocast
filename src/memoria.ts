@@ -101,9 +101,9 @@ export function memoriaVigente(db: Db, f: { tipo?: string; horizonte?: string; l
   return db.prepare(`SELECT * FROM memoria WHERE ${where.join(' AND ')} ORDER BY fecha DESC, id DESC LIMIT ?`).all(...args, f.limite ?? 500).map(deFila)
 }
 
-/** La memoria como texto para un prompt: metas y preferencias primero, lo más nuevo arriba. */
+/** La memoria como texto para un prompt: sus correcciones primero, después visión, metas y preferencias; lo más nuevo arriba. */
 export function memoriaParaPrompt(db: Db, max = 60): string {
-  const orden: Record<string, number> = { vision: 0, meta: 1, preferencia: 2, sueño: 3, correccion: 4, hecho: 5 }
+  const orden: Record<string, number> = { correccion: 0, vision: 1, meta: 2, preferencia: 3, sueño: 4, hecho: 5 } // lo que él corrigió manda
   const rs = memoriaVigente(db).sort((a, b) => (orden[a.tipo] - orden[b.tipo]) || b.fecha.localeCompare(a.fecha)).slice(0, max)
   return rs.map((r) => `- (${r.fecha}) [${r.tipo}${r.horizonte ? ` · ${r.horizonte}` : ''}] ${r.texto}`).join('\n')
 }

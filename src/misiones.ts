@@ -5,6 +5,7 @@
  * de dónde está o qué hace). Todo lo que propone Mastropiero entra como sugerencia; él acepta, cambia o descarta.
  * Las runs se calibran con lo que marca y cuenta, y dejan reportes por hora, por run y por semana.
  */
+import { diaSemana } from './zona.ts'
 import { ajuste, fechaLocal, json, type Db } from './db.ts'
 import { CLASES } from './clases.ts'
 import { agendaDelDia, type Evento } from './calendario.ts'
@@ -1119,7 +1120,7 @@ export function misionesParaPrompt(db: Db, ahora = Date.now(), mensaje = ''): st
       : propuesta?.estado === 'propuesta' ? `Hay una run propuesta para hoy (${propuesta.inicio}–${propuesta.fin}) que todavía no arrancó.` : 'No hay run en curso.',
     terciarias.length ? `Side quests abiertas:\n${terciarias.map((m) => `- ${m.titulo}${m.disparador ? ` (se activa: ${Object.values(m.disparador).filter(Boolean).join(', ')})` : ''}`).join('\n')}` : '',
     tocan.length ? `⚑ Lo que acaba de decir toca el disparador de: ${tocan.map((m) => `«${m.titulo}»`).join(', ')}. Recordáselo en una línea, natural.` : '',
-    deben.length ? `Seguimientos vencidos (cosas que otros le deben): ${deben.map((m) => `${nombre(m.personaje)}: ${m.titulo} (vencía ${m.vence})`).join(' · ')}.` : '',
+    deben.length ? `Seguimientos vencidos (cosas que otros le deben): ${deben.map((m) => `${nombre(m.personaje)}: ${m.titulo} (vencía ${diaSemana(m.vence)})`).join(' · ')}.` : '',
   ].filter(Boolean).join('\n')
 }
 

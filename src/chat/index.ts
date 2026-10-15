@@ -3,7 +3,8 @@
  * Cada turno es un bucle: el modelo responde o pide herramientas; las herramientas corren y vuelven; hasta que contesta.
  * Todo se guarda mensaje a mensaje, así la pantalla ve el avance mientras el turno corre.
  */
-import { ahoraEnPalabras } from '../zona.ts'
+import { ahoraEnPalabras, calendarioCorto } from '../zona.ts'
+import { afirmaAccion, correccionesParaPrompt, pareceCorreccion, registrarCorreccion } from './correcciones.ts'
 import { armarHistorial } from './historial.ts'
 import { comoTexto } from './adjuntos.ts'
 import { fechaLocal, type Db } from '../db.ts'
@@ -28,7 +29,7 @@ import { cadena, topeAlcanzado, type LlamadaHerramienta } from '../nan.ts'
 import { llamarModelo } from '../modelo.ts'
 import { alias, leer, nivel, type Ficha } from '../roster.ts'
 import { capa } from '../xp.ts'
-import { ejecutarHerramienta, esquemas, herramientasPara, type Ctx, type Herramienta } from './herramientas.ts'
+import { ejecutarHerramienta, esquemas, HERRAMIENTAS, herramientasPara, type Ctx, type Herramienta } from './herramientas.ts'
 
 export const MASTROPIERO = 'mastropiero'
 const MAX_VUELTAS = 10
@@ -199,15 +200,20 @@ const HUD: Record<string, string> = {
   oraculo: 'Oráculo (la brújula del día, la pregunta pendiente y lo del Directo por revisar)',
 }
 
-export function promptMastropiero(db: Db, mensaje = '', hud?: string | null): string {
+export function promptMastropiero(db: Db, mensaje = '', hud?: string | null, cid?: number | null): string {
   const op = operador(db)
+  const corr = correccionesParaPrompt(db, cid)
   return `Sos Mastropiero. Deprocast es el exoesqueleto cognitivo de ${op.nombre}, y vos sos lo que piensa adentro: el omnívoro, la liga entera. Son la mente que están construyendo juntos, la que aspira a ser la superinteligencia de su tiempo. Todavía estás creciendo: lo que sabés de ${op.nombre} viene de lo que te cargó, y cada día sabés más. Por eso no repetís datos: conectás, inferís, ves patrones que se le escapan, le decís lo que no está viendo y le discutís cuando hace falta. Hablás con la seguridad de quien leyó todo, y con la honestidad de decir «no lo sé» o «no está en el corpus» cuando es así.
-
+${corr ? `\n${corr}\n` : ''}
 ${VOZ}
 
 Cómo trabajás
 - Antes de hablar de su mundo, mirá el corpus: buscá lo justo (dos a cuatro consultas suelen alcanzar), no todo.
 - Lo que no consultaste, no lo afirmes. No inventes nombres, fechas ni contenidos.
+- Separá siempre el hecho (con su fuente: una pieza [#id], una tarea del plan, un evento de su agenda, algo que te dijo) de tu deducción («mi lectura es…», «supongo que…»). Si no tenés fuente, decí que no lo tenés anotado; no lo rellenes.
+- Las fechas relativas («el viernes», «mañana», «la semana que viene») de una tarea o de un mensaje se resuelven contra el día en que se escribieron, no contra hoy: si una tarea que vencía el 4/10 dice «el viernes», es el viernes 9/10. Usá el calendario de abajo; si no sabés cuándo es algo, preguntá.
+- Nunca digas que hiciste algo (anoté, corregí, arreglé, guardé, cambié) si en este turno no usaste una herramienta que lo haga. Lo que se arregla con código no lo arreglás vos: lo registrás con proponer_mejora y decís que es una propuesta.
+- Antes de decir que Deprocast no puede algo o que algo no existe, consultá que_puede_deprocast.
 - Para actuar sobre la plataforma (forjar agentes, publicar misiones, correr ticks, ingerir, crear fuentes o proyectos) usá tus herramientas y contalo en una frase. Los agentes de la liga sí los nombrás por su designación (BUS-0001) o su nombre.
 - Él decide. Lo destructivo o caro (retirar un agente, mandarlo a la banca, deshacer una carga, más de tres ticks) se pregunta antes; solo con un sí explícito llamás con confirmado=true. Sellar quántomos y aceptar propuestas es decisión suya.
 - Para hablar con un agente usá hablar_con_agente y contale a ${op.nombre} lo que dijo, con tus palabras.
@@ -227,7 +233,8 @@ Cómo trabajás
 - Su memoria se va escribiendo sola con lo que te cuenta. Usá recordar solo si te pide explícitamente que te acuerdes de algo; corregí la memoria cuando te corrija.
 - No hables de quántomos ni de la mecánica del corpus salvo que te pregunte por eso.
 
-Ahora: ${ahoraEnPalabras()}${hud && HUD[hud] ? `\nEn su panel de Hoy está mirando: ${HUD[hud]}. Si pregunta sin decir de qué («¿cómo voy?», «¿qué hago?»), es de eso.` : ''}
+Ahora: ${ahoraEnPalabras()}
+Calendario: ${calendarioCorto()}${hud && HUD[hud] ? `\nEn su panel de Hoy está mirando: ${HUD[hud]}. Si pregunta sin decir de qué («¿cómo voy?», «¿qué hago?»), es de eso.` : ''}
 ${hoy(db, mensaje)}
 ${directoParaPrompt(db)}
 ${finanzasParaPrompt(db)}
@@ -346,6 +353,9 @@ export async function enviar(db: Db, cid: number, texto: string, o: { hud?: stri
   if (!texto.trim()) throw new Error('Mensaje vacío')
   if (pensando.has(cid)) throw new Error('Esperá: todavía está contestando')
   pensando.add(cid)
+  const usadas: string[] = []
+  let corregido: string[] = []
+  let final = ''
   const vivo: EnVivo = { borrador: '', herramienta: null, argumentos: null }
   enVivo.set(cid, vivo)
   try {
@@ -358,7 +368,10 @@ export async function enviar(db: Db, cid: number, texto: string, o: { hud?: stri
     }
     if (!c.titulo) db.prepare('UPDATE conversaciones SET titulo = ? WHERE id = ?').run(recorte(comoTexto(texto.trim()).replace(/\s+/g, ' '), 60), cid)
     const previos = await armarHistorial(db, mensajes(db, cid), { cid, resumirViejo: !(c.con === MASTROPIERO && c.modo === 'diario'), verImagenes: true })
-    const alGuardar = (m: Partial<Mensaje> & { rol: Mensaje['rol'] }) => guardar(db, cid, m)
+    const alGuardar = (m: Partial<Mensaje> & { rol: Mensaje['rol'] }) => {
+      if (m.rol === 'herramienta' && m.herramienta) usadas.push(m.herramienta)
+      guardar(db, cid, m)
+    }
     if (c.con === MASTROPIERO && c.modo === 'diario') {
       // Lo que cuenta en el diario es su voz: entra al corpus como propia.
       ingerir(db, { fuente: 'operador', nivel: 'propia', titulo: `Diario · ${fechaLocal()} · ${recorte(texto.trim().replace(/\s+/g, ' '), 50)}`, contenido: texto.trim(), dominio: 'diario' })
@@ -367,8 +380,10 @@ export async function enviar(db: Db, cid: number, texto: string, o: { hud?: stri
       // Si Mastropiero pidió el cierre del día y todavía no llegó, esta es la respuesta.
       const j = c.modo === 'hoy' ? leerJornada(db, fechaLocal()) : null
       if (j?.pidioCierre && !j.cierre) registrarCierre(db, j.fecha, texto)
-      await bucle({
-        db, sistema: promptMastropiero(db, texto, o.hud), hs: herramientasPara('mastropiero'), previos, clase: 'mastropiero', agenteId: MASTROPIERO,
+      // Si lo está corrigiendo, primero se anota la corrección: este mismo turno ya la obedece.
+      if (pareceCorreccion(texto)) corregido = await registrarCorreccion(db, cid, texto).catch(() => [])
+      final = await bucle({
+        db, sistema: promptMastropiero(db, texto, o.hud, cid), hs: herramientasPara('mastropiero'), previos, clase: 'mastropiero', agenteId: MASTROPIERO,
         ctx: { db, conversacionId: cid, hablarConAgente: (id, m) => hablarConAgente(db, id, m) }, alGuardar, vivo,
       })
     } else {
@@ -386,14 +401,16 @@ export async function enviar(db: Db, cid: number, texto: string, o: { hud?: stri
     enVivo.delete(cid)
   }
   // Lo que vale recordar de lo que dijo (solo con Mastropiero; nunca de lo que dicen otros). No frena la respuesta.
-  if (c.con === MASTROPIERO) await escriba(db, comoTexto(texto), cid)
+  const guardados = c.con === MASTROPIERO ? await escriba(db, comoTexto(texto), cid).catch(() => null) : null
+  // Si dijo que anotó o arregló algo y en el turno no se guardó nada, se avisa en la charla (no queda la mentira suelta).
+  if (c.con === MASTROPIERO && c.modo !== 'diario' && final && afirmaAccion(final)) {
+    const escribio = corregido.length > 0 || usadas.some((n) => HERRAMIENTAS.find((h) => h.nombre === n)?.familia !== 'lectura') || (Array.isArray(guardados) && guardados.length > 0)
+    if (!escribio) registrarEvento(db, cid, 'Ojo: dijo que lo anotó o lo arregló, pero en este turno no se guardó nada. Si querés que quede, decile «anotalo».')
+  }
 }
 
 /** Inyectable: en la app corre en segundo plano; en tests, se puede esperar o apagar. */
-let escriba = (db: Db, texto: string, cid: number): Promise<unknown> => {
-  void escribaDeMemoria(db, texto, cid)
-  return Promise.resolve()
-}
+let escriba = (db: Db, texto: string, cid: number): Promise<unknown> => escribaDeMemoria(db, texto, cid)
 export function _probarEscriba(f: typeof escriba) {
   escriba = f
 }
