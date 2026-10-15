@@ -7,6 +7,7 @@ import { capacidades } from '../capacidades.ts'
 import { verAgenda, verDia } from '../dia.ts'
 import { fijarHorario } from '../horario.ts'
 import { verUso } from '../uso.ts'
+import { armarSandbox, espacioDeProyecto, proyectoPorNombre } from '../proyectos.ts'
 import fs from 'node:fs'
 import path from 'node:path'
 import { ATRIBUTOS, CLASE_IDS, CLASES } from '../clases.ts'
@@ -284,6 +285,19 @@ export const HERRAMIENTAS: Herramienta[] = [
     parametros: S({ grupos: { type: 'array', items: { type: 'string', enum: ['liga', 'corpus', 'misiones', 'vida', 'web', 'crear'] }, description: 'Uno o varios grupos' } }, ['grupos']),
     ejecutar: (a, ctx) => ({ activadas: ctx.activar?.(Array.isArray(a.grupos) ? a.grupos.map(String) : []) ?? [] }),
     resumen: (a) => `sumó herramientas de ${Array.isArray(a.grupos) ? a.grupos.join(', ') : '…'}`,
+  },
+  {
+    nombre: 'ver_proyecto', familia: 'lectura',
+    descripcion: 'El espacio de un proyecto: con quién y qué aparece, lo último del corpus, su historia del archivo (Takeout), misiones, agentes de la liga y ayudantes, cuadernos, plata y oportunidades.',
+    parametros: S({ proyecto: str('Nombre (o alias) del proyecto, o id de la entidad') }, ['proyecto']),
+    ejecutar: (a, { db }) => { const id = proyectoPorNombre(db, a.proyecto); return id ? espacioDeProyecto(db, id) : { error: `No encuentro el proyecto «${a.proyecto}» entre las entidades` } },
+  },
+  {
+    nombre: 'armar_sandbox', familia: 'accion',
+    descripcion: 'Arma el sandbox de un proyecto: lee su espacio y propone los agentes de la liga que le faltan y 3 a 5 encargos listos. No forja ni publica: se los mostrás y él aprueba cuáles (forjar_agente con proyecto, publicar_encargo). Si el proyecto no está en la liga, lo crea con su gerente.',
+    parametros: S({ proyecto: str('Nombre (o alias) del proyecto, o id de la entidad') }, ['proyecto']),
+    ejecutar: async (a, { db }) => { const id = proyectoPorNombre(db, a.proyecto); return id ? armarSandbox(db, id) : { error: `No encuentro el proyecto «${a.proyecto}» entre las entidades` } },
+    resumen: (a) => `armó el sandbox de ${a.proyecto}`,
   },
   {
     nombre: 'ver_dia', familia: 'lectura',
@@ -1136,7 +1150,7 @@ export const NUCLEO = [
   'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'votar_dia', 'ver_plan', 'proponer_mejora',
 ]
 export const GRUPOS: Record<string, string[]> = {
-  liga: ['estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
+  liga: ['ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   vida: ['editar_persona', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
@@ -1148,7 +1162,7 @@ export const GRUPOS: Record<string, string[]> = {
 export function gruposDelMensaje(mensaje: string): string[] {
   const t = mensaje.toLowerCase()
   const g: string[] = []
-  if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta/.test(t)) g.push('liga')
+  if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox/.test(t)) g.push('liga')
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout/.test(t)) g.push('corpus')
   if (/primaria|reporte|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
   if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|bitácora|gemelo|brújula|brujula|persona|amig|famil/.test(t)) g.push('vida')

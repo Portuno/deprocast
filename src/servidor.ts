@@ -35,6 +35,7 @@ import { tabla as tablaEconomia, TARIFAS } from './economia.ts'
 import { exportarEstado, importarEstado, importarEstadoArchivo } from './exportacion.ts'
 import { aplicarZona, recibirZona } from './zona.ts'
 import { anotarUso } from './uso.ts'
+import { armarSandbox, espacioDeProyecto } from './proyectos.ts'
 import { bloquesDelDia, fijarHorario, horarioComoTexto, horarioDeTexto, leerHorario } from './horario.ts'
 import { cerrarLote, estadoTakeout, faltan, huellaValida, ingerirPaquete, loteValido, paqueteListo, recibirMedio, recibirParte, reintentarTakeout, resolverNombre, retomarTakeout, trabajarTakeout } from './takeout/nube.ts'
 import { dirAdjuntos, guardarImagen } from './chat/adjuntos.ts'
@@ -241,6 +242,8 @@ const rutas: [string, RegExp, Ruta][] = [
   }))],
   ['POST', /^\/api\/agentes\/([^/]+)\/bautizar$/, (b, [a]) => (bautizar(db, decodeURIComponent(a), String(b.nombre ?? '')), vista(db, leer(db, decodeURIComponent(a))!))],
   ['POST', /^\/api\/agentes\/([^/]+)\/estado$/, (b, [a]) => (cambiarEstado(db, decodeURIComponent(a), b.estado), vista(db, leer(db, decodeURIComponent(a))!))],
+  ['GET', /^\/api\/proyectos\/espacio\/(\d+)$/, (_, [e]) => espacioDeProyecto(db, id(e))],
+  ['POST', /^\/api\/proyectos\/sandbox\/(\d+)$/, async (_, [e]) => armarSandbox(db, id(e))],
   ['POST', /^\/api\/proyectos$/, (b) => {
     const r = crearProyecto(db, String(b.nombre ?? ''))
     return { id: r.id, gerente: vista(db, r.gerente) }

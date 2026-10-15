@@ -963,6 +963,9 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   propuestas: [
     ['origen', 'TEXT'], // chat | autocritica
   ],
+  proyectos: [
+    ['entidad_id', 'INTEGER'], // la entidad tipo proyecto (el espacio de proyecto los junta)
+  ],
   preguntas: [
     ['vuelve_en', 'INTEGER'], // repaso espaciado: no se muestra antes de esto
     ['repaso', 'INTEGER'], // en qué vuelta del repaso va (0 = la primera)

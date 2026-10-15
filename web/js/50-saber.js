@@ -687,7 +687,7 @@ async function verEntidad(id) {
       <h2>${esc(e.nombre)}</h2>
       ${e.alias.length ? `<div class="tags">${e.alias.map((a) => `<span>${esc(a)}</span>`).join('')}</div>` : ''}
       ${e.notas ? `<div class="notas">${esc(e.notas)}</div>` : ''}
-      <div class="fila" style="margin:12px 0 4px"><button class="btn btn-chico btn-primario" id="ent-preguntar">☿ Preguntarle a Mastropiero</button>
+      <div class="fila" style="margin:12px 0 4px"><button class="btn btn-chico btn-primario" id="ent-preguntar">☿ Preguntarle a Mastropiero</button>${e.tipo === 'proyecto' ? '<button class="btn btn-chico" id="ent-espacio" title="Todo el proyecto en un lugar, y su equipo de agentes">🧪 Espacio y sandbox</button>' : ''}
         ${e.meta?.operador ? '<button class="btn btn-chico" id="ent-ficha-jugador">Tu ficha de jugador</button>' : e.tipo === 'persona' ? '<button class="btn btn-chico" id="ent-soy-yo" title="Marcar esta persona como vos: tu ficha de jugador y la suya pasan a ser una">Soy yo</button>' : ''}</div>
       <div class="tabs chicas" id="ent-tabs">${[['corpus', 'Corpus'], ['misiones', 'Misiones'], ['historia', 'Historia'], ['inventario', 'Inventario']].map(([k, n]) => `<button data-etab="${k}" class="${k === entTab ? 'on' : ''}">${n}</button>`).join('')}</div>
       <div id="ent-ficha"></div>
@@ -714,7 +714,55 @@ async function verEntidad(id) {
     }
     const fj = $('#ent-ficha-jugador')
     if (fj) fj.onclick = () => irA('jugador')
+    const esp = $('#ent-espacio')
+    if (esp) esp.onclick = () => modalEspacio(e.id)
     $('#ent-preguntar').onclick = () => preguntarAMastropiero(`Contame sobre ${e.nombre} (entidad #${e.id}): qué es, con qué aparece y qué dice el corpus.`)
     $$('[data-co]', det).forEach((b) => (b.onclick = () => verEntidad(Number(b.dataset.co))))
   } catch (err) { error(err) }
+}
+
+// ─── espacio de proyecto ────────────────────────────────────────────────
+// Todo lo de un proyecto en un lugar, y el sandbox: los agentes que le faltan y encargos listos, que él aprueba uno por uno.
+
+async function modalEspacio(id) {
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><div id="esp"><p class="tenue">Juntando el proyecto…</p></div>`)
+  let d
+  try { d = await api(`/proyectos/espacio/${id}`) } catch (e) { $('#esp').innerHTML = `<p class="tenue">${esc(e.message)}</p>`; return }
+  const sec = (titulo, cuerpo) => (cuerpo ? `<h3 class="sub">${titulo}</h3>${cuerpo}` : '')
+  const lista = (xs, f) => (xs.length ? `<div class="cu-fuentes">${xs.map((x) => `<div class="sq"><span>${f(x)}</span></div>`).join('')}</div>` : '')
+  $('#esp').innerHTML = `<h2>🧪 ${esc(d.entidad.nombre)}</h2>
+    ${d.entidad.notas ? `<p class="tenue">${esc(d.entidad.notas)}</p>` : ''}
+    <p class="tenue chico">${d.liga ? `En la liga como «${esc(d.liga.nombre)}»` : 'Todavía no está en la liga: el sandbox lo crea con su gerente.'} · ${d.corpus.total} piezas · ${d.misiones.length} misiones abiertas${d.plata.movimientos ? ` · entró ${d.plata.entro} € y salió ${d.plata.salio} €` : ''}</p>
+    <div class="fila" style="margin:8px 0"><button class="btn btn-primario" id="esp-sandbox">🧪 Armar sandbox</button><button class="btn" id="esp-preguntar">☿ ¿En qué está?</button></div>
+    <div id="esp-sb"></div>
+    ${d.historia ? `<details><summary><b>Su historia en el archivo</b> <span class="tenue">${esc(d.historia.fecha ?? '')}</span></summary><div class="md">${md(d.historia.texto)}</div></details>` : ''}
+    ${sec('Misiones abiertas', lista(d.misiones, (m) => `<small class="tipo-chip">${esc(m.nivel)}</small> ${esc(m.titulo)}`))}
+    ${sec('Agentes', lista([...d.agentes.map((a) => `${esc(a.id)} ${esc(a.nombre ?? '')} <small class="tenue">${esc(a.clase)} · ${esc(a.estado)}</small>`), ...d.ayudantes.map((a) => `🤝 ${esc(a.agente ?? '—')} <small class="tenue">ayuda en «${esc(a.primaria)}»</small>`)], (x) => x))}
+    ${sec('Aparece con', d.relacionadas.length ? `<div class="coocurre">${d.relacionadas.map((x) => `<button data-co="${x.id}">${esc(x.nombre)}<em>${x.compartidas}</em></button>`).join('')}</div>` : '')}
+    ${sec('Lo último en el corpus', lista(d.corpus.recientes, (p) => `${esc(p.titulo)} <small class="tenue">${esc(p.fecha ?? '')} · ${esc(p.nivel)}</small>`))}
+    ${sec('Cuadernos', lista(d.cuadernos, (c) => `${esc(c.titulo)} <small class="tenue">${c.fuentes} fuentes</small>`))}
+    ${sec('Oportunidades', lista(d.oportunidades, (o) => `${esc(o.titulo)} <small class="tenue">${esc(o.estado)}</small>`))}`
+  $$('#esp [data-co]').forEach((b) => (b.onclick = () => { cerrarModal(); verEntidad(Number(b.dataset.co)) }))
+  $('#esp-preguntar').onclick = () => { cerrarModal(); preguntarAMastropiero(`¿En qué está ${d.entidad.nombre} hoy y qué es lo próximo? Mirá su espacio (ver_proyecto) antes de contestar.`) }
+  $('#esp-sandbox').onclick = async () => {
+    const b = $('#esp-sandbox')
+    b.disabled = true
+    b.textContent = 'Mastropiero está leyendo el proyecto…'
+    try {
+      const s = await api(`/proyectos/sandbox/${id}`, {})
+      $('#esp-sb').innerHTML = `<div class="panel" style="margin:8px 0">${s.resumen ? `<p>${esc(s.resumen)}</p>` : ''}
+        ${s.agentes.length ? `<h3 class="sub">Agentes que le faltan</h3>${s.agentes.map((a, i) => `<div class="sq"><span><b>${esc(a.clase)}</b> · ${esc(a.instrucciones)}<small>${esc(a.porQue)}</small></span><button class="btn btn-chico" data-forjar="${i}">Forjar</button></div>`).join('')}` : '<p class="tenue">No le falta ningún agente.</p>'}
+        ${s.encargos.length ? `<h3 class="sub">Encargos listos</h3>${s.encargos.map((x, i) => `<div class="sq"><span>${esc(x.texto)}<small>${esc(x.clase)} · ${esc(x.porQue)}</small></span><button class="btn btn-chico" data-publicar="${i}">Publicar</button></div>`).join('')}` : ''}</div>`
+      $$('#esp-sb [data-forjar]').forEach((x) => (x.onclick = async () => {
+        const a = s.agentes[Number(x.dataset.forjar)]
+        try { const f = await api('/forja', { clase: a.clase, instrucciones: a.instrucciones, proyectoId: s.proyecto.id }); x.disabled = true; x.textContent = `✓ ${f.id ?? 'forjado'}` } catch (e) { error(e) }
+      }))
+      $$('#esp-sb [data-publicar]').forEach((x) => (x.onclick = async () => {
+        const t = s.encargos[Number(x.dataset.publicar)]
+        try { await api('/tareas', { clase: t.clase, texto: t.texto, proyectoId: s.proyecto.id }); x.disabled = true; x.textContent = '✓ publicado' } catch (e) { error(e) }
+      }))
+      b.textContent = '🧪 Rearmar sandbox'
+    } catch (e) { error(e); b.textContent = '🧪 Armar sandbox' }
+    b.disabled = false
+  }
 }
