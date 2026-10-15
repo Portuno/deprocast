@@ -44,7 +44,7 @@ function bot() {
 test('telegram: formato HTML, comandos rápidos (gasto, nota, bitácora, buscar, hoy) y voz', async () => {
   assert.equal(aHtml('**Hola** <tú> & *vos*\n- uno\n[link](https://x.org)'), '<b>Hola</b> &lt;tú&gt; &amp; <i>vos</i>\n• uno\n<a href="https://x.org">link</a>')
   const db = abrir(':memory:')
-  const { yo, ultimo, archivos } = bot()
+  const { yo, ultimo, archivos, enviados } = bot()
 
   await procesarActualizacion(db, yo({ text: 'hola' }))
   assert.equal(ultimo().text, '<b>Dale</b>, te escucho.')
@@ -72,6 +72,17 @@ test('telegram: formato HTML, comandos rápidos (gasto, nota, bitácora, buscar,
   assert.equal(archivos.length, 0)
   await procesarActualizacion(db, yo({ voice: { file_id: 'f1' } }))
   assert.deepEqual(archivos.map((a) => [a.metodo, a.campo]), [['sendAudio', 'audio']])
+
+  // Una nota de voz larga (una caminata pensando en voz alta) queda además como pieza suya.
+  _probarTelegram({ transcribir: async () => 'Estuve pensando en el taller de IA para abogados y en cómo venderlo. '.repeat(15) })
+  await procesarActualizacion(db, yo({ voice: { file_id: 'f2', file_unique_id: 'u2', duration: 150 } }))
+  const nota = db.prepare(`SELECT * FROM corpus WHERE origen_id = 'telegram-voz:u2'`).get() as any
+  assert.equal(nota.nivel, 'propia')
+  assert.equal(nota.fuente, 'voz')
+  assert.ok(enviados.some((e) => /Guardé tu nota de voz \(3 min\)/.test(e.text)))
+  await procesarActualizacion(db, yo({ voice: { file_id: 'f2', file_unique_id: 'u2', duration: 150 } }))
+  assert.equal((db.prepare(`SELECT COUNT(*) AS n FROM corpus WHERE origen_id = 'telegram-voz:u2'`).get() as any).n, 1, 'la misma nota no se duplica')
+  _probarTelegram({ transcribir: async () => 'Mandé el mail' })
   _probarTelegram({ bajar: async () => ({ datos: Buffer.from('a'), nombre: 'voz.oga' }) })
 })
 

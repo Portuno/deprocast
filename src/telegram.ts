@@ -8,6 +8,8 @@
  * (TELEGRAM_CHAT_ID): a cualquier otro le dice su id y nada más.
  */
 import { anotarUso } from './uso.ts'
+import { asegurarFuente, insertar } from './corpus.ts'
+import { escribaDeMemoria } from './memoria.ts'
 import fs from 'node:fs'
 import { ajuste, fechaLocal, fijarAjuste, type Db } from './db.ts'
 import { conversacionHoy, enviar, estaPensando, mensajes } from './chat/index.ts'
@@ -261,6 +263,18 @@ export async function latidoTelegram(db: Db) {
 // ─── conversar ──────────────────────────────────────────────────────────
 
 /** Lo que dice él → la conversación de Hoy → la respuesta de Mastropiero vuelve por Telegram (y en audio, si quiere). */
+/** Una nota de voz larga queda como pieza suya (con fecha) y el escriba saca recuerdos y side quests de ella. */
+function guardarNotaDeVoz(db: Db, texto: string, segundos: number | null, id: string | null): number | null {
+  asegurarFuente(db, { id: 'voz', nombre: 'Notas de voz', nivel: 'propia', descripcion: 'Lo que grabás caminando o pensando en voz alta.' })
+  const pieza = insertar(db, {
+    fuente: 'voz', nivel: 'propia', estado: 'disponible', fecha: fechaLocal(), contenido: texto, etiquetas: ['audio', 'telegram'],
+    titulo: `Nota de voz · ${fechaLocal()} ${new Date().toTimeString().slice(0, 5)} · ${texto.replace(/\s+/g, ' ').slice(0, 50)}`,
+    origenId: id ? `telegram-voz:${id}` : null, datos: { segundos },
+  })
+  if (pieza) void escribaDeMemoria(db, texto, null, { pieza }).catch(() => [])
+  return pieza
+}
+
 async function conversar(db: Db, texto: string, o: { porVoz?: boolean } = {}) {
   const c = conversacionHoy(db)
   if (estaPensando(c.id)) return decir('Esperá, todavía estoy contestando lo anterior.')
@@ -517,8 +531,12 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
     const { datos, nombre } = await bajar(voz.file_id)
     const t = await transcribir(db, datos, nombre.endsWith('.oga') ? nombre.replace(/\.oga$/, '.ogg') : nombre)
     if (!t.trim()) return decir('No entendí el audio.')
+    // Una nota larga es material (una caminata pensando en voz alta): queda como pieza suya, además de lo que se haga con ella.
+    const larga = (voz.duration ?? 0) >= 90 || t.length >= 900
+    const pieza = larga ? guardarNotaDeVoz(db, t, voz.duration ?? null, voz.file_unique_id ?? voz.file_id) : null
     if (PARECE_REGISTRO.test(t) && (await registrarYContar(db, await clasificar(db, { texto: t }).catch(() => null), { texto: t }))) return
-    return conversar(db, t, { porVoz: true })
+    if (pieza) await decir(`🎙 Guardé tu nota de voz${voz.duration ? ` (${Math.max(1, Math.round(voz.duration / 60))} min)` : ''} en tu corpus, como tuya.`)
+    return conversar(db, pieza ? `(Nota de voz por Telegram, ya guardada en su corpus. Si trae algo para anotar —una side quest, un gasto, una idea de proyecto— anotalo.) ${t}` : t, { porVoz: true })
   }
   if (msg.photo?.length) {
     // Una foto (una comida, un ticket, la balanza…): se registra sola si es un registro; si no, se charla.
