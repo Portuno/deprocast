@@ -5,6 +5,7 @@
  */
 import { ahoraEnPalabras, calendarioCorto } from '../zona.ts'
 import { horarioParaPrompt } from '../horario.ts'
+import { yoParaPrompt } from '../yo.ts'
 import { anotarUso } from '../uso.ts'
 import { afirmaAccion, correccionesParaPrompt, pareceCorreccion, registrarCorreccion } from './correcciones.ts'
 import { armarHistorial } from './historial.ts'
@@ -136,6 +137,9 @@ function operador(db: Db, mensaje = ''): { nombre: string; texto: string } {
     const al = (JSON.parse(yo.alias ?? '[]') as string[]).slice(0, 6)
     lineas.push(`El operador es ${yo.nombre}${al.length ? ` (también aparece como ${al.join(', ')})` : ''}.${yo.notas ? ` Notas: ${recorte(yo.notas, 400)}` : ''}`)
   }
+  const quien = yoParaPrompt(db)
+  if (quien) lineas.push(quien)
+  else if (yo) lineas.push('Todavía no escribió su perfil («Quién soy», en Personas). Si sale el tema de quién es, sugerile completarlo una vez.')
   if (top.length) lineas.push(`Lo que más aparece en su mundo: ${top.map((e) => `${e.nombre} (${e.tipo})`).join(', ')}.`)
   const mem = memoriaParaPrompt(db, mensaje ? 30 : 60, mensaje)
   if (mem) lineas.push(`Tu memoria de él (lo que te contó, con fecha):\n${mem}`)

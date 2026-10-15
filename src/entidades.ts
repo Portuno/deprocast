@@ -138,9 +138,36 @@ export function fusionarEntidades(db: Db, destino: number, origenes: number[]): 
       db.prepare('UPDATE conexiones SET b = ? WHERE b = ?').run(destino, o.id)
       db.prepare('UPDATE OR IGNORE historias SET personaje = ? WHERE personaje = ?').run(kd, k)
       db.prepare('DELETE FROM historias WHERE personaje = ?').run(k)
+      // Lo que también apuntaba a ella: plata, oportunidades, el proyecto de la liga, lo que propuso el Takeout.
+      for (const t of ['oportunidades', 'movimientos', 'proyectos', 'takeout_nombres']) db.prepare(`UPDATE ${t} SET entidad_id = ? WHERE entidad_id = ?`).run(destino, o.id)
+      // Su relación con él: se juntan (lo más alto de cada número, lo que estaba de cada lado, las notas sumadas).
+      const ro = db.prepare('SELECT * FROM relaciones WHERE entidad_id = ?').get(o.id) as any
+      if (ro) {
+        const rd = db.prepare('SELECT * FROM relaciones WHERE entidad_id = ?').get(destino) as any
+        if (!rd) db.prepare('UPDATE relaciones SET entidad_id = ? WHERE entidad_id = ?').run(destino, o.id)
+        else {
+          const max = (a: number | null, b: number | null) => (a == null ? b : b == null ? a : Math.max(a, b))
+          const notasR = [...new Set([rd.notas, ro.notas].filter((n: string | null) => n?.trim()))].join('\n\n') || null
+          db.prepare(`UPDATE relaciones SET vinculo = ?, cercania = ?, nivel = ?, importancia = ?, clase = ?, estado = ?, cada_dias = ?, proxima = ?, notas = ?, ultimo_contacto = ? WHERE entidad_id = ?`).run(
+            rd.vinculo ?? ro.vinculo, max(rd.cercania, ro.cercania), max(rd.nivel, ro.nivel), max(rd.importancia, ro.importancia), rd.clase ?? ro.clase, rd.estado ?? ro.estado,
+            rd.cada_dias ?? ro.cada_dias, rd.proxima ?? ro.proxima, notasR, [rd.ultimo_contacto, ro.ultimo_contacto].filter(Boolean).sort().at(-1) ?? null, destino)
+          db.prepare('DELETE FROM relaciones WHERE entidad_id = ?').run(o.id)
+        }
+      }
+      db.prepare('UPDATE OR IGNORE persona_proyecto SET persona_id = ? WHERE persona_id = ?').run(destino, o.id)
+      db.prepare('UPDATE OR IGNORE persona_proyecto SET proyecto_id = ? WHERE proyecto_id = ?').run(destino, o.id)
+      db.prepare('DELETE FROM persona_proyecto WHERE persona_id = ? OR proyecto_id = ?').run(o.id, o.id)
+      for (const pu of db.prepare(`SELECT p.id, p.personas FROM puentes p, json_each(p.personas) j WHERE j.value = ?`).all(o.id) as { id: number; personas: string }[]) {
+        db.prepare('UPDATE puentes SET personas = ? WHERE id = ?').run(JSON.stringify([...new Set(json<number[]>(pu.personas, []).map((x) => (x === o.id ? destino : x)))]), pu.id)
+      }
       db.prepare('DELETE FROM entidades WHERE id = ?').run(o.id)
     }
     db.prepare('DELETE FROM conexiones WHERE a = b').run()
+    db.prepare('DELETE FROM persona_proyecto WHERE persona_id = proyecto_id').run()
+    // Lo que se sabía de cada una (meta) se junta; si una de ellas era él (el yo), la que queda lo es.
+    const meta = Object.assign({}, ...os.map((o) => o.meta ?? {}), d.meta ?? {})
+    if (os.some((o) => o.meta?.operador)) meta.operador = 1
+    if (Object.keys(meta).length) db.prepare('UPDATE entidades SET meta = ? WHERE id = ?').run(JSON.stringify(meta), destino)
     const notas = [d.notas, ...os.map((o) => o.notas)].filter((n): n is string => !!n?.trim())
     editarEntidad(db, destino, { sumarAlias: os.flatMap((o) => [o.nombre, ...o.alias]), notas: [...new Set(notas)].join('\n\n') || null })
     db.exec('COMMIT')

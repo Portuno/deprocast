@@ -1132,6 +1132,30 @@ a.mencion { color: var(--acento-texto); text-decoration: none; background: var(-
 .per.vencida { border-color: var(--acento); }
 .per-cab { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .per-cab b { font-size: 15px; font-weight: 600; }
+.per-yo { border: 1px solid color-mix(in srgb, var(--acento) 40%, var(--linea)); border-radius: 14px; padding: 14px 16px; margin: 0 0 14px; background: linear-gradient(145deg, color-mix(in srgb, var(--acento) 14%, var(--panel)), var(--panel) 70%); display: grid; gap: 8px; }
+.per-yo .per-cab { gap: 12px; }
+.per-yo .per-cab > div { flex: 1; min-width: 0; }
+.per-yo h2 { margin: 0; font-size: 19px; }
+.per-yo .avatar { font-size: 22px; color: var(--acento-texto); }
+.per-perfil { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; font-size: 13.5px; }
+.per-perfil dt { color: var(--tenue); }
+.per-perfil dd { margin: 0; white-space: pre-wrap; }
+.per-clave, .per-proy { display: flex; flex-wrap: wrap; gap: 6px; }
+.per-filtros { flex-wrap: wrap; gap: 6px; margin: 0 0 12px; }
+.per-filtros .campo-suelto { width: auto; margin: 0; }
+.per.lejana { border-style: dashed; }
+.per-medidas { display: grid; gap: 3px; font-size: 12px; color: var(--tenue); }
+.per-medidas > span { display: flex; align-items: center; gap: 6px; }
+.per-medidas b { font: 600 12px var(--mono); color: var(--texto); min-width: 2.2em; }
+.per-12 { display: inline-grid; grid-template-columns: repeat(12, 1fr); gap: 2px; width: 120px; margin-left: auto; }
+.per-12 i { height: 6px; border-radius: 2px; background: var(--linea); }
+.per-12 i.on { background: var(--acento); }
+.per-12 i.sug { background: color-mix(in srgb, var(--acento) 35%, var(--linea)); }
+.per-elegir { display: grid; grid-template-columns: repeat(13, minmax(0, 1fr)); gap: 4px; margin-top: 4px; }
+.per-elegir button { border: 1px solid var(--linea); background: var(--panel-2); color: var(--texto); border-radius: 6px; padding: 5px 0; font: 600 12px var(--mono); cursor: pointer; }
+.per-elegir button.on { background: var(--acento); border-color: var(--acento); color: var(--sobre-acento); }
+details.puentes { margin: 0 0 12px; }
+details.puentes > summary { cursor: pointer; padding: 6px 0; }
 
 /* Corpus: por sentido */
 .sentido { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: baseline; padding: 8px 10px; margin: 0 0 10px; border: 1px dashed var(--linea); border-radius: 9px; font-size: 13px; }
@@ -1566,3 +1590,10 @@ a.mencion { color: var(--acento-texto); text-decoration: none; background: var(-
 .mis-lista .sq.sugerida .fila .btn-chico[data-m-estado='activa'] { opacity: 1; }
 @media (hover: none) { .hud-sq button, .mis-lista .sq .fila .btn-chico, .mp-acc { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .hud-modos button, .hud-tarjeta, .mis-prim, .hud-rapidas button { transition: none; transform: none !important; } }
+.per-form { display: grid; gap: 10px; }
+.per-form .fila { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+.per-form .fila > .campo { flex: 1; min-width: 150px; }
+.per-form .campo { display: grid; gap: 4px; margin: 0; }
+.per-form .campo > input, .per-form .campo > select, .per-form .campo > textarea { width: 100%; box-sizing: border-box; }
+.per-form .fila > .campo-suelto { flex: 1; min-width: 120px; margin: 0; }
+.per-form > .btn-primario { justify-self: start; }

@@ -16,7 +16,8 @@ import { fijarMetasSalud, registrarSalud, resumenDia, resumenSemana, TIPOS_SALUD
 import { diaDelPlan, guardarWoop, habitos as listarHabitos, marcarHabito, VERBOS, votar } from '../cien.ts'
 import { crearAprendizaje, listarAprendizajes, prepararRepaso, recursosDe, registrarPractica } from '../aprender.ts'
 import { CATEGORIAS, listarMovimientos, registrarMovimiento, resumenMes, resumenPorProyecto, ritmoMeta } from '../finanzas.ts'
-import { guardarRelacion, personas, VINCULOS } from '../personas.ts'
+import { CLASES_PERSONA, desvincularDeProyecto, ESTADOS_PERSONA, guardarRelacion, leerPersona, nuevaPersona, personas, VINCULOS, vincularAProyecto } from '../personas.ts'
+import { guardarYo } from '../yo.ts'
 import { archivar, corregir, HORIZONTES, memoriaVigente, recordar, TIPOS_MEMORIA } from '../memoria.ts'
 import { leerJornada, progreso } from '../jornada.ts'
 import {
@@ -32,7 +33,7 @@ import { crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, iterarAr
 import { buscarOportunidades, listarOportunidades, redactarOportunidad } from '../radar.ts'
 import { buscarWeb, hayBuscadorWeb, leerPagina } from '../web.ts'
 import { listarSesiones, momentos as momentosDirecto, sesionActiva } from '../directo.ts'
-import { agregarItem, editarItem, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, personaje, personaPorNombre, resolverPersonaje, TIPOS_INVENTARIO } from '../personajes.ts'
+import { agregarItem, editarItem, entidadPorNombre, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, personaje, personaPorNombre, resolverPersonaje, TIPOS_INVENTARIO } from '../personajes.ts'
 import { asientos, especializacion } from '../auditor.ts'
 import { enEspera, leerTarea, pausarIngesta, publicar, reanudarIngesta, tareas } from '../bus.ts'
 import { asegurarFuente, buscar, esNivel, fuentes, leerPieza, listarPiezas, NIVELES, type Nivel, type Pieza } from '../corpus.ts'
@@ -47,7 +48,7 @@ import { perfilDeRendimiento, textoDeRendimiento } from '../rendimiento.ts'
 import { recomendar } from '../mentor.ts'
 import { proponerPuentes } from '../puentes.ts'
 import { deshacer, listarCargas } from '../cargas/index.ts'
-import { coocurrencias, duplicadosProbables, editarEntidad, entidadesPorId, fusionarEntidades, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from '../entidades.ts'
+import { coocurrencias, duplicadosProbables, editarEntidad, entidadesPorId, fusionarEntidades, leerEntidad, listarEntidades, noSonLoMismo, resumenEntidades, TIPOS_ENTIDAD } from '../entidades.ts'
 import { cronica, crearProyecto, estadoLiga, ingerir, numeroDeTick, tickUnico } from '../mastropiero.ts'
 import { tokensHoy, topeDiario, usoDelMes } from '../nan.ts'
 import {
@@ -616,14 +617,50 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'editar_persona', familia: 'accion',
-    descripcion: 'Define o actualiza la relación con una persona de su gente: vínculo, cercanía (1–5), cada cuántos días quiere verla o hablarle, lo próximo pendiente con ella, notas; o anota que hoy hubo contacto.',
-    parametros: S({ persona: str('Nombre o id de la entidad'), vinculo: str('Vínculo', { enum: [...VINCULOS] }), cercania: int('1 a 5'), cada_dias: int('Cada cuántos días quiere contacto (0 = sin ritmo)'), proxima: str('Lo próximo con ella («devolverle el libro»)'), notas: str('Notas'), contacto: bool('true si hoy hablaron o se vieron') }, ['persona']),
+    descripcion: 'Define o actualiza a una persona de su gente (física, jurídica —una empresa, un colectivo— o ficticia): vínculo, nivel de contacto 1–12 (cuánto la conoce: su pareja es 12), importancia en su vida 1–12, estado (conocida, contactada, por_conocer), cada cuántos días quiere saber de ella, lo próximo, notas, si hoy hubo contacto, y en qué proyectos está (con rol e importancia para ese proyecto). Si no existe, usá nueva_persona.',
+    parametros: S({
+      persona: str('Nombre o id de la entidad'), vinculo: str('Vínculo', { enum: [...VINCULOS] }), nivel: int('Nivel de contacto 1 a 12'), importancia: int('Importancia en su vida 1 a 12'),
+      clase: str('Clase', { enum: [...CLASES_PERSONA] }), estado: str('Estado', { enum: [...ESTADOS_PERSONA] }),
+      cada_dias: int('Cada cuántos días quiere contacto (0 = sin ritmo)'), proxima: str('Lo próximo con ella («devolverle el libro»)'), notas: str('Notas'), contacto: bool('true si hoy hablaron o se vieron'),
+      proyectos: { type: 'array', description: 'Proyectos donde está', items: { type: 'object', properties: { proyecto: str('Nombre o id del proyecto (o empresa)'), rol: str('Su rol ahí'), importancia: int('Cuánto importa para ese proyecto, 1 a 12'), quitar: bool('true para sacarla de ese proyecto') }, required: ['proyecto'] } },
+    }, ['persona']),
     ejecutar: (a, { db }) => {
       const id = /^\d+$/.test(String(a.persona)) ? Number(a.persona) : personaPorNombre(db, String(a.persona), { sinJugador: true })
-      if (!id) throw new Error(`No encuentro a «${a.persona}» entre las personas`)
-      return guardarRelacion(db, id, { vinculo: a.vinculo, cercania: a.cercania, cadaDias: a.cada_dias, proxima: a.proxima, notas: a.notas, contacto: a.contacto || undefined })
+      if (!id) throw new Error(`No encuentro a «${a.persona}» entre las personas (si es nueva, nueva_persona)`)
+      guardarRelacion(db, id, { vinculo: a.vinculo, nivel: a.nivel, importancia: a.importancia, clase: a.clase, estado: a.estado, cadaDias: a.cada_dias, proxima: a.proxima, notas: a.notas, contacto: a.contacto || undefined })
+      for (const x of Array.isArray(a.proyectos) ? a.proyectos : []) {
+        const pid = /^\d+$/.test(String(x?.proyecto)) ? Number(x.proyecto) : entidadPorNombre(db, String(x?.proyecto ?? ''))
+        if (!pid) throw new Error(`No encuentro el proyecto «${x?.proyecto}»`)
+        if (x.quitar) desvincularDeProyecto(db, id, pid)
+        else vincularAProyecto(db, id, pid, { rol: x.rol ?? null, importancia: x.importancia ?? null })
+      }
+      return leerPersona(db, id)
     },
     resumen: (a) => `actualizó a ${recorte(String(a.persona), 30)}`,
+  },
+  {
+    nombre: 'nueva_persona', familia: 'accion',
+    descripcion: 'Suma a alguien nuevo: una persona que todavía no conoce (por_conocer), que contactó sin conocerla (contactada), una empresa o institución (jurídica) o un personaje (ficticia), con su importancia.',
+    parametros: S({ nombre: str('Nombre'), clase: str('Clase', { enum: [...CLASES_PERSONA] }), estado: str('Estado', { enum: [...ESTADOS_PERSONA] }), importancia: int('Importancia en su vida 1 a 12'), notas: str('Quién es, por qué importa') }, ['nombre']),
+    ejecutar: (a, { db }) => nuevaPersona(db, { nombre: String(a.nombre), clase: a.clase, estado: a.estado, importancia: a.importancia, notas: a.notas }),
+    resumen: (a) => `sumó a ${recorte(String(a.nombre), 30)}`,
+  },
+  {
+    nombre: 'ver_persona', familia: 'lectura',
+    descripcion: 'Una persona completa: clase, estado, nivel de contacto e importancia (1–12), vínculo, proyectos con rol, misiones, último contacto, con quién aparece.',
+    parametros: S({ persona: str('Nombre o id') }, ['persona']),
+    ejecutar: (a, { db }) => {
+      const id = /^\d+$/.test(String(a.persona)) ? Number(a.persona) : personaPorNombre(db, String(a.persona), { sinJugador: true })
+      const p = id ? leerPersona(db, id) : null
+      return p ? { ...p, con: coocurrencias(db, p.id, 8).map((e) => ({ nombre: e.nombre, tipo: e.tipo, compartidas: e.compartidas })) } : { error: `No encuentro a «${a.persona}»` }
+    },
+  },
+  {
+    nombre: 'editar_yo', familia: 'accion',
+    descripcion: 'Su perfil («Quién soy»): cuando cuenta algo de sí que vale siempre (dónde vive, de qué trabaja, sus proyectos, cómo trabaja, lo que hay que saber de él), o su nombre y cómo le dicen. Campo vacío lo borra; lo que no mandás, queda.',
+    parametros: S({ nombre: str('Cómo se llama'), alias: { type: 'array', items: { type: 'string' }, description: 'Cómo le dicen' }, vive: str('Dónde vive'), trabajo: str('De qué trabaja'), proyectos: str('Sus proyectos principales'), como_trabaja: str('Cómo trabaja'), saber: str('Lo que hay que saber de él') }),
+    ejecutar: (a, { db }) => guardarYo(db, { nombre: a.nombre, alias: Array.isArray(a.alias) ? a.alias : undefined, perfil: Object.fromEntries(['vive', 'trabajo', 'proyectos', 'como_trabaja', 'saber'].filter((k) => k in a).map((k) => [k, a[k]])) }),
+    resumen: () => 'actualizó tu perfil',
   },
   {
     nombre: 'registrar_movimiento', familia: 'accion',
@@ -832,6 +869,13 @@ export const HERRAMIENTAS: Herramienta[] = [
     parametros: S({ queda: int('id de la entidad que queda'), absorbe: { type: 'array', items: { type: 'integer' }, description: 'ids de las duplicadas' }, confirmado: bool('true solo si el operador confirmó') }, ['queda', 'absorbe']),
     ejecutar: (a, { db }) => exigirConfirmacion(a, `fusiona ${a.absorbe?.length ?? 0} entidades en la #${a.queda}`) ?? (() => { const e = fusionarEntidades(db, a.queda, a.absorbe ?? []); return { id: e.id, nombre: e.nombre, tipo: e.tipo, alias: e.alias } })(),
     resumen: (a, r) => (r?.requiere_confirmacion ? 'pidió confirmación para fusionar entidades' : `fusionó ${a.absorbe?.length ?? 0} duplicadas en ${r?.nombre ?? ''}`),
+  },
+  {
+    nombre: 'no_son_lo_mismo', familia: 'accion',
+    descripcion: 'Marca que dos o más entidades parecidas NO son la misma (para que no vuelvan a aparecer como duplicadas).',
+    parametros: S({ ids: { type: 'array', items: { type: 'integer' }, description: 'ids de las entidades' } }, ['ids']),
+    ejecutar: (a, { db }) => (noSonLoMismo(db, Array.isArray(a.ids) ? a.ids.map(Number) : []), { ok: true }),
+    resumen: () => 'anotó que no son la misma',
   },
 
   {
@@ -1151,9 +1195,9 @@ export const NUCLEO = [
 ]
 export const GRUPOS: Record<string, string[]> = {
   liga: ['ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
-  corpus: ['listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
+  corpus: ['no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['editar_persona', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
+  vida: ['editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   web: ['buscar_web', 'leer_pagina', 'guardar_link', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   crear: ['ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }

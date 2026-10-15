@@ -29,7 +29,7 @@ test('personas: relación definida, último contacto deducido del corpus, vencid
   assert.ok(a.vencida)
   assert.equal(personas(db, {}, T)[0].nombre, 'Ana Prueba', 'las definidas primero')
   assert.deepEqual(aContactar(db, T).map((p) => p.id), [ana])
-  assert.match(personasParaPrompt(db, T), /Ana Prueba \(amistad\): último contacto hace 19 días — quería verla más seguido; próximo: devolverle el libro/)
+  assert.match(personasParaPrompt(db, T), /Ana Prueba \(amistad, nivel 12\): último contacto hace 19 días — quería verla más seguido; próximo: devolverle el libro/)
 
   const al = alertasPendientes(db, T).filter((x) => x.clave.startsWith('persona:'))
   assert.equal(al.length, 1)

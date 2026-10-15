@@ -582,6 +582,17 @@ CREATE TABLE IF NOT EXISTS takeout_nombres (
   creada_en INTEGER NOT NULL
 );
 
+-- Su gente en sus proyectos: con qué rol y cuánto importa para ese proyecto (1–12).
+CREATE TABLE IF NOT EXISTS persona_proyecto (
+  persona_id INTEGER NOT NULL,
+  proyecto_id INTEGER NOT NULL,
+  rol TEXT,
+  importancia INTEGER,
+  notas TEXT,
+  desde INTEGER NOT NULL,
+  PRIMARY KEY (persona_id, proyecto_id)
+);
+
 -- Qué usa: vistas que abre, herramientas que corre Mastropiero por él, comandos de Telegram.
 CREATE TABLE IF NOT EXISTS uso (
   id INTEGER PRIMARY KEY,
@@ -966,6 +977,12 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   proyectos: [
     ['entidad_id', 'INTEGER'], // la entidad tipo proyecto (el espacio de proyecto los junta)
   ],
+  relaciones: [
+    ['clase', 'TEXT'], // fisica | juridica | ficticia (vacío: según el tipo de la entidad)
+    ['estado', 'TEXT'], // conocida | contactada | por_conocer
+    ['nivel', 'INTEGER'], // nivel de contacto 1–12: cuánto la conoce
+    ['importancia', 'INTEGER'], // importancia en su vida 1–12
+  ],
   preguntas: [
     ['vuelve_en', 'INTEGER'], // repaso espaciado: no se muestra antes de esto
     ['repaso', 'INTEGER'], // en qué vuelta del repaso va (0 = la primera)
@@ -1084,6 +1101,11 @@ export function migrar(db: Db) {
   }
   const ajuste = db.prepare('INSERT OR IGNORE INTO ajustes (clave, valor) VALUES (?, ?)')
   for (const [k, v] of Object.entries(AJUSTES_SISTEMA)) ajuste.run(k, v)
+  // Personas v2: la cercanía vieja (1–5) pasa a nivel de contacto (1–12), una sola vez.
+  if (!db.prepare(`SELECT 1 FROM ajustes WHERE clave = 'personas_v2'`).get()) {
+    db.exec(`UPDATE relaciones SET nivel = CASE cercania WHEN 1 THEN 2 WHEN 2 THEN 5 WHEN 3 THEN 7 WHEN 4 THEN 10 WHEN 5 THEN 12 END WHERE nivel IS NULL AND cercania IS NOT NULL`)
+    db.prepare(`INSERT OR REPLACE INTO ajustes (clave, valor) VALUES ('personas_v2', '1')`).run()
+  }
 
   const ahora = Date.now()
   const alta = db.prepare('INSERT OR IGNORE INTO fuentes (id, nombre, nivel, descripcion, padre_id, sistema, creada_en) VALUES (?, ?, ?, ?, ?, ?, ?)')

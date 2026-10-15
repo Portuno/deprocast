@@ -389,7 +389,7 @@ function montarJugador() {
     alCargar: (f) => {
       $('#j-nombre').textContent = f.personaje.nombre
       const p = $('#principal .cabecera p')
-      if (p && f.personaje.entidadId) p.innerHTML += ` <a href="#" class="ref" data-ref-ent="${f.personaje.entidadId}">Tu entidad en el corpus</a>`
+      if (p && f.personaje.entidadId) p.innerHTML += ` <a href="#" class="ref" data-ref-ent="${f.personaje.entidadId}">Tu entidad en el corpus</a> · <a href="#" onclick="irA('personas');return false">Quién soy (tu perfil)</a>`
       else if (p && !f.personaje.entidadId) p.innerHTML += ' <span class="tenue">Todavía no sé cuál de las personas del corpus sos: buscate en Entidades y tocá «Soy yo».</span>'
     },
   })

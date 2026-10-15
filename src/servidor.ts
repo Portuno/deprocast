@@ -28,7 +28,8 @@ import { crearAprendizaje, editarAprendizaje, leerAprendizaje, listarAprendizaje
 import { guardarFoto } from './chat/adjuntos.ts'
 import { aplicarBaseEntrante, recibirArchivo, recibirBase } from './mudanza.ts'
 import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, hayFfmpeg, iterarArtefacto, listarArtefactos, VOCES } from './taller.ts'
-import { guardarRelacion, personas } from './personas.ts'
+import { conMatriz, desvincularDeProyecto, guardarRelacion, nuevaPersona, personas, vincularAProyecto } from './personas.ts'
+import { guardarYo, leerYo } from './yo.ts'
 import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora.ts'
 import { anotar as anotarEnCriba, cribar, deshacerUltima, marcador, siguiente } from './criba.ts'
 import { tabla as tablaEconomia, TARIFAS } from './economia.ts'
@@ -64,7 +65,7 @@ import { asientos, especializacion } from './auditor.ts'
 import { enEspera, leerTarea, pausarIngesta, publicar, reanudarIngesta, tareas } from './bus.ts'
 import { asegurarFuente, fuentes, leerPieza, listarPiezas, NIVELES, TIPOS } from './corpus.ts'
 import { deshacer, descartar, ejecutar as ejecutarCarga, IMPORTADORES, leerCarga, listarCargas, reetiquetar, subir } from './cargas/index.ts'
-import { contarEntidades, coocurrencias, duplicadosProbables, editarEntidad, entidadesPorId, fusionarEntidades, noSonLoMismo, quitarAliasCruzados, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from './entidades.ts'
+import { conexionesDe, contarEntidades, coocurrencias, duplicadosProbables, editarEntidad, entidadesPorId, fusionarEntidades, noSonLoMismo, quitarAliasCruzados, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from './entidades.ts'
 import {
   alDecirSolo, archivarConversacion, registrarEvento, conversacionHoy, crearConversacion, enviar, estadoEnVivo, estaPensando, leerConversacion, listarConversaciones, listarPropuestas, mensajeDeMastropiero, mensajes, resolverPropuesta,
 } from './chat/index.ts'
@@ -628,8 +629,12 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/vectores$/, async (b) => vectorizarPendientes(db, { limite: Math.min(Number(b.limite) || 64, 512) })],
 
   // Personas
-  ['GET', /^\/api\/personas$/, (_, __, q) => personas(db, { q: q.get('q') || undefined })],
+  ['GET', /^\/api\/personas$/, (_, __, q) => conMatriz(db, personas(db, { q: q.get('q') || undefined, clase: q.get('clase') || undefined, estado: q.get('estado') || undefined, orden: q.get('orden') || undefined }))],
+  ['POST', /^\/api\/personas\/nueva$/, (b) => nuevaPersona(db, b)],
   ['POST', /^\/api\/personas\/(\d+)$/, (b, [p]) => guardarRelacion(db, id(p), b)],
+  ['POST', /^\/api\/personas\/(\d+)\/proyectos$/, (b, [p]) => (b.quitar ? desvincularDeProyecto(db, id(p), Number(b.proyecto)) : vincularAProyecto(db, id(p), Number(b.proyecto), { rol: b.rol ?? null, importancia: b.importancia ?? null }))],
+  ['GET', /^\/api\/yo$/, () => leerYo(db)],
+  ['POST', /^\/api\/yo$/, (b) => guardarYo(db, { nombre: b.nombre, alias: Array.isArray(b.alias) ? b.alias : undefined, perfil: b.perfil })],
 
   // Finanzas
   ['GET', /^\/api\/finanzas$/, (_, __, q) => {
@@ -711,7 +716,7 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/entidades\/(\d+)$/, (_, [e], q) => {
     const entidad = leerEntidad(db, id(e))
     if (!entidad) throw new Error(`No existe la entidad ${e}`)
-    return { entidad, coocurrencias: coocurrencias(db, entidad.id, 16), ...listarPiezas(db, { entidad: entidad.id, limite: 30, desde: num(q.get('desde')) }) }
+    return { entidad, coocurrencias: coocurrencias(db, entidad.id, 16), conexiones: conexionesDe(db, entidad.id), ...listarPiezas(db, { entidad: entidad.id, limite: 30, desde: num(q.get('desde')) }) }
   }],
 
   // Cargas
