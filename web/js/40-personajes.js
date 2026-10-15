@@ -125,7 +125,17 @@ function refrescarMisionesVida() {
 
 async function procesarme(boton) {
   await trabajando(boton, 'Procesándote…', async () => {
-    const r = await api('/jugador/procesar', {})
+    await api('/jugador/procesar', {})
+    // Corre de fondo (tarda más de lo que espera Cloudflare): se pregunta cada 3 s hasta que termine.
+    let r
+    for (;;) {
+      await new Promise((ok) => setTimeout(ok, 3000))
+      const e = await api('/jugador/procesar')
+      if (e.activo) continue
+      if (e.error) throw new Error(e.error)
+      r = e.resultado
+      break
+    }
     toast(`Listo<small>${r.historia ? 'Historia sugerida · ' : ''}${r.inventario} ítems de inventario · ${r.principales} candidatas a principal · ${r.primarias} primarias. Todo como sugerencia.</small>`)
     await refrescar()
     if (vista === 'misiones') traerMisiones()

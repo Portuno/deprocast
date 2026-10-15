@@ -225,6 +225,9 @@ type Ruta = (cuerpo: any, params: string[], q: Q) => unknown | Promise<unknown>
 const num = (v: string | null) => (v ? Number(v) : undefined)
 const id = (s: string) => Number(s)
 
+/** «Procesarme» corre de fondo: acá queda cómo va (la pantalla lo pregunta). */
+const procesando: { activo: boolean; resultado: Awaited<ReturnType<typeof procesarJugador>> | null; error: string | null } = { activo: false, resultado: null, error: null }
+
 const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/meta$/, () => meta()],
   ['GET', /^\/api\/estado$/, () => estado()],
@@ -696,7 +699,20 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/entidades\/(\d+)\/fusionar$/, (b, [e]) => fusionarEntidades(db, id(e), (b.absorbe ?? []).map(Number))],
   ['POST', /^\/api\/entidades\/(\d+)\/soy-yo$/, (_, [e]) => marcarJugador(db, id(e))],
   ['POST', /^\/api\/inventario\/(\d+)$/, (b, [i]) => editarItem(db, id(i), b)],
-  ['POST', /^\/api\/jugador\/procesar$/, async () => procesarJugador(db)],
+  // Procesarte tarda más de lo que espera Cloudflare (100 s): corre de fondo y la pantalla pregunta cómo va.
+  ['POST', /^\/api\/jugador\/procesar$/, () => {
+    if (procesando.activo) return { empezado: false, activo: true }
+    Object.assign(procesando, { activo: true, resultado: null, error: null })
+    void procesarJugador(db)
+      .then((r) => {
+        procesando.resultado = r
+        mensajeDeMastropiero(db, conversacionHoy(db).id, `Te procesé: ${r.historia ? 'una historia sugerida, ' : ''}${r.inventario} ítems de inventario, ${r.principales} candidatas a principal y ${r.primarias} primarias. Todo queda como sugerencia en Jugador y Misiones.`)
+      })
+      .catch((e) => { procesando.error = e instanceof Error ? e.message : String(e) })
+      .finally(() => { procesando.activo = false })
+    return { empezado: true, activo: true }
+  }],
+  ['GET', /^\/api\/jugador\/procesar$/, () => procesando],
   ['POST', /^\/api\/rutinas\/([a-z_]+)$/, (b, [r]) => (actualizarRutina(db, r, { hora: b.hora, dias: b.dias, activa: b.activa }), listarRutinas(db))],
   ['GET', /^\/api\/memoria$/, (_, __, q) => memoriaVigente(db, { tipo: q.get('tipo') || undefined, horizonte: q.get('horizonte') || undefined })],
   ['POST', /^\/api\/memoria$/, (b) => recordar(db, { texto: String(b.texto ?? ''), tipo: b.tipo, horizonte: b.horizonte || null, creadaPor: 'operador', revisada: true })],

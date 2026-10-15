@@ -44,6 +44,7 @@ async function pintarYo() {
   if (!cont) return
   let y
   try { y = await api('/yo') } catch { return }
+  if (!cont.isConnected) return // la pantalla cambió mientras cargaba
   const campos = Object.entries(y.campos).filter(([k]) => y.perfil[k])
   cont.innerHTML = `<div class="per-yo">
     <div class="per-cab"><span class="avatar">◉</span><div><h2>${y.entidad ? esc(y.entidad.nombre) : 'Vos'}</h2>${y.entidad?.alias?.length ? `<small class="tenue">también ${y.entidad.alias.map(esc).join(', ')}</small>` : ''}</div>
@@ -53,7 +54,7 @@ async function pintarYo() {
     <div class="tenue chico">${y.horario ? `Horario fijo: ${esc(y.horario)} · ` : ''}Mastropiero sabe ${y.memoria.total} cosas de vos${y.memoria.sinRevisar ? ` (${y.memoria.sinRevisar} sin revisar)` : ''}</div>
     ${y.clave.length ? `<div class="per-clave">${y.clave.map((p) => `<a href="#" class="chip ref" data-ref-ent="${p.id}">${esc(p.nombre)}${p.nivel ? ` · ${p.nivel}` : ''}</a>`).join('')}</div>` : ''}
   </div>`
-  $('#yo-editar').onclick = () => modalYo(y)
+  $('#yo-editar', cont).onclick = () => modalYo(y)
 }
 
 function modalYo(y) {
