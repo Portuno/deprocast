@@ -45,12 +45,12 @@ import { brujulaDelDia, leerBrujula } from './brujula.ts'
 import { perfilDeRendimiento, textoDeRendimiento } from './rendimiento.ts'
 import { listarRecomendaciones, recomendar, resolverRecomendacion } from './mentor.ts'
 import { listarPuentes, proponerPuentes, resolverPuente } from './puentes.ts'
-import { aCsv, agregarObra, conteos as conteosLibreria, cuadernoDeObra, editarObra, expandiendo, expandirObra, expandirTanda, listarObras, panorama, poblando, poblarLibreria } from './libreria.ts'
+import { aCsv, agregarObra, avisoLibreria, conteos as conteosLibreria, cuadernoDeObra, editarObra, expandiendo, expandirObra, expandirTanda, listarObras, panorama, poblando, poblarLibreria } from './libreria.ts'
 import { esErrorDeCodigo, registrarError } from './autocritica.ts'
 import { aplicarForja, descartarForja, forjarMejora, leerForja, listarForjas, pasoDeForja, ramaActual, retomarFragua } from './fragua.ts'
 import { borrarCuaderno, charla, componentesDeEntidad, crearCuaderno, guia, haciendo, leerCuaderno, listarCuadernos, notas, preguntar, quitarFuente, sumarFuentes } from './cuadernos.ts'
 import { buscarHibrido, estadoVectores, nivelesDe, vectorizarPendientes } from './semantica.ts'
-import { editarMovimiento, importarCSV, listarMovimientos, registrarMovimiento, resumenMes, resumenPorProyecto, ritmoMeta } from './finanzas.ts'
+import { editarMovimiento, importarCSV, listarMovimientos, registrarMovimiento, resolverSugerido, resumenMes, resumenPorProyecto, ritmoMeta, sugeridos } from './finanzas.ts'
 import { buscarOportunidades, listarOportunidades, marcarOportunidad, redactarOportunidad } from './radar.ts'
 import { cuotas, hayBuscadorWeb } from './web.ts'
 import { anotarPrediccion, calificarAMano, calificarDia, curva, paraElJugador, predecirDia, prediccionesDe, sumarPredicciones, textoDeCalificacion } from './gemelo.ts'
@@ -69,6 +69,7 @@ import { conexionesDe, contarEntidades, coocurrencias, duplicadosProbables, edit
 import {
   alDecirSolo, archivarConversacion, registrarEvento, conversacionHoy, crearConversacion, enviar, estadoEnVivo, estaPensando, leerConversacion, listarConversaciones, listarPropuestas, mensajeDeMastropiero, mensajes, resolverPropuesta,
 } from './chat/index.ts'
+import { deshacerAcciones } from './chat/deshacer.ts'
 import { celda, DOMINIOS } from './geometria72.ts'
 import { crearProyecto, cronica, estadoLiga, ingerir, numeroDeTick, tickEnCurso, tickUnico } from './mastropiero.ts'
 import { motoresDisponibles } from './motores.ts'
@@ -292,6 +293,11 @@ const rutas: [string, RegExp, Ruta][] = [
     return { ok: true }
   }],
   ['POST', /^\/api\/chat\/(\d+)\/archivar$/, (_, [c]) => (archivarConversacion(db, id(c)), { ok: true })],
+  // Deshacer lo que escribió Mastropiero en un turno (la comida, el gasto, la misión…): borra lo creado.
+  ['POST', /^\/api\/chat\/(\d+)\/deshacer$/, (b, [c]) => {
+    if (estaPensando(id(c))) throw new Error('Esperá: todavía está contestando')
+    return deshacerAcciones(db, (Array.isArray(b.ids) ? b.ids : []).map(Number).filter(Number.isFinite))
+  }],
   ['GET', /^\/api\/hoy$/, () => {
     const fecha = fechaLocal()
     const run = runActual(db)
@@ -498,7 +504,8 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/libreria\/(\d+)\/cuaderno$/, async (_, [o]) => cuadernoDeObra(db, id(o))],
   ['POST', /^\/api\/libreria$/, (b) => agregarObra(db, { ...b, origen: 'operador' })],
   ['POST', /^\/api\/libreria\/poblar$/, () => {
-    void poblarLibreria(db).then((r) => mensajeDeMastropiero(db, conversacionHoy(db).id, `Poblé la Librería: ${r.porUrl + r.nuevas} obras nuevas (${r.porUrl} repos y papers por su link, ${r.nuevas} leyendo ${r.leidas} piezas). Están marcadas para que las revises.`))
+    // Solo avisa si entró algo, con los títulos (antes avisaba «0 obras nuevas» y se contradecía).
+    void poblarLibreria(db).then((r) => { const t = avisoLibreria(r); if (t) mensajeDeMastropiero(db, conversacionHoy(db).id, t) })
       .catch((e) => console.error('  libreria:', e instanceof Error ? e.message : e))
     return { empezada: true }
   }],
@@ -648,10 +655,11 @@ const rutas: [string, RegExp, Ruta][] = [
   // Finanzas
   ['GET', /^\/api\/finanzas$/, (_, __, q) => {
     const mes = q.get('mes') || fechaLocal().slice(0, 7)
-    return { resumen: resumenMes(db, mes), movimientos: listarMovimientos(db, { mes }), porProyecto: resumenPorProyecto(db, mes), ritmo: mes === fechaLocal().slice(0, 7) ? ritmoMeta(db) : null }
+    return { resumen: resumenMes(db, mes), movimientos: listarMovimientos(db, { mes }), porProyecto: resumenPorProyecto(db, mes), ritmo: mes === fechaLocal().slice(0, 7) ? ritmoMeta(db) : null, sugeridos: sugeridos(db) }
   }],
   ['POST', /^\/api\/finanzas$/, (b) => registrarMovimiento(db, b) ?? { repetido: true }],
   ['POST', /^\/api\/finanzas\/(\d+)$/, (b, [m]) => (editarMovimiento(db, id(m), b), { ok: true })],
+  ['POST', /^\/api\/finanzas\/sugeridos\/(\d+)$/, (b, [m]) => resolverSugerido(db, id(m), b.accion === 'aceptar' ? 'aceptar' : 'descartar', { monto: b.monto != null ? Number(b.monto) : undefined, descripcion: b.descripcion }) ?? { descartado: true }],
 
   ['GET', /^\/api\/radar$/, () => ({
     oportunidades: listarOportunidades(db, { estados: ['nueva', 'me_interesa', 'hecha'], limite: 200 }), cuotas: cuotas(db), conBuscador: hayBuscadorWeb(),
@@ -676,7 +684,7 @@ const rutas: [string, RegExp, Ruta][] = [
     return calificarAMano(db, id(p), paso, typeof b.nota === 'string' ? b.nota : null)
   }],
   ['GET', /^\/api\/menciones$/, () => catalogo(db).map((m) => ({ k: m.clave, n: m.nombre, t: m.tipo, a: m.alias.slice(0, 8), p: m.piezas }))],
-  ['POST', /^\/api\/entidades\/(\d+)$/, (b, [e]) => editarEntidad(db, id(e), { nombre: b.nombre, tipo: b.tipo, notas: b.notas, alias: Array.isArray(b.alias) ? b.alias : undefined, sumarAlias: b.sumarAlias })],
+  ['POST', /^\/api\/entidades\/(\d+)$/, (b, [e]) => editarEntidad(db, id(e), { nombre: b.nombre, tipo: b.tipo, notas: b.notas, alias: Array.isArray(b.alias) ? b.alias : undefined, sumarAlias: b.sumarAlias, quitarAlias: Array.isArray(b.quitarAlias) ? b.quitarAlias : undefined })],
   ['POST', /^\/api\/entidades\/(\d+)\/fusionar$/, (b, [e]) => fusionarEntidades(db, id(e), (b.absorbe ?? []).map(Number))],
   ['POST', /^\/api\/entidades\/(\d+)\/soy-yo$/, (_, [e]) => marcarJugador(db, id(e))],
   ['POST', /^\/api\/inventario\/(\d+)$/, (b, [i]) => editarItem(db, id(i), b)],

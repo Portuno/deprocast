@@ -5,6 +5,7 @@
 import { CLASES } from './clases.ts'
 import { fechaLocal, type Db } from './db.ts'
 import { topeAlcanzado } from './nan.ts'
+import { deduplicarMemoria } from './memoria.ts'
 import { asignar, asignadasA, cerrarFallo, cerrarOk, leerTarea, publicar, type NuevaTarea, type Tarea } from './bus.ts'
 import { registrar } from './auditor.ts'
 import { construir } from './contexto.ts'
@@ -21,7 +22,7 @@ import { efectos, NIVEL_BAUTISMO, nivelDe, XP_POR_ASIGNACION, XP_POR_EXITO } fro
 export const MASTROPIERO = 'mastropiero'
 
 export type Evento = {
-  tipo: 'purga' | 'asigna' | 'recluta' | 'vacante' | 'corre' | 'falla' | 'nivel' | 'bautismo' | 'promovido' | 'banca' | 'retirado' | 'publica' | 'tope'
+  tipo: 'purga' | 'asigna' | 'recluta' | 'vacante' | 'corre' | 'falla' | 'nivel' | 'bautismo' | 'promovido' | 'banca' | 'retirado' | 'publica' | 'tope' | 'memoria'
   texto: string
 }
 
@@ -85,6 +86,9 @@ export async function tick(db: Db, o: { ahora?: number; reclutar?: boolean } = {
   const ahora = o.ahora ?? Date.now()
   const ev: Evento[] = []
   purgar(db, ahora, ev)
+  // Mantenimiento de fondo (sin tokens): los recuerdos repetidos se juntan solos, no son una tarea del jugador.
+  const limpia = deduplicarMemoria(db)
+  if (limpia.archivados) ev.push({ tipo: 'memoria', texto: `juntó ${limpia.archivados} recuerdo${limpia.archivados === 1 ? '' : 's'} repetido${limpia.archivados === 1 ? '' : 's'} en ${limpia.grupos}` })
   // Pasado el tope diario de tokens, la liga reparte pero no corre: nadie falla ni pierde racha por eso.
   const tope = topeAlcanzado(db, ahora)
   repartir(db, ahora, (o.reclutar ?? true) && !tope, ev)

@@ -108,17 +108,17 @@ export function aCsv(obras: Obra[]): string {
 // ─── poblar desde el corpus ─────────────────────────────────────────────
 
 /** Repos y papers salen de su URL, sin modelo. */
-export function obrasPorUrl(db: Db, ahora = Date.now()): number {
+export function obrasPorUrl(db: Db, ahora = Date.now(), titulos: string[] = []): number {
   let nuevas = 0
   const filas = db.prepare(`SELECT id, titulo, url FROM corpus WHERE url LIKE '%github.com/%' OR url LIKE '%gitlab.com/%' OR url LIKE '%arxiv.org/%' OR url LIKE '%doi.org/%' OR url LIKE '%semanticscholar.org/%'`).all() as any[]
   for (const p of filas) {
     const gh = /(?:github|gitlab)\.com\/([\w.-]+)\/([\w.-]+)/.exec(p.url)
     if (gh) {
       const r = agregarObra(db, { tipo: 'repositorio', titulo: `${gh[1]}/${gh[2].replace(/\.git$/, '')}`, autor: gh[1], url: `https://${/gitlab/.test(p.url) ? 'gitlab' : 'github'}.com/${gh[1]}/${gh[2].replace(/\.git$/, '')}`, notas: p.titulo, piezas: [p.id], origen: 'mastropiero' }, ahora)
-      if (r.nueva) nuevas++
+      if (r.nueva) (nuevas++, titulos.push(r.obra.titulo))
     } else {
       const r = agregarObra(db, { tipo: 'paper', titulo: String(p.titulo).replace(/^(Hallazgo|Paper)\s*[·:]\s*/i, ''), url: p.url, piezas: [p.id], origen: 'mastropiero' }, ahora)
-      if (r.nueva) nuevas++
+      if (r.nueva) (nuevas++, titulos.push(r.obra.titulo))
     }
   }
   return nuevas
@@ -145,13 +145,14 @@ function textosCandidatos(db: Db, limite: number): { id: number; texto: string }
 export const poblando = { activo: false, paso: '' }
 
 /** Puebla la Librería: URLs primero (gratis) y después lee de a 12 textos con el modelo. Lo leído no se vuelve a leer. */
-export async function poblarLibreria(db: Db, o: { limite?: number; ahora?: number } = {}): Promise<{ porUrl: number; leidas: number; nuevas: number }> {
+export async function poblarLibreria(db: Db, o: { limite?: number; ahora?: number } = {}): Promise<{ porUrl: number; leidas: number; nuevas: number; titulos: string[] }> {
   if (poblando.activo) throw new Error('Ya la estoy poblando')
   poblando.activo = true
   const ahora = o.ahora ?? Date.now()
   try {
     poblando.paso = 'repos y papers por su link'
-    const porUrl = obrasPorUrl(db, ahora)
+    const titulos: string[] = []
+    const porUrl = obrasPorUrl(db, ahora, titulos)
     const textos = textosCandidatos(db, o.limite ?? 120)
     let nuevas = 0
     for (let i = 0; i < textos.length; i += 12) {
@@ -162,12 +163,12 @@ export async function poblarLibreria(db: Db, o: { limite?: number; ahora?: numbe
         const pieza = tanda[Number(ob.texto) - 1]?.id
         if (!TIPOS_OBRA.includes(ob.tipo) || !ob.titulo) continue
         const r = agregarObra(db, { tipo: ob.tipo, titulo: ob.titulo, autor: ob.autor ?? null, anio: ob.anio ?? null, piezas: pieza ? [pieza] : [], origen: 'mastropiero' }, ahora)
-        if (r.nueva) nuevas++
+        if (r.nueva) (nuevas++, titulos.push(r.obra.titulo))
       }
       const ins = db.prepare('INSERT OR IGNORE INTO libreria_leidas (pieza_id, en) VALUES (?, ?)')
       for (const t of tanda) ins.run(t.id, ahora)
     }
-    return { porUrl, leidas: textos.length, nuevas }
+    return { porUrl, leidas: textos.length, nuevas, titulos }
   } finally {
     poblando.activo = false
     poblando.paso = ''
@@ -308,4 +309,12 @@ export function panorama(db: Db) {
     total: n(''), sinRevisar: n('WHERE revisada = 0'), enCurso: n(`WHERE estado = 'en_curso'`), quiero: n(`WHERE estado = 'quiero'`),
     valoradas: n('WHERE valoracion IS NOT NULL'), enCorpus: n(`WHERE expansion = 'ok'`), porExpandir: paraExpandir(db, 5000).length,
   }
+}
+
+/** El aviso de «poblé la Librería»: solo si entró algo, y con los títulos para poder verificarlo de un toque. */
+export function avisoLibreria(r: { titulos: string[] }): string | null {
+  if (!r.titulos.length) return null
+  const n = r.titulos.length
+  const lista = r.titulos.slice(0, 8).map((t) => `«${t}»`).join(', ')
+  return `Sumé ${n} obra${n === 1 ? '' : 's'} a la Librería: ${lista}${n > 8 ? ` y ${n - 8} más` : ''}. Están marcadas para que las revises.`
 }

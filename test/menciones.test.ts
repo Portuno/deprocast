@@ -74,3 +74,20 @@ test('duplicados: mismo nombre o alias cruzado; «no son lo mismo» y sacar alia
   noSonLoMismo(db, [v1, v2])
   assert.equal(duplicadosProbables(db).length, 0)
 })
+
+test('alias: sacar uno cruzado lo deja como conexión; quitar y mover alias desde la herramienta', async () => {
+  const { conexionesDe, editarEntidad, leerEntidad, quitarAliasCruzados } = await import('../src/entidades.ts')
+  const { ejecutarHerramienta, HERRAMIENTAS } = await import('../src/chat/herramientas.ts')
+  const db = abrir(':memory:')
+  const camila = asegurarEntidad(db, { tipo: 'persona', nombre: 'Camila', alias: ['Cami', 'España', 'YouTube', 'Michael Jackson'] })
+  const espana = asegurarEntidad(db, { tipo: 'lugar', nombre: 'España' })
+  const mj = asegurarEntidad(db, { tipo: 'persona', nombre: 'Michael Jackson' })
+  quitarAliasCruzados(db, [camila, espana])
+  assert.deepEqual(conexionesDe(db, camila).map((c) => c.nombre), ['España'], 'aparecen juntas: conexión, no alias')
+
+  const ctx = { db, conversacionId: null }
+  const r: any = (await ejecutarHerramienta(HERRAMIENTAS, 'editar_entidad', JSON.stringify({ id: camila, quitar_alias: ['youtube'], mover_alias: { alias: 'Michael Jackson', a: mj } }), ctx)).resultado
+  assert.deepEqual(r.alias, ['Cami'])
+  assert.ok(leerEntidad(db, mj)!.alias.length === 0, 'mover a la que se llama igual no duplica el nombre como alias')
+  assert.deepEqual(editarEntidad(db, camila, { sumarAlias: ['Cami'] }).alias, ['Cami'])
+})

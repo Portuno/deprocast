@@ -76,6 +76,46 @@ export function registrarMovimiento(db: Db, m: { fecha?: string; monto: number; 
   return r.changes ? leerMovimiento(db, Number(r.lastInsertRowid)) : null
 }
 
+// ─── lo que contó charlando ─────────────────────────────────────────────
+
+export type Sugerido = { id: number; fecha: string; monto: number; moneda: string; descripcion: string; dicho: string | null; creadoEn: number }
+const DIA = 86_400_000
+
+/**
+ * Un monto que contó («me pagaron 800», «gasté 40 en…») queda como movimiento sugerido: entra a Finanzas con su ok.
+ * Si ya está anotado (el mismo monto, días cerca) o ya se sugirió, no se repite.
+ */
+export function sugerirMovimiento(db: Db, m: { monto: number; descripcion: string; fecha?: string | null; moneda?: string | null; dicho?: string | null }, ahora = Date.now()): Sugerido | null {
+  const monto = Math.round(Number(m.monto) * 100) / 100
+  if (!Number.isFinite(monto) || monto === 0) return null
+  const fecha = m.fecha && /^\d{4}-\d{2}-\d{2}$/.test(m.fecha) ? m.fecha : fechaLocal(ahora)
+  const cerca = [fechaLocal(new Date(`${fecha}T12:00:00`).getTime() - 3 * DIA), fechaLocal(new Date(`${fecha}T12:00:00`).getTime() + 3 * DIA)]
+  if (db.prepare('SELECT 1 FROM movimientos WHERE ABS(monto - ?) < 0.01 AND fecha BETWEEN ? AND ?').get(monto, ...cerca)) return null
+  if (db.prepare(`SELECT 1 FROM movimientos_sugeridos WHERE ABS(monto - ?) < 0.01 AND fecha BETWEEN ? AND ? AND estado != 'descartado'`).get(monto, ...cerca)) return null
+  const descripcion = String(m.descripcion ?? '').trim().slice(0, 200) || (monto > 0 ? 'Ingreso' : 'Gasto')
+  const r = db.prepare('INSERT INTO movimientos_sugeridos (fecha, monto, moneda, descripcion, dicho, creado_en) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(fecha, monto, (m.moneda || 'EUR').toUpperCase().slice(0, 3), descripcion, m.dicho?.trim().slice(0, 300) || null, ahora)
+  return sugeridos(db).find((x) => x.id === Number(r.lastInsertRowid)) ?? null
+}
+
+export function sugeridos(db: Db): Sugerido[] {
+  return (db.prepare(`SELECT * FROM movimientos_sugeridos WHERE estado = 'pendiente' ORDER BY fecha DESC, id DESC LIMIT 50`).all() as any[])
+    .map((r) => ({ id: r.id, fecha: r.fecha, monto: r.monto, moneda: r.moneda, descripcion: r.descripcion, dicho: r.dicho, creadoEn: r.creado_en }))
+}
+
+/** Aceptar lo pasa a Finanzas (con lo que él corrija del monto o la descripción); descartar lo olvida. */
+export function resolverSugerido(db: Db, id: number, accion: 'aceptar' | 'descartar', c: { monto?: number; descripcion?: string } = {}, ahora = Date.now()): Movimiento | null {
+  const s = db.prepare(`SELECT * FROM movimientos_sugeridos WHERE id = ? AND estado = 'pendiente'`).get(id) as any
+  if (!s) throw new Error(`No hay un movimiento sugerido ${id} pendiente`)
+  if (accion === 'descartar') {
+    db.prepare(`UPDATE movimientos_sugeridos SET estado = 'descartado' WHERE id = ?`).run(id)
+    return null
+  }
+  const m = registrarMovimiento(db, { fecha: s.fecha, monto: c.monto ?? s.monto, moneda: s.moneda, descripcion: c.descripcion?.trim() || s.descripcion, origen: 'charla', nota: s.dicho }, ahora)
+  db.prepare(`UPDATE movimientos_sugeridos SET estado = 'aceptado', movimiento_id = ? WHERE id = ?`).run(m?.id ?? null, id)
+  return m
+}
+
 export function leerMovimiento(db: Db, id: number): Movimiento | null {
   const r = db.prepare(`${SELECT} WHERE m.id = ?`).get(id)
   return r ? deFila(r) : null

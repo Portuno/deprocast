@@ -511,6 +511,10 @@ input[type=range] { accent-color: var(--acento); width: 100%; margin-top: 8px; }
 .actividad ul { list-style: none; margin: 6px 0 4px; padding: 0 0 0 12px; border-left: 1px solid var(--linea); max-height: 220px; overflow: auto; }
 .actividad li { margin: 2px 0; }
 .actividad li.falla { color: var(--mal); }
+.actividad li.tachada > details > summary { text-decoration: line-through; }
+.actividad .deshacer { flex: none; margin-left: 6px; border: 1px solid var(--linea); background: var(--panel-2); color: var(--tenue); border-radius: 999px; padding: 0 8px; font: inherit; font-size: 11.5px; cursor: pointer; }
+.actividad .deshacer:hover { color: var(--texto); border-color: var(--acento); }
+.actividad .deshecho { flex: none; margin-left: 6px; font-size: 11.5px; }
 .actividad li summary { cursor: pointer; }
 .actividad pre { font: 11.5px/1.5 var(--mono); background: var(--panel-2); border-radius: 6px; padding: 8px 10px; max-height: 240px; max-width: 100%; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 4px 0; color: var(--tenue); }
 sup.cita { line-height: 0; margin-left: 1px; }
@@ -798,6 +802,8 @@ pre.json { background: var(--panel-2); border-radius: 8px; padding: 12px; font: 
 .p-avance { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
 .p-avance input { flex: 1; accent-color: var(--acento); }
 .p-avance b { font: 500 12px var(--mono); width: 36px; text-align: right; }
+.p-avance[hidden] { display: none; }
+.p-avance .mp-barra { flex: 1; }
 .p-acc { margin-top: 6px; }
 .mi-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; margin-bottom: 20px; }
 .form-sq, .form-inv { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
@@ -1599,3 +1605,5 @@ details.puentes > summary { cursor: pointer; padding: 6px 0; }
 .per-form .campo > input, .per-form .campo > select, .per-form .campo > textarea { width: 100%; box-sizing: border-box; }
 .per-form .fila > .campo-suelto { flex: 1; min-width: 120px; margin: 0; }
 .per-form > .btn-primario { justify-self: start; }
+.tags .quitar-alias { border: 0; background: none; color: var(--debil); cursor: pointer; padding: 0 0 0 5px; font-size: 10.5px; line-height: 1; }
+.tags .quitar-alias:hover { color: var(--mal); }

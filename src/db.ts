@@ -788,6 +788,19 @@ CREATE TABLE IF NOT EXISTS movimientos (
 );
 CREATE INDEX IF NOT EXISTS movimientos_fecha ON movimientos (fecha);
 
+-- Montos que contó charlando («me pagaron 800», «gasté 40 en…»): esperan su ok para entrar a Finanzas.
+CREATE TABLE IF NOT EXISTS movimientos_sugeridos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  fecha TEXT NOT NULL,
+  monto REAL NOT NULL,
+  moneda TEXT NOT NULL DEFAULT 'EUR',
+  descripcion TEXT NOT NULL,
+  dicho TEXT,                          -- la frase de donde salió
+  estado TEXT NOT NULL DEFAULT 'pendiente', -- pendiente | aceptado | descartado
+  movimiento_id INTEGER,
+  creado_en INTEGER NOT NULL
+);
+
 -- Conexiones entre entidades (se conocen, trabajan juntos, le debe algo): de lo que se dice o se ve en el Directo.
 CREATE TABLE IF NOT EXISTS conexiones (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -952,6 +965,11 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   ],
   misiones: [
     ['armado', 'TEXT'], // bien | mal: si la banda estuvo bien armada
+    ['progreso_manual', 'INTEGER'], // 1 = el % lo fijó él; si no, el avance de una primaria se infiere de lo hecho
+  ],
+  mensajes: [
+    ['deshacer', 'TEXT'], // JSON: cómo volver atrás lo que escribió esa herramienta (si se puede)
+    ['deshecho_en', 'INTEGER'],
   ],
   runs: [
     ['comentario', 'TEXT'], // lo que dijo de la run entera

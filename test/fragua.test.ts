@@ -130,3 +130,20 @@ test('fragua: no deja tocar .env, .git, data ni salir del repo', () => {
   assert.deepEqual(aplicarCambios(dir, [{ archivo: 'src/nuevo.ts', buscar: '', reemplazar: 'export {}\n' }]), ['src/nuevo.ts'])
   assert.throws(() => aplicarCambios(dir, [{ archivo: 'src/nuevo.ts', buscar: '', reemplazar: 'x' }]), /ya existe/)
 })
+
+test('propuestas: «hecha» la cierra como forjada (sin pasar por La Fragua); la herramienta resuelve varias', async () => {
+  const { resolverPropuesta } = await import('../src/chat/index.ts')
+  const { ejecutarHerramienta, HERRAMIENTAS } = await import('../src/chat/herramientas.ts')
+  const db = abrir(':memory:')
+  const alta = db.prepare(`INSERT INTO propuestas (titulo, detalle, estado, creada_en) VALUES (?, 'x', 'abierta', 1)`)
+  const [a, b, c] = ['Uno', 'Dos', 'Tres'].map((t) => Number(alta.run(t).lastInsertRowid))
+  resolverPropuesta(db, a, 'hecha')
+  const fa = db.prepare('SELECT estado, resuelta_en FROM propuestas WHERE id = ?').get(a) as any
+  assert.equal(fa.estado, 'aceptada')
+  assert.ok(fa.resuelta_en)
+  assert.throws(() => resolverPropuesta(db, 999, 'hecha'), /No existe/)
+  const r: any = (await ejecutarHerramienta(HERRAMIENTAS, 'resolver_propuestas', JSON.stringify({ ids: [b, c, 999], estado: 'descartada' }), { db, conversacionId: null })).resultado
+  assert.deepEqual(r.propuestas, [b, c])
+  assert.equal(r.errores.length, 1)
+  assert.equal((db.prepare(`SELECT COUNT(*) AS n FROM propuestas WHERE estado = 'abierta'`).get() as any).n, 0)
+})

@@ -45,12 +45,14 @@ export type Mensaje = {
   id: number; conversacionId: number; rol: 'operador' | 'asistente' | 'herramienta' | 'error' | 'evento'
   texto: string | null; llamadas: LlamadaHerramienta[] | null; llamadaId: string | null; herramienta: string | null
   resumen: string | null; razonamiento: string | null; modelo: string | null; tokens: number | null; en: number
+  deshacer?: unknown; deshacible?: boolean; deshecho?: boolean
 }
 
 const conv = (r: any): Conversacion => ({ id: r.id, con: r.con, modo: r.modo ?? 'chat', titulo: r.titulo, archivada: r.archivada === 1, creadaEn: r.creada_en, actualizadaEn: r.actualizada_en, mensajes: r.mensajes })
 const msj = (r: any): Mensaje => ({
   id: r.id, conversacionId: r.conversacion_id, rol: r.rol, texto: r.texto, llamadas: r.llamadas ? JSON.parse(r.llamadas) : null,
   llamadaId: r.llamada_id, herramienta: r.herramienta, resumen: r.resumen, razonamiento: r.razonamiento, modelo: r.modelo, tokens: r.tokens, en: r.en,
+  deshacible: !!r.deshacer && !r.deshecho_en, deshecho: !!r.deshecho_en,
 })
 
 export function crearConversacion(db: Db, con: string = MASTROPIERO, modo: Modo = 'chat', ahora = Date.now()): Conversacion {
@@ -115,9 +117,9 @@ export function mensajes(db: Db, id: number, desde = 0): Mensaje[] {
 function guardar(db: Db, cid: number, m: Partial<Mensaje> & { rol: Mensaje['rol'] }) {
   const ahora = Date.now()
   db.prepare(
-    `INSERT INTO mensajes (conversacion_id, rol, texto, llamadas, llamada_id, herramienta, resumen, razonamiento, modelo, tokens, en) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO mensajes (conversacion_id, rol, texto, llamadas, llamada_id, herramienta, resumen, razonamiento, modelo, tokens, deshacer, en) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(cid, m.rol, m.texto ?? null, m.llamadas?.length ? JSON.stringify(m.llamadas) : null, m.llamadaId ?? null, m.herramienta ?? null,
-    m.resumen ?? null, m.razonamiento ?? null, m.modelo ?? null, m.tokens ?? null, ahora)
+    m.resumen ?? null, m.razonamiento ?? null, m.modelo ?? null, m.tokens ?? null, m.deshacer ? JSON.stringify(m.deshacer) : null, ahora)
   db.prepare('UPDATE conversaciones SET actualizada_en = ? WHERE id = ?').run(ahora, cid)
 }
 
@@ -338,7 +340,7 @@ async function bucle(t: Turno): Promise<string> {
       }
       const x = await ejecutarHerramienta(t.hs, l.nombre, l.argumentos, t.ctx)
       const contenido = recorte(JSON.stringify(x.resultado ?? null), 12000)
-      t.alGuardar({ rol: 'herramienta', texto: contenido, llamadaId: l.id, herramienta: l.nombre, resumen: x.resumen })
+      t.alGuardar({ rol: 'herramienta', texto: contenido, llamadaId: l.id, herramienta: l.nombre, resumen: x.resumen, deshacer: x.inversa ?? null })
       conv.push({ role: 'tool', tool_call_id: l.id, content: contenido })
     }
   }
@@ -444,10 +446,13 @@ export function listarPropuestas(db: Db) {
 
 /**
  * «Aceptar» una propuesta es mandarla a La Fragua: sigue abierta (para que se forje) y sube al frente de la cola. Queda
- * «aceptada» recién cuando La Fragua la aplica. Descartar sí la cierra.
+ * «aceptada» recién cuando La Fragua la aplica, o cuando él la marca «hecha» porque ya se resolvió por otro lado.
+ * Descartar sí la cierra.
  */
-export function resolverPropuesta(db: Db, id: number, estado: 'aceptada' | 'descartada' | 'abierta') {
-  if (!['aceptada', 'descartada', 'abierta'].includes(estado)) throw new Error('Estado inválido')
+export function resolverPropuesta(db: Db, id: number, estado: 'aceptada' | 'descartada' | 'abierta' | 'hecha') {
+  if (!['aceptada', 'descartada', 'abierta', 'hecha'].includes(estado)) throw new Error('Estado inválido')
+  if (!db.prepare('SELECT 1 FROM propuestas WHERE id = ?').get(id)) throw new Error(`No existe la propuesta ${id}`)
   if (estado === 'aceptada') return void db.prepare(`UPDATE propuestas SET estado = 'abierta', prioridad = 'alta', resuelta_en = NULL WHERE id = ?`).run(id)
+  if (estado === 'hecha') return void db.prepare(`UPDATE propuestas SET estado = 'aceptada', resuelta_en = ? WHERE id = ?`).run(Date.now(), id)
   db.prepare('UPDATE propuestas SET estado = ?, resuelta_en = ? WHERE id = ?').run(estado, estado === 'abierta' ? null : Date.now(), id)
 }

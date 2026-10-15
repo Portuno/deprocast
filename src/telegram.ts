@@ -562,35 +562,51 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
 
 let offset = 0
 /** El bucle de long polling: pregunta, procesa de a una (en orden), y vuelve a preguntar. */
-let dbDeError: Db | null = null
+/**
+ * Cuánto esperar después de fallar n veces seguidas. Un 409 (otra instancia con el mismo bot) espera largo: 1, 2, 4 y
+ * hasta 10 minutos. Lo demás (timeout, fetch failed, 5xx) es pasajero: 5, 10, 20 y hasta 2 minutos.
+ */
+export function esperaTelegram(conflicto: boolean, seguidas: number): number {
+  return conflicto ? Math.min(600_000, 60_000 * 2 ** Math.max(0, seguidas - 1)) : Math.min(120_000, 5_000 * 2 ** Math.max(0, seguidas - 1))
+}
+export const AVISO_OTRA_INSTANCIA = 'Otra instancia está escuchando este bot (¿la compu y la nube a la vez?). Dejá Telegram prendido en una sola.'
+const racha = { conflictos: 0, fallas: 0 }
+/** Una vuelta del polling; devuelve cuánto esperar antes de la siguiente (para los tests, sin timers). */
+export async function vueltaTelegram(db: Db): Promise<number> {
+  try {
+    const r = await pedir('getUpdates', { offset, timeout: 50, allowed_updates: ['message', 'edited_message', 'callback_query'] })
+    if (r?.ok === false && (r.error_code === 409 || /conflict/i.test(r.description ?? ''))) {
+      // Otra instancia escucha el mismo bot: las dos contestarían lo mismo. Se avisa UNA vez por racha y se espera cada vez más.
+      racha.conflictos++
+      estado.ultimoError = AVISO_OTRA_INSTANCIA
+      if (racha.conflictos === 1) registrarError(db, 'servidor', `telegram: ${AVISO_OTRA_INSTANCIA}`)
+      return esperaTelegram(true, racha.conflictos)
+    }
+    if (r?.ok === false) throw new Error(r.description ?? 'Telegram dijo que no')
+    if (racha.conflictos || racha.fallas) console.log('  telegram: volvió a andar')
+    racha.conflictos = 0
+    racha.fallas = 0
+    estado.ultimoError = null
+    for (const u of r.result ?? []) {
+      offset = u.update_id + 1
+      await procesarActualizacion(db, u).catch((e) => decir(`Se me trabó algo: ${e instanceof Error ? e.message : e}`))
+    }
+    return 300
+  } catch (e) {
+    // Un corte (timeout, sin red, 5xx) no es otra instancia: se reintenta con espera creciente y se loguea solo la primera.
+    racha.fallas++
+    estado.ultimoError = e instanceof Error ? e.message : String(e)
+    if (racha.fallas === 1) console.error('  telegram:', estado.ultimoError)
+    return esperaTelegram(false, racha.fallas)
+  }
+}
 export function escucharTelegram(db: Db) {
   if (estado.escuchando || !telegramActivo()) return
   estado.escuchando = true
-  dbDeError = db
   void pedir('setMyCommands', { commands: COMANDOS.map(([command, description]) => ({ command, description })) }).catch(() => {})
   const vuelta = async () => {
-    try {
-      const r = await pedir('getUpdates', { offset, timeout: 50, allowed_updates: ['message', 'edited_message', 'callback_query'] })
-      if (r?.ok === false && (r.error_code === 409 || /conflict/i.test(r.description ?? ''))) {
-        // Otra instancia escucha el mismo bot: las dos contestarían lo mismo. Se avisa y se espera más.
-        estado.ultimoError = 'Otra instancia está escuchando este bot (¿la compu y la nube a la vez?). Dejá Telegram prendido en una sola.'
-        if (dbDeError) registrarError(dbDeError, 'servidor', `telegram: ${estado.ultimoError}`)
-        await new Promise((ok) => setTimeout(ok, 60_000))
-        if (estado.escuchando) setTimeout(vuelta, 300)
-        return
-      }
-      if (r?.ok === false) throw new Error(r.description ?? 'Telegram dijo que no')
-      estado.ultimoError = null
-      for (const u of r.result ?? []) {
-        offset = u.update_id + 1
-        await procesarActualizacion(db, u).catch((e) => decir(`Se me trabó algo: ${e instanceof Error ? e.message : e}`))
-      }
-    } catch (e) {
-      estado.ultimoError = e instanceof Error ? e.message : String(e)
-      console.error('  telegram:', estado.ultimoError)
-      await new Promise((ok) => setTimeout(ok, 10_000))
-    }
-    if (estado.escuchando) setTimeout(vuelta, 300)
+    const espera = await vueltaTelegram(db)
+    if (estado.escuchando) setTimeout(vuelta, espera)
   }
   void vuelta()
 }

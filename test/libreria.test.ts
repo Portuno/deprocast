@@ -4,7 +4,7 @@ import { abrir } from '../src/db.ts'
 import { insertar } from '../src/corpus.ts'
 import { asegurarEntidad } from '../src/entidades.ts'
 import { _probarModelo } from '../src/modelo.ts'
-import { aCsv, agregarObra, conteos, editarObra, listarObras, poblarLibreria } from '../src/libreria.ts'
+import { aCsv, agregarObra, avisoLibreria, conteos, editarObra, listarObras, poblarLibreria } from '../src/libreria.ts'
 
 test('librería: sumar sin duplicar, editar marca revisada, CSV', () => {
   const db = abrir(':memory:')
@@ -37,14 +37,16 @@ test('librería: se puebla desde el corpus (repos y papers por URL, el resto con
     return { texto: JSON.stringify({ obras: [{ tipo: 'libro', titulo: 'Dune', autor: 'Frank Herbert', texto: 1 }, { tipo: 'serie', titulo: 'Severance', texto: 1 }, { tipo: 'disco', titulo: 'no vale', texto: 1 }] }), llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }
   })
   const r = await poblarLibreria(db)
-  assert.deepEqual(r, { porUrl: 2, leidas: 1, nuevas: 2 })
+  assert.deepEqual({ ...r, titulos: [...r.titulos].sort() }, { porUrl: 2, leidas: 1, nuevas: 2, titulos: ['Atención es todo', 'Dune', 'Severance', 'dueno/proyecto'] })
+  assert.match(avisoLibreria(r)!, /^Sumé 4 obras a la Librería: .*«Dune»/)
   const repo = listarObras(db, { tipo: 'repositorio' })[0]
   assert.deepEqual([repo.titulo, repo.autor, repo.url], ['dueno/proyecto', 'dueno', 'https://github.com/dueno/proyecto'])
   assert.equal(listarObras(db, { tipo: 'paper' })[0].titulo, 'Atención es todo')
   const dune = listarObras(db, { tipo: 'libro' })[0]
   assert.deepEqual([dune.titulo, dune.autor, dune.piezas, dune.revisada], ['Dune', 'Frank Herbert', [p], false])
   const r2 = await poblarLibreria(db)
-  assert.deepEqual(r2, { porUrl: 0, leidas: 0, nuevas: 0 })
+  assert.deepEqual(r2, { porUrl: 0, leidas: 0, nuevas: 0, titulos: [] })
+  assert.equal(avisoLibreria(r2), null, 'sin obras nuevas no hay aviso')
   assert.equal(llamadas, 1, 'lo leído no se vuelve a leer')
 })
 

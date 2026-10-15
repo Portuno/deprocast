@@ -367,11 +367,14 @@ function hiloHTML(ms, q, vivo) {
 
 function turnoHTML(t, q, vivo) {
   let h = t.yo ? `<div class="m m-yo">${textoConImagenes(t.yo.texto)}</div>` : ''
-  const actividad = t.herr.length ? `<details class="actividad"><summary><span>${esc(resumenActividad(t.herr))}</span></summary><ul>${t.herr.map((m) => {
+  // Lo que escribió y todavía se puede volver atrás (la comida, el gasto, la misión): un botón al lado de la línea.
+  const deshacibles = t.herr.filter((m) => m.deshacible).map((m) => m.id)
+  const deshecho = !deshacibles.length && t.herr.some((m) => m.deshecho)
+  const actividad = t.herr.length ? `<details class="actividad"><summary><span>${esc(resumenActividad(t.herr))}</span>${deshacibles.length ? `<button type="button" class="deshacer" data-deshacer="${deshacibles.join(',')}" title="Volver atrás lo que anotó en este turno">↶ deshacer</button>` : deshecho ? '<em class="deshecho">deshecho</em>' : ''}</summary><ul>${t.herr.map((m) => {
     let cuerpo = m.texto ?? ''
     try { cuerpo = JSON.stringify(JSON.parse(cuerpo), null, 2) } catch {}
     const falla = /^\{"error"/.test(m.texto ?? '') || /falló|no existe/.test(m.resumen ?? '')
-    return `<li class="${falla ? 'falla' : ''}"><details><summary>${esc(m.resumen ?? m.herramienta)}</summary><pre>${esc(cuerpo.slice(0, 6000))}</pre></details></li>`
+    return `<li class="${falla ? 'falla' : ''}${m.deshecho ? ' tachada' : ''}"><details><summary>${esc(m.resumen ?? m.herramienta)}</summary><pre>${esc(cuerpo.slice(0, 6000))}</pre></details></li>`
   }).join('')}</ul></details>` : ''
   const borrador = vivo?.borrador ? partirSeguir(vivo.borrador, true).texto : ''
   const texto = [...t.textos.map((x) => partirSeguir(x).texto), borrador].filter(Boolean).join('\n\n')
@@ -471,7 +474,7 @@ async function modalPropuestas() {
         <div class="q-top"><span class="pill ${p.estado === 'aceptada' ? 'activo' : p.estado === 'abierta' ? 'prueba' : 'banca'}">${p.estado}</span>
           ${p.area ? `<span class="tipo-chip">${esc(p.area)}</span>` : ''}${p.prioridad ? `<span class="tipo-chip">${esc(p.prioridad)}</span>` : ''}<span>#${p.id} · ${new Date(p.creada_en).toLocaleDateString('es-AR')}</span></div>
         <div class="q-texto"><b>${esc(p.titulo)}</b></div><div class="md tenue">${md(p.detalle)}</div>
-        ${p.estado === 'abierta' ? `<div class="q-acciones"><button class="btn btn-chico btn-primario" data-prop="${p.id}" data-estado="aceptada" title="Sigue abierta y La Fragua la forja primero esta noche">Mandar a La Fragua</button><button class="btn btn-chico" data-prop="${p.id}" data-estado="descartada">Descartar</button></div>` : ''}
+        ${p.estado === 'abierta' ? `<div class="q-acciones"><button class="btn btn-chico btn-primario" data-prop="${p.id}" data-estado="aceptada" title="Sigue abierta y La Fragua la forja primero esta noche">Mandar a La Fragua</button><button class="btn btn-chico" data-prop="${p.id}" data-estado="hecha" title="Ya se resolvió: queda como forjada">✓ Ya está</button><button class="btn btn-chico" data-prop="${p.id}" data-estado="descartada">Descartar</button></div>` : ''}
       </div>`).join('') : '<p class="tenue">Ninguna todavía. Pedile a Mastropiero que lea sus lineamientos y te proponga mejoras.</p>'}`)
     $$('[data-prop]').forEach((b) => (b.onclick = async () => {
       try { await api(`/propuestas/${b.dataset.prop}`, { estado: b.dataset.estado }); await refrescar(); modalPropuestas() } catch (e) { error(e) }
@@ -486,3 +489,19 @@ function preguntarAMastropiero(texto) {
   cerrarModal()
   irA('chat')
 }
+
+// ↶ deshacer: confirma, vuelve atrás lo que anotó en ese turno y recarga la charla.
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest?.('[data-deshacer]')
+  if (!b || !chat.actual) return
+  e.preventDefault()
+  e.stopPropagation()
+  const ids = b.dataset.deshacer.split(',').map(Number)
+  const linea = b.previousElementSibling?.textContent ?? 'lo que hizo'
+  if (!confirm(`¿Deshacer esto?\n\n${linea}`)) return
+  try {
+    const r = await api(`/chat/${chat.actual.id}/deshacer`, { ids })
+    toast(`Deshecho<small>${esc(r.deshechas.join(' · '))}</small>`, 'suave')
+    await abrirConversacion(chat.actual.id)
+  } catch (err) { error(err) }
+})

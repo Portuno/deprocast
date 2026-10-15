@@ -33,7 +33,7 @@ const claseDe = (id) => META.clases.find((c) => c.id === id)
 const colorDe = (id) => `var(--${id})`
 const ESTADOS_CORPUS = ['crudo', 'extraido', 'clasificado', 'disponible']
 const OFICIOS = ['Input·Cuerpo', 'Input·Mente', 'Input·Alma', 'Proc·Cuerpo', 'Proc·Mente', 'Proc·Alma', 'Output·Cuerpo', 'Output·Mente', 'Output·Alma']
-const ICONO = { purga: '✝', asigna: '→', recluta: '+', vacante: '?', corre: '✓', falla: '✗', nivel: '▲', bautismo: '★', promovido: '◆', banca: '⇣', retirado: '✝', publica: '↻', tope: '⏸' }
+const ICONO = { purga: '✝', asigna: '→', recluta: '+', vacante: '?', corre: '✓', falla: '✗', nivel: '▲', bautismo: '★', promovido: '◆', banca: '⇣', retirado: '✝', publica: '↻', tope: '⏸', memoria: '≡' }
 
 function fmtTokens(n) {
   if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M'
@@ -113,7 +113,7 @@ function renderHud() {
   const maquina = VISTAS_MAQUINA.has(vista)
   $('#hud').innerHTML = [
     stat('Hoy', E.hoy.total ? `${E.hoy.hechos}/${E.hoy.total}` : '—', E.hoy.run?.estado === 'en_curso' ? 'run en curso' : E.hoy.run?.estado === 'propuesta' ? 'run propuesta' : E.hoy.total ? 'bandas' : 'sin run'),
-    stat('Memoria', E.memoriaSinRevisar || '✓', E.memoriaSinRevisar ? 'por revisar' : 'al día'),
+    stat('Memoria', E.memoriaSinRevisar || '✓', E.memoriaSinRevisar ? 'nuevas (los repetidos se juntan solos)' : 'al día'),
     ...(maquina ? [
       stat('Roster', r.length, `${cuenta('activo')} act · ${cuenta('prueba')} prueba`),
       stat('Bus', t.pendiente ?? 0, `pend · ${t.hecha ?? 0} hechas${E.enEspera ? ` · ${fmtTokens(E.enEspera)} en espera` : ''}`),

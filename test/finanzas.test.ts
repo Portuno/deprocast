@@ -73,3 +73,29 @@ test('finanzas por proyecto: se atan solos por nombre o alias, se asignan a mano
   assert.match(p, /faltan 1700 € en 10 días \(170 € por día\)/)
   assert.match(p, /Por proyecto: Corruptopolis \+260 €/)
 })
+
+test('finanzas: los montos que contó charlando quedan sugeridos; con su ok entran, sin repetir lo ya anotado', async () => {
+  const { sugerirMovimiento, sugeridos, resolverSugerido, listarMovimientos } = await import('../src/finanzas.ts')
+  const { escribaDeMemoria } = await import('../src/memoria.ts')
+  const { _probarModelo } = await import('../src/modelo.ts')
+  const db = abrir(':memory:')
+  _probarModelo(async () => ({ texto: JSON.stringify({ recuerdos: [], montos: [{ monto: 800, descripcion: 'Freelance', dicho: 'me pagaron 800 del freelance' }, { monto: -40, descripcion: 'Súper', dicho: 'gasté 40 en el súper' }, { monto: 'mucho' }] }), llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }))
+  await escribaDeMemoria(db, 'Hoy me pagaron 800 del freelance y gasté 40 en el súper', null)
+  assert.deepEqual(sugeridos(db).map((x) => [x.monto, x.descripcion]).sort(), [[-40, 'Súper'], [800, 'Freelance']])
+  assert.equal(listarMovimientos(db).length, 0, 'nada entra sin su ok')
+
+  // De una grabación no se sugiere: puede ser otro el que habla de plata.
+  await escribaDeMemoria(db, 'Grabación: me pagaron 800 del freelance', null, { grabacion: true })
+  assert.equal(sugeridos(db).length, 2)
+
+  const [gasto, ingreso] = [...sugeridos(db)].sort((a, b) => a.monto - b.monto)
+  const m = resolverSugerido(db, ingreso.id, 'aceptar', { descripcion: 'Freelance web' })!
+  assert.deepEqual([m.monto, m.descripcion], [800, 'Freelance web'])
+  resolverSugerido(db, gasto.id, 'descartar')
+  assert.equal(sugeridos(db).length, 0)
+  assert.throws(() => resolverSugerido(db, gasto.id, 'aceptar'), /pendiente/)
+
+  registrarMovimiento(db, { monto: -15, descripcion: 'Taxi' })
+  assert.equal(sugerirMovimiento(db, { monto: -15, descripcion: 'taxi' }), null, 'ya estaba anotado')
+  assert.equal(sugerirMovimiento(db, { monto: 0, descripcion: 'nada' }), null)
+})

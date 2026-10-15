@@ -41,7 +41,7 @@ async function refrescarFragua() {
           <div class="tarjeta-cab">#${p.id}${p.area ? `<span class="chip">${esc(p.area)}</span>` : ''}${p.prioridad ? `<span class="estado-chip ${p.prioridad === 'alta' ? 'vivo' : ''}">${esc(p.prioridad)}</span>` : ''}</div>
           <h4>${esc(p.titulo)}</h4>
           ${p.detalle ? `<p class="recorte" title="Tocá para ver todo">${esc(p.detalle)}</p>` : ''}
-          <div class="tarjeta-pie"><button class="btn btn-chico btn-primario" data-forjar ${haciendo ? 'disabled title="Hay una forja en curso"' : ''}>⚒ Forjar</button><span class="espacio"></span><button class="btn btn-chico" data-descartar title="Descartar la propuesta">Descartar</button></div>
+          <div class="tarjeta-pie"><button class="btn btn-chico btn-primario" data-forjar ${haciendo ? 'disabled title="Hay una forja en curso"' : ''}>⚒ Forjar</button><span class="espacio"></span><button class="btn btn-chico" data-hecha title="Ya se resolvió por otro lado: queda como forjada">✓ Ya está</button><button class="btn btn-chico" data-descartar title="Descartar la propuesta">Descartar</button></div>
         </article>`).join('')}</div>` : '<p class="vacio">No hay propuestas abiertas. Pedí una mejora arriba o contale al chat qué cambiarías.</p>'}
     </section>
     <section class="seccion">
@@ -61,6 +61,7 @@ async function refrescarFragua() {
     const id = Number(el.dataset.prop)
     $('[data-forjar]', el).onclick = async () => { try { await api('/fragua', { propuestaId: id }); toast('A la fragua<small>Te aviso en Hoy cuando termine.</small>'); refrescarFragua() } catch (e) { error(e) } }
     $('[data-descartar]', el).onclick = async () => { try { await api(`/propuestas/${id}`, { estado: 'descartada' }); refrescarFragua() } catch (e) { error(e) } }
+    $('[data-hecha]', el).onclick = async () => { try { await api(`/propuestas/${id}`, { estado: 'hecha' }); toast(`#${id} forjada`, 'suave'); refrescarFragua() } catch (e) { error(e) } }
     const det = $('.recorte', el)
     if (det) det.onclick = () => det.classList.toggle('abierto')
   })

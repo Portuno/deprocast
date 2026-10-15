@@ -136,3 +136,16 @@ test('sin red: se reintenta con espera y, si sigue sin conexión, corta con un m
   _probar(async () => ({ status: SIN_RED, body: 'sin conexión: fetch failed', json: undefined }), async () => {})
   await assert.rejects(nanChat({ db, clase: 'mastropiero', agenteId: 't' }, { mensajes: [{ role: 'user', content: 'hola' }], temperatura: 0, maxTokens: 10, json: false }), /Sin conexión con NaN \(fetch failed\)\. Revisá internet/)
 })
+
+test('si fallan todos los modelos, el error dice el motivo de cada uno (y no «NaN agotada»)', async () => {
+  const db = abrir(':memory:')
+  falso([() => ({ status: 402, json: { error: { message: 'Insufficient balance' } } }), ...Array.from({ length: 12 }, () => () => ({ status: 503 }))])
+  const { nanChat } = await import('../src/nan.ts')
+  await assert.rejects(nanChat({ db, clase: 'auditor', agenteId: 'x' }, { mensajes: [{ role: 'user', content: 'hola' }], temperatura: 0, maxTokens: 10, json: false }), (e: Error) => {
+    assert.match(e.message, /Ningún modelo pudo contestar/)
+    assert.match(e.message, /sin saldo \(402: Insufficient balance\)/)
+    assert.match(e.message, /el servidor falló \(503/)
+    assert.doesNotMatch(e.message, /agotada/)
+    return true
+  })
+})

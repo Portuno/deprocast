@@ -92,14 +92,15 @@ const normal = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/
 
 /** Cambia nombre, tipo, alias o notas. El nombre anterior queda como alias: nadie deja de encontrarla. */
 export function editarEntidad(
-  db: Db, id: number, c: { nombre?: string; tipo?: string; alias?: string[]; notas?: string | null; sumarAlias?: string[] },
+  db: Db, id: number, c: { nombre?: string; tipo?: string; alias?: string[]; notas?: string | null; sumarAlias?: string[]; quitarAlias?: string[] },
 ): Entidad {
   const e = leerEntidad(db, id)
   if (!e) throw new Error(`No existe la entidad ${id}`)
   const nombre = c.nombre?.trim() || e.nombre
   if (c.tipo && !TIPOS_ENTIDAD.includes(c.tipo as TipoEntidad)) throw new Error(`Tipo inválido: ${c.tipo}`)
   const base = c.alias ?? e.alias
-  const alias = [...new Set([...base, ...(c.sumarAlias ?? []), ...(nombre !== e.nombre ? [e.nombre] : [])].map((a) => a.trim()).filter((a) => a && normal(a) !== normal(nombre)))]
+  const fuera = new Set((c.quitarAlias ?? []).map(normal))
+  const alias = [...new Set([...base, ...(c.sumarAlias ?? []), ...(nombre !== e.nombre ? [e.nombre] : [])].map((a) => a.trim()).filter((a) => a && normal(a) !== normal(nombre) && !fuera.has(normal(a))))]
   db.prepare('UPDATE entidades SET nombre = ?, tipo = ?, alias = ?, notas = ? WHERE id = ?')
     .run(nombre, c.tipo ?? e.tipo, alias.length ? JSON.stringify(alias) : null, c.notas !== undefined ? c.notas : e.notas, id)
   return leerEntidad(db, id)!
@@ -234,16 +235,30 @@ export function noSonLoMismo(db: Db, ids: number[]) {
   for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) alta.run(Math.min(ids[i], ids[j]), Math.max(ids[i], ids[j]))
 }
 
-/** Cuando el problema es un alias mal puesto («España» como alias de una persona): se lo saca, sin fusionar nada. */
-export function quitarAliasCruzados(db: Db, ids: number[]): number {
+/** Un alias mal puesto se lleva a la entidad que corresponde (o se saca, si «a» es null). */
+export function moverAlias(db: Db, alias: string, de: number, a: number | null): { de: Entidad; a: Entidad | null } {
+  const origen = leerEntidad(db, de)
+  if (!origen) throw new Error(`No existe la entidad ${de}`)
+  if (!origen.alias.some((x) => normal(x) === normal(alias))) throw new Error(`«${alias}» no es alias de ${origen.nombre}`)
+  const queda = editarEntidad(db, de, { quitarAlias: [alias] })
+  return { de: queda, a: a ? editarEntidad(db, a, { sumarAlias: [alias] }) : null }
+}
+
+/**
+ * Cuando el problema es un alias mal puesto («España» como alias de una persona): se lo saca, sin fusionar nada. Que
+ * aparezcan juntas no las hace la misma: queda anotado como conexión entre las dos.
+ */
+export function quitarAliasCruzados(db: Db, ids: number[], ahora = Date.now()): number {
   const es = ids.map((i) => leerEntidad(db, i)).filter((e): e is Entidad => !!e)
   let quitados = 0
   for (const e of es) {
-    const otros = new Set(es.filter((o) => o.id !== e.id).map((o) => clave(o.nombre)))
-    const quedan = e.alias.filter((a) => !otros.has(clave(a)))
+    const otros = es.filter((o) => o.id !== e.id)
+    const cruzadas = otros.filter((o) => e.alias.some((a) => clave(a) === clave(o.nombre)))
+    const quedan = e.alias.filter((a) => !otros.some((o) => clave(o.nombre) === clave(a)))
     if (quedan.length !== e.alias.length) {
       quitados += e.alias.length - quedan.length
       db.prepare('UPDATE entidades SET alias = ? WHERE id = ?').run(quedan.length ? JSON.stringify(quedan) : null, e.id)
+      for (const o of cruzadas) anotarConexion(db, { a: e.id, b: o.id, nota: `«${o.nombre}» figuraba como alias de «${e.nombre}»: aparecen juntas`, origen: 'alias' }, ahora)
     }
   }
   noSonLoMismo(db, ids)

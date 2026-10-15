@@ -6,6 +6,7 @@ import { fechaLocal, type Db } from './db.ts'
 import { pedirJson } from './modelo.ts'
 import { agregarItem, entidadDelJugador, personaje } from './personajes.ts'
 import { anotarSideQuest } from './misiones.ts'
+import { sugerirMovimiento } from './finanzas.ts'
 
 export const TIPOS_MEMORIA = ['hecho', 'meta', 'preferencia', 'sueño', 'vision', 'correccion'] as const
 export type TipoMemoria = (typeof TIPOS_MEMORIA)[number]
@@ -89,6 +90,54 @@ export function archivar(db: Db, id: number) {
   db.prepare(`UPDATE memoria SET estado = 'archivada' WHERE id = ?`).run(id)
 }
 
+// ─── limpieza de fondo ──────────────────────────────────────────────────
+
+const VACIAS = new Set(['que', 'los', 'las', 'del', 'con', 'por', 'para', 'una', 'uno', 'unos', 'unas', 'sus', 'mas', 'muy', 'como', 'esta', 'este', 'tiene', 'pero', 'cuando', 'donde', 'sobre', 'entre', 'tambien', 'quiere', 'prefiere'])
+const palabras = (t: string) => new Set(normal(t).split(' ').filter((w) => w.length >= 3 && !VACIAS.has(w) && !/^\d/.test(w)))
+const numeros = (t: string) => (normal(t).match(/\d+/g) ?? []).join(' ')
+
+/**
+ * Mantenimiento, no trabajo del jugador: junta los recuerdos vigentes que dicen lo mismo (casi las mismas palabras, o
+ * uno contiene al otro), deja el más completo y archiva el resto. Si dos dicen números distintos («cobra 1500» y
+ * «cobra 1800») no son repetidos: uno corrige al otro y eso lo decide él. Las correcciones no se tocan.
+ */
+export function deduplicarMemoria(db: Db, umbral = 0.75): { grupos: number; archivados: number } {
+  const vs = (db.prepare(`SELECT * FROM memoria WHERE estado = 'vigente' AND tipo != 'correccion' ORDER BY id`).all() as any[]).map(deFila)
+  const datos = vs.map((r) => ({ r, n: normal(r.texto), p: palabras(r.texto), num: numeros(r.texto) }))
+  const padre = vs.map((_, i) => i)
+  const raiz = (i: number): number => (padre[i] === i ? i : (padre[i] = raiz(padre[i])))
+  for (let i = 0; i < datos.length; i++) {
+    for (let j = i + 1; j < datos.length; j++) {
+      const a = datos[i]
+      const b = datos[j]
+      if (a.num !== b.num) continue
+      const contiene = (a.n.length > 24 && b.n.includes(a.n)) || (b.n.length > 24 && a.n.includes(b.n))
+      if (!contiene) {
+        // Atajo: si el largo es muy distinto, no pueden llegar al umbral.
+        const [m, M] = a.p.size < b.p.size ? [a.p.size, b.p.size] : [b.p.size, a.p.size]
+        if (!M || m / M < umbral) continue
+        let comun = 0
+        for (const w of a.p) if (b.p.has(w)) comun++
+        if (comun / (a.p.size + b.p.size - comun) < umbral) continue
+      }
+      padre[raiz(j)] = raiz(i)
+    }
+  }
+  const grupos = new Map<number, Recuerdo[]>()
+  vs.forEach((r, i) => grupos.set(raiz(i), [...(grupos.get(raiz(i)) ?? []), r]))
+  let archivados = 0
+  let n = 0
+  const arch = db.prepare(`UPDATE memoria SET estado = 'archivada', reemplaza = COALESCE(reemplaza, ?) WHERE id = ?`)
+  for (const g of grupos.values()) {
+    if (g.length < 2) continue
+    n++
+    // Queda el que él ya revisó; si no, el más completo; a igualdad, el más nuevo.
+    const queda = [...g].sort((a, b) => Number(b.revisada) - Number(a.revisada) || b.texto.length - a.texto.length || b.id - a.id)[0]
+    for (const r of g) if (r.id !== queda.id) (arch.run(queda.id, r.id), archivados++)
+  }
+  return { grupos: n, archivados }
+}
+
 export function revisar(db: Db, id: number) {
   db.prepare('UPDATE memoria SET revisada = 1 WHERE id = ?').run(id)
 }
@@ -131,7 +180,8 @@ Reglas:
 - Entre 0 y 3 recuerdos. Si no hay nada que valga, devolvé la lista vacía.
 - inventario (0 a 2, opcional): cosas que dice que TIENE. tipo: capital (plata, bienes), conexion (una persona o grupo con nombre), presencia (un sitio, red o canal suyo), conocimiento, herramienta, acceso, recurso. Con «valor» y «unidad» si hay número.
 - side_quests (0 a 2, opcional): encargos chicos que surgen sobre la marcha y dependen de estar en un lugar o haciendo algo («cuando pase por…», «si salgo a caminar…, comprarle X a Y»). «disparador»: {lugar, zona, actividad, cuando}, solo lo que se sabe.
-Forma: {"recuerdos": [{"texto": string, "tipo": string, "horizonte": string | null}], "inventario": [{"tipo": string, "nombre": string, "detalle": string, "valor": number | null, "unidad": string | null, "url": string | null}], "side_quests": [{"titulo": string, "detalle": string, "disparador": {"lugar": string | null, "zona": string | null, "actividad": string | null, "cuando": string | null}}]}`
+- montos (0 a 3, opcional): plata que le ENTRÓ o que GASTÓ, con número concreto («me pagaron 800 del freelance», «gasté 40 en el súper», «pagué el alquiler, 650»). «monto» negativo si salió, positivo si entró; «fecha» YYYY-MM-DD solo si la dice; «dicho»: la frase tal cual. NO: saldos («me quedan 300», eso es inventario), precios que mira, deudas o planes («voy a cobrar»).
+Forma: {"recuerdos": [{"texto": string, "tipo": string, "horizonte": string | null}], "inventario": [{"tipo": string, "nombre": string, "detalle": string, "valor": number | null, "unidad": string | null, "url": string | null}], "side_quests": [{"titulo": string, "detalle": string, "disparador": {"lugar": string | null, "zona": string | null, "actividad": string | null, "cuando": string | null}}], "montos": [{"monto": number, "descripcion": string, "moneda": string | null, "fecha": string | null, "dicho": string}]}`
 
 export type FuenteDeMemoria = { texto: string; origen: number | null; pieza: number | null; grabacion: boolean }
 
@@ -221,7 +271,7 @@ export async function escribaDeMemoria(
   if (texto.trim().length < 12) return []
   const conocidos = memoriaParaPrompt(db, 40)
   try {
-    const { datos } = await pedirJson<{ recuerdos?: { texto: string; tipo: string; horizonte?: string | null }[]; inventario?: any[]; side_quests?: any[] }>(
+    const { datos } = await pedirJson<{ recuerdos?: { texto: string; tipo: string; horizonte?: string | null }[]; inventario?: any[]; side_quests?: any[]; montos?: any[] }>(
       { db, clase: 'mastropiero', agenteId: 'escriba' },
       ESCRIBA,
       `${conocidos ? `Lo que ya sabés (no lo repitas):\n${conocidos}\n\n` : ''}${o.grabacion ? GRABACION : 'Mensaje del operador:'}\n${texto.slice(0, 6000)}`,
@@ -243,6 +293,11 @@ export async function escribaDeMemoria(
     for (const q of (o.grabacion ? [] : datos.side_quests ?? []).slice(0, 2)) {
       if (typeof q?.titulo !== 'string' || !q.titulo.trim()) continue
       try { anotarSideQuest(db, { titulo: q.titulo, detalle: q.detalle ?? null, disparador: q.disparador ?? null, creadaPor: 'escriba' }) } catch { /* idem */ }
+    }
+    // Los montos que contó esperan su ok en Finanzas (de una grabación no: puede ser otro el que habla de plata).
+    for (const x of (o.grabacion ? [] : datos.montos ?? []).slice(0, 3)) {
+      if (typeof x?.monto !== 'number') continue
+      try { sugerirMovimiento(db, { monto: x.monto, descripcion: String(x.descripcion ?? ''), moneda: x.moneda ?? null, fecha: x.fecha ?? null, dicho: x.dicho ?? null }) } catch { /* idem */ }
     }
     return nuevos
   } catch {

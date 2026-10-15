@@ -146,3 +146,25 @@ test('telegram: links al corpus, archivos que se cargan (o del banco) y cada ban
   delete process.env.TELEGRAM_BOT_TOKEN
   delete process.env.TELEGRAM_CHAT_ID
 })
+
+test('telegram: un 409 se registra una sola vez y espera cada vez más; un timeout no dice «otra instancia»', async () => {
+  const { vueltaTelegram, esperaTelegram, estadoTelegram, AVISO_OTRA_INSTANCIA } = await import('../src/telegram.ts')
+  const db = abrir(':memory:')
+  let respuesta: () => Promise<any> = async () => ({ ok: false, error_code: 409, description: 'Conflict: terminated by other getUpdates request' })
+  _probarTelegram({ pedir: async () => respuesta() })
+  const esperas = [await vueltaTelegram(db), await vueltaTelegram(db), await vueltaTelegram(db)]
+  assert.deepEqual(esperas, [60_000, 120_000, 240_000])
+  assert.equal(esperaTelegram(true, 20), 600_000, 'tope de 10 minutos')
+  const errores = db.prepare(`SELECT COALESCE(SUM(veces), 0) AS n FROM errores WHERE texto LIKE '%Otra instancia%'`).get() as { n: number }
+  assert.equal(errores.n, 1, 'una sola vez por racha')
+  assert.equal(estadoTelegram().ultimoError, AVISO_OTRA_INSTANCIA)
+
+  respuesta = async () => { throw new Error('The operation was aborted due to timeout') }
+  const espera = await vueltaTelegram(db)
+  assert.ok(espera <= 10_000, 'un timeout reintenta pronto')
+  assert.doesNotMatch(estadoTelegram().ultimoError!, /Otra instancia/)
+
+  respuesta = async () => ({ ok: true, result: [] })
+  assert.equal(await vueltaTelegram(db), 300)
+  assert.equal(estadoTelegram().ultimoError, null)
+})

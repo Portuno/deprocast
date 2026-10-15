@@ -220,7 +220,10 @@ function detallePrimaria(m, recargar) {
       <h2>${esc(m.titulo)}</h2>
       ${m.detalle ? `<p>${esc(m.detalle)}</p>` : ''}
       ${m.entidadId ? `<p><a href="#" class="ref" data-ref-ent="${m.entidadId}">ver el proyecto</a></p>` : ''}
-      <div class="p-avance"><input type="range" min="0" max="100" step="5" value="${m.avance.progreso}" data-m-prog><b>${m.avance.progreso}%</b></div>
+      <div class="p-avance"><span class="mp-barra"><i style="width:${m.avance.progreso}%"></i></span><b>${m.avance.progreso}%</b><small class="tenue">${m.avance.auto ? 'según lo hecho' : 'lo fijaste vos'}</small>
+        ${m.avance.auto ? '<button class="btn btn-chico" data-m-corregir title="Si el número no refleja lo que pasó">Corregir</button>' : '<button class="btn btn-chico" data-m-auto title="Que lo calcule de lo hecho">↺ Automático</button>'}</div>
+      <div class="p-avance" data-m-slider hidden><input type="range" min="0" max="100" step="5" value="${m.avance.progreso}" data-m-prog><b>${m.avance.progreso}%</b></div>
+      ${m.avance.auto && m.avance.senales ? `<small class="tenue">${senalesTexto(m.avance.senales)}</small><br>` : ''}
       <small class="tenue">${m.avance.bandas.total ? `${m.avance.bandas.hechas} bandas hechas${m.avance.bandas.parciales ? `, ${m.avance.bandas.parciales} a medias` : ''} · ${m.avance.minutos} min de foco` : 'Todavía sin bandas'}</small>
       ${m.estado === 'activa' ? ayudantesHTML(m) : ''}
     </div>`)
@@ -269,6 +272,8 @@ function engancharPrimaria(raiz, recargar) {
   $$('[data-m-estado]', raiz).forEach((b) => (b.onclick = async () => {
     try { await api(`/misiones/${b.closest('[data-mid]').dataset.mid}`, { estado: b.dataset.mEstado }); await recargar() } catch (e) { error(e) }
   }))
+  $$('[data-m-corregir]', raiz).forEach((b) => (b.onclick = () => { const s = b.closest('[data-mid]').querySelector('[data-m-slider]'); s.hidden = !s.hidden }))
+  $$('[data-m-auto]', raiz).forEach((b) => (b.onclick = async () => { try { await api(`/misiones/${b.closest('[data-mid]').dataset.mid}`, { progresoAuto: true }); recargar() } catch (e) { error(e) } }))
   $$('[data-m-prog]', raiz).forEach((r) => {
     r.oninput = () => (r.nextElementSibling.textContent = `${r.value}%`)
     r.onchange = async () => { try { await api(`/misiones/${r.closest('[data-mid]').dataset.mid}`, { progreso: Number(r.value) }); recargar() } catch (e) { error(e) } }
@@ -486,6 +491,9 @@ async function montarPlata(cont) {
       <p>${p.ingresos ? `entró ${eur(p.ingresos)} · ` : ''}${p.gastos ? `salió ${eur(p.gastos)} · ` : ''}${p.movimientos} movimiento${p.movimientos === 1 ? '' : 's'}</p>
       <b style="color:${p.neto >= 0 ? 'var(--ok, #6c6)' : 'inherit'}">${p.neto >= 0 ? '+' : ''}${eur(p.neto)}</b></article>`).join('')}</div></div>` : ''}
     ${cats.length ? `<div class="seccion"><h3>En qué se fue</h3>${cats.map(([k, v]) => `<div class="fila"><span style="width:9em">${esc(k)}</span><span class="barrita" style="flex:1"><b style="width:${Math.round((v / max) * 100)}%"></b></span><span>${eur(v)}</span></div>`).join('')}</div>` : ''}
+    ${d.sugeridos?.length ? `<div class="seccion pl-sugeridos"><h3>Lo que contaste · ${d.sugeridos.length}</h3><p class="tenue">Montos que dijiste charlando. Aceptalos y entran a Finanzas.</p>
+      ${d.sugeridos.map((x) => `<div class="fila item" data-sug="${x.id}"><span class="tenue">${esc(x.fecha)}</span><span style="flex:1" title="${esc(x.dicho ?? '')}">${esc(x.descripcion)}${x.dicho ? `<small class="tenue"> · «${esc(x.dicho.slice(0, 80))}»</small>` : ''}</span>
+        <b style="color:${x.monto > 0 ? 'var(--ok, #6c6)' : 'inherit'}">${eur(x.monto)}</b><button class="btn btn-chico btn-primario" data-sug-si>✓ Anotar</button><button class="btn btn-chico" data-sug-no title="No era un movimiento">✕</button></div>`).join('')}</div>` : ''}
     <div class="seccion"><h3>Anotar</h3>
       <form class="fila" id="pl-form"><input name="monto" type="number" step="0.01" placeholder="-20 o 800" required style="width:8em"><input name="descripcion" placeholder="En qué" required style="flex:1"><input name="fecha" type="date"><button class="btn">Anotar</button></form>
       <p class="tenue">O contáselo a Mastropiero en el chat («gasté 20 en el súper»), o subí el extracto del banco: <label class="btn btn-chico">CSV del banco<input type="file" accept=".csv,.txt,text/csv" hidden id="pl-csv"></label></p></div>
@@ -512,6 +520,11 @@ async function montarPlata(cont) {
       montarPlata(cont)
     } catch (e) { error(e) }
   }
+  $$('[data-sug]', cont).forEach((el) => {
+    const ir = (accion) => async () => { try { await api(`/finanzas/sugeridos/${el.dataset.sug}`, { accion }); montarPlata(cont) } catch (e) { error(e) } }
+    $('[data-sug-si]', el).onclick = ir('aceptar')
+    $('[data-sug-no]', el).onclick = ir('descartar')
+  })
   $$('[data-borrar]', cont).forEach((b) => (b.onclick = async () => { try { await api(`/finanzas/${b.dataset.borrar}`, { borrar: true }); montarPlata(cont) } catch (e) { error(e) } }))
   $$('[data-proy]', cont).forEach((s) => (s.onchange = async () => { try { await api(`/finanzas/${s.dataset.proy}`, { entidadId: s.value ? Number(s.value) : null }); montarPlata(cont) } catch (e) { error(e) } }))
 }
@@ -626,4 +639,11 @@ async function fichaPersonaje(cont, clave, { tabs = ['misiones', 'historia', 'in
     const t = prompt(`La misión principal de ${f.personaje.nombre}:`, f.principal?.titulo ?? '')
     if (t?.trim()) accion(() => api(`/personajes/${k}/principal`, { titulo: t.trim() }))
   }
+}
+
+/** De dónde sale el % inferido, en una línea. */
+function senalesTexto(s) {
+  const n = (x, uno, varios) => (x ? `${String(x).replace('.5', '½')} ${x === 1 ? uno : varios}` : '')
+  const partes = [n(s.bandas, 'banda', 'bandas'), n(s.aportes, 'aporte', 'aportes'), n(s.misiones, 'misión del proyecto', 'misiones del proyecto'), n(s.piezas, 'pieza tuya', 'piezas tuyas'), n(s.movimientos, 'movimiento', 'movimientos')].filter(Boolean)
+  return partes.length ? `Sale de: ${partes.join(' · ')}` : 'Todavía no hay nada hecho que la empuje.'
 }

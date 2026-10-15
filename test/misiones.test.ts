@@ -374,3 +374,32 @@ test('el jugador también es una entidad: una sola ficha, y «Soy yo» une lo an
   marcarJugador(db, otra)
   assert.equal(pj(db, `entidad:${yo}`).clave, `entidad:${yo}`, 'solo una persona es el jugador')
 })
+
+test('primarias: el % sale de lo hecho (bandas, aportes, misiones, piezas y plata del proyecto); a mano solo si lo corrige', async () => {
+  const { avanceDe, crearMision, actualizarMision, progresoInferido, semanaDe } = await import('../src/misiones.ts')
+  const { insertar } = await import('../src/corpus.ts')
+  const db = abrir(':memory:')
+  const proy = asegurarEntidad(db, { tipo: 'proyecto', nombre: 'Proyecto Prueba' })
+  const ahora = Date.now()
+  const p = crearMision(db, { personaje: 'jugador', asignadaPor: 'jugador', nivel: 'primaria', titulo: 'Empujar el proyecto', entidadId: proy, semana: semanaDe(ahora), estado: 'activa' })
+  assert.deepEqual([avanceDe(db, p.id).progreso, avanceDe(db, p.id).auto], [0, true])
+  for (const e of ['hecha', 'hecha', 'parcial']) {
+    const b = crearMision(db, { personaje: 'jugador', asignadaPor: 'jugador', nivel: 'secundaria', titulo: 'banda', padreId: p.id, estado: 'activa' })
+    actualizarMision(db, b.id, { estado: e as any })
+  }
+  const otra = crearMision(db, { personaje: 'jugador', asignadaPor: 'jugador', nivel: 'terciaria', titulo: 'Mandar el mail', entidadId: proy, estado: 'activa' })
+  actualizarMision(db, otra.id, { estado: 'hecha' })
+  insertar(db, { fuente: 'operador', titulo: 'Avance', contenido: 'escribí la escena', nivel: 'propia', fecha: new Date().toISOString().slice(0, 10), entidades: [proy], origenId: 't:1' })
+  const av = avanceDe(db, p.id)
+  assert.deepEqual(av.senales, { bandas: 2.5, aportes: 0, misiones: 1, piezas: 1, movimientos: 0 })
+  assert.equal(av.progreso, progresoInferido(av.senales!))
+  assert.ok(av.progreso > 40 && av.progreso < 95, `${av.progreso}`)
+
+  actualizarMision(db, p.id, { progreso: 20 })
+  assert.deepEqual([avanceDe(db, p.id).progreso, avanceDe(db, p.id).auto], [20, false], 'lo que corrige él manda')
+  actualizarMision(db, p.id, { progresoAuto: true })
+  assert.deepEqual([avanceDe(db, p.id).progreso, avanceDe(db, p.id).auto], [av.progreso, true])
+  actualizarMision(db, p.id, { estado: 'hecha' })
+  assert.equal(avanceDe(db, p.id).progreso, 100)
+  assert.ok(progresoInferido({ bandas: 50, aportes: 0, misiones: 0, piezas: 0, movimientos: 0 }) <= 95, 'sin cerrarla, nunca llega solo a 100')
+})

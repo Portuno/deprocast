@@ -12,7 +12,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { ATRIBUTOS, CLASE_IDS, CLASES } from '../clases.ts'
 import { fechaLocal, fijarAjuste, type Db } from '../db.ts'
-import { fijarMetasSalud, registrarSalud, resumenDia, resumenSemana, TIPOS_SALUD } from '../salud.ts'
+import { borrarSalud, editarSalud, fijarMetasSalud, leerSalud, listarSalud, registrarSalud, resumenDia, resumenSemana, TIPOS_SALUD } from '../salud.ts'
+import { deshacerAcciones, separarInversa, ultimasDeshacibles, type Inversa } from './deshacer.ts'
+import { resolverPropuesta } from './index.ts'
 import { diaDelPlan, guardarWoop, habitos as listarHabitos, marcarHabito, VERBOS, votar } from '../cien.ts'
 import { crearAprendizaje, listarAprendizajes, prepararRepaso, recursosDe, registrarPractica } from '../aprender.ts'
 import { CATEGORIAS, listarMovimientos, registrarMovimiento, resumenMes, resumenPorProyecto, ritmoMeta } from '../finanzas.ts'
@@ -48,7 +50,7 @@ import { perfilDeRendimiento, textoDeRendimiento } from '../rendimiento.ts'
 import { recomendar } from '../mentor.ts'
 import { proponerPuentes } from '../puentes.ts'
 import { deshacer, listarCargas } from '../cargas/index.ts'
-import { coocurrencias, duplicadosProbables, editarEntidad, entidadesPorId, fusionarEntidades, leerEntidad, listarEntidades, noSonLoMismo, resumenEntidades, TIPOS_ENTIDAD } from '../entidades.ts'
+import { coocurrencias, duplicadosProbables, editarEntidad, entidadesPorId, fusionarEntidades, leerEntidad, listarEntidades, moverAlias, noSonLoMismo, resumenEntidades, TIPOS_ENTIDAD } from '../entidades.ts'
 import { cronica, crearProyecto, estadoLiga, ingerir, numeroDeTick, tickUnico } from '../mastropiero.ts'
 import { tokensHoy, topeDiario, usoDelMes } from '../nan.ts'
 import {
@@ -328,6 +330,20 @@ export const HERRAMIENTAS: Herramienta[] = [
     ejecutar: (_, { db }) => db.prepare('SELECT id, titulo, area, prioridad, estado FROM propuestas ORDER BY id DESC LIMIT 40').all(),
   },
   {
+    nombre: 'resolver_propuestas', familia: 'accion',
+    descripcion: 'Cierra propuestas de La Fragua cuando él lo dice: «hecha» si ya se resolvió (queda como forjada), «descartada» si no va, «fragua» para mandarla a forjar primero.',
+    parametros: S({ ids: { type: 'array', items: { type: 'integer' }, description: 'ids de las propuestas' }, estado: str('Qué hacer', { enum: ['hecha', 'descartada', 'fragua'] }) }, ['ids', 'estado']),
+    ejecutar: (a, { db }) => {
+      const hechas: number[] = []
+      const errores: string[] = []
+      for (const id of a.ids ?? []) {
+        try { resolverPropuesta(db, Number(id), a.estado === 'fragua' ? 'aceptada' : a.estado); hechas.push(Number(id)) } catch (e) { errores.push(e instanceof Error ? e.message : String(e)) }
+      }
+      return { estado: a.estado, propuestas: hechas, errores: errores.length ? errores : undefined }
+    },
+    resumen: (a, r) => `${a.estado === 'hecha' ? 'marcó como hechas' : a.estado === 'descartada' ? 'descartó' : 'mandó a La Fragua'} ${(r?.propuestas ?? []).map((x: number) => `#${x}`).join(', ') || 'ninguna'}`,
+  },
+  {
     nombre: 'leer_memoria', familia: 'lectura',
     descripcion: 'Lo que sabés del operador: hechos, metas, preferencias, sueños y visión, con fecha. Filtrable por tipo u horizonte (castillo, campamento, trinchera).',
     parametros: S({ tipo: str('Tipo', { enum: [...TIPOS_MEMORIA] }), horizonte: str('Horizonte', { enum: [...HORIZONTES] }) }),
@@ -513,8 +529,9 @@ export const HERRAMIENTAS: Herramienta[] = [
     descripcion: 'Guarda algo del operador en tu memoria (hecho, meta, preferencia, sueño, visión o corrección). La memoria ya se escribe sola con lo que te cuenta: usalo cuando te pida que te acuerdes de algo.',
     parametros: S({ texto: str('Una oración en tercera persona («Quiere…», «Prefiere…»)'), tipo: str('Tipo', { enum: [...TIPOS_MEMORIA] }), horizonte: str('Para metas: castillo (años), campamento (meses), trinchera (días)', { enum: [...HORIZONTES] }) }, ['texto', 'tipo']),
     ejecutar: (a, { db, conversacionId }) => {
+      const antes = (db.prepare('SELECT COALESCE(MAX(id), 0) AS n FROM memoria').get() as { n: number }).n
       const r = recordar(db, { texto: a.texto, tipo: a.tipo, horizonte: a.horizonte, origen: conversacionId, creadaPor: 'mastropiero', revisada: true })
-      return { recuerdo: r.id, texto: r.texto }
+      return { recuerdo: r.id, texto: r.texto, _deshacer: r.id > antes ? { tabla: 'memoria', id: r.id } : null }
     },
     resumen: (a) => `recordó: ${recorte(a.texto, 60)}`,
   },
@@ -585,13 +602,13 @@ export const HERRAMIENTAS: Herramienta[] = [
     parametros: S({ personaje: str('Por defecto el jugador'), nivel: str('Nivel', { enum: ['primaria', 'secundaria', 'terciaria'] }), titulo: str('Título'), detalle: str('Subdescripción'), categoria: str('Categoría'), entidad: str('Proyecto o persona de la que trata'), padre: int('id de la misión que empuja'), vence: str('YYYY-MM-DD') }, ['nivel', 'titulo']),
     ejecutar: (a, { db }) => {
       const m = crearMision(db, { personaje: resolverPersonaje(db, a.personaje), asignadaPor: 'jugador', nivel: a.nivel, titulo: a.titulo, detalle: a.detalle, categoria: a.categoria, entidadId: a.entidad ? entidadId(db, a.entidad) : null, padreId: a.padre ?? null, vence: a.vence ?? null, creadaPor: 'mastropiero' }, { por: 'mastropiero' })
-      return misionCorta(m)
+      return { ...misionCorta(m), _deshacer: { tabla: 'misiones', id: m.id } }
     },
     resumen: (a) => `anotó la misión «${recorte(a.titulo, 50)}»`,
   },
   {
     nombre: 'actualizar_mision', familia: 'accion',
-    descripcion: 'Cambia una misión: aceptar una sugerida (estado activa), cerrarla (hecha, parcial, no, descartada), su progreso (0–100), feedback, título o detalle. La principal del jugador no se toca desde acá.',
+    descripcion: 'Cambia una misión: aceptar una sugerida (estado activa), cerrarla (hecha, parcial, no, descartada), feedback, título o detalle. El progreso de una primaria se calcula solo de lo hecho: poné «progreso» (0–100) solo si él lo corrige. La principal del jugador no se toca desde acá.',
     parametros: S({ id: int('id'), estado: str('Estado', { enum: ['activa', 'hecha', 'parcial', 'no', 'descartada'] }), progreso: int('0–100'), feedback: str('Lo que contó de cómo fue'), titulo: str('Título'), detalle: str('Detalle'), vence: str('YYYY-MM-DD') }, ['id']),
     ejecutar: (a, { db }) => {
       const { id, ...c } = a
@@ -666,7 +683,7 @@ export const HERRAMIENTAS: Herramienta[] = [
     nombre: 'registrar_movimiento', familia: 'accion',
     descripcion: 'Registra un gasto (monto negativo) o un ingreso (positivo) que él cuenta («gasté 20 en el súper», «me pagaron 800 del freelance»). Euros salvo que diga otra moneda. Si es de un proyecto o una persona suya, ponelo en proyecto.',
     parametros: S({ monto: { type: 'number', description: 'Negativo si es gasto, positivo si es ingreso' }, descripcion: str('En qué'), categoria: str('Categoría', { enum: [...CATEGORIAS] }), fecha: str('YYYY-MM-DD; vacío = hoy'), moneda: str('EUR por defecto'), proyecto: str('El proyecto o la persona al que pertenece, si lo dice («para Corruptopolis»)') }, ['monto', 'descripcion']),
-    ejecutar: (a, { db }) => registrarMovimiento(db, { ...a, origen: 'chat' }) ?? { repetido: true },
+    ejecutar: (a, { db }) => { const m = registrarMovimiento(db, { ...a, origen: 'chat' }); return m ? { ...m, _deshacer: { tabla: 'movimientos', id: m.id } } : { repetido: true } },
     resumen: (a) => `anotó ${a.monto} € (${recorte(a.descripcion, 40)})`,
   },
   {
@@ -679,11 +696,55 @@ export const HERRAMIENTAS: Herramienta[] = [
       horas: { type: 'number', description: 'horas de sueño' }, calidad: int('sueño: 1 mal, 2 bien, 3 muy bien'), peso: { type: 'number', description: 'kg' },
     }, ['tipo']),
     ejecutar: (a, { db }) => {
+      const ya = a.tipo === 'sueno' ? listarSalud(db, { fecha: a.fecha || fechaLocal(), tipo: 'sueno', limite: 1 })[0] : null
       const r = registrarSalud(db, { tipo: a.tipo, titulo: a.titulo, fecha: a.fecha, hora: a.hora, datos: a, fuente: 'chat' })
       const d = resumenDia(db, r.fecha)
-      return { registrado: { id: r.id, tipo: r.tipo, titulo: r.titulo, datos: r.datos }, dia: { kcal: d.kcal, proteina: d.proteina, ejercicioMin: d.ejercicio.minutos, sueno: d.sueno, metas: d.metas } }
+      return { registrado: { id: r.id, tipo: r.tipo, titulo: r.titulo, datos: r.datos }, dia: { kcal: d.kcal, proteina: d.proteina, ejercicioMin: d.ejercicio.minutos, sueno: d.sueno, metas: d.metas }, _deshacer: { tabla: 'salud', id: r.id, previo: ya ? { titulo: ya.titulo, datos: ya.datos } : null } }
     },
     resumen: (a) => `anotó ${a.tipo === 'comida' ? 'una comida' : a.tipo === 'ejercicio' ? 'un entrenamiento' : a.tipo === 'sueno' ? 'el sueño' : 'una medida'}${a.titulo ? ` (${recorte(a.titulo, 40)})` : ''}`,
+  },
+  {
+    nombre: 'corregir_registro_salud', familia: 'accion',
+    descripcion: 'Corrige un registro de salud ya cargado (una comida mal estimada, la hora, la fecha). Mirá el id con ver_salud; no adivines.',
+    parametros: S({
+      id: int('id del registro (de ver_salud)'), titulo: str('Título corregido'), fecha: str('YYYY-MM-DD'), hora: str('HH:MM'),
+      kcal: { type: 'number' }, proteina: { type: 'number' }, carbos: { type: 'number' }, grasa: { type: 'number' }, minutos: { type: 'number' }, distancia_km: { type: 'number' },
+      horas: { type: 'number' }, calidad: int('sueño: 1 a 3'), peso: { type: 'number' },
+    }, ['id']),
+    ejecutar: (a, { db }) => {
+      const antes = leerSalud(db, a.id)
+      if (!antes) return { error: `No existe el registro ${a.id}. Mirá los ids con ver_salud.` }
+      const { id: _, titulo, fecha, hora, ...datos } = a
+      const r = editarSalud(db, a.id, { titulo, fecha, hora, datos: Object.keys(datos).length ? datos : undefined })
+      return { corregido: { id: r.id, fecha: r.fecha, hora: r.hora, titulo: r.titulo, datos: r.datos }, antes: { titulo: antes.titulo, datos: antes.datos } }
+    },
+    resumen: (_, r) => `corrigió el registro de salud «${recorte(r?.corregido?.titulo ?? '', 40)}»`,
+  },
+  {
+    nombre: 'borrar_registro_salud', familia: 'destructiva',
+    descripcion: 'Borra un registro de salud que entró mal o duplicado. Primero mostrale cuál (id, hora y título de ver_salud) y pedile confirmación.',
+    parametros: S({ id: int('id del registro (de ver_salud)'), confirmado: bool('true solo si el operador confirmó') }, ['id']),
+    ejecutar: (a, { db }) => {
+      const r = leerSalud(db, a.id)
+      if (!r) return { error: `No existe el registro ${a.id}` }
+      const c = exigirConfirmacion(a, `borra «${r.titulo}» (${r.fecha}${r.hora ? ` ${r.hora}` : ''})`)
+      if (c) return c
+      borrarSalud(db, a.id)
+      return { borrado: { id: r.id, fecha: r.fecha, hora: r.hora, titulo: r.titulo } }
+    },
+    resumen: (_, r) => (r?.requiere_confirmacion ? 'pidió confirmación para borrar un registro de salud' : r?.borrado ? `borró «${recorte(r.borrado.titulo, 40)}»` : 'no borró nada'),
+  },
+  {
+    nombre: 'deshacer_ultima_accion', familia: 'accion',
+    descripcion: 'Deshace lo último que hiciste en esta charla (la comida, el gasto, la misión, la side quest o el recuerdo que anotaste) cuando él dice «deshacé eso» o que estuvo mal. Lo que no tiene vuelta (un tick, un encargo publicado) no se puede.',
+    parametros: S({}),
+    ejecutar: (_, { db, conversacionId }) => {
+      if (conversacionId == null) return { error: 'Solo desde una charla' }
+      const xs = ultimasDeshacibles(db, conversacionId)
+      if (!xs.length) return { error: 'No hay nada reciente que se pueda deshacer' }
+      return deshacerAcciones(db, xs.map((x) => x.id))
+    },
+    resumen: (_, r) => (r?.deshechas?.length ? `deshizo: ${recorte(r.deshechas.join(' · '), 60)}` : 'no había nada para deshacer'),
   },
   {
     nombre: 'votar_dia', familia: 'accion',
@@ -746,7 +807,7 @@ export const HERRAMIENTAS: Herramienta[] = [
     nombre: 'anotar_side_quest', familia: 'accion',
     descripcion: 'Anota una side quest: un encargo chico que depende de dónde esté o qué haga («si pasás por una tienda de regalos, comprale X a Y»). El disparador es lo que la activa.',
     parametros: S({ titulo: str('Qué hacer'), detalle: str('Detalle'), lugar: str('Un lugar concreto'), zona: str('Barrio o zona'), actividad: str('Actividad que la habilita: caminar, salir, viajar…'), cuando: str('Momento: fin de semana, a la tarde…'), vence: str('YYYY-MM-DD') }, ['titulo']),
-    ejecutar: (a, { db }) => misionCorta(anotarSideQuest(db, { titulo: a.titulo, detalle: a.detalle, disparador: { lugar: a.lugar, zona: a.zona, actividad: a.actividad, cuando: a.cuando }, vence: a.vence, creadaPor: 'mastropiero' })),
+    ejecutar: (a, { db }) => { const m = anotarSideQuest(db, { titulo: a.titulo, detalle: a.detalle, disparador: { lugar: a.lugar, zona: a.zona, actividad: a.actividad, cuando: a.cuando }, vence: a.vence, creadaPor: 'mastropiero' }); return { ...misionCorta(m), _deshacer: { tabla: 'misiones', id: m.id } } },
     resumen: (a) => `anotó la side quest «${recorte(a.titulo, 50)}»`,
   },
   {
@@ -853,10 +914,16 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'editar_entidad', familia: 'accion',
-    descripcion: 'Corrige una entidad: nombre (el anterior queda como alias), tipo, notas, o suma alias. Cuando él te corrige quién o qué es algo.',
-    parametros: S({ id: int('id de la entidad'), nombre: str('Nombre correcto'), tipo: str('Tipo', { enum: [...TIPOS_ENTIDAD] }), notas: str('Notas (reemplazan las anteriores)'), sumar_alias: { type: 'array', items: { type: 'string' }, description: 'Alias a sumar' } }, ['id']),
+    descripcion: 'Corrige una entidad: nombre (el anterior queda como alias), tipo, notas, o sus alias: sumar, quitar o mover a otra entidad. Un alias es otro nombre de LA MISMA cosa; algo que solo aparece cerca (un país, una marca, un amigo) no es alias: quitalo. Cuando él te corrige quién o qué es algo.',
+    parametros: S({
+      id: int('id de la entidad'), nombre: str('Nombre correcto'), tipo: str('Tipo', { enum: [...TIPOS_ENTIDAD] }), notas: str('Notas (reemplazan las anteriores)'),
+      sumar_alias: { type: 'array', items: { type: 'string' }, description: 'Alias a sumar' },
+      quitar_alias: { type: 'array', items: { type: 'string' }, description: 'Alias que no son de esta entidad' },
+      mover_alias: { type: 'object', properties: { alias: { type: 'string' }, a: { type: 'integer', description: 'id de la entidad a la que sí pertenece' } }, description: 'Un alias que es de otra entidad' },
+    }, ['id']),
     ejecutar: (a, { db }) => {
-      const e = editarEntidad(db, a.id, { nombre: a.nombre, tipo: a.tipo, notas: a.notas, sumarAlias: a.sumar_alias })
+      if (a.mover_alias?.alias) moverAlias(db, a.mover_alias.alias, a.id, a.mover_alias.a ?? null)
+      const e = editarEntidad(db, a.id, { nombre: a.nombre, tipo: a.tipo, notas: a.notas, sumarAlias: a.sumar_alias, quitarAlias: a.quitar_alias })
       return { id: e.id, nombre: e.nombre, tipo: e.tipo, alias: e.alias }
     },
     resumen: (_, r) => `corrigió la entidad ${r?.nombre ?? ''}`,
@@ -991,12 +1058,13 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'ver_salud', familia: 'lectura',
-    descripcion: 'Cómo viene su cuerpo: un día (comidas con kcal y macros, ejercicio, sueño, peso, contra sus metas) y los 7 días anteriores.',
+    descripcion: 'Cómo viene su cuerpo: un día (comidas con kcal y macros, ejercicio, sueño, peso, contra sus metas) y los 7 días anteriores. Cada registro trae su id (para corregir o borrar) y al pie va el último registro cargado.',
     parametros: S({ fecha: str('YYYY-MM-DD; vacío = hoy') }),
     ejecutar: (a, { db }) => {
       const fecha = a.fecha || fechaLocal()
       const d = resumenDia(db, fecha)
-      return { ...d, registros: d.registros.map((r) => ({ hora: r.hora, tipo: r.tipo, titulo: r.titulo, datos: r.datos })), semana: resumenSemana(db, fecha) }
+      const ultimo = listarSalud(db, { limite: 1 })[0]
+      return { ...d, registros: d.registros.map((r) => ({ id: r.id, hora: r.hora, tipo: r.tipo, titulo: r.titulo, datos: r.datos })), semana: resumenSemana(db, fecha), ultimoRegistro: ultimo ? `${ultimo.fecha}${ultimo.hora ? ` ${ultimo.hora}` : ''} · ${ultimo.titulo}` : null }
     },
   },
   {
@@ -1191,13 +1259,13 @@ export const HERRAMIENTAS: Herramienta[] = [
 export const NUCLEO = [
   'pedir_herramientas', 'que_puede_deprocast', 'ver_dia', 'ver_agenda', 'fijar_horario', 'ver_uso', 'buscar_corpus', 'leer_pieza', 'leer_memoria', 'recordar',
   'corregir_memoria', 'listar_entidades', 'ver_entidad', 'ver_misiones', 'crear_mision', 'actualizar_mision', 'anotar_side_quest', 'ver_run', 'preparar_run',
-  'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'votar_dia', 'ver_plan', 'proponer_mejora',
+  'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'votar_dia', 'ver_plan', 'proponer_mejora', 'deshacer_ultima_accion',
 ]
 export const GRUPOS: Record<string, string[]> = {
-  liga: ['ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
+  liga: ['ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
+  vida: ['editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   web: ['buscar_web', 'leer_pagina', 'guardar_link', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   crear: ['ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
@@ -1233,7 +1301,7 @@ export function esquemas(hs: Herramienta[]) {
   return hs.map((h) => ({ type: 'function', function: { name: h.nombre, description: h.descripcion, parameters: h.parametros } }))
 }
 
-export async function ejecutarHerramienta(hs: Herramienta[], nombre: string, argumentos: string, ctx: Ctx): Promise<{ resultado: unknown; resumen: string; ok: boolean }> {
+export async function ejecutarHerramienta(hs: Herramienta[], nombre: string, argumentos: string, ctx: Ctx): Promise<{ resultado: unknown; resumen: string; ok: boolean; inversa?: Inversa | null }> {
   const h = hs.find((x) => x.nombre === nombre)
   if (!h) return { resultado: { error: `No existe la herramienta ${nombre}` }, resumen: `pidió ${nombre} (no existe)`, ok: false }
   let a: any
@@ -1243,9 +1311,9 @@ export async function ejecutarHerramienta(hs: Herramienta[], nombre: string, arg
     return { resultado: { error: 'Argumentos que no son JSON válido' }, resumen: `${nombre}: argumentos inválidos`, ok: false }
   }
   try {
-    const resultado = await h.ejecutar(a, ctx)
+    const { resultado, inversa } = separarInversa(await h.ejecutar(a, ctx))
     const fallo = !!(resultado && typeof resultado === 'object' && 'error' in (resultado as object))
-    return { resultado, resumen: h.resumen?.(a, resultado) ?? nombre.replace(/_/g, ' '), ok: !fallo }
+    return { resultado, resumen: h.resumen?.(a, resultado) ?? nombre.replace(/_/g, ' '), ok: !fallo, inversa }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     return { resultado: { error: msg }, resumen: `${nombre} falló: ${recorte(msg, 80)}`, ok: false }

@@ -685,7 +685,7 @@ async function verEntidad(id) {
     det.innerHTML = `<div class="panel">
       <div class="p-top"><span class="tipo-chip">${TIPO_ENT[e.tipo]?.glifo ?? ''} ${esc(e.tipo)}</span>${e.meta?.operador ? '<span class="nivel-badge">vos · el jugador</span>' : ''}${meta.map(([k, v]) => `<span class="tipo-chip">${esc(k)}: ${esc(v)}</span>`).join('')}</div>
       <h2>${esc(e.nombre)}</h2>
-      ${e.alias.length ? `<div class="tags">${e.alias.map((a) => `<span>${esc(a)}</span>`).join('')}</div>` : ''}
+      ${e.alias.length ? `<div class="tags">${e.alias.map((a) => `<span>${esc(a)}<button type="button" class="quitar-alias" data-quitar-alias="${esc(a)}" title="No es otro nombre de ${esc(e.nombre)}: sacarlo">✕</button></span>`).join('')}</div>` : ''}
       ${e.notas ? `<div class="notas">${esc(e.notas)}</div>` : ''}
       <div class="fila" style="margin:12px 0 4px"><button class="btn btn-chico btn-primario" id="ent-preguntar">☿ Preguntarle a Mastropiero</button>${e.tipo === 'proyecto' ? '<button class="btn btn-chico" id="ent-espacio" title="Todo el proyecto en un lugar, y su equipo de agentes">🧪 Espacio y sandbox</button>' : ''}<button class="btn btn-chico" id="ent-unir" title="Es la misma que otra entidad: juntarlas en una">Unir con…</button>
         ${e.meta?.operador ? '<button class="btn btn-chico" id="ent-ficha-jugador">Tu ficha de jugador</button>' : e.tipo === 'persona' ? '<button class="btn btn-chico" id="ent-soy-yo" title="Marcar esta persona como vos: tu ficha de jugador y la suya pasan a ser una">Soy yo</button>' : ''}</div>
@@ -716,6 +716,11 @@ async function verEntidad(id) {
     if (fj) fj.onclick = () => irA('jugador')
     const esp = $('#ent-espacio')
     if (esp) esp.onclick = () => modalEspacio(e.id)
+    $$('[data-quitar-alias]', det).forEach((b) => (b.onclick = async () => {
+      const a = b.dataset.quitarAlias
+      if (!confirm(`¿Sacar «${a}» de los alias de ${e.nombre}? Sigue encontrándose por las piezas que lo nombran.`)) return
+      try { await api(`/entidades/${e.id}`, { quitarAlias: [a] }); verEntidad(e.id) } catch (err) { error(err) }
+    }))
     $('#ent-unir').onclick = () => modalUnir(e.id, e.nombre, async (queda) => { await refrescar(); verEntidad(queda) })
     $('#ent-preguntar').onclick = () => preguntarAMastropiero(`Contame sobre ${e.nombre} (entidad #${e.id}): qué es, con qué aparece y qué dice el corpus.`)
     $$('[data-co]', det).forEach((b) => (b.onclick = () => verEntidad(Number(b.dataset.co))))

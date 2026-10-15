@@ -198,6 +198,7 @@ function anotar(l: Llamada, modelo: string, r: Respuesta, ms: number) {
 
 async function recorrer(l: Llamada, modelos: string[], llamar: (modelo: string, razonarPoco: boolean) => Promise<Respuesta>) {
   if (!modelos.length) throw new Error(`La clase ${l.clase} no tiene cadena NaN`)
+  const motivos: string[] = []
   for (const modelo of modelos) {
     const n = { server: 0, rate: 0, trunc: 0 }
     let razonarPoco = false
@@ -208,14 +209,22 @@ async function recorrer(l: Llamada, modelos: string[], llamar: (modelo: string, 
       if (r.status >= 200 && r.status < 300 && !truncada(r)) return { modelo, r }
       const d = decidir(r, modelo, n)
       if (d.accion === 'cortar') throw new Error(d.motivo)
-      if (d.accion === 'siguiente') break
+      if (d.accion === 'siguiente') { motivos.push(`${modelo}: ${motivoDe(r)}`); break }
       if (d.razonarPoco) (n.trunc++, (razonarPoco = true))
       else if (r.status === 429) n.rate++
       else n.server++
       if (d.esperaMs) await dormir(d.esperaMs)
     }
   }
-  throw new Error(`Cadena NaN agotada (${modelos.join(' → ')})`)
+  throw new Error(`Ningún modelo pudo contestar. ${motivos.join(' · ')}`)
+}
+
+/** Por qué no sirvió una respuesta, en palabras: lo que va al error cuando se prueban todos. */
+export function motivoDe(r: Respuesta): string {
+  if (truncada(r)) return 'se cortó por largo'
+  const dicho = String(r.json?.error?.message ?? r.body ?? '').replace(/\s+/g, ' ').trim().slice(0, 120)
+  const que = r.status === 402 ? 'sin saldo' : r.status === 429 ? 'demasiados pedidos' : r.status === SIN_RED ? 'sin conexión' : r.status >= 500 ? 'el servidor falló' : r.status === 400 ? 'pedido rechazado' : `respondió ${r.status}`
+  return `${que} (${r.status}${dicho ? `: ${dicho}` : ''})`
 }
 
 export async function nanChat(

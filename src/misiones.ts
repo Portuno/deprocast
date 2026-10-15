@@ -146,7 +146,7 @@ export function listarMisiones(db: Db, f: FiltroMisiones = {}): Mision[] {
     .all(...args, f.limite ?? 300).map(deFila)
 }
 
-export type CambiosMision = Partial<Pick<Mision, 'titulo' | 'detalle' | 'categoria' | 'estado' | 'progreso' | 'feedback' | 'armado' | 'vence' | 'padreId' | 'entidadId' | 'con' | 'fijada' | 'semana'>> & { disparador?: Disparador | null }
+export type CambiosMision = Partial<Pick<Mision, 'titulo' | 'detalle' | 'categoria' | 'estado' | 'progreso' | 'feedback' | 'armado' | 'vence' | 'padreId' | 'entidadId' | 'con' | 'fijada' | 'semana'>> & { disparador?: Disparador | null; progresoAuto?: boolean }
 
 /**
  * Cambia una misión. La principal de un agente no se toca nunca; la del jugador solo la toca el operador.
@@ -185,6 +185,9 @@ export function actualizarMision(db: Db, id: number, c: CambiosMision, o: { por?
     'disparador' in c ? (c.disparador ? JSON.stringify(c.disparador) : null) : (m.disparador ? JSON.stringify(m.disparador) : null),
     CERRADAS.includes(estado) ? m.cerradaEn ?? ahora : null, id,
   )
+  // El % que pone él manda sobre el inferido; «volver a automático» lo suelta.
+  if (c.progresoAuto) db.prepare('UPDATE misiones SET progreso_manual = NULL, progreso = 0 WHERE id = ?').run(id)
+  else if (c.progreso != null) db.prepare('UPDATE misiones SET progreso_manual = 1 WHERE id = ?').run(id)
   return leerMision(db, id)!
 }
 
@@ -230,19 +233,52 @@ export function asegurarPrincipal(db: Db, clave: string): Mision | null {
 
 // ─── progreso ───────────────────────────────────────────────────────────
 
-export type Avance = { progreso: number; bandas: { hechas: number; parciales: number; no: number; total: number }; minutos: number }
+export type Senales = { bandas: number; aportes: number; misiones: number; piezas: number; movimientos: number }
+export type Avance = { progreso: number; bandas: { hechas: number; parciales: number; no: number; total: number }; minutos: number; auto: boolean; senales?: Senales }
 
-/** El progreso de una misión es el que se le marca; sus hijas suman foco (bandas y minutos trabajados). */
+/**
+ * Lo hecho que empuja una primaria (o la principal): sus bandas, los aportes de sus ayudantes y, si es de un proyecto,
+ * las otras misiones de ese proyecto que cerró, sus piezas y sus movimientos en esa semana.
+ */
+function senalesDe(db: Db, m: Mision, hijas: { estado: string }[]): Senales {
+  const bandas = hijas.filter((h) => h.estado === 'hecha').length + hijas.filter((h) => h.estado === 'parcial').length / 2
+  const aportes = (db.prepare(`SELECT COUNT(*) AS n FROM corpus WHERE json_extract(meta, '$.aporte') = 1 AND json_extract(meta, '$.primaria') = ?`).get(m.id) as { n: number }).n
+  if (!m.entidadId) return { bandas, aportes, misiones: 0, piezas: 0, movimientos: 0 }
+  const { desde, hasta } = m.semana ? diasDeSemana(m.semana) : { desde: fechaLocal(m.creadaEn), hasta: fechaLocal() }
+  const t0 = new Date(`${desde}T00:00:00`).getTime()
+  const t1 = new Date(`${hasta}T23:59:59`).getTime()
+  const n = (sql: string, ...args: (string | number)[]) => (db.prepare(sql).get(...args) as { n: number }).n
+  return {
+    bandas, aportes,
+    misiones: n(`SELECT COUNT(*) AS n FROM misiones WHERE entidad_id = ? AND id != ? AND COALESCE(padre_id, 0) != ? AND estado = 'hecha' AND cerrada_en BETWEEN ? AND ?`, m.entidadId, m.id, m.id, t0, t1),
+    piezas: n(`SELECT COUNT(*) AS n FROM corpus WHERE nivel = 'propia' AND substr(COALESCE(fecha, ''), 1, 10) BETWEEN ? AND ? AND EXISTS (SELECT 1 FROM json_each(corpus.entidades) WHERE value = ?)`, desde, hasta, m.entidadId),
+    movimientos: n('SELECT COUNT(*) AS n FROM movimientos WHERE entidad_id = ? AND fecha BETWEEN ? AND ?', m.entidadId, desde, hasta),
+  }
+}
+
+/** De lo hecho al %: cada banda cuenta entera; aportes y misiones del proyecto, media; piezas y movimientos, un poco (con tope). */
+export function progresoInferido(s: Senales): number {
+  const trabajo = s.bandas + s.aportes / 2 + s.misiones / 2 + Math.min(4, s.piezas) / 4 + Math.min(2, s.movimientos) / 4
+  return Math.min(95, Math.round(100 * (1 - Math.exp(-trabajo / 4))))
+}
+
+/**
+ * El progreso de una secundaria es su estado. El de una primaria se infiere de lo hecho (no hay que elegirlo), salvo
+ * que él lo haya corregido a mano; lo que él había marcado antes queda como piso. Sus hijas suman foco (bandas y minutos).
+ */
 export function avanceDe(db: Db, id: number): Avance {
   const m = leerMision(db, id)
   if (!m) throw new Error(`No existe la misión ${id}`)
   const hijas = db.prepare(`SELECT estado, COALESCE(minutos, 0) AS minutos FROM misiones WHERE padre_id = ? AND nivel = 'secundaria'`).all(id) as { estado: string; minutos: number }[]
   const cuenta = (e: string) => hijas.filter((h) => h.estado === e).length
   const minutos = hijas.reduce((s, h) => s + (h.estado === 'hecha' ? h.minutos : h.estado === 'parcial' ? h.minutos / 2 : 0), 0)
-  const progreso = m.nivel === 'secundaria' || m.nivel === 'terciaria'
-    ? m.estado === 'hecha' ? 100 : m.estado === 'parcial' ? 50 : m.progreso
-    : m.estado === 'hecha' ? 100 : m.progreso
-  return { progreso, bandas: { hechas: cuenta('hecha'), parciales: cuenta('parcial'), no: cuenta('no'), total: hijas.length }, minutos: Math.round(minutos) }
+  const base = { bandas: { hechas: cuenta('hecha'), parciales: cuenta('parcial'), no: cuenta('no'), total: hijas.length }, minutos: Math.round(minutos) }
+  if (m.nivel === 'secundaria' || m.nivel === 'terciaria') return { progreso: m.estado === 'hecha' ? 100 : m.estado === 'parcial' ? 50 : m.progreso, ...base, auto: false }
+  if (m.estado === 'hecha') return { progreso: 100, ...base, auto: false }
+  const manual = (db.prepare('SELECT progreso_manual FROM misiones WHERE id = ?').get(id) as { progreso_manual: number | null }).progreso_manual === 1
+  if (manual) return { progreso: m.progreso, ...base, auto: false }
+  const senales = senalesDe(db, m, hijas)
+  return { progreso: Math.max(m.progreso, progresoInferido(senales)), ...base, auto: true, senales }
 }
 
 export function conAvance(db: Db, ms: Mision[]) {
@@ -586,7 +622,7 @@ Reglas:
 - Si pidió pausas o el formato lo pide, incluí misiones de categoría «pausa».
 - Una side quest abierta entra solo si encaja con dónde va a estar o lo que va a hacer.
 - Solo usá lo que está en su memoria, sus misiones, lo que dijo y el contexto. No inventes proyectos, personas ni tareas; si sabés poco, menos misiones y buenas.
-- No metas tareas sobre la plataforma misma salvo que él lo pida.
+- No metas tareas sobre la plataforma misma salvo que él lo pida. Tampoco mantenimiento de Deprocast (revisar o borrar duplicados de memoria, ordenar entidades, limpiar el corpus): eso lo hace el sistema de fondo.
 - «resumen»: una o dos oraciones, como si le hablaras: el sentido de la run.
 Forma: {"resumen": string, "misiones": [{"titulo": string, "detalle": string, "minutos": number, "primaria": number | null, "categoria": string, "con": string | null, "gasto": number | null}]}`
 
