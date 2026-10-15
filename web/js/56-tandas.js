@@ -89,7 +89,7 @@ async function modalTakeout() {
         <p class="tenue chico">${Object.entries(l.resumen ?? {}).filter(([k]) => k.startsWith('ingesta_')).map(([k, v]) => `${v} ${k.slice(8).replace('_', ' ')}`).join(' · ')}${d.archivosEnEspera ? ` · ${d.archivosEnEspera} archivos esperando (se borran al procesarlos)` : ''}</p>
         ${d.errores.length ? `<details><summary>${d.errores.length} con error</summary>${d.errores.map((e) => `<p class="chico"><b>${esc(e.que)}</b> ${esc(e.titulo ?? '')}: ${esc(e.error ?? '')}</p>`).join('')}<button class="btn btn-chico" id="tk-reintentar">Reintentar lo que falló</button></details>` : ''}`
       + (d.temas.length ? `<h3>Los temas que más volvieron</h3><div class="hud-chips">${d.temas.map((t) => `<span class="tipo-chip" title="${esc(t.primera ?? '')} → ${esc(t.ultima ?? '')}">${esc(t.tema)} · ${t.veces}</span>`).join(' ')}</div>` : '')
-      + (d.nombres.length ? `<h3>Personas y proyectos nuevos <small class="tenue">esperan tu ok</small></h3><div class="cu-fuentes">${d.nombres.map((x) => `<div class="sq" data-clave="${esc(x.clave)}"><span>${x.tipo === 'proyecto' ? '◆' : '●'} <b>${esc(x.nombre)}</b> · ${x.veces} ${x.veces === 1 ? 'vez' : 'veces'}<small>${esc(x.primera ?? '')}${x.ultima && x.ultima !== x.primera ? ` → ${esc(x.ultima)}` : ''}${x.nota ? ` · ${esc(x.nota.slice(0, 90))}` : ''}</small></span>
+      + (d.nombres.length ? `<h3>Nombres que aparecieron <small class="tenue">personas, proyectos y lugares · esperan tu ok</small></h3><div class="cu-fuentes">${d.nombres.map((x) => `<div class="sq" data-clave="${esc(x.clave)}"><span>${x.tipo === 'proyecto' ? '◆' : x.tipo === 'lugar' ? '⌖' : '●'} <b>${esc(x.nombre)}</b> · ${x.veces} ${x.veces === 1 ? 'vez' : 'veces'}<small>${esc(x.primera ?? '')}${x.ultima && x.ultima !== x.primera ? ` → ${esc(x.ultima)}` : ''}${x.nota ? ` · ${esc(x.nota.slice(0, 90))}` : ''}</small></span>
           <span class="fila"><button class="btn btn-chico" data-tk="aceptar" title="Crear la entidad">✓</button><button class="btn btn-chico" data-tk="fusionar" title="Es una que ya existe">≈</button><button class="btn btn-chico" data-tk="descartar" title="No es nadie / no importa">✕</button></span></div>`).join('')}</div>` : '')
     $('#tk-reintentar')?.addEventListener('click', async () => { await api('/takeout/reintentar', {}); pintar() })
     $$('#tk-cuerpo [data-tk]').forEach((b) => (b.onclick = async () => {
@@ -110,4 +110,43 @@ async function modalTakeout() {
   }
   await pintar()
   const t = setInterval(() => ($('#tk-cuerpo') ? pintar() : clearInterval(t)), 10_000)
+}
+
+// ─── el reproceso ───────────────────────────────────────────────────────
+
+/** El reproceso: cuánto va (pasajes, recuerdos, destilado, eventos, relaciones, crónicas), lo gastado y lo último destilado. */
+async function modalReproceso() {
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>♻ Reproceso</h2>
+    <p class="tenue">Deprocast relee todo tu archivo con los modelos de NaN: lo corta en pasajes para encontrar cualquier cosa, destila cada pieza (resumen, temas, ideas, decisiones, personas, lugares), saca los eventos con fecha para tu <a href="#" id="rp-linea">Línea</a> y las relaciones entre tu gente para el grafo. Corre en la nube, de fondo, con su propio tope diario.</p>
+    <div id="rp-cuerpo"><p class="tenue">Cargando…</p></div>`)
+  $('#rp-linea').onclick = (e) => { e.preventDefault(); cerrarModal(); irA('linea') }
+  const mill = (n) => (n >= 1e6 ? `${(n / 1e6).toLocaleString('es-AR', { maximumFractionDigits: 1 })} M` : n >= 1e3 ? `${Math.round(n / 1e3)} mil` : String(n))
+  const pintar = async () => {
+    const cont = $('#rp-cuerpo')
+    if (!cont) return
+    let d
+    try { d = await api('/reproceso') } catch (e) { cont.innerHTML = `<p class="tenue">${esc(e.message)}</p>`; return }
+    const dTotal = d.destilado.hechos + d.destilado.pendientes
+    const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0)
+    cont.innerHTML = `
+      <p><b>${d.activo ? (d.trabajando ? 'Trabajando' : 'Prendido') : 'En pausa'}</b>${d.paso ? ` · <span class="tenue">${esc(d.paso)}</span>` : ''}</p>
+      <div class="hud-fichas">
+        <span class="hud-ficha"><small>🔎 Pasajes</small><b>${d.pasajes.piezas}/${d.pasajes.total}</b><em>${mill(d.pasajes.pasajes)} pasajes</em></span>
+        <span class="hud-ficha"><small>🧪 Destilado</small><b>${d.destilado.hechos}/${dTotal}</b><em>${d.destilado.fallos ? `${d.destilado.fallos} fallaron` : d.destilado.horasQueFaltan ? `~${d.destilado.horasQueFaltan} h más` : ''}</em></span>
+        <span class="hud-ficha"><small>🧠 Recuerdos y quántomos</small><b>${d.items.hechos}</b><em>${d.items.faltan ? `faltan ${d.items.faltan}` : 'al día'}</em></span>
+        <span class="hud-ficha"><small>⟿ Eventos</small><b>${d.eventos}</b><em>${d.cronicas} crónicas</em></span>
+        <span class="hud-ficha"><small>☍ Relaciones</small><b>${d.relaciones}</b><em>tipadas</em></span>
+        <span class="hud-ficha"><small>⚡ Tokens hoy</small><b>${mill(d.tokens.hoy)}</b><em>de ${mill(d.tokens.tope)} · total ${mill(d.tokens.total)}</em></span>
+      </div>
+      <span class="hud-barra" style="margin:10px 0 4px" title="Destilado"><i style="width:${pct(d.destilado.hechos, dTotal)}%"></i></span>
+      <span class="hud-barra" style="margin:0 0 10px" title="Pasajes"><i style="width:${pct(d.pasajes.piezas, d.pasajes.total)}%"></i></span>
+      <div class="fila">${d.activo ? '<button class="btn" data-rp="pausar">Pausar</button>' : `<button class="btn btn-primario" data-rp="empezar" ${d.enLaNube ? '' : 'disabled title="Corre en la nube: prendelo desde tu Deprocast en la nube"'}>Empezar</button>`}
+        ${d.destilado.fallos || d.pasajes.fallos ? '<button class="btn" data-rp="reintentar">Reintentar lo que falló</button>' : ''}</div>
+      ${d.enLaNube ? '' : '<p class="tenue chico">Esta es la copia de la compu: acá no se gasta nada. El reproceso se prende en la nube.</p>'}
+      ${d.ultimos.length ? `<h3>Lo último que destiló</h3>${d.ultimos.map((u) => `<div class="sq"><span><a href="#" class="ref" data-pieza="${u.id}"><b>${esc(u.titulo.slice(0, 80))}</b></a><small>${esc(u.resumen)}</small></span></div>`).join('')}` : ''}`
+    $$('[data-rp]', cont).forEach((b) => (b.onclick = async () => { try { await api('/reproceso', { accion: b.dataset.rp }); pintar() } catch (e) { error(e) } }))
+    $$('[data-pieza]', cont).forEach((a) => (a.onclick = (e) => { e.preventDefault(); modalPieza(Number(a.dataset.pieza)) }))
+  }
+  await pintar()
+  const reloj = setInterval(() => { if (!$('#rp-cuerpo')) return clearInterval(reloj); pintar() }, 8000)
 }

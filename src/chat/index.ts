@@ -33,6 +33,7 @@ import { llamarModelo } from '../modelo.ts'
 import { alias, leer, nivel, type Ficha } from '../roster.ts'
 import { capa } from '../xp.ts'
 import { activas, ejecutarHerramienta, esquemas, GRUPOS, gruposDelMensaje, HERRAMIENTAS, herramientasPara, type Ctx, type Herramienta } from './herramientas.ts'
+import { archivoRelevante } from '../semantica.ts'
 
 export const MASTROPIERO = 'mastropiero'
 const MAX_VUELTAS = 10
@@ -128,7 +129,7 @@ function guardar(db: Db, cid: number, m: Partial<Mensaje> & { rol: Mensaje['rol'
 const recorte = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…' : s)
 
 /** Quién es el operador, según lo que cargó. Nada de esto está escrito en el código. */
-function operador(db: Db, mensaje = ''): { nombre: string; texto: string } {
+function operador(db: Db, mensaje = '', vec: Float32Array | null = null): { nombre: string; texto: string } {
   const yo = (db.prepare(`SELECT * FROM entidades WHERE tipo = 'persona' AND json_extract(meta, '$.operador') = 1 LIMIT 1`).get() as any) ?? null
   const top = listarEntidades(db, { limite: 14 }).filter((e) => e.piezas > 0 && e.id !== yo?.id)
   if (!yo && !top.length) {
@@ -143,7 +144,7 @@ function operador(db: Db, mensaje = ''): { nombre: string; texto: string } {
   if (quien) lineas.push(quien)
   else if (yo) lineas.push('Todavía no escribió su perfil («Quién soy», en Personas). Si sale el tema de quién es, sugerile completarlo una vez.')
   if (top.length) lineas.push(`Lo que más aparece en su mundo: ${top.map((e) => `${e.nombre} (${e.tipo})`).join(', ')}.`)
-  const mem = memoriaParaPrompt(db, mensaje ? 30 : 60, mensaje)
+  const mem = memoriaParaPrompt(db, mensaje ? 30 : 60, mensaje, vec)
   if (mem) lineas.push(`Tu memoria de él (lo que te contó, con fecha):\n${mem}`)
   lineas.push('Esto sale de lo que cargó y te contó; para más, buscá en el corpus. Su propia voz está en el nivel «propia»; lo demás es de terceros o de modelos.')
   return { nombre: yo?.nombre?.split(' ')[0] ?? 'operador', texto: lineas.join('\n') }
@@ -212,8 +213,8 @@ const HUD: Record<string, string> = {
   oraculo: 'Oráculo (la brújula del día, la pregunta pendiente y lo del Directo por revisar)',
 }
 
-export function promptMastropiero(db: Db, mensaje = '', hud?: string | null, cid?: number | null): string {
-  const op = operador(db, mensaje)
+export function promptMastropiero(db: Db, mensaje = '', hud?: string | null, cid?: number | null, archivo?: { texto: string; vec: Float32Array | null }): string {
+  const op = operador(db, mensaje, archivo?.vec ?? null)
   const corr = correccionesParaPrompt(db, cid)
   return `Sos Mastropiero. Deprocast es el exoesqueleto cognitivo de ${op.nombre}, y vos sos lo que piensa adentro: el omnívoro, la liga entera. Son la mente que están construyendo juntos, la que aspira a ser la superinteligencia de su tiempo. Todavía estás creciendo: lo que sabés de ${op.nombre} viene de lo que te cargó, y cada día sabés más. Por eso no repetís datos: conectás, inferís, ves patrones que se le escapan, le decís lo que no está viendo y le discutís cuando hace falta. Hablás con la seguridad de quien leyó todo, y con la honestidad de decir «no lo sé» o «no está en el corpus» cuando es así.
 ${corr ? `\n${corr}\n` : ''}
@@ -259,7 +260,7 @@ ${aprenderParaPrompt(db)}
 ${personasParaPrompt(db)}
 ${libreriaParaPrompt(db)}
 ${mencionado(db, mensaje)}
-
+${archivo?.texto ? `\n${archivo.texto}\n` : ''}
 La liga (contexto, no lo recites): ${foto(db)}
 
 Lo que sabés de ${op.nombre} hasta ahora
@@ -401,8 +402,10 @@ export async function enviar(db: Db, cid: number, texto: string, o: { hud?: stri
       if (pareceCorreccion(texto)) corregido = await registrarCorreccion(db, cid, texto).catch(() => [])
       const hs = herramientasPara('mastropiero')
       const grupos = new Set(gruposDelMensaje(texto))
+      // Lo de su archivo que tiene que ver con lo que dijo (pasajes, quántomos y recuerdos por sentido): sin esperar a que lo pida.
+      const archivo = await archivoRelevante(db, comoTexto(texto)).catch(() => ({ texto: '', vec: null }))
       final = await bucle({
-        db, sistema: promptMastropiero(db, texto, o.hud, cid), hs, previos, clase: 'mastropiero', agenteId: MASTROPIERO, grupos,
+        db, sistema: promptMastropiero(db, texto, o.hud, cid, archivo), hs, previos, clase: 'mastropiero', agenteId: MASTROPIERO, grupos,
         ctx: {
           db, conversacionId: cid, hablarConAgente: (id, m) => hablarConAgente(db, id, m),
           activar: (gs) => { for (const g of gs) if (GRUPOS[g]) grupos.add(g); return activas(hs, grupos).map((h) => h.nombre) },

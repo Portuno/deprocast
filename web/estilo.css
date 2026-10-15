@@ -1607,3 +1607,54 @@ details.puentes > summary { cursor: pointer; padding: 6px 0; }
 .per-form > .btn-primario { justify-self: start; }
 .tags .quitar-alias { border: 0; background: none; color: var(--debil); cursor: pointer; padding: 0 0 0 5px; font-size: 10.5px; line-height: 1; }
 .tags .quitar-alias:hover { color: var(--mal); }
+
+/* ─── la línea ─── */
+.lin-grid { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 18px; align-items: start; }
+.lin-grid > aside { position: sticky; top: 12px; }
+.lin-anios { display: grid; gap: 10px; }
+.lin-anio b { font: 600 12px var(--mono); color: var(--tenue); }
+.lin-meses { display: grid; grid-template-columns: repeat(12, 1fr); gap: 3px; height: 46px; align-items: end; margin-top: 4px; }
+.lin-meses button { height: 100%; border: 0; padding: 0; background: var(--panel-2); border-radius: 3px; display: flex; align-items: flex-end; cursor: pointer; }
+.lin-meses button i { display: block; width: 100%; background: var(--acento); border-radius: 3px; }
+.lin-meses button.vacio-mes { cursor: default; background: transparent; }
+.lin-meses button.vacio-mes i { background: var(--linea); }
+.lin-meses button:hover:not(.vacio-mes) i { filter: brightness(1.2); }
+.lin-mes { margin: 0 0 22px; scroll-margin-top: 12px; }
+.lin-mes h2 { font-size: 16px; font-weight: 600; margin: 0 0 8px; }
+.lin-mes h2 small { font-weight: 400; font-size: 12px; }
+.lin-cronica { border: 1px solid color-mix(in srgb, var(--acento) 35%, var(--linea)); background: linear-gradient(145deg, color-mix(in srgb, var(--acento) 10%, var(--panel)), var(--panel) 70%); border-radius: 12px; padding: 12px 14px; margin: 0 0 10px; cursor: pointer; }
+.lin-cronica small { color: var(--acento-texto); font: 600 11px var(--mono); text-transform: uppercase; letter-spacing: .05em; }
+.lin-cronica h4 { margin: 2px 0 6px; font-size: 14.5px; }
+.lin-cronica p { margin: 0; color: var(--tenue); font-size: 13px; white-space: pre-line; }
+.lin-ev { display: grid; grid-template-columns: 22px 150px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; padding: 7px 4px; border-bottom: 1px solid var(--linea); }
+.lin-ev:last-child { border-bottom: 0; }
+.lin-g { color: var(--acento); text-align: center; }
+.lin-ev.futuro .lin-g { color: var(--acento-texto); }
+.lin-ev.grabacion .lin-g { font-size: 12px; }
+.lin-f { font: 12px var(--mono); color: var(--tenue); }
+.lin-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lin-t b { font-weight: 500; }
+.lin-t small { color: var(--tenue); font-size: 12px; }
+.lin-ev.agendado .lin-t b { color: var(--tenue); }
+.lin-futuros .lin-ev { grid-template-columns: 22px 150px minmax(0, 1fr) auto; }
+@media (max-width: 760px) {
+  .lin-grid { grid-template-columns: 1fr; }
+  .lin-grid > aside { position: static; }
+  .lin-ev { grid-template-columns: 22px minmax(0, 1fr); }
+  .lin-f { grid-column: 2; }
+  .lin-t { grid-column: 2; }
+  .lin-ev > .fila, .lin-ev > .tipo-chip { grid-column: 2; }
+}
+
+/* ─── la red de personas ─── */
+.gr-lienzo { border: 1px solid var(--linea); border-radius: 12px; background: var(--panel-2); overflow: hidden; }
+.gr-svg { display: block; width: 100%; height: auto; }
+.gr-nodo { cursor: pointer; }
+.gr-nodo circle { fill: color-mix(in srgb, var(--acento) 55%, var(--panel)); stroke: var(--panel); stroke-width: 2; }
+.gr-nodo.juridica circle { fill: color-mix(in srgb, #5b8fd9 60%, var(--panel)); }
+.gr-nodo.ficticia circle { fill: color-mix(in srgb, #9a6bdc 55%, var(--panel)); }
+.gr-nodo.yo circle { fill: var(--acento); stroke: var(--texto); }
+.gr-nodo:hover circle { stroke: var(--texto); }
+.gr-nodo text { font: 11px var(--sans, system-ui); fill: var(--texto); text-anchor: middle; paint-order: stroke; stroke: var(--panel-2); stroke-width: 3px; pointer-events: none; }
+.gr-leyenda { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11.5px; color: var(--tenue); }
+.gr-leyenda i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }

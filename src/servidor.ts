@@ -28,7 +28,9 @@ import { crearAprendizaje, editarAprendizaje, leerAprendizaje, listarAprendizaje
 import { guardarFoto } from './chat/adjuntos.ts'
 import { aplicarBaseEntrante, recibirArchivo, recibirBase } from './mudanza.ts'
 import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, hayFfmpeg, iterarArtefacto, listarArtefactos, VOCES } from './taller.ts'
-import { conMatriz, desvincularDeProyecto, guardarRelacion, nuevaPersona, personas, vincularAProyecto } from './personas.ts'
+import { conMatriz, desvincularDeProyecto, grafoPersonas, guardarRelacion, nuevaPersona, personas, vincularAProyecto } from './personas.ts'
+import { controlarReproceso, enLaNube, estadoReproceso, trabajarReproceso } from './reproceso.ts'
+import { lineaTemporal, resolverEvento } from './linea.ts'
 import { guardarYo, leerYo } from './yo.ts'
 import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora.ts'
 import { anotar as anotarEnCriba, anotarSolo, cribar, deshacerUltima, marcador, siguiente } from './criba.ts'
@@ -647,6 +649,12 @@ const rutas: [string, RegExp, Ruta][] = [
   // Personas
   ['GET', /^\/api\/personas$/, (_, __, q) => conMatriz(db, personas(db, { q: q.get('q') || undefined, clase: q.get('clase') || undefined, estado: q.get('estado') || undefined, orden: q.get('orden') || undefined }))],
   ['POST', /^\/api\/personas\/nueva$/, (b) => nuevaPersona(db, b)],
+  ['GET', /^\/api\/personas\/grafo$/, () => grafoPersonas(db)],
+  // El reproceso (corre en la nube) y la línea temporal que arma.
+  ['GET', /^\/api\/reproceso$/, () => estadoReproceso(db)],
+  ['POST', /^\/api\/reproceso$/, (b) => controlarReproceso(db, String(b.accion ?? ''))],
+  ['GET', /^\/api\/linea$/, (_, __, q) => lineaTemporal(db, { desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined, entidad: num(q.get('entidad')) ?? undefined, tema: q.get('tema') || undefined, tipo: q.get('tipo') || undefined })],
+  ['POST', /^\/api\/linea\/(\d+)$/, (b, [e]) => resolverEvento(db, id(e), b.accion === 'agendar' ? 'agendar' : 'descartar') ?? { ok: true }],
   ['POST', /^\/api\/personas\/(\d+)$/, (b, [p]) => guardarRelacion(db, id(p), b)],
   ['POST', /^\/api\/personas\/(\d+)\/proyectos$/, (b, [p]) => (b.quitar ? desvincularDeProyecto(db, id(p), Number(b.proyecto)) : vincularAProyecto(db, id(p), Number(b.proyecto), { rol: b.rol ?? null, importancia: b.importancia ?? null }))],
   ['GET', /^\/api\/yo$/, () => leerYo(db)],
@@ -1145,6 +1153,13 @@ setInterval(async () => {
   vectorizando = true
   try { await vectorizarPendientes(db, { limite: 48 }) } catch (e) { console.error('  vectores:', e instanceof Error ? e.message : e) } finally { vectorizando = false }
 }, 10 * 60_000).unref()
+
+// El reproceso: si él lo prendió, sigue solo (en la nube) con lo que falte y con lo nuevo que entra.
+if (enLaNube() && !enVercel()) {
+  const reprocesar = () => { if (ajuste(db, 'reproceso_activo') === '1') void trabajarReproceso(db).catch((e) => console.error('  reproceso:', e instanceof Error ? e.message : e)) }
+  setTimeout(reprocesar, 90_000).unref()
+  setInterval(reprocesar, 10 * 60_000).unref()
+}
 
 // Las cuentas: lo aprobado se publica en su horario (solo con conector; «redacta» solo lo que él aprobó).
 setInterval(async () => {

@@ -248,3 +248,36 @@ export function personasParaPrompt(db: Db, ahora = Date.now()): string {
   const lineas = [...ps].sort((a, b) => peso(b) - peso(a)).slice(0, 16).map((p) => `- ${personaEnUnaLinea(p)}${p.diasSinContacto != null ? `: último contacto hace ${p.diasSinContacto} días` : ''}${p.vencida ? ' — quería verla más seguido' : ''}${p.proxima ? `; próximo: ${p.proxima}` : ''}`)
   return `Su gente (lo que él definió; nivel = cuánto la conoce, importancia = cuánto pesa en su vida, ambos 1–12):\n${lineas.join('\n')}`
 }
+
+// ─── el grafo ───────────────────────────────────────────────────────────
+
+export type NodoGrafo = { id: number; nombre: string; clase: ClasePersona | 'yo'; peso: number; menciones: number }
+export type AristaGrafo = { a: number; b: number; tipo: string; nota: string | null; veces: number; definida: boolean }
+
+/**
+ * Su gente como grafo: cada persona (física o jurídica) con el tamaño de lo que pesa en su vida, y entre ellas las
+ * relaciones que dice el archivo o que anotó él (tipadas) y, en gris, las que solo aparecen juntas en sus piezas.
+ */
+export function grafoPersonas(db: Db, o: { max?: number } = {}, ahora = Date.now()): { nodos: NodoGrafo[]; aristas: AristaGrafo[] } {
+  const yo = entidadDelJugador(db)
+  const ps = personas(db, {}, ahora).filter((p) => p.clase !== 'ficticia' || p.definida)
+    .sort((a, b) => (b.importancia ?? b.nivel ?? b.nivelSugerido ?? 0) - (a.importancia ?? a.nivel ?? a.nivelSugerido ?? 0) || b.menciones - a.menciones)
+    .slice(0, o.max ?? 150)
+  const nodos: NodoGrafo[] = ps.map((p) => ({ id: p.id, nombre: p.nombre, clase: p.clase, peso: p.importancia ?? p.nivel ?? p.nivelSugerido ?? 1, menciones: p.menciones }))
+  if (yo) {
+    const e = db.prepare('SELECT nombre FROM entidades WHERE id = ?').get(yo) as { nombre: string } | undefined
+    if (e) nodos.unshift({ id: yo, nombre: e.nombre, clase: 'yo', peso: 12, menciones: 0 })
+  }
+  const ids = new Set(nodos.map((n) => n.id))
+  const aristas: AristaGrafo[] = (db.prepare('SELECT a, b, relacion, nota, origen FROM conexiones').all() as any[])
+    .filter((c) => ids.has(c.a) && ids.has(c.b))
+    .map((c) => ({ a: c.a, b: c.b, tipo: c.relacion ?? 'conexión', nota: c.nota, veces: 1 + ((c.nota ?? '').match(/ · /g)?.length ?? 0), definida: !String(c.origen ?? '').startsWith('destilado:') }))
+  const ya = new Set(aristas.map((x) => `${Math.min(x.a, x.b)}|${Math.max(x.a, x.b)}`))
+  const juntas = db.prepare(`SELECT CAST(x.value AS INTEGER) AS a, CAST(y.value AS INTEGER) AS b, COUNT(*) AS n FROM corpus c JOIN json_each(c.entidades) x JOIN json_each(c.entidades) y ON CAST(x.value AS INTEGER) < CAST(y.value AS INTEGER)
+    WHERE c.entidades IS NOT NULL AND c.entidades != '[]' GROUP BY 1, 2 HAVING n >= 2 ORDER BY n DESC LIMIT 2000`).all() as { a: number; b: number; n: number }[]
+  for (const j of juntas) {
+    if (!ids.has(j.a) || !ids.has(j.b) || ya.has(`${j.a}|${j.b}`)) continue
+    aristas.push({ a: j.a, b: j.b, tipo: 'aparecen juntas', nota: null, veces: j.n, definida: false })
+  }
+  return { nodos, aristas }
+}

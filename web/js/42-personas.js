@@ -11,7 +11,7 @@ function montarPersonas() {
   Object.assign(per, JSON.parse(pref.leer('mastro-personas', '{}') || '{}'))
   $('#principal').innerHTML = `
     <div class="cabecera"><div class="cabecera-texto"><h1>Personas</h1><p>Vos primero; después tu gente: cuánto la conocés, cuánto importa y en qué proyectos está.</p></div>
-      <div class="fila"><button class="btn btn-primario btn-chico" id="per-nueva">＋ Persona</button></div></div>
+      <div class="fila"><button class="btn btn-chico" id="per-grafo" title="Tu gente como red: quién se relaciona con quién">☍ Red</button><button class="btn btn-primario btn-chico" id="per-nueva">＋ Persona</button></div></div>
     <div id="per-yo"></div>
     <div class="fila per-filtros">
       <input class="campo-suelto" id="per-q" placeholder="Buscar…" value="${esc(per.q)}">
@@ -29,6 +29,7 @@ function montarPersonas() {
   let t
   $('#per-q').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { per.q = e.target.value; refrescarPersonas() }, 250) }
   $('#per-nueva').onclick = modalNuevaPersona
+  $('#per-grafo').onclick = modalGrafo
   pintarYo()
   refrescarPersonas()
   pintarPuentes()
@@ -245,4 +246,79 @@ function modalUnir(id, nombre, alTerminar = () => {}) {
       try { await api(`/entidades/${b.dataset.queda}/fusionar`, { absorbe: [Number(b.dataset.absorbe)] }); cerrarModal(); toast('Unidas', 'suave'); alTerminar(Number(b.dataset.queda)) } catch (err) { error(err) }
     }))
   }, 250) }
+}
+
+// ─── el grafo ───────────────────────────────────────────────────────────
+
+const COLOR_REL = { pareja: '#e46b8a', familia: '#e0a24a', amistad: '#5bb98c', trabajo: '#5b8fd9', socios: '#9a6bdc', cliente: '#3fb4c4', proveedor: '#7f9c4a', conocidos: '#8c8c8c', otro: '#8c8c8c' }
+
+/** Fuerzas simples (repulsión entre todos, resortes en las aristas, gravedad al centro): se acomoda en unos cientos de pasos. */
+function acomodarGrafo(nodos, aristas, ancho, alto) {
+  const pos = new Map(nodos.map((n, i) => [n.id, { x: ancho / 2 + Math.cos(i * 2.4) * (40 + i * 3), y: alto / 2 + Math.sin(i * 2.4) * (40 + i * 3), vx: 0, vy: 0 }]))
+  const ar = aristas.map((a) => ({ a: pos.get(a.a), b: pos.get(a.b), fuerte: a.tipo !== 'aparecen juntas' }))
+  const ps = [...pos.values()]
+  for (let paso = 0; paso < 320; paso++) {
+    const t = 1 - paso / 320
+    for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) {
+      const p = ps[i], q = ps[j]
+      let dx = p.x - q.x, dy = p.y - q.y
+      const d2 = dx * dx + dy * dy || 0.01
+      if (d2 > 90_000) continue // lejos no se empujan: los grupos sueltos no se escapan
+      const f = 1800 / d2
+      dx *= f; dy *= f
+      p.vx += dx; p.vy += dy; q.vx -= dx; q.vy -= dy
+    }
+    for (const e of ar) {
+      const dx = e.b.x - e.a.x, dy = e.b.y - e.a.y
+      const d = Math.sqrt(dx * dx + dy * dy) || 1
+      const f = (d - (e.fuerte ? 70 : 120)) * (e.fuerte ? 0.02 : 0.004)
+      e.a.vx += (dx / d) * f * d * 0.05; e.a.vy += (dy / d) * f * d * 0.05
+      e.b.vx -= (dx / d) * f * d * 0.05; e.b.vy -= (dy / d) * f * d * 0.05
+    }
+    for (const p of ps) {
+      p.vx += (ancho / 2 - p.x) * 0.02; p.vy += (alto / 2 - p.y) * 0.02
+      const v = Math.min(12 * t + 1, Math.hypot(p.vx, p.vy))
+      const h = Math.hypot(p.vx, p.vy) || 1
+      p.x += (p.vx / h) * v; p.y += (p.vy / h) * v
+      p.vx *= 0.5; p.vy *= 0.5
+    }
+  }
+  // Que entre en el lienzo.
+  const xs = ps.map((p) => p.x), ys = ps.map((p) => p.y)
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+  const k = Math.min((ancho - 80) / ((x1 - x0) || 1), (alto - 60) / ((y1 - y0) || 1), 1.6)
+  for (const p of ps) { p.x = 40 + (p.x - x0) * k; p.y = 30 + (p.y - y0) * k }
+  return pos
+}
+
+async function modalGrafo() {
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>☍ Tu gente, como red</h2>
+    <p class="tenue chico">El tamaño es lo que pesa en tu vida (importancia o nivel). En color, las relaciones que dice tu archivo o que anotaste; en gris punteado, los que solo aparecen juntos en tus piezas. Tocá a alguien para abrir su ficha.</p>
+    <div class="fila per-filtros"><label class="tenue chico"><input type="checkbox" id="gr-juntas" checked> mostrar «aparecen juntas»</label><span class="gr-leyenda">${Object.entries(COLOR_REL).filter(([k]) => k !== 'otro').map(([k, c]) => `<span><i style="background:${c}"></i>${k}</span>`).join('')}</span></div>
+    <div id="gr-lienzo" class="gr-lienzo"><p class="tenue">Armando la red…</p></div>`)
+  let g
+  try { g = await api('/personas/grafo') } catch (e) { return error(e) }
+  const cont = $('#gr-lienzo')
+  if (!cont) return
+  if (g.nodos.length < 2) return void (cont.innerHTML = '<p class="vacio">Todavía hay muy poca gente para una red. Crece sola con el reproceso (Corpus → ♻ Reproceso) y con lo que cargues.</p>')
+  const ancho = Math.max(640, cont.clientWidth || 860), alto = 560
+  const pos = acomodarGrafo(g.nodos, g.aristas, ancho, alto)
+  const nombre = new Map(g.nodos.map((n) => [n.id, n.nombre]))
+  const pintar = () => {
+    const juntas = $('#gr-juntas').checked
+    const as = g.aristas.filter((a) => juntas || a.tipo !== 'aparecen juntas')
+    const conAlgo = new Set(as.flatMap((a) => [a.a, a.b]))
+    cont.innerHTML = `<svg viewBox="0 0 ${ancho} ${alto}" class="gr-svg">
+      ${as.map((a) => { const p = pos.get(a.a), q = pos.get(a.b); const t = a.tipo !== 'aparecen juntas'; return `<line x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${q.x.toFixed(1)}" y2="${q.y.toFixed(1)}" stroke="${t ? COLOR_REL[a.tipo] ?? COLOR_REL.otro : 'var(--debil)'}" stroke-width="${t ? Math.min(4, 1.4 + a.veces * 0.4) : Math.min(2.5, 0.5 + a.veces * 0.15)}" ${t ? '' : 'stroke-dasharray="3 4" opacity=".55"'}><title>${esc(nombre.get(a.a))} — ${esc(nombre.get(a.b))}: ${esc(a.tipo)}${t ? '' : ` (${a.veces} piezas)`}${a.nota ? `\n${esc(a.nota.slice(0, 300))}` : ''}</title></line>` }).join('')}
+      ${g.nodos.filter((n) => juntas || conAlgo.has(n.id) || n.clase === 'yo').map((n) => { const p = pos.get(n.id); const r = n.clase === 'yo' ? 16 : 5 + n.peso * 0.9; return `<g class="gr-nodo ${n.clase}" data-id="${n.id}" transform="translate(${p.x.toFixed(1)},${p.y.toFixed(1)})"><circle r="${r.toFixed(1)}"><title>${esc(n.nombre)}${n.menciones ? ` · ${n.menciones} piezas` : ''}</title></circle><text y="${(r + 12).toFixed(1)}">${esc(n.nombre.length > 22 ? `${n.nombre.slice(0, 21)}…` : n.nombre)}</text></g>` }).join('')}
+    </svg>`
+    $$('.gr-nodo', cont).forEach((el) => (el.onclick = async () => {
+      const id = Number(el.dataset.id)
+      if (el.classList.contains('yo')) return
+      const p = personasVistas?.find((x) => x.id === id) ?? (await api(`/personas?q=${encodeURIComponent(nombre.get(id))}`).catch(() => [])).find((x) => x.id === id)
+      if (p) editarPersona(p)
+    }))
+  }
+  $('#gr-juntas').onchange = pintar
+  pintar()
 }

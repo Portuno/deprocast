@@ -15,10 +15,11 @@ import { fechaLocal, fijarAjuste, type Db } from '../db.ts'
 import { borrarSalud, editarSalud, fijarMetasSalud, leerSalud, listarSalud, registrarSalud, resumenDia, resumenSemana, TIPOS_SALUD } from '../salud.ts'
 import { deshacerAcciones, separarInversa, ultimasDeshacibles, type Inversa } from './deshacer.ts'
 import { resolverPropuesta } from './index.ts'
+import { lineaParaHerramienta } from '../linea.ts'
 import { diaDelPlan, guardarWoop, habitos as listarHabitos, marcarHabito, VERBOS, votar } from '../cien.ts'
 import { crearAprendizaje, listarAprendizajes, prepararRepaso, recursosDe, registrarPractica } from '../aprender.ts'
 import { CATEGORIAS, listarMovimientos, registrarMovimiento, resumenMes, resumenPorProyecto, ritmoMeta } from '../finanzas.ts'
-import { CLASES_PERSONA, desvincularDeProyecto, ESTADOS_PERSONA, guardarRelacion, leerPersona, nuevaPersona, personas, VINCULOS, vincularAProyecto } from '../personas.ts'
+import { CLASES_PERSONA, desvincularDeProyecto, ESTADOS_PERSONA, grafoPersonas, guardarRelacion, leerPersona, nuevaPersona, personas, VINCULOS, vincularAProyecto } from '../personas.ts'
 import { guardarYo } from '../yo.ts'
 import { archivar, corregir, HORIZONTES, memoriaVigente, recordar, TIPOS_MEMORIA } from '../memoria.ts'
 import { leerJornada, progreso } from '../jornada.ts'
@@ -207,18 +208,40 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'buscar_corpus', familia: 'lectura',
-    descripcion: 'Busca en el corpus por palabras y por significado (encuentra también lo que dice lo mismo con otras palabras). Devuelve piezas con id, nivel y extracto. Filtros opcionales por nivel, fuente o tipo.',
+    descripcion: 'Busca en el corpus por palabras y por significado (encuentra también lo que dice lo mismo con otras palabras, aunque esté en el medio de una charla larga). Devuelve piezas con id, nivel, extracto y, si lo encontró adentro, el fragmento. Filtros opcionales por nivel, fuente o tipo.',
     parametros: S({ consulta: str('Qué buscar'), nivel: str('Nivel', { enum: NIVEL_ENUM }), fuente: str('id de fuente'), tipo: str('Tipo', { enum: ['materia', 'referencia', 'ficha', 'lista', 'enlace'] }), limite: int('Cuántas (máx. 20)') }, ['consulta']),
     ejecutar: async (a, { db, lecturaMax }) => {
       const limite = Math.min(a.limite ?? 8, lecturaMax ?? 20)
       if (!a.fuente && !a.tipo) {
         const ps = await buscarHibrido(db, a.consulta, limite, a.nivel && esNivel(a.nivel) ? [a.nivel as Nivel] : undefined)
-        if (ps.length) return ps.map((p) => ({ ...piezaCorta(p), por: p.por }))
+        // Lo encontrado por un pasaje del medio trae ese fragmento: lo que de verdad responde.
+        if (ps.length) return ps.map((p) => ({ ...piezaCorta(p), fragmento: p.fragmento ? recorte(p.fragmento, 900) : undefined, por: p.por }))
       }
       const r = listarPiezas(db, { q: a.consulta, nivel: a.nivel, fuente: a.fuente, tipo: a.tipo, limite })
       return { total: r.total, piezas: r.piezas.map((p) => piezaCorta(p)) }
     },
     resumen: (a, r) => `buscó «${a.consulta}» → ${Array.isArray(r) ? r.length : r?.piezas?.length ?? 0} piezas`,
+  },
+  {
+    nombre: 'ver_linea', familia: 'lectura',
+    descripcion: 'Su línea temporal: los eventos con fecha que salen de todo su archivo (lo que pasó y lo que iba a pasar), y la crónica de cada mes. Por rango de fechas, por una persona, proyecto o lugar (id de entidad), o por tema. Para «¿qué pasó en marzo?», «¿cuándo fue la última vez que…?», «¿qué hice con X?».',
+    parametros: S({ desde: str('YYYY-MM-DD o YYYY-MM'), hasta: str('YYYY-MM-DD o YYYY-MM'), entidad: int('id de una persona, proyecto o lugar'), tema: str('Un tema'), tipo: str('pasado | futuro | grabacion', { enum: ['pasado', 'futuro', 'grabacion'] }), limite: int('Cuántos (máx. 150)') }),
+    ejecutar: (a, { db }) => lineaParaHerramienta(db, { desde: a.desde || undefined, hasta: a.hasta || undefined, entidad: a.entidad || undefined, tema: a.tema || undefined, tipo: a.tipo || undefined, limite: a.limite }),
+    resumen: (a, r) => `miró su línea temporal${a.desde || a.hasta ? ` (${a.desde ?? '…'} → ${a.hasta ?? '…'})` : ''} → ${r?.eventos?.length ?? 0} eventos`,
+  },
+  {
+    nombre: 'ver_relaciones', familia: 'lectura',
+    descripcion: 'Con quién se relaciona una persona (o él): las relaciones tipadas (pareja, familia, amistad, trabajo, socios…) con su evidencia, y con quién aparece en sus piezas.',
+    parametros: S({ id: int('id de la persona; vacío = él') }),
+    ejecutar: (a, { db }) => {
+      const g = grafoPersonas(db, { max: 400 })
+      const yo = g.nodos.find((n) => n.clase === 'yo')?.id
+      const id = a.id ?? yo
+      if (!id) return { error: 'Todavía no sé quién sos (marcá tu entidad con «Soy yo»)' }
+      const nombre = new Map(g.nodos.map((n) => [n.id, n.nombre]))
+      return g.aristas.filter((x) => x.a === id || x.b === id).sort((x, y) => Number(y.tipo !== 'aparecen juntas') - Number(x.tipo !== 'aparecen juntas') || y.veces - x.veces).slice(0, 40)
+        .map((x) => ({ con: nombre.get(x.a === id ? x.b : x.a), id: x.a === id ? x.b : x.a, relacion: x.tipo, evidencia: x.nota ? recorte(x.nota, 300) : undefined, veces: x.veces }))
+    },
   },
   {
     nombre: 'leer_pieza', familia: 'lectura', descripcion: 'Una pieza del corpus entera, con sus quántomos y entidades.',
@@ -1257,7 +1280,7 @@ export const HERRAMIENTAS: Herramienta[] = [
  * (pedir_herramientas) o cuando el mensaje ya lo anuncia. Así cada respuesta no carga las 110 herramientas.
  */
 export const NUCLEO = [
-  'pedir_herramientas', 'que_puede_deprocast', 'ver_dia', 'ver_agenda', 'fijar_horario', 'ver_uso', 'buscar_corpus', 'leer_pieza', 'leer_memoria', 'recordar',
+  'pedir_herramientas', 'que_puede_deprocast', 'ver_dia', 'ver_agenda', 'ver_linea', 'fijar_horario', 'ver_uso', 'buscar_corpus', 'leer_pieza', 'leer_memoria', 'recordar',
   'corregir_memoria', 'listar_entidades', 'ver_entidad', 'ver_misiones', 'crear_mision', 'actualizar_mision', 'anotar_side_quest', 'ver_run', 'preparar_run',
   'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'votar_dia', 'ver_plan', 'proponer_mejora', 'deshacer_ultima_accion',
 ]
@@ -1265,7 +1288,7 @@ export const GRUPOS: Record<string, string[]> = {
   liga: ['ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
+  vida: ['ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   web: ['buscar_web', 'leer_pagina', 'guardar_link', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   crear: ['ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }

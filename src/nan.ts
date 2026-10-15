@@ -445,7 +445,8 @@ export function tokensHoy(db: Db, ahora = Date.now()): { liga: number; mastropie
   const d = new Date(ahora)
   const desde = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
   const filas = db.prepare(
-    `SELECT clase = 'mastropiero' AS suyo, COALESCE(fondo, 0) AS solo, COALESCE(SUM(tokens_in), 0) + COALESCE(SUM(tokens_out), 0) AS t FROM llamadas WHERE en >= ? GROUP BY 1, 2`,
+    // El reproceso tiene su propio presupuesto: no le come el tope a la liga.
+    `SELECT clase = 'mastropiero' AS suyo, COALESCE(fondo, 0) AS solo, COALESCE(SUM(tokens_in), 0) + COALESCE(SUM(tokens_out), 0) AS t FROM llamadas WHERE en >= ? AND agente_id NOT LIKE 'reproceso%' GROUP BY 1, 2`,
   ).all(desde) as { suyo: number; solo: number; t: number }[]
   const suma = (f: (x: { suyo: number; solo: number }) => boolean) => filas.filter(f).reduce((s, x) => s + x.t, 0)
   const liga = suma((x) => !x.suyo)
@@ -466,6 +467,14 @@ export function topeAlcanzado(db: Db, ahora = Date.now()): string | null {
   const { liga, fondo } = tokensHoy(db, ahora)
   const solo = liga + fondo
   return solo >= tope ? `lo que corre solo gastó ${solo.toLocaleString('es-AR')} tokens hoy, el tope es ${tope.toLocaleString('es-AR')}` : null
+}
+
+/** Lo que gastó el reproceso hoy (y en total). */
+export function tokensReproceso(db: Db, ahora = Date.now()): { hoy: number; total: number } {
+  const d = new Date(ahora)
+  const desde = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const r = db.prepare(`SELECT COALESCE(SUM(CASE WHEN en >= ? THEN COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0) END), 0) AS hoy, COALESCE(SUM(COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0)), 0) AS total FROM llamadas WHERE agente_id LIKE 'reproceso%'`).get(desde) as { hoy: number; total: number }
+  return { hoy: r.hoy, total: r.total }
 }
 
 export function usoDelMes(db: Db, ahora = Date.now()) {

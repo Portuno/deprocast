@@ -17,7 +17,7 @@ test('semántica: vectoriza de a tandas (propio primero) y la híbrida encuentra
   const plata = insertar(db, { fuente: 'operador', titulo: 'Gastos', contenido: 'Anoté la plata del súper', nivel: 'primaria', origenId: 's:3' })!
   for (let i = 0; i < 20; i++) insertar(db, { fuente: 'operador', titulo: `Relleno ${i}`, contenido: 'nada que ver', nivel: 'primaria', origenId: `s:r${i}` })
 
-  assert.deepEqual(estadoVectores(db), { total: 23, hechos: 0, faltan: 23 })
+  assert.deepEqual(estadoVectores(db), { total: 23, hechos: 0, faltan: 23, conPasajes: 0 })
   const r = await vectorizarPendientes(db, { limite: 20 })
   assert.deepEqual(r, { hechos: 20, faltan: 3 })
   assert.deepEqual(llamadas, [16, 4], 'tandas de 16')

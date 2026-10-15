@@ -29,6 +29,7 @@ import { textoDePdf } from '../cargas/pdf.ts'
 import { personaje } from '../personajes.ts'
 import { zipDeBuffer } from './zip.ts'
 import { aMarkdown } from './leer.ts'
+import { eventoGrabacion, guardarEventos, guardarRelaciones } from '../linea.ts'
 
 // ─── dónde vive cada cosa ───────────────────────────────────────────────
 
@@ -164,7 +165,7 @@ function pieza(db: Db, p: Parameters<typeof insertar>[1], ahora: number): { id: 
   return { id: porOrigen(db, p.origenId!)!, nueva: false }
 }
 
-function encolarDestilado(db: Db, lote_: string, piezaId: number, prioridad = 0) {
+export function encolarDestilado(db: Db, lote_: string, piezaId: number, prioridad = 0) {
   db.prepare(`INSERT OR IGNORE INTO takeout_destilado (pieza_id, lote, prioridad, estado) VALUES (?, ?, ?, 'pendiente')`).run(piezaId, lote_, prioridad)
 }
 
@@ -271,7 +272,9 @@ export function cerrarLote(db: Db, lote_: string, ahora = Date.now()) {
 let transcribir = (db: Db, audio: Buffer, nombre: string) => nanTranscribir(db, audio, nombre)
 let ver = async (db: Db, imagen: Buffer, mime: string, sistema: string, texto: string) =>
   (await nanVision({ db, clase: 'mastropiero', agenteId: 'takeout' }, { sistema, texto, imagen: `data:${mime};base64,${imagen.toString('base64')}`, maxTokens: 2500 })).texto
-let destilar = async (db: Db, sistema: string, usuario: string) => (await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'takeout' }, sistema, usuario, { temperatura: 0.2, maxTokens: 6000, largo: true })).datos
+/** El lote de lo que destila el reproceso (todo lo que no vino del Takeout). */
+export const REPROCESO = 'reproceso'
+let destilar = async (db: Db, sistema: string, usuario: string, agente = 'takeout') => (await pedirJson<any>({ db, clase: agente === 'takeout' ? 'mastropiero' : 'extractor', agenteId: agente }, sistema, usuario, { temperatura: 0.2, maxTokens: 7000, largo: true })).datos
 export function _probarTakeout(o: { transcribir?: typeof transcribir; ver?: typeof ver; destilar?: typeof destilar }) {
   if (o.transcribir) transcribir = o.transcribir
   if (o.ver) ver = o.ver
@@ -367,7 +370,9 @@ async function procesarMedio(db: Db, m: any, ahora: number): Promise<number | nu
 
 // ─── 3. destilado ───────────────────────────────────────────────────────
 
-const SISTEMA_DESTILADO = (yo: string) => `Sos Mastropiero y estás leyendo el archivo de un año del jugador (${yo}): sus charlas con Gemini, sus notas de voz y sus cuadernos de NotebookLM. Lo hacés para conocerlo mejor y para que cada proyecto sepa su historia.
+const DE_TAKEOUT = 'el archivo de un año del jugador: sus charlas con Gemini, sus notas de voz y sus cuadernos de NotebookLM'
+export const DE_ARCHIVO = 'el archivo personal del jugador: lo que escribió y dijo, sus audios, sus charlas y lo que fue guardando'
+const SISTEMA_DESTILADO = (yo: string, de = DE_TAKEOUT) => `Sos Mastropiero y estás leyendo ${de} (${yo}). Lo hacés para conocerlo mejor, para que cada proyecto sepa su historia y para armar su línea de tiempo.
 Leés UNA unidad que tiene FECHA. Todo lo que extraigas es de ESE momento, no de hoy: un proyecto pudo cambiar mucho desde entonces.
 Devolvé:
 - "resumen": 2 a 4 frases en pasado, situadas en su fecha: de qué fue y qué pasó.
@@ -378,10 +383,15 @@ Devolvé:
 - "ideas": [{"texto": una idea atómica que se entienda sola, "proyecto": nombre o null}] (hasta 6, solo si valor >= 2).
 - "decisiones": [frases cortas] · "abierto": [lo que quedó sin resolver].
 - "sobre_el": [hechos sobre el jugador que valen como recuerdo duradero: qué quiere, cómo trabaja, qué le importa] (hasta 4; nada que dependa del momento).
+- "lugares": [{"nombre": string, "tipo": "ciudad" | "pais" | "barrio" | "sitio", "lat": number | null, "lon": number | null}]: lugares reales nombrados. lat y lon aproximadas SOLO si es una ciudad, un país o un sitio muy conocido; si no, null.
+- "eventos": [{"titulo": qué pasó o va a pasar (frase corta), "fecha": "YYYY-MM-DD" | "YYYY-MM" | null, "hora": "HH:MM" | null, "tipo": "pasado" | "futuro", "lugar": string | null, "personas": [string], "confianza": 0 a 1}] (hasta 8): hechos concretos con fecha deducible. La fecha se resuelve contra la FECHA DE LA UNIDAD («mañana», «el viernes», «en marzo» se calculan desde ahí); «tipo» es respecto de esa fecha. Nada de rutinas ni generalidades; si no se puede fechar, no va.
+- "relaciones": [{"de": string, "con": string, "tipo": "pareja" | "familia" | "amistad" | "trabajo" | "socios" | "cliente" | "proveedor" | "conocidos" | "otro", "detalle": frase corta, "evidencia": la frase del texto}] (hasta 6): vínculos entre personas o grupos que el texto dice o deja claro. Para el jugador usá "yo".
 Reglas: cuando hablen de una persona o un proyecto del catálogo, usá su NOMBRE EXACTO del catálogo (también si aparece con un alias o mal escrito). Lo que no esté en el catálogo, con el nombre tal como aparece. No inventes nada que no esté en el texto.
-Forma: {"resumen": string, "valor": number, "temas": [string], "proyectos": [...], "personas": [...], "ideas": [...], "decisiones": [string], "abierto": [string], "sobre_el": [string]}`
+Forma: {"resumen": string, "valor": number, "temas": [string], "proyectos": [...], "personas": [...], "ideas": [...], "decisiones": [string], "abierto": [string], "sobre_el": [string], "lugares": [...], "eventos": [...], "relaciones": [...]}`
 
-type Destilado = { resumen: string; valor: number; temas: string[]; proyectos: { nombre: string; estado_entonces: string; ideas: string[] }[]; personas: { nombre: string; rol: string }[]; ideas: { texto: string; proyecto: string | null }[]; decisiones: string[]; abierto: string[]; sobre_el: string[] }
+type Lugar = { nombre: string; tipo: string; lat: number | null; lon: number | null }
+type Destilado = { resumen: string; valor: number; temas: string[]; proyectos: { nombre: string; estado_entonces: string; ideas: string[] }[]; personas: { nombre: string; rol: string }[]; ideas: { texto: string; proyecto: string | null }[]; decisiones: string[]; abierto: string[]; sobre_el: string[]; lugares: Lugar[]; eventos: any[]; relaciones: any[] }
+const coordenada = (v: unknown, max: number) => (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= max ? Math.round(v * 1000) / 1000 : null)
 
 const lista = (v: unknown) => (Array.isArray(v) ? v : [])
 const txt = (v: unknown, max = 600) => String(v ?? '').trim().slice(0, max)
@@ -408,6 +418,9 @@ export function juntarDestilados(ds: any[]): Destilado {
     decisiones: unicos(ds.flatMap((d) => lista(d?.decisiones).map((x) => txt(x, 300))), claveDe).slice(0, 8),
     abierto: unicos(ds.flatMap((d) => lista(d?.abierto).map((x) => txt(x, 300))), claveDe).slice(0, 8),
     sobre_el: unicos(ds.flatMap((d) => lista(d?.sobre_el).map((x) => txt(x, 300))), claveDe).slice(0, 4),
+    lugares: unicos(ds.flatMap((d) => lista(d?.lugares).map((l) => ({ nombre: txt(l?.nombre ?? l, 100), tipo: txt(l?.tipo, 20) || 'sitio', lat: coordenada(l?.lat, 90), lon: coordenada(l?.lon, 180) }))), (l) => claveDe(l.nombre)).slice(0, 12),
+    eventos: unicos(ds.flatMap((d) => lista(d?.eventos)), (e: any) => `${e?.fecha ?? ''}|${claveDe(txt(e?.titulo, 200))}`).slice(0, 12),
+    relaciones: unicos(ds.flatMap((d) => lista(d?.relaciones)), (r: any) => `${claveDe(txt(r?.de, 80))}|${claveDe(txt(r?.con, 80))}|${r?.tipo ?? ''}`).slice(0, 8),
   }
 }
 
@@ -453,17 +466,27 @@ export function tramosDeTexto(texto: string, max = 80_000): string[] {
   return out
 }
 
-async function destilarUnidad(db: Db, fila: { pieza_id: number; lote: string }, ahora: number) {
+/** De qué se trata una pieza que no vino del Takeout (para situar al modelo). */
+function origenDe(p: { titulo: string; nivel: string; fuente: string }): string {
+  if (p.fuente === 'directo') return 'un tramo del Directo (lo que hizo y dijo mientras trabajaba)'
+  if (/^(Audio|Nota de voz)\b/.test(p.titulo)) return 'una nota de voz suya (transcripta)'
+  if (p.nivel === 'propia') return 'algo que escribió o dijo él'
+  if (p.nivel === 'primaria') return 'material de su archivo (documentos, charlas y notas, de él o de otros)'
+  return 'algo que guardó o investigó'
+}
+
+export async function destilarUnidad(db: Db, fila: { pieza_id: number; lote: string }, ahora: number) {
   const r = db.prepare('SELECT id, titulo, contenido, fuente, nivel, fecha, meta, entidades FROM corpus WHERE id = ?').get(fila.pieza_id) as any
   if (!r) return
   const p = { ...r, meta: json<any>(r.meta, {}) }
   const cat = catalogo(db)
   const yo = personaje(db, 'jugador').nombre
-  const origen = p.meta?.chat ? 'una conversación con Gemini' : p.titulo.startsWith('Contexto · ') ? 'el contexto entero de un cuaderno de NotebookLM (sus fuentes, notas, chats y lo que generó)' : p.nivel === 'propia' ? 'una nota de voz suya (transcripta)' : 'una pieza de su archivo'
+  const deArchivo = fila.lote === REPROCESO
+  const origen = p.meta?.chat ? 'una conversación con Gemini' : p.titulo.startsWith('Contexto · ') ? 'el contexto entero de un cuaderno de NotebookLM (sus fuentes, notas, chats y lo que generó)' : deArchivo ? origenDe(p) : p.nivel === 'propia' ? 'una nota de voz suya (transcripta)' : 'una pieza de su archivo'
   const tramos = tramosDeTexto(textoDeUnidad(db, p))
   const salidas: any[] = []
   for (const [i, t] of tramos.entries()) {
-    salidas.push(await destilar(db, SISTEMA_DESTILADO(yo), `Unidad: ${origen} · «${p.titulo}» · fecha ${p.fecha ?? 'sin fecha'}${tramos.length > 1 ? ` · tramo ${i + 1} de ${tramos.length}` : ''}\n\nCatálogo de entidades que ya conoce:\n${cat.texto || '(vacío)'}\n\nTexto:\n${t}`))
+    salidas.push(await destilar(db, SISTEMA_DESTILADO(yo, deArchivo ? DE_ARCHIVO : DE_TAKEOUT), `Unidad: ${origen} · «${p.titulo}» · fecha ${p.fecha ?? 'sin fecha'}${tramos.length > 1 ? ` · tramo ${i + 1} de ${tramos.length}` : ''}\n\nCatálogo de entidades que ya conoce:\n${cat.texto || '(vacío)'}\n\nTexto:\n${t}`, deArchivo ? 'reproceso' : 'takeout'))
   }
   const d = juntarDestilados(salidas)
   guardarDestilado(db, fila, p, d, cat, ahora)
@@ -472,7 +495,7 @@ async function destilarUnidad(db: Db, fila: { pieza_id: number; lote: string }, 
 function guardarDestilado(db: Db, fila: { pieza_id: number; lote: string }, p: any, d: Destilado, cat: ReturnType<typeof catalogo>, ahora: number) {
   // Entidades: las que ya existen se enlazan; las nuevas (personas y proyectos) esperan su ok.
   const ids = new Set<number>(json<number[]>(p.entidades, []) ?? [])
-  const nuevo = (nombre: string, tipo: 'persona' | 'proyecto', nota: string) => {
+  const nuevo = (nombre: string, tipo: 'persona' | 'proyecto' | 'lugar', nota: string) => {
     const k = claveDe(nombre)
     if (!k || k.length < 2) return
     const ya = db.prepare('SELECT piezas, primera, ultima, estado, entidad_id FROM takeout_nombres WHERE clave = ?').get(k) as any
@@ -485,6 +508,13 @@ function guardarDestilado(db: Db, fila: { pieza_id: number; lote: string }, p: a
   }
   for (const x of d.personas) { const e = cat.buscar(x.nombre); if (e) ids.add(e.id); else nuevo(x.nombre, 'persona', x.rol) }
   for (const x of d.proyectos) { const e = cat.buscar(x.nombre); if (e) ids.add(e.id); else nuevo(x.nombre, 'proyecto', x.estado_entonces) }
+  // Los lugares: los conocidos se enlazan (y si no tenían, guardan su posición aproximada: la base del mapa).
+  for (const l of d.lugares ?? []) {
+    const e = cat.buscar(l.nombre)
+    if (!e) { nuevo(l.nombre, 'lugar', [l.tipo, l.lat != null && l.lon != null ? `≈ ${l.lat}, ${l.lon}` : ''].filter(Boolean).join(' · ')); continue }
+    ids.add(e.id)
+    if (e.tipo === 'lugar' && l.lat != null && l.lon != null) db.prepare(`UPDATE entidades SET meta = json_set(COALESCE(meta, '{}'), '$.lat', ?, '$.lon', ?, '$.aprox', 1) WHERE id = ? AND json_extract(COALESCE(meta, '{}'), '$.lat') IS NULL`).run(l.lat, l.lon, e.id)
+  }
   const entidades = [...ids]
   if (entidades.length) db.prepare('UPDATE corpus SET entidades = ? WHERE id = ?').run(JSON.stringify(entidades), p.id)
 
@@ -502,14 +532,20 @@ function guardarDestilado(db: Db, fila: { pieza_id: number; lote: string }, p: a
   asegurarFuente(db, FUENTES.destilado)
   const dest = pieza(db, {
     fuente: FUENTES.destilado.id, nivel: 'investigacion', titulo: `Destilado · ${p.titulo.replace(/^(Gemini|Contexto|Nota de voz|Audio adjunto) · /, '')}`.slice(0, 300), fecha: p.fecha,
-    contenido: cuerpo, etiquetas: ['takeout', 'destilado', ...d.temas.slice(0, 6)], entidades, origenId: `takeout:destilado:${p.id}`,
+    contenido: cuerpo, etiquetas: [...(fila.lote === REPROCESO ? [] : ['takeout']), 'destilado', ...d.temas.slice(0, 6)], entidades, origenId: `takeout:destilado:${p.id}`,
     meta: { takeout: fila.lote, de: p.id, valor: d.valor },
   }, ahora)
   if (!dest.nueva && entidades.length) db.prepare('UPDATE corpus SET entidades = ? WHERE id = ?').run(JSON.stringify(entidades), dest.id)
 
   // El pulso: cada tema, con la fecha en que apareció.
   const pulso = db.prepare('INSERT OR IGNORE INTO temas_pulso (clave, tema, fecha, pieza_id, origen) VALUES (?, ?, ?, ?, ?)')
-  for (const t of d.temas) pulso.run(claveDe(t), t, p.fecha ?? null, p.id, p.meta?.chat ? 'gemini' : 'notebooklm')
+  for (const t of d.temas) pulso.run(claveDe(t), t, p.fecha ?? null, p.id, fila.lote === REPROCESO ? p.fuente : p.meta?.chat ? 'gemini' : 'notebooklm')
+
+  // La línea temporal y el grafo: los eventos con fecha y las relaciones entre personas.
+  const buscar = (n: string) => cat.buscar(n)
+  guardarEventos(db, p, d.eventos ?? [], buscar, ahora)
+  eventoGrabacion(db, p, ahora)
+  guardarRelaciones(db, d.relaciones ?? [], buscar, p.id, ahora)
 
   // Ideas → quántomos proto (él los pesa); lo que dice de él → recuerdos sin revisar. Solo de lo que vale.
   if (d.valor >= 2) d.ideas.slice(0, 4).forEach((x, i) => {
@@ -542,8 +578,9 @@ export function _probarHistoria(f: typeof historiar) {
 
 /** Los proyectos con historia en el archivo: los que ya son entidades y los propuestos que aparecen 3 veces o más. */
 type Mencion = { fecha: string | null; titulo: string; estado: string; ideas: string[]; decisiones: string[]; pieza: number }
-function proyectosConHistoria(db: Db, lote_: string) {
-  const salidas = (db.prepare(`SELECT pieza_id, salida FROM takeout_destilado WHERE lote = ? AND estado = 'hecho' AND salida IS NOT NULL`).all(lote_) as { pieza_id: number; salida: string }[])
+/** Con «lote» = REPROCESO lee todo lo destilado (del Takeout y del resto del corpus): la historia completa de cada proyecto. */
+export function proyectosConHistoria(db: Db, lote_: string) {
+  const salidas = (db.prepare(`SELECT pieza_id, salida FROM takeout_destilado WHERE (lote = ? OR ? = '${REPROCESO}') AND estado = 'hecho' AND salida IS NOT NULL`).all(lote_, lote_) as { pieza_id: number; salida: string }[])
     .map((s) => ({ pieza: s.pieza_id, d: json<any>(s.salida, null) })).filter((s) => s.d)
   const cat = catalogo(db)
   const porProyecto = new Map<string, { nombre: string; entidad: number | null; menciones: Mencion[] }>()
@@ -559,7 +596,7 @@ function proyectosConHistoria(db: Db, lote_: string) {
   return [...porProyecto.values()].filter((x) => x.entidad || x.menciones.length >= 3).sort((a, b) => b.menciones.length - a.menciones.length)
 }
 
-async function historiaDe(db: Db, lote_: string, x: ReturnType<typeof proyectosConHistoria>[number], preguntar: boolean, ahora: number) {
+export async function historiaDe(db: Db, lote_: string, x: ReturnType<typeof proyectosConHistoria>[number], preguntar: boolean, ahora: number) {
   const yo = personaje(db, 'jugador').nombre
   const ms = x.menciones.sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)))
   let archivo = ms.map((m) => `- ${m.fecha ?? 's/f'} · ${m.titulo}: ${m.estado}${m.ideas.length ? ` | ideas: ${m.ideas.join('; ')}` : ''}${m.decisiones.length ? ` | decidió: ${m.decisiones.join('; ')}` : ''}`).join('\n')
@@ -582,7 +619,12 @@ async function historiaDe(db: Db, lote_: string, x: ReturnType<typeof proyectosC
     d?.pregunta ? `## Para vos\n${txt(d.pregunta, 300)}` : '',
   ].filter(Boolean).join('\n\n')
   asegurarFuente(db, FUENTES.historia)
-  const p = pieza(db, {
+  // La del reproceso se rehace cada vez que hay material nuevo: la misma pieza, actualizada.
+  const origenH = `takeout:historia:${lote_}:${x.entidad ?? claveDe(x.nombre)}`
+  const yaH = lote_ === REPROCESO ? porOrigen(db, origenH) : null
+  if (yaH) db.prepare('UPDATE corpus SET contenido = ?, fecha = ? WHERE id = ?').run(contenido, fechaLocal(ahora), yaH)
+  if (yaH) db.prepare('DELETE FROM pasajes WHERE pieza_id = ?').run(yaH) // cambió el texto: sus pasajes se rehacen
+  const p = yaH ? { id: yaH, nueva: false } : pieza(db, {
     fuente: FUENTES.historia.id, nivel: 'investigacion', titulo: `Historia de ${ent?.nombre ?? x.nombre}`, fecha: fechaLocal(ahora), contenido,
     etiquetas: ['takeout', 'historia', 'proyecto'], entidades: x.entidad ? [x.entidad] : undefined, origenId: `takeout:historia:${lote_}:${x.entidad ?? claveDe(x.nombre)}`,
     meta: { takeout: lote_, menciones: ms.length, propuesto: !x.entidad },
@@ -614,6 +656,7 @@ function mapaDelAno(db: Db, lote_: string, ahora: number) {
 // ─── el obrero ──────────────────────────────────────────────────────────
 
 let trabajando = false
+export const takeoutTrabajando = () => trabajando
 let enHistoria = false
 const CARRILES = 3
 

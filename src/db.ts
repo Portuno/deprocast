@@ -788,6 +788,57 @@ CREATE TABLE IF NOT EXISTS movimientos (
 );
 CREATE INDEX IF NOT EXISTS movimientos_fecha ON movimientos (fecha);
 
+-- El reproceso: cada pieza en pasajes de ~1500 caracteres con su vector (la búsqueda por sentido ve todo el texto,
+-- no solo el principio). 512 dimensiones (qwen3-embedding es matrioska), normalizado.
+CREATE TABLE IF NOT EXISTS pasajes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pieza_id INTEGER NOT NULL,
+  orden INTEGER NOT NULL,
+  desde INTEGER NOT NULL,                  -- posición en el contenido de la pieza
+  hasta INTEGER NOT NULL,
+  modelo TEXT NOT NULL,
+  vec BLOB NOT NULL,
+  en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS pasajes_pieza ON pasajes (pieza_id);
+-- Vectores de lo que no es una pieza: recuerdos y quántomos.
+CREATE TABLE IF NOT EXISTS vec_items (
+  tipo TEXT NOT NULL,                      -- memoria | quantomo
+  id INTEGER NOT NULL,
+  modelo TEXT NOT NULL,
+  vec BLOB NOT NULL,
+  en INTEGER NOT NULL,
+  PRIMARY KEY (tipo, id)
+);
+-- Lo que no se pudo reprocesar (tres intentos y se deja).
+CREATE TABLE IF NOT EXISTS reproceso_fallos (
+  pieza_id INTEGER NOT NULL,
+  paso TEXT NOT NULL,
+  intentos INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  PRIMARY KEY (pieza_id, paso)
+);
+-- La línea temporal: lo que pasó o va a pasar según cada pieza, con la fecha resuelta contra la de la pieza.
+CREATE TABLE IF NOT EXISTS eventos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pieza_id INTEGER NOT NULL,
+  titulo TEXT NOT NULL,
+  fecha TEXT,                              -- YYYY-MM-DD o YYYY-MM
+  precision TEXT NOT NULL DEFAULT 'dia',   -- dia | mes
+  hora TEXT,
+  fin TEXT,                                -- hasta qué hora (una grabación)
+  tipo TEXT NOT NULL,                      -- pasado | futuro | grabacion
+  lugar TEXT,
+  lugar_id INTEGER,
+  personas TEXT,                           -- JSON [{nombre, id}]
+  confianza REAL,
+  estado TEXT NOT NULL DEFAULT 'visto',    -- visto | agendado | descartado
+  huella TEXT NOT NULL UNIQUE,
+  creado_en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS eventos_fecha ON eventos (fecha);
+CREATE INDEX IF NOT EXISTS eventos_pieza ON eventos (pieza_id);
+
 -- Montos que contó charlando («me pagaron 800», «gasté 40 en…»): esperan su ok para entrar a Finanzas.
 CREATE TABLE IF NOT EXISTS movimientos_sugeridos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1052,6 +1103,9 @@ const AJUSTES_SISTEMA: Record<string, string> = {
   telegram_bandas: '1', // cada banda de la run llega sola por Telegram, con botones
   destilar_por_dia: '15', // con la ingesta en pausa, cuántas piezas propias despierta por día la rutina «destilar»
   vectorizar_auto: '1', // calcular solos los vectores del corpus (búsqueda por significado); 0 = no
+  reproceso_activo: '0', // el reproceso (pasajes, destilado, eventos, relaciones) corre de fondo en la nube; lo prende él
+  reproceso_tokens_dia: '80000000', // tope diario del reproceso, aparte del de la liga
+  reproceso_rerank: '1', // el chat reordena con un modelo chico lo que trae del archivo; 0 = solo por puntaje
   directo_auto: '1', // del Directo, las ideas y lo que miró entran solas (tareas, personas y conexiones esperan su ok); 0 = todo espera
   fragua_por_noche: '3', // cuántas propuestas forja la rutina «fragua» por noche; 0 = ninguna
   lectura_obras: '10', // cuántas obras de la Librería expande la lectura nocturna

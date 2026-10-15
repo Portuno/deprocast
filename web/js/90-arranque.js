@@ -6,6 +6,7 @@ const VISTAS = {
   misiones: { montar: montarMisionesVida, refrescar: refrescarMisionesVida },
   jugador: { montar: montarJugador, refrescar: refrescarJugador },
   personas: { montar: montarPersonas, refrescar: refrescarPersonas },
+  linea: { montar: montarLinea, refrescar: refrescarLinea },
   directo: { montar: montarDirecto, refrescar: refrescarDirecto },
   salud: { montar: montarSalud, refrescar: () => {} },
   aprender: { montar: montarAprender, refrescar: () => {} },

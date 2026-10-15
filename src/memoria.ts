@@ -7,6 +7,7 @@ import { pedirJson } from './modelo.ts'
 import { agregarItem, entidadDelJugador, personaje } from './personajes.ts'
 import { anotarSideQuest } from './misiones.ts'
 import { sugerirMovimiento } from './finanzas.ts'
+import { parecidoA, vectoresDe } from './semantica.ts'
 
 export const TIPOS_MEMORIA = ['hecho', 'meta', 'preferencia', 'sueño', 'vision', 'correccion'] as const
 export type TipoMemoria = (typeof TIPOS_MEMORIA)[number]
@@ -101,9 +102,22 @@ const numeros = (t: string) => (normal(t).match(/\d+/g) ?? []).join(' ')
  * uno contiene al otro), deja el más completo y archiva el resto. Si dos dicen números distintos («cobra 1500» y
  * «cobra 1800») no son repetidos: uno corrige al otro y eso lo decide él. Las correcciones no se tocan.
  */
-export function deduplicarMemoria(db: Db, umbral = 0.75): { grupos: number; archivados: number } {
+/** Mismo texto o casi (uno contiene al otro, o comparten casi todas las palabras con contenido). */
+function mismos(a: { n: string; p: Set<string> }, b: { n: string; p: Set<string> }, umbral: number): boolean {
+  if ((a.n.length > 24 && b.n.includes(a.n)) || (b.n.length > 24 && a.n.includes(b.n))) return true
+  // Atajo: si el largo es muy distinto, no pueden llegar al umbral.
+  const [m, M] = a.p.size < b.p.size ? [a.p.size, b.p.size] : [b.p.size, a.p.size]
+  if (!M || m / M < umbral) return false
+  let comun = 0
+  for (const w of a.p) if (b.p.has(w)) comun++
+  return comun / (a.p.size + b.p.size - comun) >= umbral
+}
+
+export function deduplicarMemoria(db: Db, umbral = 0.75, umbralSentido = 0.93): { grupos: number; archivados: number } {
   const vs = (db.prepare(`SELECT * FROM memoria WHERE estado = 'vigente' AND tipo != 'correccion' ORDER BY id`).all() as any[]).map(deFila)
-  const datos = vs.map((r) => ({ r, n: normal(r.texto), p: palabras(r.texto), num: numeros(r.texto) }))
+  // Si ya tienen vector (el reproceso), también se juntan los que dicen lo mismo con otras palabras.
+  const vecs = vectoresDe(db, 'memoria')
+  const datos = vs.map((r) => ({ r, n: normal(r.texto), p: palabras(r.texto), num: numeros(r.texto), v: vecs.get(r.id) }))
   const padre = vs.map((_, i) => i)
   const raiz = (i: number): number => (padre[i] === i ? i : (padre[i] = raiz(padre[i])))
   for (let i = 0; i < datos.length; i++) {
@@ -111,16 +125,7 @@ export function deduplicarMemoria(db: Db, umbral = 0.75): { grupos: number; arch
       const a = datos[i]
       const b = datos[j]
       if (a.num !== b.num) continue
-      const contiene = (a.n.length > 24 && b.n.includes(a.n)) || (b.n.length > 24 && a.n.includes(b.n))
-      if (!contiene) {
-        // Atajo: si el largo es muy distinto, no pueden llegar al umbral.
-        const [m, M] = a.p.size < b.p.size ? [a.p.size, b.p.size] : [b.p.size, a.p.size]
-        if (!M || m / M < umbral) continue
-        let comun = 0
-        for (const w of a.p) if (b.p.has(w)) comun++
-        if (comun / (a.p.size + b.p.size - comun) < umbral) continue
-      }
-      padre[raiz(j)] = raiz(i)
+      if (mismos(a, b, umbral) || (a.v && b.v && parecidoA(a.v, b.v) >= umbralSentido)) padre[raiz(j)] = raiz(i)
     }
   }
   const grupos = new Map<number, Recuerdo[]>()
@@ -151,16 +156,19 @@ export function memoriaVigente(db: Db, f: { tipo?: string; horizonte?: string; l
 }
 
 /** La memoria como texto para un prompt: sus correcciones primero, después visión, metas y preferencias; lo más nuevo arriba. */
-export function memoriaParaPrompt(db: Db, max = 60, mensaje = ''): string {
+export function memoriaParaPrompt(db: Db, max = 60, mensaje = '', vec: Float32Array | null = null): string {
   const orden: Record<string, number> = { correccion: 0, vision: 1, meta: 2, preferencia: 3, sueño: 4, hecho: 5 } // lo que él corrigió manda
   const todas = memoriaVigente(db).sort((a, b) => (orden[a.tipo] - orden[b.tipo]) || b.fecha.localeCompare(a.fecha))
   let rs = todas.slice(0, max)
   if (mensaje.trim()) {
-    // Con un mensaje: sus correcciones, su visión y sus metas siempre; del resto, lo que tiene que ver con lo que dijo.
+    // Con un mensaje: sus correcciones, su visión y sus metas siempre; del resto, lo que tiene que ver con lo que dijo:
+    // por sentido si hay vectores (lo que no tiene vector queda en el medio), y las palabras en común desempatan.
     const fijas = todas.filter((r) => r.tipo === 'correccion' || r.tipo === 'vision' || r.tipo === 'meta').slice(0, Math.ceil(max / 2))
     const palabras = new Set(normal(mensaje).split(' ').filter((w) => w.length > 3))
+    const vecs = vec ? vectoresDe(db, 'memoria') : null
+    const sentido = (id: number) => (vecs?.has(id) ? parecidoA(vec!, vecs.get(id)!) : 0.3)
     const resto = todas.filter((r) => !fijas.includes(r))
-      .map((r) => ({ r, p: normal(r.texto).split(' ').filter((w) => palabras.has(w)).length }))
+      .map((r) => ({ r, p: (vecs?.size ? sentido(r.id) : 0) + 0.05 * normal(r.texto).split(' ').filter((w) => palabras.has(w)).length }))
       .sort((a, b) => b.p - a.p || b.r.fecha.localeCompare(a.r.fecha))
       .slice(0, max - fijas.length).map((x) => x.r)
     rs = [...fijas, ...resto]
