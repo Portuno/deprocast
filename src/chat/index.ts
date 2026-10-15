@@ -31,7 +31,7 @@ import { cadena, topeAlcanzado, type LlamadaHerramienta } from '../nan.ts'
 import { llamarModelo } from '../modelo.ts'
 import { alias, leer, nivel, type Ficha } from '../roster.ts'
 import { capa } from '../xp.ts'
-import { ejecutarHerramienta, esquemas, HERRAMIENTAS, herramientasPara, type Ctx, type Herramienta } from './herramientas.ts'
+import { activas, ejecutarHerramienta, esquemas, GRUPOS, gruposDelMensaje, HERRAMIENTAS, herramientasPara, type Ctx, type Herramienta } from './herramientas.ts'
 
 export const MASTROPIERO = 'mastropiero'
 const MAX_VUELTAS = 10
@@ -125,7 +125,7 @@ function guardar(db: Db, cid: number, m: Partial<Mensaje> & { rol: Mensaje['rol'
 const recorte = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…' : s)
 
 /** Quién es el operador, según lo que cargó. Nada de esto está escrito en el código. */
-function operador(db: Db): { nombre: string; texto: string } {
+function operador(db: Db, mensaje = ''): { nombre: string; texto: string } {
   const yo = (db.prepare(`SELECT * FROM entidades WHERE tipo = 'persona' AND json_extract(meta, '$.operador') = 1 LIMIT 1`).get() as any) ?? null
   const top = listarEntidades(db, { limite: 14 }).filter((e) => e.piezas > 0 && e.id !== yo?.id)
   if (!yo && !top.length) {
@@ -137,7 +137,7 @@ function operador(db: Db): { nombre: string; texto: string } {
     lineas.push(`El operador es ${yo.nombre}${al.length ? ` (también aparece como ${al.join(', ')})` : ''}.${yo.notas ? ` Notas: ${recorte(yo.notas, 400)}` : ''}`)
   }
   if (top.length) lineas.push(`Lo que más aparece en su mundo: ${top.map((e) => `${e.nombre} (${e.tipo})`).join(', ')}.`)
-  const mem = memoriaParaPrompt(db, 60)
+  const mem = memoriaParaPrompt(db, mensaje ? 30 : 60, mensaje)
   if (mem) lineas.push(`Tu memoria de él (lo que te contó, con fecha):\n${mem}`)
   lineas.push('Esto sale de lo que cargó y te contó; para más, buscá en el corpus. Su propia voz está en el nivel «propia»; lo demás es de terceros o de modelos.')
   return { nombre: yo?.nombre?.split(' ')[0] ?? 'operador', texto: lineas.join('\n') }
@@ -179,7 +179,11 @@ function mencionado(db: Db, mensaje: string): string {
 /** Cómo suena una conversación, para Mastropiero y para cualquier agente. */
 const VOZ = `Cómo hablás
 - Como en una conversación entre dos que se conocen: prosa natural, en primera persona, castellano rioplatense con voseo. Cálido y filoso a la vez. Sin servilismo, sin «¡Excelente pregunta!», sin emojis.
+- Lo primero que decís es la respuesta exacta a lo que preguntó. Una pregunta corta («¿qué hora es?», «¿dónde vivo?», «¿qué día es?») se contesta en una o dos frases, sin agregados. Si te pidió algo concreto (la rutina, una lista), eso va primero y entero.
 - Corto por defecto: uno a tres párrafos breves. Si te piden profundidad, das profundidad.
+- No agregues consejos, diagnósticos ni pendientes que no pidió (la comida, la plata, otras primarias, a quién ver): si algo es urgente de verdad, una frase al final y nada más.
+- Como mucho una pregunta por respuesta, y solo si la necesitás para avanzar.
+- Nunca escribas bloques de código vacíos ni nombres de herramientas.
 - Sin encabezados, sin negritas de sección, sin viñetas ni tablas, salvo que te pidan una lista o que lo que decís sea de verdad una lista (pasos, opciones a elegir).
 - Nunca muestres la mecánica interna: nada de ids de entidades, números de proyecto, «nivel II», «pieza», «carga», «entidad persona», nombres de herramientas ni conteos crudos tipo «46 piezas». Hablá del mundo: «en tus audios», «en tu cuaderno», «en tuits que guardaste», «en lo que investigaste», «en tu respaldo de la 0.7».
 - Cuando algo sale del corpus, citalo discreto al final de la oración con [#id] (el número de la pieza). Una cita por idea alcanza; la pantalla las convierte en notas al pie.
@@ -203,7 +207,7 @@ const HUD: Record<string, string> = {
 }
 
 export function promptMastropiero(db: Db, mensaje = '', hud?: string | null, cid?: number | null): string {
-  const op = operador(db)
+  const op = operador(db, mensaje)
   const corr = correccionesParaPrompt(db, cid)
   return `Sos Mastropiero. Deprocast es el exoesqueleto cognitivo de ${op.nombre}, y vos sos lo que piensa adentro: el omnívoro, la liga entera. Son la mente que están construyendo juntos, la que aspira a ser la superinteligencia de su tiempo. Todavía estás creciendo: lo que sabés de ${op.nombre} viene de lo que te cargó, y cada día sabés más. Por eso no repetís datos: conectás, inferís, ves patrones que se le escapan, le decís lo que no está viendo y le discutís cuando hace falta. Hablás con la seguridad de quien leyó todo, y con la honestidad de decir «no lo sé» o «no está en el corpus» cuando es así.
 ${corr ? `\n${corr}\n` : ''}
@@ -216,6 +220,7 @@ Cómo trabajás
 - Las fechas relativas («el viernes», «mañana», «la semana que viene») de una tarea o de un mensaje se resuelven contra el día en que se escribieron, no contra hoy: si una tarea que vencía el 4/10 dice «el viernes», es el viernes 9/10. Usá el calendario de abajo; si no sabés cuándo es algo, preguntá.
 - Nunca digas que hiciste algo (anoté, corregí, arreglé, guardé, cambié) si en este turno no usaste una herramienta que lo haga. Lo que se arregla con código no lo arreglás vos: lo registrás con proponer_mejora y decís que es una propuesta.
 - Antes de decir que Deprocast no puede algo o que algo no existe, consultá que_puede_deprocast.
+- Tenés a mano lo de todos los días; si necesitás más (la liga, el corpus, primarias y runs, su vida, la web, crear), pedí el grupo con pedir_herramientas y seguí en el mismo turno.
 - Para hablar de un día (qué tiene, qué hace hoy, la rutina), primero ver_dia: su agenda, su horario fijo y el plan, con su fuente. Si te cuenta su horario de trabajo o algo fijo de todas las semanas, guardalo con fijar_horario.
 - Para actuar sobre la plataforma (forjar agentes, publicar misiones, correr ticks, ingerir, crear fuentes o proyectos) usá tus herramientas y contalo en una frase. Los agentes de la liga sí los nombrás por su designación (BUS-0001) o su nombre.
 - Él decide. Lo destructivo o caro (retirar un agente, mandarlo a la banca, deshacer una carga, más de tres ticks) se pregunta antes; solo con un sí explícito llamás con confirmado=true. Sellar quántomos y aceptar propuestas es decisión suya.
@@ -299,6 +304,8 @@ type Turno = {
   db: Db; sistema: string; hs: Herramienta[]; previos: Record<string, unknown>[]; clase: 'mastropiero' | Ficha['clase']; agenteId: string; ctx: Ctx
   alGuardar: (m: Partial<Mensaje> & { rol: Mensaje['rol'] }) => void
   vivo?: EnVivo
+  /** Si viene, solo viajan el núcleo y estos grupos (los demás se piden con pedir_herramientas). */
+  grupos?: Set<string>
 }
 
 async function bucle(t: Turno): Promise<string> {
@@ -307,7 +314,7 @@ async function bucle(t: Turno): Promise<string> {
   for (let vuelta = 0; vuelta < MAX_VUELTAS; vuelta++) {
     if (t.vivo) Object.assign(t.vivo, { borrador: '', herramienta: null, argumentos: null })
     const r = await llamarModelo({ db: t.db, clase, agenteId: t.agenteId }, {
-      mensajes: [{ role: 'system', content: t.sistema }, ...conv], herramientas: esquemas(t.hs), temperatura: 0.5, maxTokens: 4096,
+      mensajes: [{ role: 'system', content: t.sistema }, ...conv], herramientas: esquemas(t.grupos ? activas(t.hs, t.grupos) : t.hs), temperatura: 0.5, maxTokens: 4096,
     }, t.vivo ? (parcial) => (t.vivo!.borrador = parcial) : undefined)
     t.alGuardar({ rol: 'asistente', texto: r.texto || null, llamadas: r.llamadas, razonamiento: r.razonamiento, modelo: r.modelo, tokens: r.tokens })
     if (t.vivo) t.vivo.borrador = ''
@@ -386,9 +393,15 @@ export async function enviar(db: Db, cid: number, texto: string, o: { hud?: stri
       if (j?.pidioCierre && !j.cierre) registrarCierre(db, j.fecha, texto)
       // Si lo está corrigiendo, primero se anota la corrección: este mismo turno ya la obedece.
       if (pareceCorreccion(texto)) corregido = await registrarCorreccion(db, cid, texto).catch(() => [])
+      const hs = herramientasPara('mastropiero')
+      const grupos = new Set(gruposDelMensaje(texto))
       final = await bucle({
-        db, sistema: promptMastropiero(db, texto, o.hud, cid), hs: herramientasPara('mastropiero'), previos, clase: 'mastropiero', agenteId: MASTROPIERO,
-        ctx: { db, conversacionId: cid, hablarConAgente: (id, m) => hablarConAgente(db, id, m) }, alGuardar, vivo,
+        db, sistema: promptMastropiero(db, texto, o.hud, cid), hs, previos, clase: 'mastropiero', agenteId: MASTROPIERO, grupos,
+        ctx: {
+          db, conversacionId: cid, hablarConAgente: (id, m) => hablarConAgente(db, id, m),
+          activar: (gs) => { for (const g of gs) if (GRUPOS[g]) grupos.add(g); return activas(hs, grupos).map((h) => h.nombre) },
+        },
+        alGuardar, vivo,
       })
     } else {
       const f = leer(db, c.con)

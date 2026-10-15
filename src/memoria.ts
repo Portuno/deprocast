@@ -102,9 +102,20 @@ export function memoriaVigente(db: Db, f: { tipo?: string; horizonte?: string; l
 }
 
 /** La memoria como texto para un prompt: sus correcciones primero, después visión, metas y preferencias; lo más nuevo arriba. */
-export function memoriaParaPrompt(db: Db, max = 60): string {
+export function memoriaParaPrompt(db: Db, max = 60, mensaje = ''): string {
   const orden: Record<string, number> = { correccion: 0, vision: 1, meta: 2, preferencia: 3, sueño: 4, hecho: 5 } // lo que él corrigió manda
-  const rs = memoriaVigente(db).sort((a, b) => (orden[a.tipo] - orden[b.tipo]) || b.fecha.localeCompare(a.fecha)).slice(0, max)
+  const todas = memoriaVigente(db).sort((a, b) => (orden[a.tipo] - orden[b.tipo]) || b.fecha.localeCompare(a.fecha))
+  let rs = todas.slice(0, max)
+  if (mensaje.trim()) {
+    // Con un mensaje: sus correcciones, su visión y sus metas siempre; del resto, lo que tiene que ver con lo que dijo.
+    const fijas = todas.filter((r) => r.tipo === 'correccion' || r.tipo === 'vision' || r.tipo === 'meta').slice(0, Math.ceil(max / 2))
+    const palabras = new Set(normal(mensaje).split(' ').filter((w) => w.length > 3))
+    const resto = todas.filter((r) => !fijas.includes(r))
+      .map((r) => ({ r, p: normal(r.texto).split(' ').filter((w) => palabras.has(w)).length }))
+      .sort((a, b) => b.p - a.p || b.r.fecha.localeCompare(a.r.fecha))
+      .slice(0, max - fijas.length).map((x) => x.r)
+    rs = [...fijas, ...resto]
+  }
   return rs.map((r) => `- (${r.fecha}) [${r.tipo}${r.horizonte ? ` · ${r.horizonte}` : ''}] ${r.texto}`).join('\n')
 }
 

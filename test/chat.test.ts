@@ -6,7 +6,7 @@ import { asegurarEntidad, coocurrencias } from '../src/entidades.ts'
 import { _probarEscriba, _probarModelo, crearConversacion, enviar, listarPropuestas, mensajes, promptMastropiero } from '../src/chat/index.ts'
 
 _probarEscriba(async () => {})
-import { HERRAMIENTAS, lineamientos } from '../src/chat/herramientas.ts'
+import { esquemas, GRUPOS, HERRAMIENTAS, lineamientos, NUCLEO } from '../src/chat/herramientas.ts'
 import { forjar, leer, listar } from '../src/roster.ts'
 import { numerosDeLista } from '../src/texto.ts'
 
@@ -42,8 +42,26 @@ test('Mastropiero usa herramientas: forja un agente y lo cuenta; todo queda guar
   assert.equal(ms[3].texto, 'Listo: BUS-0001')
   assert.equal(leer(db, 'BUS-0001')!.creador, 'mastropiero')
   assert.equal(leer(db, 'BUS-0001')!.atributos.precision, 6)
-  assert.ok(vistos[0].herramientas.includes('deshacer_carga'), 'Mastropiero ve todas las herramientas')
+  assert.ok(vistos[0].herramientas.includes('ver_dia') && vistos[0].herramientas.includes('pedir_herramientas'), 'viaja el núcleo')
+  assert.ok(!vistos[0].herramientas.includes('deshacer_carga'), 'no viajan las 110 en cada vuelta')
   assert.equal(vistos[0].clase, 'mastropiero')
+})
+
+test('herramientas por demanda: el mensaje anuncia el grupo, pedir_herramientas suma otro en el mismo turno, y viaja mucho menos', async () => {
+  const db = abrir(':memory:')
+  const vistos = guion([
+    () => ({ llamadas: [{ nombre: 'pedir_herramientas', argumentos: { grupos: ['crear'] } }] }),
+    () => ({ texto: 'Listo.' }),
+  ])
+  const c = crearConversacion(db)
+  await enviar(db, c.id, 'Mirá cómo están mis agentes y armame algo lindo')
+  assert.ok(vistos[0].herramientas.includes('listar_agentes'), '«agentes» ya trae el grupo de la liga')
+  assert.ok(!vistos[0].herramientas.includes('crear_en_taller'))
+  assert.ok(vistos[1].herramientas.includes('crear_en_taller'), 'después de pedirlo, viaja')
+  const tam = (hs: string[]) => JSON.stringify(esquemas(HERRAMIENTAS.filter((h) => hs.includes(h.nombre)))).length
+  const todas = JSON.stringify(esquemas(HERRAMIENTAS)).length
+  assert.ok(tam(NUCLEO) < todas * 0.4, `el núcleo pesa ${tam(NUCLEO)} de ${todas}`)
+  for (const h of HERRAMIENTAS) assert.ok(NUCLEO.includes(h.nombre) || Object.values(GRUPOS).some((g) => g.includes(h.nombre)), `${h.nombre} no tiene grupo`)
 })
 
 test('lo destructivo no corre sin confirmación', async () => {

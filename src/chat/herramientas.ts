@@ -58,6 +58,8 @@ import { capa } from '../xp.ts'
 export type Ctx = {
   db: Db
   conversacionId: number | null
+  /** Mastropiero pide más herramientas para este turno (pedir_herramientas). */
+  activar?: (grupos: string[]) => string[]
   /** Para agentes conversando: tope de lectura según su nivel. */
   lecturaMax?: number
   /** Inyectado por el motor del chat para no importar en círculo. */
@@ -275,6 +277,13 @@ export const HERRAMIENTAS: Herramienta[] = [
     descripcion: 'Qué puede hacer Deprocast hoy (Telegram con notas de voz y fotos, links, agenda, runs, plan, salud, plata, cargas, Takeout, cuadernos, taller, liga…). Consultalo ANTES de decir que algo no existe o no se puede.',
     parametros: S({ tema: str('De qué (ej.: «audio por telegram», «calendario»); vacío trae todo') }),
     ejecutar: (a) => capacidades(String(a.tema ?? '')).map((c) => `${c.area}: ${c.que}`),
+  },
+  {
+    nombre: 'pedir_herramientas', familia: 'lectura',
+    descripcion: 'Suma herramientas para este turno. Tenés a mano lo de todos los días; para lo demás pedí el grupo: liga (agentes, encargos, ticks, propuestas, La Fragua), corpus (fuentes, cargas, quántomos, entidades, ingerir), misiones (primarias, runs, reportes, ayudantes, personajes, inventario), vida (personas, plata, salud, plan, aprendizaje, bitácora, gemelo, brújula, preguntas), web (buscar en internet, leer y guardar links, radar), crear (cuadernos, librería, taller, cuentas, Directo).',
+    parametros: S({ grupos: { type: 'array', items: { type: 'string', enum: ['liga', 'corpus', 'misiones', 'vida', 'web', 'crear'] }, description: 'Uno o varios grupos' } }, ['grupos']),
+    ejecutar: (a, ctx) => ({ activadas: ctx.activar?.(Array.isArray(a.grupos) ? a.grupos.map(String) : []) ?? [] }),
+    resumen: (a) => `sumó herramientas de ${Array.isArray(a.grupos) ? a.grupos.join(', ') : '…'}`,
   },
   {
     nombre: 'ver_dia', familia: 'lectura',
@@ -1116,6 +1125,43 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a, r) => (r?.requiere_confirmacion ? `pidió confirmación para deshacer la carga #${a.id}` : `deshizo la carga #${a.id}`),
   },
 ]
+
+/**
+ * Lo que viaja en cada vuelta: lo de todos los días. El resto, por grupos, cuando Mastropiero lo pide
+ * (pedir_herramientas) o cuando el mensaje ya lo anuncia. Así cada respuesta no carga las 110 herramientas.
+ */
+export const NUCLEO = [
+  'pedir_herramientas', 'que_puede_deprocast', 'ver_dia', 'ver_agenda', 'fijar_horario', 'ver_uso', 'buscar_corpus', 'leer_pieza', 'leer_memoria', 'recordar',
+  'corregir_memoria', 'listar_entidades', 'ver_entidad', 'ver_misiones', 'crear_mision', 'actualizar_mision', 'anotar_side_quest', 'ver_run', 'preparar_run',
+  'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'votar_dia', 'ver_plan', 'proponer_mejora',
+]
+export const GRUPOS: Record<string, string[]> = {
+  liga: ['estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
+  corpus: ['listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
+  misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
+  vida: ['editar_persona', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
+  web: ['buscar_web', 'leer_pagina', 'guardar_link', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
+  crear: ['ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
+}
+
+/** Los grupos que el mensaje ya anuncia (para no gastar una vuelta pidiéndolos). */
+export function gruposDelMensaje(mensaje: string): string[] {
+  const t = mensaje.toLowerCase()
+  const g: string[] = []
+  if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta/.test(t)) g.push('liga')
+  if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout/.test(t)) g.push('corpus')
+  if (/primaria|reporte|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
+  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|bitácora|gemelo|brújula|brujula|persona|amig|famil/.test(t)) g.push('vida')
+  if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link/.test(t)) g.push('web')
+  if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo/.test(t)) g.push('crear')
+  return g
+}
+
+/** Las herramientas que viajan con el modelo: el núcleo y los grupos activos. */
+export function activas(hs: Herramienta[], grupos: Set<string>): Herramienta[] {
+  const extra = new Set([...grupos].flatMap((g) => GRUPOS[g] ?? []))
+  return hs.filter((h) => NUCLEO.includes(h.nombre) || extra.has(h.nombre))
+}
 
 /** Lo que puede usar un agente de la liga cuando conversa: leer, nunca actuar. */
 export const PARA_AGENTES = ['buscar_corpus', 'leer_pieza', 'listar_quantomos', 'listar_entidades', 'ver_entidad']
