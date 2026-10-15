@@ -582,6 +582,15 @@ CREATE TABLE IF NOT EXISTS takeout_nombres (
   creada_en INTEGER NOT NULL
 );
 
+-- Qué usa: vistas que abre, herramientas que corre Mastropiero por él, comandos de Telegram.
+CREATE TABLE IF NOT EXISTS uso (
+  id INTEGER PRIMARY KEY,
+  tipo TEXT NOT NULL,
+  nombre TEXT NOT NULL,
+  en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS uso_tipo ON uso(tipo, en);
+
 -- Lo que él le corrigió a Mastropiero en una charla: manda en el prompt de esa charla (y lo duradero va a la memoria).
 CREATE TABLE IF NOT EXISTS correcciones (
   id INTEGER PRIMARY KEY,

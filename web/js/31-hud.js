@@ -136,6 +136,7 @@ function widgetAgenda() {
   for (const e of (hudDatos?.agenda ?? []).filter((x) => !vistos.has(`${x.titulo}|${x.inicio}`) && vistos.add(`${x.titulo}|${x.inicio}`))) items.push({ min: e.todoElDia ? -1 : new Date(e.inicio).getHours() * 60 + new Date(e.inicio).getMinutes(), hora: e.todoElDia ? 'día' : new Date(e.inicio).toTimeString().slice(0, 5), titulo: e.titulo, tipo: 'evento' })
   for (const m of hoyDatos.run?.misiones ?? []) items.push({ min: aMinJs(m.inicio), hora: m.inicio, titulo: m.titulo, tipo: 'banda', hecha: m.estado === 'hecha' })
   for (const r of hudDatos?.rutinas ?? []) items.push({ min: aMinJs(r.hora), hora: r.hora, titulo: r.nombre, tipo: 'rutina' })
+  for (const f of hudDatos?.fijo ?? []) items.push({ min: aMinJs(f.desde), hora: f.desde, titulo: `${f.que} (hasta ${f.hasta})`, tipo: 'fijo', hecha: aMinJs(f.hasta) < ahora })
   items.sort((a, b) => a.min - b.min)
   const futuras = items.filter((x) => x.min < 0 || x.min + 30 >= ahora)
   const lista = (futuras.length ? futuras : items).slice(0, 9)

@@ -4,6 +4,7 @@
  * con la evidencia del día, y lo dudoso queda para que él marque ✓ o ✗. Métrica: el puntaje de Brier, y de ahí
  * «Te conozco X %» (0 % = tirar una moneda, 100 % = acertar todo). Lo que falla vuelve a la memoria como aprendizaje.
  */
+import { horarioParaPrompt } from './horario.ts'
 import { fechaLocal, json, type Db } from './db.ts'
 import { agendaDelDia } from './calendario.ts'
 import { compartidas } from './bitacora.ts'
@@ -177,6 +178,7 @@ async function contextoDelDia(db: Db, fecha: string, ahora: number): Promise<str
   return [
     `Hoy: ${new Date(`${fecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}.`,
     eventos.length ? `Su agenda: ${eventos.map((e) => `${e.todoElDia ? 'todo el día' : new Date(e.inicio).toTimeString().slice(0, 5)} ${e.titulo}`).join(' · ')}` : 'Agenda vacía.',
+    horarioParaPrompt(db, fecha),
     runs.length ? `Runs de hoy: ${runs.map((r) => { const bs = misionesDeRun(db, r.id); return `${r.inicio}–${r.fin}: ${bs.map((b) => b.titulo).join(', ') || 'sin bandas'}` }).join(' · ')}` : 'No tiene run propuesta.',
     primarias.length ? `Primarias de la semana: ${primarias.map((p) => `${p.titulo} (${p.avance.progreso}%, ${p.avance.bandas.hechas} bandas)`).join(' · ')}` : '',
     lado.length ? `Side quests abiertas: ${lado.map((m) => m.titulo).join(' · ')}` : '',

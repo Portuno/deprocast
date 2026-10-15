@@ -4,6 +4,9 @@
  * Los agentes de la liga, cuando conversan, reciben solo un subconjunto de lectura.
  */
 import { capacidades } from '../capacidades.ts'
+import { verAgenda, verDia } from '../dia.ts'
+import { fijarHorario } from '../horario.ts'
+import { verUso } from '../uso.ts'
 import fs from 'node:fs'
 import path from 'node:path'
 import { ATRIBUTOS, CLASE_IDS, CLASES } from '../clases.ts'
@@ -272,6 +275,29 @@ export const HERRAMIENTAS: Herramienta[] = [
     descripcion: 'Qué puede hacer Deprocast hoy (Telegram con notas de voz y fotos, links, agenda, runs, plan, salud, plata, cargas, Takeout, cuadernos, taller, liga…). Consultalo ANTES de decir que algo no existe o no se puede.',
     parametros: S({ tema: str('De qué (ej.: «audio por telegram», «calendario»); vacío trae todo') }),
     ejecutar: (a) => capacidades(String(a.tema ?? '')).map((c) => `${c.area}: ${c.que}`),
+  },
+  {
+    nombre: 'ver_dia', familia: 'lectura',
+    descripcion: 'Su día entero con la fuente de cada cosa: su agenda (calendario), su horario fijo (el trabajo), la run, las primarias, el plan (tareas, hábitos, atrasadas con el día en que vencían) y side quests con fecha. Usalo SIEMPRE antes de hablar de qué tiene o qué hace un día.',
+    parametros: S({ fecha: str('YYYY-MM-DD; vacío = hoy') }),
+    ejecutar: (a, { db }) => verDia(db, /^\d{4}-\d{2}-\d{2}$/.test(String(a.fecha ?? '')) ? a.fecha : undefined),
+  },
+  {
+    nombre: 'ver_agenda', familia: 'lectura', descripcion: 'Su calendario y su horario fijo de varios días (hasta 14), con el día de la semana.',
+    parametros: S({ desde: str('YYYY-MM-DD; vacío = hoy'), hasta: str('YYYY-MM-DD; vacío = el mismo día') }),
+    ejecutar: (a, { db }) => verAgenda(db, /^\d{4}-\d{2}-\d{2}$/.test(String(a.desde ?? '')) ? a.desde : undefined, a.hasta),
+  },
+  {
+    nombre: 'fijar_horario', familia: 'accion',
+    descripcion: 'Guarda su horario fijo (el trabajo, una clase semanal): bloques por día de la semana que las runs no pisan. Reemplaza el anterior entero; lista vacía lo borra. Días: 0 = domingo … 6 = sábado.',
+    parametros: S({ bloques: { type: 'array', description: 'Los bloques', items: { type: 'object', properties: { dias: { type: 'array', items: { type: 'integer' } }, desde: str('HH:MM'), hasta: str('HH:MM'), que: str('Qué es (Trabajo, Clase…)') }, required: ['dias', 'desde', 'hasta'] } } }, ['bloques']),
+    ejecutar: (a, { db }) => ({ horario: fijarHorario(db, Array.isArray(a.bloques) ? a.bloques : []) }),
+    resumen: (a) => `guardó tu horario fijo (${Array.isArray(a.bloques) ? a.bloques.length : 0} bloques)`,
+  },
+  {
+    nombre: 'ver_uso', familia: 'lectura', descripcion: 'Qué usa de verdad de Deprocast: vistas que abre, herramientas que le corrés, comandos de Telegram y el rastro de cada módulo (runs, salud, plata, plan, prácticas, Directo, cargas…). Para rankear funciones con datos.',
+    parametros: S({ dias: int('Período en días (por defecto 30)') }),
+    ejecutar: (a, { db }) => verUso(db, Number(a.dias) || 30),
   },
   {
     nombre: 'listar_propuestas', familia: 'lectura', descripcion: 'Las propuestas de mejora a la plataforma ya registradas y su estado.', parametros: S({}),

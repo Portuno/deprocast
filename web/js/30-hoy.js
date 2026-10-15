@@ -902,7 +902,8 @@ function modalAjustesHoy() {
       <label class="campo">Tope diario de lo que corre solo (tokens, 0 = sin tope)<input id="aj-tope" type="number" min="0" step="500000" value="${esc(hoyDatos.ajustes.tokens_dia_max ?? 5000000)}"></label>
       <label class="campo">La Fragua forja por noche (propuestas, 0 = ninguna)<input id="aj-fragua" type="number" min="0" max="10" value="${esc(hoyDatos.ajustes.fragua_por_noche ?? 3)}"></label>
       <label class="fila" style="gap:6px"><input type="checkbox" id="aj-directo" ${hoyDatos.ajustes.directo_auto !== '0' ? 'checked' : ''}> Del Directo, las ideas y lo que miraste entran solas (tareas, personas y conexiones esperan tu ok)</label>
-      <label class="campo">Mastropiero piensa solo cada (horas, 0 = nunca)<input id="aj-pensar" type="number" min="0" max="24" value="${esc(hoyDatos.ajustes.pensar_cada_horas ?? 3)}"></label></div>
+      <label class="campo">Mastropiero piensa solo cada (horas, 0 = nunca)<input id="aj-pensar" type="number" min="0" max="24" value="${esc(hoyDatos.ajustes.pensar_cada_horas ?? 3)}"></label>
+      <label class="campo">Tu horario fijo (las runs no ponen nada encima; vacío = sin horario)<input id="aj-horario" placeholder="L-J 08:30-17:30 Trabajo; V 08:30-14:30 Trabajo" value="${esc(hoyDatos.ajustes.horario_fijo ?? '')}"></label></div>
     <h3 class="sub">Rutinas</h3>
     ${r.map((x) => `<div class="fila" style="margin:6px 0"><label class="fila" style="gap:6px;min-width:260px"><input type="checkbox" data-rut-activa="${x.id}" ${x.activa ? 'checked' : ''}> ${esc(x.nombre)}</label>
       <input class="campo-suelto" type="time" data-rut-hora="${x.id}" value="${esc(x.hora)}" style="width:120px;margin:0"><small class="tenue">${x.dias === '0123456' ? 'todos los días' : x.dias.split('').map((d) => ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'][d]).join(', ')}</small></div>`).join('')}
@@ -914,7 +915,7 @@ function modalAjustesHoy() {
   }))
   $('#aj-guardar').onclick = async () => {
     try {
-      await api('/ajustes', { primarias_semana: $('#aj-prim').value, tokens_dia_max: $('#aj-tope').value, pensar_cada_horas: $('#aj-pensar').value, fragua_por_noche: $('#aj-fragua').value, directo_auto: $('#aj-directo').checked ? '1' : '0' })
+      await api('/ajustes', { primarias_semana: $('#aj-prim').value, tokens_dia_max: $('#aj-tope').value, pensar_cada_horas: $('#aj-pensar').value, fragua_por_noche: $('#aj-fragua').value, directo_auto: $('#aj-directo').checked ? '1' : '0', horario_fijo: $('#aj-horario').value })
       for (const x of r) await api(`/rutinas/${x.id}`, { hora: $(`[data-rut-hora="${x.id}"]`).value, activa: $(`[data-rut-activa="${x.id}"]`).checked })
       cerrarModal()
       toast('Guardado', 'suave')

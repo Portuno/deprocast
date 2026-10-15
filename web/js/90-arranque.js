@@ -40,6 +40,7 @@ function irA(v) {
   $$('#nav button').forEach((b) => b.classList.toggle('activo', b.dataset.vista === (v === 'quantomos' ? 'corpus' : v)))
   VISTAS[v].montar()
   $('#principal').scrollTop = 0
+  api('/uso', { vista: v }).catch(() => {}) // qué usa de verdad (para rankear con datos)
 }
 /** El grupo «La máquina»: plegado por defecto; se abre solo si entrás a una de sus vistas. */
 function abrirMaquina(abierta) {

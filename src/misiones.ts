@@ -6,6 +6,7 @@
  * Las runs se calibran con lo que marca y cuenta, y dejan reportes por hora, por run y por semana.
  */
 import { diaSemana } from './zona.ts'
+import { bloquesDelDia } from './horario.ts'
 import { ajuste, fechaLocal, json, type Db } from './db.ts'
 import { CLASES } from './clases.ts'
 import { agendaDelDia, type Evento } from './calendario.ts'
@@ -720,7 +721,9 @@ async function prepararRunPasos(db: Db, pedido: PedidoRun, o: { ahora?: number; 
   const p = await resolverPedido(db, pedido, ahora)
   paso('mirando tu agenda')
   const { eventos, avisos } = await agendaDelDia(fecha)
-  const fijos = eventosOcupados(eventos, fecha).filter((e) => aMin(e.inicio) < aMin(p.fin) && aMin(e.fin) > aMin(p.inicio))
+  // Lo que el día ya tiene tomado: su agenda y su horario fijo (el trabajo). La run no pone bandas encima.
+  const fijos = [...eventosOcupados(eventos, fecha), ...bloquesDelDia(db, fecha).map((b) => ({ inicio: b.desde, fin: b.hasta, titulo: b.que }))]
+    .filter((e) => aMin(e.inicio) < aMin(p.fin) && aMin(e.fin) > aMin(p.inicio))
   paso(p.incluir.length ? 'consultando a la liga sobre lo que pediste' : 'juntando tu contexto')
   const ctx = await reunirContexto(db, p.incluir, ahora, { conAgentes: o.conAgentes })
   paso('armando las bandas')

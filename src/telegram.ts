@@ -7,6 +7,7 @@
  * Sin URL pública: el servidor le pregunta a Telegram si hay mensajes (long polling). Solo atiende a su chat
  * (TELEGRAM_CHAT_ID): a cualquier otro le dice su id y nada más.
  */
+import { anotarUso } from './uso.ts'
 import fs from 'node:fs'
 import { ajuste, fechaLocal, fijarAjuste, type Db } from './db.ts'
 import { conversacionHoy, enviar, estaPensando, mensajes } from './chat/index.ts'
@@ -330,6 +331,7 @@ function resumenHoy(db: Db): string {
 }
 
 async function comando(db: Db, cmd: string, resto: string) {
+  try { anotarUso(db, 'telegram', cmd.replace(/^\//, '')) } catch { /* no frena */ }
   switch (cmd) {
     case '/start': case '/ayuda': case '/help':
       return decir(`Acá estoy. Escribime, mandame audios, fotos, links o archivos (un chat de WhatsApp exportado, el CSV del banco).\n\n${COMANDOS.map(([c, d]) => `/${c} — ${d}`).join('\n')}`)

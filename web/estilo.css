@@ -1451,6 +1451,7 @@ a.mencion { color: var(--acento-texto); text-decoration: none; background: var(-
 .hud-linea li em { font: 10px var(--mono); color: var(--debil); font-style: normal; }
 .hud-linea li.evento { border-left-color: #6fa7db; }
 .hud-linea li.banda { border-left-color: var(--acento); }
+.hud-linea li.fijo { border-left-color: var(--tenue); color: var(--tenue); }
 .hud-linea li.hecha span { text-decoration: line-through; color: var(--tenue); }
 .hud-linea li.hud-ahora { border-left-color: var(--mal, #d27272); color: var(--mal, #d27272); font: 600 10px var(--mono); text-transform: uppercase; }
 .hud-semana { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; height: 34px; align-items: end; }

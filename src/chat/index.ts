@@ -4,6 +4,8 @@
  * Todo se guarda mensaje a mensaje, así la pantalla ve el avance mientras el turno corre.
  */
 import { ahoraEnPalabras, calendarioCorto } from '../zona.ts'
+import { horarioParaPrompt } from '../horario.ts'
+import { anotarUso } from '../uso.ts'
 import { afirmaAccion, correccionesParaPrompt, pareceCorreccion, registrarCorreccion } from './correcciones.ts'
 import { armarHistorial } from './historial.ts'
 import { comoTexto } from './adjuntos.ts'
@@ -214,6 +216,7 @@ Cómo trabajás
 - Las fechas relativas («el viernes», «mañana», «la semana que viene») de una tarea o de un mensaje se resuelven contra el día en que se escribieron, no contra hoy: si una tarea que vencía el 4/10 dice «el viernes», es el viernes 9/10. Usá el calendario de abajo; si no sabés cuándo es algo, preguntá.
 - Nunca digas que hiciste algo (anoté, corregí, arreglé, guardé, cambié) si en este turno no usaste una herramienta que lo haga. Lo que se arregla con código no lo arreglás vos: lo registrás con proponer_mejora y decís que es una propuesta.
 - Antes de decir que Deprocast no puede algo o que algo no existe, consultá que_puede_deprocast.
+- Para hablar de un día (qué tiene, qué hace hoy, la rutina), primero ver_dia: su agenda, su horario fijo y el plan, con su fuente. Si te cuenta su horario de trabajo o algo fijo de todas las semanas, guardalo con fijar_horario.
 - Para actuar sobre la plataforma (forjar agentes, publicar misiones, correr ticks, ingerir, crear fuentes o proyectos) usá tus herramientas y contalo en una frase. Los agentes de la liga sí los nombrás por su designación (BUS-0001) o su nombre.
 - Él decide. Lo destructivo o caro (retirar un agente, mandarlo a la banca, deshacer una carga, más de tres ticks) se pregunta antes; solo con un sí explícito llamás con confirmado=true. Sellar quántomos y aceptar propuestas es decisión suya.
 - Para hablar con un agente usá hablar_con_agente y contale a ${op.nombre} lo que dijo, con tus palabras.
@@ -234,7 +237,8 @@ Cómo trabajás
 - No hables de quántomos ni de la mecánica del corpus salvo que te pregunte por eso.
 
 Ahora: ${ahoraEnPalabras()}
-Calendario: ${calendarioCorto()}${hud && HUD[hud] ? `\nEn su panel de Hoy está mirando: ${HUD[hud]}. Si pregunta sin decir de qué («¿cómo voy?», «¿qué hago?»), es de eso.` : ''}
+Calendario: ${calendarioCorto()}${horarioParaPrompt(db, fechaLocal()) ? `
+${horarioParaPrompt(db, fechaLocal())}` : ''}${hud && HUD[hud] ? `\nEn su panel de Hoy está mirando: ${HUD[hud]}. Si pregunta sin decir de qué («¿cómo voy?», «¿qué hago?»), es de eso.` : ''}
 ${hoy(db, mensaje)}
 ${directoParaPrompt(db)}
 ${finanzasParaPrompt(db)}
@@ -369,7 +373,7 @@ export async function enviar(db: Db, cid: number, texto: string, o: { hud?: stri
     if (!c.titulo) db.prepare('UPDATE conversaciones SET titulo = ? WHERE id = ?').run(recorte(comoTexto(texto.trim()).replace(/\s+/g, ' '), 60), cid)
     const previos = await armarHistorial(db, mensajes(db, cid), { cid, resumirViejo: !(c.con === MASTROPIERO && c.modo === 'diario'), verImagenes: true })
     const alGuardar = (m: Partial<Mensaje> & { rol: Mensaje['rol'] }) => {
-      if (m.rol === 'herramienta' && m.herramienta) usadas.push(m.herramienta)
+      if (m.rol === 'herramienta' && m.herramienta) { usadas.push(m.herramienta); try { anotarUso(db, 'herramienta', m.herramienta) } catch { /* no frena */ } }
       guardar(db, cid, m)
     }
     if (c.con === MASTROPIERO && c.modo === 'diario') {
