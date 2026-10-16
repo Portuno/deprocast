@@ -12,6 +12,7 @@ const VISTAS = {
   aprender: { montar: montarAprender, refrescar: () => {} },
   radar: { montar: montarRadar, refrescar: refrescarRadar },
   taller: { montar: montarTaller, refrescar: refrescarTaller },
+  estudio: { montar: montarEstudio, refrescar: refrescarEstudio },
   cuentas: { montar: montarCuentas, refrescar: refrescarCuentas },
   chat: { montar: montarChat, refrescar: () => pintarLado() },
   entidades: { montar: montarEntidades, refrescar: refrescarEntidades },
@@ -38,7 +39,7 @@ function irA(v) {
   if (E) renderHud()
   $('#principal').classList.toggle('lleno', v === 'chat' || v === 'hoy')
   aplicarCronica()
-  $$('#nav button').forEach((b) => b.classList.toggle('activo', b.dataset.vista === (v === 'quantomos' ? 'corpus' : v)))
+  $$('#nav button').forEach((b) => b.classList.toggle('activo', b.dataset.vista === (v === 'quantomos' ? 'corpus' : v === 'estudio' ? 'taller' : v)))
   VISTAS[v].montar()
   $('#principal').scrollTop = 0
   api('/uso', { vista: v }).catch(() => {}) // qué usa de verdad (para rankear con datos)

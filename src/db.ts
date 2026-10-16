@@ -452,7 +452,7 @@ CREATE TABLE IF NOT EXISTS no_duplicados (
 
 CREATE TABLE IF NOT EXISTS artefactos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  tipo TEXT NOT NULL,                 -- juego | imagen | voz | personaje | video
+  tipo TEXT NOT NULL,                 -- juego | imagen | voz | personaje | video | estudio
   titulo TEXT NOT NULL,
   pedido TEXT NOT NULL,
   version INTEGER NOT NULL DEFAULT 1,
@@ -839,6 +839,16 @@ CREATE TABLE IF NOT EXISTS eventos (
 CREATE INDEX IF NOT EXISTS eventos_fecha ON eventos (fecha);
 CREATE INDEX IF NOT EXISTS eventos_pieza ON eventos (pieza_id);
 
+-- Plantillas del Estudio (el kit de marca de un proyecto): capas que se aplican a cualquier video.
+CREATE TABLE IF NOT EXISTS plantillas_estudio (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL,
+  entidad_id INTEGER,                      -- el proyecto de quien es la marca (opcional)
+  marca TEXT,                              -- colores, tipografía, tono: lo que el agente tiene que respetar
+  capas TEXT NOT NULL,                     -- JSON
+  creada_en INTEGER NOT NULL
+);
+
 -- Montos que contó charlando («me pagaron 800», «gasté 40 en…»): esperan su ok para entrar a Finanzas.
 CREATE TABLE IF NOT EXISTS movimientos_sugeridos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1030,6 +1040,7 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   ],
   publicaciones: [
     ['tipo', 'TEXT'],
+    ['adjunto', 'TEXT'], // un archivo que va con la publicación (el video del Estudio)
   ],
   obras: [
     ['resumen', 'TEXT'], ['expandida_en', 'INTEGER'], ['expansion', 'TEXT'],

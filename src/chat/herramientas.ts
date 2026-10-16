@@ -16,6 +16,7 @@ import { borrarSalud, editarSalud, fijarMetasSalud, leerSalud, listarSalud, regi
 import { deshacerAcciones, separarInversa, ultimasDeshacibles, type Inversa } from './deshacer.ts'
 import { resolverPropuesta } from './index.ts'
 import { lineaParaHerramienta } from '../linea.ts'
+import { agenteDeCapas } from '../estudio.ts'
 import { diaDelPlan, guardarWoop, habitos as listarHabitos, marcarHabito, VERBOS, votar } from '../cien.ts'
 import { crearAprendizaje, listarAprendizajes, prepararRepaso, recursosDe, registrarPractica } from '../aprender.ts'
 import { CATEGORIAS, listarMovimientos, registrarMovimiento, resumenMes, resumenPorProyecto, ritmoMeta } from '../finanzas.ts'
@@ -1201,6 +1202,13 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: () => 'pidió una versión nueva en el Taller',
   },
   {
+    nombre: 'editar_en_estudio', familia: 'accion',
+    descripcion: 'En el Estudio (posproducción de un video), pide un cambio en palabras: «que parezca un stream de cine», «poné mi nombre abajo», «sacá el chat», «tono editorial para LinkedIn». El posproductor arma o cambia las capas (subtítulos, títulos, logo, QR, color, cartel, chat, alertas). Para transcribir o exportar, que lo haga desde la pantalla del Estudio.',
+    parametros: S({ id: int('id del proyecto del Estudio'), pedido: str('Lo que quiere, tal cual') }, ['id', 'pedido']),
+    ejecutar: async (a, { db }) => agenteDeCapas(db, a.id, a.pedido).then((r) => ({ mensaje: r.mensaje, cambios: r.hechas, donde: 'Taller → Estudio' })),
+    resumen: (_, r) => `cambió ${r?.cambios ?? 0} capas en el Estudio`,
+  },
+  {
     nombre: 'ver_taller', familia: 'lectura', descripcion: 'Lo que hay en el Taller (juegos, imágenes, voces, personajes, videos) y en qué estado.',
     parametros: S({}),
     ejecutar: (_, { db }) => listarArtefactos(db, { limite: 30 }).map((x) => ({ id: x.id, tipo: x.tipo, titulo: x.titulo, version: x.version, estado: x.estado, progreso: x.progreso ?? undefined })),
@@ -1302,7 +1310,7 @@ export const GRUPOS: Record<string, string[]> = {
   misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   vida: ['ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   web: ['buscar_web', 'leer_pagina', 'guardar_link', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
-  crear: ['ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
+  crear: ['ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
 
 /** Los grupos que el mensaje ya anuncia (para no gastar una vuelta pidiéndolos). */

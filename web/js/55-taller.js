@@ -8,6 +8,7 @@ const TIPO_TALLER = {
   voz: { glifo: '♪', nombre: 'Voz', linea: 'Un texto leído o una charla a dos voces', ayuda: 'El texto que querés escuchar leído.' },
   personaje: { glifo: '☺', nombre: 'Personaje', linea: 'Ficha, retrato y voz, para reusar', ayuda: 'Quién es: rol, carácter, estética. O elegí a alguien de tu mundo abajo.' },
   video: { glifo: '▤', nombre: 'Video', linea: 'Guion, imágenes, voz y montaje', ayuda: 'De qué trata el video: el mensaje, el tono, para quién.' },
+  estudio: { glifo: '🎬', nombre: 'Estudio', linea: 'Posproducí un video: tuyo o del Taller', vista: true },
 }
 const tl = { tipo: null, filtro: '', q: '', datos: null, firma: '', sondeo: null, entidad: null, sugerencias: null }
 
@@ -30,8 +31,8 @@ async function montarTaller() {
 function pintarTipos() {
   const c = tl.datos?.cuenta ?? {}
   $('#tl-tipos').innerHTML = Object.entries(TIPO_TALLER).map(([k, x]) => `<button class="tl-tipo ${tl.tipo === k ? 'on' : ''}" data-tl-tipo="${k}">
-    <span class="tl-glifo">${x.glifo}</span><b>${x.nombre}</b><small>${x.linea}</small><em>${c[k] ? `${c[k]} en la Librería` : 'Todavía nada'}</em></button>`).join('')
-  $$('[data-tl-tipo]').forEach((b) => (b.onclick = () => abrirMesa(tl.tipo === b.dataset.tlTipo ? null : b.dataset.tlTipo)))
+    <span class="tl-glifo">${x.glifo}</span><b>${x.nombre}</b><small>${x.linea}</small><em>${c[k] ? `${c[k]} ${x.vista ? 'proyectos' : 'en la Librería'}` : 'Todavía nada'}</em></button>`).join('')
+  $$('[data-tl-tipo]').forEach((b) => (b.onclick = () => (TIPO_TALLER[b.dataset.tlTipo].vista ? ((es.id = null), irA('estudio')) : abrirMesa(tl.tipo === b.dataset.tlTipo ? null : b.dataset.tlTipo))))
   $('#tl-filtros').innerHTML = [['', 'Todo'], ...Object.entries(TIPO_TALLER).map(([k, x]) => [k, `${x.glifo} ${x.nombre}`])]
     .map(([k, n]) => `<button class="chip ${tl.filtro === k ? 'on' : ''}" data-tl-filtro="${k}">${n}</button>`).join('')
   $$('[data-tl-filtro]').forEach((b) => (b.onclick = () => { tl.filtro = b.dataset.tlFiltro; traerTaller(true) }))
@@ -162,7 +163,11 @@ async function traerTaller(forzar = false) {
       <span class="tl-obra-txt"><span class="tipo-chip">${TIPO_TALLER[a.tipo]?.glifo ?? ''} ${esc(TIPO_TALLER[a.tipo]?.nombre ?? a.tipo)}</span><b>${esc(a.titulo)}</b>
       <small>${o.versiones.length > 1 ? `v${a.version} · ${o.versiones.length} versiones · ` : ''}${new Date(a.creadoEn).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}${a.estado === 'haciendo' ? ' · en el horno' : a.estado === 'fallo' ? ' · no salió' : ''}</small></span></button>`
   }).join('')}</div>` : `<div class="vacio"><div class="gran">✎</div><h2>${tl.filtro || tl.q ? 'Nada con ese filtro' : 'La Librería está vacía'}</h2><p>Elegí arriba qué crear. Todo lo que hagas queda acá, con sus versiones.</p></div>`
-  $$('[data-obra]', cont).forEach((b) => (b.onclick = () => fichaObra(Number(b.dataset.obra))))
+  $$('[data-obra]', cont).forEach((b) => (b.onclick = () => {
+    const o = d.obras.find((x) => x.raiz === Number(b.dataset.obra))
+    if (o?.ultima.tipo === 'estudio') { es.id = o.raiz; return irA('estudio') }
+    fichaObra(Number(b.dataset.obra))
+  }))
 }
 
 // ─── la ficha de una obra ───────────────────────────────────────────────
@@ -200,6 +205,7 @@ async function fichaObra(raiz, verId = null) {
           <div class="fila tl-acciones">
             ${a.tipo === 'juego' ? `<a class="btn btn-chico" href="${urlTaller(a, 'index.html')}" target="_blank" rel="noopener">Pantalla completa</a>` : ''}
             ${a.tipo === 'personaje' ? '<button class="btn btn-chico" data-usar="video">▤ Video con este personaje</button><button class="btn btn-chico" data-usar="juego">▶ Juego con este personaje</button>' : ''}
+            ${a.tipo === 'video' && a.archivos.includes('video.mp4') ? '<button class="btn btn-chico btn-primario" id="tlf-estudio">🎬 Posproducir en el Estudio</button>' : ''}
             <button class="btn btn-chico" id="tlf-corpus" title="Guardarlo en tu corpus">❦ Al corpus</button>
           </div>
           <details class="tl-archivos"><summary>Archivos (${a.archivos.length})</summary>${a.archivos.map((n) => `<a href="${urlTaller(a, n)}" download="${esc(n)}">${esc(n)}</a>`).join('')}</details>` : ''}
@@ -214,6 +220,8 @@ async function fichaObra(raiz, verId = null) {
     if (!cambio) return toast('Decime qué cambiar', 'error')
     try { await api(`/taller/${a.id}/iterar`, { cambio }); cerrarModal(); toast('Nueva versión en el horno', 'suave'); traerTaller(true) } catch (e) { error(e) }
   }
+  const est = $('#tlf-estudio')
+  if (est) est.onclick = async () => { try { const n = await api('/estudio/nuevo', { desdeArtefacto: a.id }); cerrarModal(); es.id = n.id; irA('estudio') } catch (e) { error(e) } }
   const co = $('#tlf-corpus')
   if (co) co.onclick = async () => { try { await api(`/taller/${a.id}/corpus`, {}); toast('Guardado en el corpus', 'suave') } catch (e) { error(e) } }
   $$('[data-usar]').forEach((b) => (b.onclick = () => { cerrarModal(); abrirMesa(b.dataset.usar, { personajeId: a.id }); $('#tl-mesa').scrollIntoView({ behavior: 'smooth' }) }))

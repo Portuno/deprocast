@@ -31,6 +31,8 @@ import { artefactoAlCorpus, ASPECTOS, borrarArtefacto, carpeta as carpetaTaller,
 import { conMatriz, desvincularDeProyecto, grafoPersonas, guardarRelacion, nuevaPersona, personas, vincularAProyecto } from './personas.ts'
 import { controlarReproceso, enLaNube, estadoReproceso, trabajarReproceso } from './reproceso.ts'
 import { lineaTemporal, resolverEvento } from './linea.ts'
+import * as estudio from './estudio.ts'
+import { qrPng } from './qr.ts'
 import { guardarYo, leerYo } from './yo.ts'
 import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora.ts'
 import { anotar as anotarEnCriba, anotarSolo, cribar, deshacerUltima, marcador, siguiente } from './criba.ts'
@@ -224,6 +226,9 @@ type Q = URLSearchParams
 type Ruta = (cuerpo: any, params: string[], q: Q) => unknown | Promise<unknown>
 const num = (v: string | null) => (v ? Number(v) : undefined)
 const id = (s: string) => Number(s)
+
+/** Lo que el Estudio hace de fondo por proyecto (transcribir): la pantalla lo pregunta. */
+const tareasEstudio = new Map<number, { activa: boolean; que: string; error: string | null }>()
 
 /** «Procesarme» corre de fondo: acá queda cómo va (la pantalla lo pregunta). */
 const procesando: { activo: boolean; resultado: Awaited<ReturnType<typeof procesarJugador>> | null; error: string | null } = { activo: false, resultado: null, error: null }
@@ -489,6 +494,38 @@ const rutas: [string, RegExp, Ruta][] = [
     void crear().catch((e) => console.error('  taller:', e))
     return { ok: true }
   }],
+  // El Estudio: posproducción de un video (las subidas crudas van más abajo).
+  ['GET', /^\/api\/estudio$/, () => ({
+    proyectos: libreria(db, { tipo: 'estudio' }),
+    videos: listarArtefactos(db, { tipo: 'video', limite: 40 }).filter((a) => a.estado === 'listo' && a.archivos.includes('video.mp4')),
+    imagenes: listarArtefactos(db, { tipo: 'imagen', limite: 40 }).filter((a) => a.estado === 'listo'),
+    plantillas: estudio.plantillas(db),
+    cuentas: listarCuentas(db).filter((c) => c.modo !== 'lectura').map((c) => ({ id: c.id, red: c.red, usuario: c.usuario })),
+    ffmpeg: hayFfmpeg(),
+  })],
+  ['GET', /^\/api\/estudio\/(\d+)$/, (_, [e]) => {
+    const { a, p } = estudio.proyectoDe(db, id(e))
+    const obra = libreria(db, { tipo: 'estudio' }).find((o) => o.versiones.some((v) => v.id === a.id))
+    const versiones = (obra?.versiones ?? []).map((v) => listarArtefactos(db, { tipo: 'estudio', limite: 200 }).find((x) => x.id === v.id)).filter(Boolean)
+    return { artefacto: a, proyecto: { ...p, deshacer: undefined, puedeDeshacer: !!p.deshacer?.length }, fuente: `/taller/${p.fuente.artefacto}/${p.fuente.archivo}`, versiones, tarea: tareasEstudio.get(a.id) ?? null }
+  }],
+  ['POST', /^\/api\/estudio\/nuevo$/, (b) => estudio.crearEstudio(db, { desdeArtefacto: Number(b.desdeArtefacto) })],
+  ['POST', /^\/api\/estudio\/(\d+)$/, (b, [e]) => ({ ...estudio.guardarEstudio(db, id(e), b), deshacer: undefined })],
+  ['POST', /^\/api\/estudio\/(\d+)\/deshacer$/, (_, [e]) => ({ ...estudio.deshacerEstudio(db, id(e)), deshacer: undefined })],
+  ['POST', /^\/api\/estudio\/(\d+)\/agente$/, async (b, [e]) => { const r = await estudio.agenteDeCapas(db, id(e), String(b.pedido ?? '')); return { mensaje: r.mensaje, hechas: r.hechas } }],
+  ['POST', /^\/api\/estudio\/(\d+)\/transcribir$/, (_, [e]) => {
+    const n = id(e)
+    if (tareasEstudio.get(n)?.activa) throw new Error('Ya estoy transcribiendo este video')
+    tareasEstudio.set(n, { activa: true, que: 'transcribiendo', error: null })
+    void estudio.transcribirEstudio(db, n).then(() => tareasEstudio.set(n, { activa: false, que: 'transcribiendo', error: null }))
+      .catch((x) => tareasEstudio.set(n, { activa: false, que: 'transcribiendo', error: x instanceof Error ? x.message : String(x) }))
+    return { empezado: true }
+  }],
+  ['POST', /^\/api\/estudio\/(\d+)\/exportar$/, (_, [e]) => { void estudio.exportarEstudio(db, id(e)).catch((x) => console.error('  estudio:', x)); return { empezado: true } }],
+  ['POST', /^\/api\/estudio\/(\d+)\/momentos$/, async (_, [e]) => ({ momentos: await estudio.momentosEstudio(db, id(e)) })],
+  ['POST', /^\/api\/estudio\/(\d+)\/plantilla$/, (b, [e]) => estudio.guardarPlantilla(db, id(e), { nombre: String(b.nombre ?? ''), marca: b.marca ?? null, entidadId: b.entidadId ? Number(b.entidadId) : null })],
+  ['POST', /^\/api\/estudio\/(\d+)\/plantilla\/(\d+)$/, (_, [e, pl]) => ({ ...estudio.aplicarPlantilla(db, id(e), id(pl)), deshacer: undefined })],
+  ['POST', /^\/api\/estudio\/(\d+)\/publicar$/, async (b, [e]) => estudio.mandarACuentas(db, id(e), Number(b.cuentaId))],
   ['POST', /^\/api\/taller\/(\d+)\/iterar$/, (b, [a]) => { void iterarArtefacto(db, id(a), String(b.cambio ?? '')).catch((e) => console.error('  taller:', e)); return { ok: true } }],
   ['POST', /^\/api\/taller\/(\d+)\/corpus$/, (_, [a]) => ({ pieza: artefactoAlCorpus(db, id(a)) })],
   // Tandas (notas de voz y páginas de cuadernos): la subida va cruda, más abajo
@@ -973,6 +1010,37 @@ const servidor = http.createServer(async (req, res) => {
         const r = encolarTanda(db, { tipo: (q.get('tipo') as any) || undefined, nombre: q.get('nombre') || 'archivo', datos: await leerCrudo(req, 300 * 1024 * 1024), fecha: q.get('fecha') || null, cuaderno: q.get('cuaderno') || null, hoja: q.get('hoja') ? Number(q.get('hoja')) : null })
         void procesarTandas(db).catch((e) => console.error('  tandas:', e instanceof Error ? e.message : e))
         return void res.end(JSON.stringify(r))
+      }
+      // El Estudio: un video propio (por pedazos de hasta 32 MB, como el Takeout), una imagen para una capa, una plantilla.
+      const est = /^\/api\/estudio\/(subir\/parte|subir\/fin|(\d+)\/imagen|plantillas\/importar)$/.exec(url.pathname)
+      if (est && req.method === 'POST') {
+        const q = url.searchParams
+        const sesion = q.get('sesion') ?? ''
+        if (est[1].startsWith('subir') && !/^[\w-]{8,40}$/.test(sesion)) throw new Error('Sesión de subida inválida')
+        const ruta = path.join(dirTaller(), 'subidas', `${sesion}.mp4`)
+        if (est[1] === 'subir/parte') {
+          fs.mkdirSync(path.dirname(ruta), { recursive: true })
+          const desde = Number(q.get('desde') ?? 0)
+          if (desde > 0 && (!fs.existsSync(ruta) || fs.statSync(ruta).size < desde)) throw new Error('Falta un pedazo anterior')
+          const fd = fs.openSync(ruta, desde === 0 ? 'w' : 'r+')
+          const datos = await leerCrudo(req, 32 * 1024 * 1024)
+          try { fs.writeSync(fd, datos, 0, datos.length, desde) } finally { fs.closeSync(fd) }
+          return void res.end(JSON.stringify({ bytes: fs.statSync(ruta).size }))
+        }
+        if (est[1] === 'subir/fin') {
+          if (!fs.existsSync(ruta) || fs.statSync(ruta).size !== Number(q.get('total'))) throw new Error('El video no llegó entero: volvé a subirlo')
+          return void res.end(JSON.stringify(estudio.crearEstudio(db, { archivo: ruta, titulo: (q.get('nombre') || 'Video').replace(/\.[\w]+$/, '') })))
+        }
+        if (est[1] === 'plantillas/importar') return void res.end(JSON.stringify(estudio.importarPlantilla(db, await leerCrudo(req, 60 * 1024 * 1024))))
+        return void res.end(JSON.stringify({ archivo: estudio.subirImagenEstudio(db, Number(est[2]), q.get('nombre') || 'imagen', await leerCrudo(req, 20 * 1024 * 1024)) }))
+      }
+      const plz = /^\/api\/estudio\/plantillas\/(\d+)\.zip$/.exec(url.pathname)
+      if (plz && req.method === 'GET') {
+        const z = estudio.exportarPlantilla(db, Number(plz[1]))
+        return void res.writeHead(200, { 'content-type': 'application/zip', 'content-disposition': `attachment; filename="${z.nombre}"` }).end(z.zip)
+      }
+      if (req.method === 'GET' && url.pathname === '/api/estudio/qr') {
+        return void res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'max-age=3600' }).end(qrPng(String(url.searchParams.get('d') ?? '').slice(0, 300) || 'https://', 6))
       }
       // Google Takeout: la compu sube el paquete (texto) y los medios ya achicados; la nube hace todo lo pesado de fondo.
       const tko = /^\/api\/takeout(?:\/(paquete\/parte|paquete\/fin|faltan|medio|cerrar|reintentar|nombre))?$/.exec(url.pathname)

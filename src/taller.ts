@@ -13,7 +13,7 @@ import { memoriaParaPrompt } from './memoria.ts'
 import { llamarModelo, pedirJson } from './modelo.ts'
 import { nanConfigurado } from './nan.ts'
 
-export const TIPOS_ARTEFACTO = ['juego', 'imagen', 'voz', 'personaje', 'video'] as const
+export const TIPOS_ARTEFACTO = ['juego', 'imagen', 'voz', 'personaje', 'video', 'estudio'] as const
 export type TipoArtefacto = (typeof TIPOS_ARTEFACTO)[number]
 export type Artefacto = {
   id: number; tipo: TipoArtefacto; titulo: string; pedido: string; version: number; padreId: number | null; archivos: string[]
