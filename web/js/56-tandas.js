@@ -89,8 +89,8 @@ async function modalTakeout() {
         <p class="tenue chico">${Object.entries(l.resumen ?? {}).filter(([k]) => k.startsWith('ingesta_')).map(([k, v]) => `${v} ${k.slice(8).replace('_', ' ')}`).join(' · ')}${d.archivosEnEspera ? ` · ${d.archivosEnEspera} archivos esperando (se borran al procesarlos)` : ''}</p>
         ${d.errores.length ? `<details><summary>${d.errores.length} con error</summary>${d.errores.map((e) => `<p class="chico"><b>${esc(e.que)}</b> ${esc(e.titulo ?? '')}: ${esc(e.error ?? '')}</p>`).join('')}<button class="btn btn-chico" id="tk-reintentar">Reintentar lo que falló</button></details>` : ''}`
       + (d.temas.length ? `<h3>Los temas que más volvieron</h3><div class="hud-chips">${d.temas.map((t) => `<span class="tipo-chip" title="${esc(t.primera ?? '')} → ${esc(t.ultima ?? '')}">${esc(t.tema)} · ${t.veces}</span>`).join(' ')}</div>` : '')
-      + (d.nombres.length ? `<h3>Nombres que aparecieron <small class="tenue">personas, proyectos y lugares · esperan tu ok</small></h3><div class="cu-fuentes">${d.nombres.map((x) => `<div class="sq" data-clave="${esc(x.clave)}"><span>${x.tipo === 'proyecto' ? '◆' : x.tipo === 'lugar' ? '⌖' : '●'} <b>${esc(x.nombre)}</b> · ${x.veces} ${x.veces === 1 ? 'vez' : 'veces'}<small>${esc(x.primera ?? '')}${x.ultima && x.ultima !== x.primera ? ` → ${esc(x.ultima)}` : ''}${x.nota ? ` · ${esc(x.nota.slice(0, 90))}` : ''}</small></span>
-          <span class="fila"><button class="btn btn-chico" data-tk="aceptar" title="Crear la entidad">✓</button><button class="btn btn-chico" data-tk="fusionar" title="Es una que ya existe">≈</button><button class="btn btn-chico" data-tk="descartar" title="No es nadie / no importa">✕</button></span></div>`).join('')}</div>` : '')
+      + (d.nombres.length ? `<h3>Nombres que aparecieron <small class="tenue">personas, proyectos y lugares · esperan tu ok</small></h3><div class="cu-fuentes">${d.nombres.map((x) => `<div class="sq" data-clave="${esc(x.clave)}"><span>${x.tipo === 'proyecto' ? '◆' : x.tipo === 'lugar' ? '⌖' : '●'} <input class="campo-suelto tk-nombre" value="${esc(x.nombre)}" title="Si se leyó mal, corregilo antes de aceptar"> · ${x.veces} ${x.veces === 1 ? 'vez' : 'veces'}${x.parecida ? ` · <span class="dir-parece">¿es <b>«${esc(x.parecida.nombre)}»</b>?</span>` : ''}<small>${esc(x.primera ?? '')}${x.ultima && x.ultima !== x.primera ? ` → ${esc(x.ultima)}` : ''}${x.nota ? ` · ${esc(x.nota.slice(0, 90))}` : ''}</small></span>
+          <span class="fila">${x.parecida ? `<button class="btn btn-chico btn-primario" data-tk="es" data-ent="${x.parecida.id}" title="Es la que ya existe: se suma como otro nombre">Es esa</button>` : ''}<button class="btn btn-chico" data-tk="aceptar" title="${x.parecida ? 'Es otra: crear la entidad' : 'Crear la entidad'}">${x.parecida ? 'Es otra' : '✓'}</button><button class="btn btn-chico" data-tk="fusionar" title="Es una que ya existe">≈</button><button class="btn btn-chico" data-tk="descartar" title="No es nadie / no importa">✕</button></span></div>`).join('')}</div>` : '')
     $('#tk-reintentar')?.addEventListener('click', async () => { await api('/takeout/reintentar', {}); pintar() })
     $$('#tk-cuerpo [data-tk]').forEach((b) => (b.onclick = async () => {
       const clave = b.closest('[data-clave]').dataset.clave
@@ -103,7 +103,10 @@ async function modalTakeout() {
           if (!e) return toast('No encontré esa entidad')
           await api('/takeout/nombre', { clave, accion: 'aceptar', entidadId: e.id })
           toast(`Ahora es un alias de ${esc(e.nombre)}`, 'suave')
-        } else await api('/takeout/nombre', { clave, accion })
+        } else if (accion === 'es') {
+          await api('/takeout/nombre', { clave, accion: 'aceptar', entidadId: Number(b.dataset.ent) })
+          toast('Sumado como otro nombre de la que ya estaba', 'suave')
+        } else await api('/takeout/nombre', { clave, accion, nombre: b.closest('[data-clave]').querySelector('.tk-nombre')?.value })
         pintar()
       } catch (e) { error(e) }
     }))

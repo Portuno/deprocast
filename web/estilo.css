@@ -1830,3 +1830,15 @@ span.ej-chip { cursor: default; }
 .ej-homonimos { grid-column: 1 / -1; }
 .ej-acepcion { border-top: 1px solid var(--linea); padding: 8px 0; }
 .ej-acepcion p { margin: 4px 0; }
+
+/* Entidades propuestas: el nombre se corrige ahí mismo; «¿es X?» cuando se parece a una que ya existe. */
+.dir-ent-cab { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.dir-nombre, .tk-nombre { width: min(260px, 100%); margin: 0; font-weight: 600; padding: 3px 8px; }
+.tk-nombre { width: min(220px, 60%); display: inline-block; }
+.dir-tipo { width: auto; margin: 0; padding: 3px 6px; font-size: 12px; }
+.dir-parece { color: var(--acento-texto); }
+.dir-ent-cab .dir-nombre { flex: 0 1 260px; }
+.dir-ent-cab .dir-tipo { width: auto; flex: none; }
+.dir-ent small.dir-parece { font-family: inherit; font-size: 12.5px; }
+.dir-ent > span:first-child { flex: 1; min-width: 0; }
+.dir-ent-cab { flex-wrap: nowrap; }

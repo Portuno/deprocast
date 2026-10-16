@@ -193,6 +193,19 @@ function subtituloProp(p) {
   return p.detalle || ''
 }
 
+const TIPOS_ENT_DIR = ['persona', 'proyecto', 'agrupacion', 'lugar', 'dominio', 'concepto']
+/** Una entidad propuesta: el nombre se corrige ahí mismo (a veces se oye mal), y si parece una que ya existe, se pregunta. */
+function filaEntidad(p) {
+  const resto = [p.detalle, p.alias?.length ? `alias ${p.alias.join(', ')}` : ''].filter(Boolean).join(' · ')
+  return `<div class="sq pendiente dir-ent" data-prop="${esc(p.id)}" data-parecida="${p.parecida?.id ?? ''}">
+    <span><span class="dir-ent-cab"><input class="campo-suelto dir-nombre" value="${esc(p.titulo)}" title="Si se leyó mal, corregilo antes de anotar"><select class="campo-suelto dir-tipo">${TIPOS_ENT_DIR.map((t) => `<option ${t === p.tipoEntidad ? 'selected' : ''}>${t}</option>`).join('')}</select></span>
+      ${resto ? `<small>${esc(resto)}</small>` : ''}
+      ${p.parecida ? `<small class="dir-parece">¿Es <b>«${esc(p.parecida.nombre)}»</b> (${esc(p.parecida.tipo)}), que ya está?</small>` : ''}</span>
+    <span class="fila">${p.parecida
+      ? `<button class="btn btn-chico btn-primario" data-acc="aceptar" data-vincular="${p.parecida.id}" title="Se suma como otro nombre de la que ya existe">Es esa</button><button class="btn btn-chico" data-acc="aceptar" data-vincular="" title="Es otra: se anota como nueva">Es otra</button>`
+      : '<button class="btn btn-chico btn-primario" data-acc="aceptar" data-vincular="">Anotar</button>'}<button class="btn btn-chico" data-acc="rechazar" title="Descartar">✕</button></span></div>`
+}
+
 function tableroDirecto(s) {
   const ps = s.resumen?.propuestas ?? []
   const chips = Object.entries(s.resumen?.minutosPorActividad ?? {}).slice(0, 6).map(([k, v]) => `<span class="chip">${esc(k)} ${v}′</span>`).join('')
@@ -205,7 +218,7 @@ function tableroDirecto(s) {
     return `<section class="dir-grupo" data-grupo="${tipo}">
       <header><h4>${nombre}${vivos.length ? ` <em>${vivos.length}</em>` : ''}</h4>
         ${vivos.length > 1 ? `<span class="fila"><button class="btn btn-chico" data-acc="aceptar" data-ids="${esc(ids)}">Aceptar estas</button><button class="btn btn-chico" data-acc="rechazar" data-ids="${esc(ids)}">Ninguna</button></span>` : ''}</header>
-      ${xs.map((p) => `<div class="sq ${p.estado}" data-prop="${esc(p.id)}"><span><b>${esc(p.titulo)}</b>${subtituloProp(p) ? `<small>${esc(subtituloProp(p))}</small>` : ''}</span>
+      ${xs.map((p) => p.tipo === 'entidad' && p.estado === 'pendiente' ? filaEntidad(p) : `<div class="sq ${p.estado}" data-prop="${esc(p.id)}"><span><b>${esc(p.titulo)}</b>${subtituloProp(p) ? `<small>${esc(subtituloProp(p))}</small>` : ''}</span>
         ${p.estado === 'pendiente'
           ? `<span class="fila"><button class="btn btn-chico btn-primario" data-acc="aceptar">${verbo}</button><button class="btn btn-chico" data-acc="rechazar" title="Descartar">✕</button></span>`
           : `<em class="dir-ok"${p.sola ? ' title="Entró sola: las ideas y lo que miraste no esperan tu ok"' : ''}>✓${p.sola ? ' <small>sola</small>' : ''}</em>`}</div>`).join('')}
@@ -259,8 +272,17 @@ function engancharTablero(raiz) {
       const ids = btn.dataset.ids ? btn.dataset.ids.split(',').filter(Boolean) : [btn.closest('[data-prop]')?.dataset.prop].filter(Boolean)
       if (!sesion || !ids.length) return
       btn.disabled = true
+      // Lo que corrigió en cada entidad: el nombre, el tipo y si es una que ya existía (en «Aceptar estas», la que se parece).
+      const cambios = {}
+      for (const pid of ids) {
+        const fila = tablero.querySelector(`[data-prop="${CSS.escape(pid)}"]`)
+        const nombre = fila?.querySelector('.dir-nombre')
+        if (!nombre) continue
+        const vincular = btn.dataset.vincular !== undefined ? btn.dataset.vincular : fila.dataset.parecida
+        cambios[pid] = { titulo: nombre.value, tipoEntidad: fila.querySelector('.dir-tipo')?.value, vincular: vincular ? Number(vincular) : null }
+      }
       try {
-        const r = await api(`/directo/${sesion}/propuesta`, { ids, accion: btn.dataset.acc })
+        const r = await api(`/directo/${sesion}/propuesta`, { ids, accion: btn.dataset.acc, cambios })
         aplicarEnPantalla(sesion, r.propuestas)
         const verbos = { tarea: 'Side quest anotada', cumplida: 'Marcada hecha', banda: 'Banda hecha', entidad: 'Entidad anotada', conexion: 'Conexión anotada', idea: 'Quedó en la memoria', medio: 'Entró al corpus' }
         const uno = r.propuestas.length === 1 ? r.propuestas[0] : null

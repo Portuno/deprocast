@@ -299,3 +299,64 @@ export function conexionesDe(db: Db, id: number): Conexion[] {
      WHERE c.a = ? OR c.b = ? ORDER BY c.id DESC LIMIT 24`,
   ).all(id, id, id, id) as any[]).map((r) => ({ id: r.id, otra: r.otra, nombre: r.nombre, tipo: r.tipo, relacion: r.relacion }))
 }
+
+// ─── reconocer las que ya existen ───────────────────────────────────────
+
+export type Parecida = { id: number; nombre: string; tipo: TipoEntidad; por: 'igual' | 'alias' | 'parecido' | 'contiene' }
+
+const VACIAS_NOMBRE = new Set(['el', 'la', 'los', 'las', 'de', 'del', 'y', 'e', 'en', 'the', 'of', 'calle', 'barrio'])
+const fichas = (s: string) => clave(s).split(' ').filter((w) => w.length >= 3 && !VACIAS_NOMBRE.has(w))
+
+/** Distancia de edición (para nombres mal transcriptos: «Liboub» y «Louboub»). */
+export function distancia(a: string, b: string): number {
+  if (a === b) return 0
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j)
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i]
+    for (let j = 1; j <= b.length; j++) cur.push(Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)))
+    prev = cur
+  }
+  return prev[b.length]
+}
+
+/**
+ * Para saber si un nombre que aparece (en el Directo, en lo importado) ya es una entidad: igual, por alias, parecido
+ * (mal escrito o mal transcripto) o contenido («Rafa el chino» y «Rafa»; «Ruzafa» y «Barrio de Ruzafa»). Si hay más
+ * de una que encaja igual de bien, no adivina.
+ */
+export function buscadorDeEntidades(db: Db) {
+  const todas = (db.prepare('SELECT id, nombre, tipo, alias FROM entidades').all() as { id: number; nombre: string; tipo: TipoEntidad; alias: string | null }[])
+    .map((e) => ({ ...e, nombres: [e.nombre, ...(json<string[]>(e.alias, []) ?? [])].map((n) => ({ n, k: clave(n), f: fichas(n) })).filter((x) => x.k) }))
+  const parecida = (nombre: string, alias: string[] = []): Parecida | null => {
+    const buscados = [nombre, ...alias].map((n) => ({ k: clave(n), f: fichas(n) })).filter((x) => x.k.length >= 2)
+    if (!buscados.length) return null
+    const de = (e: (typeof todas)[number], por: Parecida['por']): Parecida => ({ id: e.id, nombre: e.nombre, tipo: e.tipo, por })
+    for (const b of buscados) {
+      const e = todas.find((x) => x.nombres[0]?.k === b.k)
+      if (e) return de(e, 'igual')
+    }
+    for (const b of buscados) {
+      const e = todas.find((x) => x.nombres.some((n) => n.k === b.k))
+      if (e) return de(e, 'alias')
+    }
+    const unica = (xs: typeof todas, por: Parecida['por']) => (new Set(xs.map((x) => x.id)).size === 1 ? de(xs[0], por) : null)
+    // Mal escrito: pocas letras de diferencia en el nombre entero.
+    const cerca = todas.filter((e) => e.nombres.some((n) => buscados.some((b) => Math.min(n.k.length, b.k.length) >= 5 && distancia(n.k, b.k) <= (Math.min(n.k.length, b.k.length) >= 12 ? 2 : 1))))
+    const p1 = unica(cerca, 'parecido')
+    if (p1) return p1
+    // Contenido: todas las palabras con contenido de uno están en el otro (y al menos una es larga).
+    const dentro = (a: string[], b: string[]) => a.length > 0 && a.some((w) => w.length >= 4) && a.every((w) => b.some((x) => x === w || (w.length >= 6 && distancia(w, x) <= 1)))
+    const contienen = todas.filter((e) => e.nombres.some((n) => buscados.some((b) => dentro(n.f, b.f) || dentro(b.f, n.f))))
+    return unica(contienen, 'contiene')
+  }
+  /** Las que aparecen en un texto (por nombre o alias), y después las más nombradas, hasta «max»: para el modelo. */
+  const relevantes = (texto: string, max = 150): string[] => {
+    const t = ` ${clave(texto)} `
+    const usadas = todas.filter((e) => e.nombres.some((n) => n.k.length >= 3 && t.includes(` ${n.k} `)))
+    const ids = new Set(usadas.map((e) => e.id))
+    const resto = (db.prepare(`SELECT CAST(j.value AS INTEGER) AS id, COUNT(*) AS n FROM corpus c, json_each(COALESCE(c.entidades, '[]')) j GROUP BY 1 ORDER BY n DESC LIMIT ?`).all(max * 2) as { id: number }[])
+      .map((r) => todas.find((e) => e.id === r.id)).filter((e): e is (typeof todas)[number] => !!e && !ids.has(e.id))
+    return [...usadas, ...resto].slice(0, max).map((e) => `${e.nombre} (${e.tipo}${e.nombres.length > 1 ? `; también ${e.nombres.slice(1, 5).map((n) => n.n).join(', ')}` : ''})`)
+  }
+  return { parecida, relevantes }
+}

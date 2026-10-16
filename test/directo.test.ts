@@ -150,3 +150,42 @@ test('Directo por tramos: cada hora su informe y sus propuestas (aceptables sin 
   assert.deepEqual(ps.map((p) => [p.id, p.titulo, p.estado]), [['t1p1', 'Llamar a Ana', 'aceptada'], ['p1', 'Probar el informe por tramos', 'pendiente']], 'no repite y no pisa lo aceptado')
   assert.equal(c.estado, 'cerrada')
 })
+
+test('entidades que ya existen: mal escritas, con apodo o incompletas se reconocen; el nombre se corrige antes de anotar', async () => {
+  const { buscadorDeEntidades, asegurarEntidad, leerEntidad } = await import('../src/entidades.ts')
+  const db = abrir(':memory:')
+  const antoine = asegurarEntidad(db, { tipo: 'persona', nombre: 'Antoine Louboub' })
+  const rafa = asegurarEntidad(db, { tipo: 'persona', nombre: 'Rafa' })
+  const barrio = asegurarEntidad(db, { tipo: 'lugar', nombre: 'Barrio de Ruzafa', alias: ['Russafa'] })
+  asegurarEntidad(db, { tipo: 'persona', nombre: 'Ana Prueba' })
+  asegurarEntidad(db, { tipo: 'persona', nombre: 'Ana Torres' })
+  const b = buscadorDeEntidades(db)
+  assert.deepEqual([b.parecida('Antoine Liboub')?.id, b.parecida('Antoine Liboub')?.por], [antoine, 'parecido'])
+  assert.deepEqual([b.parecida('Rafa el chino')?.id, b.parecida('Rafa el chino')?.por], [rafa, 'contiene'])
+  assert.equal(b.parecida('Ruzafa')?.id, barrio)
+  assert.equal(b.parecida('Russafa')?.por, 'alias')
+  assert.equal(b.parecida('Ana'), null, 'con dos candidatas no adivina')
+  assert.equal(b.parecida('Calle Cuba 24'), null)
+  assert.match(b.relevantes('hoy hablé con Rafa por el coworking').join('\n'), /^Rafa \(persona\)/, 'lo que aparece en lo dicho va primero')
+
+  // En el Directo: lo idéntico no se propone; lo parecido llega con «¿es X?»; aceptar «es esa» suma el alias.
+  _probarDirecto({ vision: async () => ({ app: 'Notas', actividad: 'escribiendo', tema: 'coworking', detalle: '', nota: '' }), transcribir: async () => '' })
+  const s = iniciarDirecto(db, ['pantalla'], T)
+  await registrarCuadro(db, s.id, img, 'image/jpeg', min(0))
+  _probarModelo(async () => ({ texto: JSON.stringify({ texto: 'Armaste el evento.', ideas: [], tareas: [], cumplidas: [], bandas: [], conexiones: [], consumido: [], entidades: [
+    { nombre: 'Antoine Liboub', tipo: 'persona', nota: 'contacto del evento', alias: [] },
+    { nombre: 'Rafa', tipo: 'persona', nota: 'ya está', alias: [] },
+    { nombre: 'Terra Weekend', tipo: 'proyecto', nota: 'el evento', alias: [] },
+    { nombre: 'Calle Cuva 24', tipo: 'lugar', nota: 'la dirección', alias: [] },
+  ] }), llamadas: [], razonamiento: null, modelo: 'f', tokens: 1 }))
+  const c = await cerrarDirecto(db, s.id, { ahora: min(10), escriba: false })
+  const ps = (c.resumen as any).propuestas.filter((p: any) => p.tipo === 'entidad')
+  assert.deepEqual(ps.map((p: any) => p.titulo), ['Antoine Liboub', 'Terra Weekend', 'Calle Cuva 24'], 'la idéntica no se propone')
+  assert.equal(ps[0].parecida.id, antoine)
+  resolverPropuestas(db, s.id, [ps[0].id], 'aceptar', min(11), { cambios: { [ps[0].id]: { vincular: antoine } } })
+  assert.ok(leerEntidad(db, antoine)!.alias.includes('Antoine Liboub'), '«es esa»: el nombre que se oyó queda como alias')
+  assert.equal(leerEntidad(db, antoine)!.notas, 'contacto del evento')
+  resolverPropuestas(db, s.id, [ps[2].id], 'aceptar', min(11), { cambios: { [ps[2].id]: { titulo: 'Calle Cuba 24', tipoEntidad: 'lugar', vincular: null } } })
+  assert.ok(listarEntidades(db, { q: 'Calle Cuba 24' }).some((e) => e.nombre === 'Calle Cuba 24'), 'se anota con el nombre corregido')
+  assert.ok(!listarEntidades(db, { q: 'Cuva' }).length)
+})

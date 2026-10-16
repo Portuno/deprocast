@@ -243,3 +243,16 @@ test('chatgpt: la exportación entra por el mismo camino — la rama que quedó,
   assert.ok(db.prepare(`SELECT 1 FROM corpus WHERE titulo = 'Destilado · Plan para Faro'`).get())
   assert.equal((db.prepare('SELECT estado FROM takeout_lotes WHERE id = ?').get(prep.lote) as any).estado, 'terminado')
 })
+
+test('nombres importados: se corrigen antes de aceptar (el leído queda como alias) y avisan si ya existen', () => {
+  const db = abrir()
+  const { asegurarEntidad: alta, leerEntidad } = { asegurarEntidad, leerEntidad: (id: number) => db.prepare('SELECT nombre, alias FROM entidades WHERE id = ?').get(id) as any }
+  const ya = alta(db, { tipo: 'persona', nombre: 'Persona Conocida Larga' })
+  db.prepare(`INSERT INTO takeout_nombres (clave, nombre, tipo, veces, estado, creada_en) VALUES ('mal leido', 'Mal Leído', 'persona', 2, 'propuesta', 1), ('persona conocida larg', 'Persona Conocida Larg', 'persona', 1, 'propuesta', 1)`).run()
+  const r = nube.resolverNombre(db, 'mal leido', 'aceptar', { nombre: 'Bien Leído' })
+  const e = leerEntidad(r.entidadId!)
+  assert.equal(e.nombre, 'Bien Leído')
+  assert.deepEqual(JSON.parse(e.alias), ['Mal Leído'])
+  const parecida = nube.estadoTakeout(db).nombres.find((n: any) => n.clave === 'persona conocida larg') as any
+  assert.equal(parecida.parecida.id, ya)
+})

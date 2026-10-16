@@ -18,7 +18,7 @@ import crypto from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { fechaLocal, json, resolverRuta, type Db } from '../db.ts'
 import { asegurarFuente, insertar, slug } from '../corpus.ts'
-import { asegurarEntidad, editarEntidad } from '../entidades.ts'
+import { asegurarEntidad, buscadorDeEntidades, editarEntidad } from '../entidades.ts'
 import { crearQuantomo } from '../quantomos.ts'
 import { memoriaParaPrompt, recordar } from '../memoria.ts'
 import { encolarPregunta } from '../preguntas.ts'
@@ -796,14 +796,17 @@ export function estadoTakeout(db: Db) {
   const medios = db.prepare(`SELECT clase, estado, COUNT(*) AS n FROM takeout_medios GROUP BY clase, estado`).all()
   const destilado = db.prepare(`SELECT estado, COUNT(*) AS n FROM takeout_destilado GROUP BY estado`).all()
   const errores = db.prepare(`SELECT 'medio' AS que, nombre AS titulo, error FROM takeout_medios WHERE estado = 'fallo' UNION ALL SELECT 'destilado', CAST(pieza_id AS TEXT), error FROM takeout_destilado WHERE estado = 'fallo' LIMIT 20`).all()
-  const nombres = db.prepare(`SELECT clave, nombre, tipo, veces, primera, ultima, nota FROM takeout_nombres WHERE estado = 'propuesta' ORDER BY veces DESC, nombre LIMIT 60`).all()
+  const buscador = buscadorDeEntidades(db)
+  // Las propuestas que en realidad ya existen (mal escritas, con apodo, incompletas) llegan con su candidata.
+  const nombres = (db.prepare(`SELECT clave, nombre, tipo, veces, primera, ultima, nota FROM takeout_nombres WHERE estado = 'propuesta' ORDER BY veces DESC, nombre LIMIT 60`).all() as any[])
+    .map((n) => ({ ...n, parecida: buscador.parecida(n.nombre) }))
   const temas = db.prepare(`SELECT MIN(tema) AS tema, COUNT(*) AS veces, MIN(fecha) AS primera, MAX(fecha) AS ultima FROM temas_pulso GROUP BY clave ORDER BY veces DESC LIMIT 25`).all()
   const disco = (() => { try { return fs.readdirSync(path.join(dirTakeout(), 'medios')).length } catch { return 0 } })()
   return { lotes, medios, destilado, errores, nombres, temas, archivosEnEspera: disco, trabajando }
 }
 
 /** Una persona o un proyecto que propuso el archivo: se acepta (nueva entidad o fusionada con una que existe) o se descarta. */
-export function resolverNombre(db: Db, clave: string, accion: 'aceptar' | 'descartar', o: { entidadId?: number | null; tipo?: string } = {}, ahora = Date.now()) {
+export function resolverNombre(db: Db, clave: string, accion: 'aceptar' | 'descartar', o: { entidadId?: number | null; tipo?: string; nombre?: string } = {}, ahora = Date.now()) {
   const n = db.prepare('SELECT * FROM takeout_nombres WHERE clave = ?').get(clave) as any
   if (!n) throw new Error('No conozco ese nombre')
   if (accion === 'descartar') {
@@ -811,8 +814,14 @@ export function resolverNombre(db: Db, clave: string, accion: 'aceptar' | 'desca
     return { ok: true }
   }
   let id = o.entidadId ?? null
-  if (id) editarEntidad(db, id, { sumarAlias: [n.nombre] })
-  else id = asegurarEntidad(db, { tipo: (o.tipo === 'proyecto' || o.tipo === 'persona' ? o.tipo : n.tipo), nombre: n.nombre, notas: n.nota ?? null }, ahora)
+  // Si se leyó mal, él lo corrige: la entidad nace con su nombre bien, y el que se leyó queda como alias (para reconocerlo).
+  const nombre = o.nombre?.trim() && o.nombre.trim().length >= 2 ? o.nombre.trim().slice(0, 120) : n.nombre
+  const tipos = ['persona', 'proyecto', 'agrupacion', 'lugar', 'concepto', 'dominio']
+  if (id) editarEntidad(db, id, { sumarAlias: [n.nombre, ...(nombre !== n.nombre ? [nombre] : [])] })
+  else {
+    id = asegurarEntidad(db, { tipo: (tipos.includes(String(o.tipo)) ? o.tipo : n.tipo) as any, nombre, notas: n.nota ?? null }, ahora)
+    if (nombre !== n.nombre) editarEntidad(db, id, { sumarAlias: [n.nombre] })
+  }
   const upd = db.prepare('UPDATE corpus SET entidades = ? WHERE id = ?')
   for (const pid of json<number[]>(n.piezas, []) ?? []) {
     for (const p of [pid, porOrigen(db, `takeout:destilado:${pid}`)].filter(Boolean) as number[]) {

@@ -456,7 +456,7 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/directo\/(\d+)$/, (_, [s]) => ({ ...leerSesion(db, id(s)), momentos: momentosDirecto(db, id(s)) })],
   ['POST', /^\/api\/directo\/iniciar$/, (b) => iniciarDirecto(db, Array.isArray(b.fuentes) ? b.fuentes : [])],
   ['POST', /^\/api\/directo\/(\d+)\/informe$/, async (_, [s]) => rehacerInforme(db, id(s))],
-  ['POST', /^\/api\/directo\/(\d+)\/propuesta$/, (b, [s]) => resolverPropuestas(db, id(s), Array.isArray(b.ids) ? b.ids.map(String) : [], b.accion)],
+  ['POST', /^\/api\/directo\/(\d+)\/propuesta$/, (b, [s]) => resolverPropuestas(db, id(s), Array.isArray(b.ids) ? b.ids.map(String) : [], b.accion, Date.now(), { cambios: b.cambios && typeof b.cambios === 'object' ? b.cambios : undefined })],
   ['POST', /^\/api\/directo\/(\d+)\/cerrar$/, async (_, [s]) => {
     await colasDirecto.get(id(s)) // lo último que mandó el navegador entra al informe
     const r = await cerrarDirecto(db, id(s))
@@ -1088,7 +1088,7 @@ const servidor = http.createServer(async (req, res) => {
         }
         if (que === 'nombre') {
           const b = JSON.parse((await leerCrudo(req, 64 * 1024)).toString('utf8') || '{}')
-          return void res.end(JSON.stringify(resolverNombre(db, String(b.clave ?? ''), b.accion === 'descartar' ? 'descartar' : 'aceptar', { entidadId: b.entidadId ? Number(b.entidadId) : null, tipo: b.tipo })))
+          return void res.end(JSON.stringify(resolverNombre(db, String(b.clave ?? ''), b.accion === 'descartar' ? 'descartar' : 'aceptar', { entidadId: b.entidadId ? Number(b.entidadId) : null, tipo: b.tipo, nombre: typeof b.nombre === 'string' ? b.nombre : undefined })))
         }
       }
       // Importar un estado grande desde la página: llega en pedazos al disco (ningún pedido pasa de 32 MB) y después se

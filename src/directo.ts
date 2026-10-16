@@ -8,7 +8,7 @@
  */
 import { ajuste, fechaLocal, json, type Db } from './db.ts'
 import { asegurarFuente, insertar } from './corpus.ts'
-import { anotarConexion, asegurarPorNombre, editarEntidad, TIPOS_ENTIDAD, type TipoEntidad } from './entidades.ts'
+import { leerEntidad, buscadorDeEntidades, anotarConexion, asegurarPorNombre, editarEntidad, TIPOS_ENTIDAD, type TipoEntidad } from './entidades.ts'
 import { escribaDeMemoria, memoriaParaPrompt, recordar } from './memoria.ts'
 import { pedirJson } from './modelo.ts'
 import { nanTranscribir, nanVision } from './nan.ts'
@@ -194,6 +194,10 @@ export type Propuesta = {
   oido: string | null
   /** Entró sola (ajuste directo_auto): una idea o algo que miró, sin que él la aceptara. */
   sola?: boolean
+  /** Una entidad que ya existe y que parece ser esta (mal escrita, con apodo o incompleta): él decide si es esa. */
+  parecida?: { id: number; nombre: string; tipo: string } | null
+  /** Al aceptar: la entidad que ya existe a la que se suma como alias (null = es una nueva). */
+  vincular?: number | null
 }
 
 const TIPOS_PROP = new Set<TipoPropuesta>(['tarea', 'cumplida', 'banda', 'entidad', 'conexion', 'idea', 'medio'])
@@ -261,6 +265,7 @@ const pareceIgual = (a: string, b: string) => {
 const GENERICO = new Set(['instagram', 'chrome', 'gmail', 'youtube', 'google', 'twitter', 'vs code', 'vscode', 'cursor', 'vivaldi', 'firefox', 'whatsapp', 'spotify', 'telegram'])
 
 function armarPropuestas(db: Db, informe: Record<string, unknown>, met: ReturnType<typeof metricas>, abiertas: Map<number, string>, bandas: Map<number, string>): Propuesta[] {
+  const buscador = buscadorDeEntidades(db)
   const conocidas = new Set<string>()
   for (const r of db.prepare('SELECT nombre, alias FROM entidades').all() as { nombre: string; alias: string | null }[]) {
     conocidas.add(norm(r.nombre))
@@ -296,6 +301,10 @@ function armarPropuestas(db: Db, informe: Record<string, unknown>, met: ReturnTy
     p.tipoEntidad = tipoEnt((e as any).tipo || 'persona')
     p.detalle = String((e as any).nota ?? '').trim().slice(0, 240) || null
     p.alias = frases((e as any).alias, 6).filter((a) => norm(a) !== norm(nombre) && !conocidas.has(norm(a)))
+    // Si se parece a una que ya existe (mal escrita, con apodo o incompleta), se propone como esa: él confirma.
+    const ya = buscador.parecida(nombre, p.alias)
+    if (ya && (ya.por === 'igual' || ya.por === 'alias')) continue
+    p.parecida = ya ? { id: ya.id, nombre: ya.nombre, tipo: ya.tipo } : null
     conocidas.add(norm(nombre))
     alta(p)
   }
@@ -346,6 +355,15 @@ function aplicarPropuesta(db: Db, p: Propuesta, s: Sesion, ahora: number, sola =
     return
   }
   if (p.tipo === 'entidad') {
+    // «Es esa»: el nombre que se oyó queda como alias de la que ya existía (y su nota, si no tenía).
+    if (p.vincular) {
+      editarEntidad(db, p.vincular, { sumarAlias: [p.titulo, ...p.alias] })
+      if (p.detalle) {
+        const notas = (db.prepare('SELECT notas FROM entidades WHERE id = ?').get(p.vincular) as { notas: string | null } | undefined)?.notas
+        if (!notas?.trim()) editarEntidad(db, p.vincular, { notas: p.detalle })
+      }
+      return
+    }
     const id = asegurarPorNombre(db, p.titulo, tipoEnt(p.tipoEntidad), ahora)
     if (p.alias.length) editarEntidad(db, id, { sumarAlias: p.alias })
     if (p.detalle) {
@@ -376,7 +394,8 @@ function aplicarPropuesta(db: Db, p: Propuesta, s: Sesion, ahora: number, sola =
 }
 
 /** Aceptar guarda (side quest, entidad, conexión, memoria, corpus). Rechazar no guarda nada. */
-export function resolverPropuestas(db: Db, sesionId: number, ids: string[], accion: 'aceptar' | 'rechazar', ahora = Date.now(), o: { sola?: boolean } = {}): { propuestas: Propuesta[]; sesion: Sesion } {
+export type CambioPropuesta = { titulo?: string; tipoEntidad?: string; vincular?: number | null }
+export function resolverPropuestas(db: Db, sesionId: number, ids: string[], accion: 'aceptar' | 'rechazar', ahora = Date.now(), o: { sola?: boolean; cambios?: Record<string, CambioPropuesta> } = {}): { propuestas: Propuesta[]; sesion: Sesion } {
   const s = leerSesion(db, sesionId)
   if (!s) throw new Error(`No existe la sesión ${sesionId}`)
   if (accion !== 'aceptar' && accion !== 'rechazar') throw new Error('Acción inválida')
@@ -387,6 +406,13 @@ export function resolverPropuestas(db: Db, sesionId: number, ids: string[], acci
   try {
     for (const p of propuestas) {
       if (!pedidos.has(p.id) || p.estado !== 'pendiente') continue
+      // Lo que él corrigió antes de aceptar: el nombre (si se leyó mal), el tipo, y si es una que ya existía.
+      const c = o.cambios?.[p.id]
+      if (c) {
+        if (typeof c.titulo === 'string' && c.titulo.trim().length >= 2) p.titulo = c.titulo.trim().slice(0, 80)
+        if (c.tipoEntidad && p.tipo === 'entidad') p.tipoEntidad = tipoEnt(c.tipoEntidad)
+        if (c.vincular !== undefined) p.vincular = c.vincular && leerEntidad(db, Number(c.vincular)) ? Number(c.vincular) : null
+      }
       if (accion === 'aceptar') aplicarPropuesta(db, p, s, ahora, o.sola)
       p.estado = accion === 'aceptar' ? 'aceptada' : 'rechazada'
       if (o.sola) p.sola = true
@@ -452,7 +478,9 @@ async function informar(db: Db, s: Sesion, ms: Momento[], o: { desde: number; ha
   const run = enCurso(db, o.hasta)?.run
   const abiertas = new Map(listarMisiones(db, { personaje: 'jugador', nivel: 'terciaria', estados: ['activa'], limite: 40 }).map((m) => [m.id, m.titulo]))
   const bandas = new Map((run ? listarMisiones(db, { runId: run.id, nivel: 'secundaria', estados: ['activa'] }) : []).map((m) => [m.id, m.titulo]))
-  const conocidas = (db.prepare('SELECT nombre FROM entidades ORDER BY id DESC LIMIT 40').all() as { nombre: string }[]).map((r) => r.nombre)
+  // Las que ya existen: primero las que aparecen en lo que se vio y se dijo, después las más nombradas.
+  const textoDeMomentos = [...ms.map((m) => `${m.texto ?? ''} ${m.tema ?? ''} ${m.detalle ?? ''} ${m.nota ?? ''}`), ...o.tramos.map((t) => t.texto)].join(' ')
+  const conocidas = buscadorDeEntidades(db).relevantes(textoDeMomentos, 150)
   let informe: Record<string, unknown> = {}
   let fallo = false
   if (!o.enCurso && !ms.length && o.tramos.length === 1) {
@@ -476,7 +504,7 @@ async function informar(db: Db, s: Sesion, ms: Momento[], o: { desde: number; ha
         primarias.length ? `Sus primarias de la semana: ${primarias.join(' · ')}` : '',
         abiertas.size ? `Side quests abiertas (el número es el id):\n${lista(abiertas)}` : '',
         bandas.size ? `Bandas de su run en curso (el número es el id):\n${lista(bandas)}` : '',
-        conocidas.length ? `Entidades que ya existen (no las repitas): ${conocidas.join(', ')}` : '',
+        conocidas.length ? `Entidades que ya existen (no las propongas; si aparece una con otro nombre, mal escrita, con apodo o incompleta, es esa):\n${conocidas.join('; ')}` : '',
         `Lo que sabés de él:\n${memoriaParaPrompt(db, 30)}`,
         `Momentos${o.tramos.length ? ` desde las ${hora(o.desde)}` : ''}:\n${lineas.slice(0, 60000) || '(nada nuevo después del último tramo)'}`,
       ].filter(Boolean).join('\n'), { temperatura: 0.4, maxTokens: 5000, largo: true })).datos ?? {}
