@@ -150,7 +150,7 @@ const AYUDA = `
     respaldo                        copia la base y las cargas a data/respaldos/
     restaurar <carpeta> [--forzar]  la pone en esta compu
     mudar <url> [--sin-cargas]      manda la base y los archivos a la instancia de la nube (clave en MASTRO_CLAVE_NUBE)
-    takeout <carpeta> [<url>] [--solo-preparar]
+    takeout <carpeta> [<url>] [--solo-preparar]   (Takeout de Google, exportación de ChatGPT o una carpeta con .mastro-importar.json)
                                     Google Takeout (Gemini y NotebookLM): arma el paquete en la compu (sin tokens) y lo
                                     sube a la nube, que transcribe, describe, destila y arma la historia de cada proyecto
     exportar [--sin-archivos]       todo el estado en un JSON (data/exportaciones/)
@@ -183,7 +183,7 @@ async function main() {
   if (cmd === 'takeout') {
     // Acá no se gasta un token: se leen los zips, se achican los medios y se sube. Lo pesado lo hace la nube.
     const carpeta = path.resolve(pos[0] ?? '')
-    if (!fs.existsSync(carpeta)) throw new Error('Decime la carpeta con los zips del Takeout')
+    if (!fs.existsSync(carpeta)) throw new Error('Decime la carpeta (el Takeout, la exportación de ChatGPT o una carpeta con .mastro-importar.json)')
     const log = (t: string) => console.log(`  ${t}`)
     const listo = path.join(process.cwd(), 'data', 'takeout', loteDe(carpeta), 'paquete.jsonl')
     const r = fs.existsSync(listo) && !flags.rehacer ? { lote: loteDe(carpeta), dir: path.dirname(listo) } : await prepararTakeout(carpeta, { log })

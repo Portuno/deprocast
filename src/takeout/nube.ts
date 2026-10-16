@@ -56,6 +56,13 @@ const fuenteCuaderno = (db: Db, carpeta: string, titulo: string) => {
   return asegurarFuente(db, { id: `nlm-${slug(carpeta).slice(0, 60)}`, nombre: `NotebookLM › ${titulo}`.slice(0, 120), nivel: 'investigacion', padreId: FUENTES.nlm.id, descripcion: 'Un cuaderno de NotebookLM: un contexto con sus fuentes, notas, chats y artefactos.' }).id
 }
 
+/** Una carpeta importada es una fuente; cada proyecto de la carpeta, una subfuente. */
+const fuenteCarpeta = (db: Db, de: string, proyecto: string | null | undefined) => {
+  const raiz = asegurarFuente(db, { id: `carpeta-${slug(de).slice(0, 40) || 'docs'}`, nombre: de.slice(0, 120), nivel: 'primaria', descripcion: `La carpeta «${de}»: documentos ordenados por proyecto, con su fecha.` }).id
+  if (!proyecto) return raiz
+  return asegurarFuente(db, { id: `${raiz}-${slug(proyecto).slice(0, 40)}`, nombre: `${de} › ${proyecto}`.slice(0, 120), nivel: 'primaria', padreId: raiz, descripcion: `Lo de «${proyecto}» en la carpeta «${de}».` }).id
+}
+
 const sha1 = (s: string | Buffer) => crypto.createHash('sha1').update(s).digest('hex')
 const hora = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ')
 const diaDe = (ms: number | string | null | undefined) => (ms == null ? null : typeof ms === 'number' ? new Date(ms).toISOString().slice(0, 10) : String(ms).slice(0, 10) || null)
@@ -63,7 +70,7 @@ export const claveDe = (s: string) => s.toLowerCase().normalize('NFD').replace(/
 
 // ─── lotes ──────────────────────────────────────────────────────────────
 
-export type Aparicion = { origen: 'gemini' | 'notebooklm' | 'chatgpt'; contexto: string; titulo: string; fecha: string | null; nivel: string; rol: string }
+export type Aparicion = { origen: 'gemini' | 'notebooklm' | 'chatgpt' | 'carpeta'; contexto: string; titulo: string; fecha: string | null; nivel: string; rol: string; /** De qué carpeta (si vino de una). */ de?: string }
 /** Cómo se llama cada IA de donde vino algo. */
 const IA: Record<string, string> = { gemini: 'Gemini', notebooklm: 'NotebookLM', chatgpt: 'ChatGPT' }
 
@@ -140,6 +147,9 @@ export async function ingerirPaquete(db: Db, lote_: string, ahora = Date.now()):
         const c = cuadernos.get(x.carpeta)
         if (!c) continue // el paquete siempre manda el cuaderno antes que sus cosas
         if (ingerirDeCuaderno(db, lote_, c, x, ahora)) mas(x.t === 'chat-nlm' ? 'chats_nlm' : `${x.t}s`)
+      } else if (x.t === 'doc') {
+        mas('docs')
+        if (ingerirDoc(db, lote_, x, ahora)) mas('docs_nuevos')
       } else if (x.t === 'medio') {
         anotarMedio(db, lote_, x, ahora)
         mas('medios')
@@ -255,6 +265,26 @@ function ingerirDeCuaderno(db: Db, lote_: string, c: { fuente: string; titulo: s
   return !!p?.nueva
 }
 
+const NIVELES = ['propia', 'primaria', 'investigacion', 'generada']
+
+/** Un documento de una carpeta (su texto ya viene sacado de la compu). Lo repetido entra una vez. */
+function ingerirDoc(db: Db, lote_: string, x: any, ahora: number): boolean {
+  const texto = String(x.texto ?? '').trim()
+  if (texto.length < 40) return false
+  const de = String(x.de || 'Carpeta').slice(0, 60)
+  const proyecto = x.proyecto ? String(x.proyecto).slice(0, 60) : null
+  const nivel = NIVELES.includes(x.nivel) ? x.nivel : 'primaria'
+  const parte = x.partes > 1 ? ` (${x.parte}/${x.partes})` : ''
+  const p = pieza(db, {
+    fuente: fuenteCarpeta(db, de, proyecto), nivel, titulo: `${String(x.titulo ?? x.ruta).slice(0, 250)}${parte}`, fecha: x.fecha ?? null, contenido: texto,
+    autor: x.autor ?? null, etiquetas: ['carpeta', slug(de), ...(proyecto ? [slug(proyecto)] : []), String(x.ext ?? '')].filter(Boolean),
+    origenId: `carpeta:texto:${sha1(texto)}`, meta: { takeout: lote_, carpeta: de, proyecto, ruta: x.ruta, autor: x.autor ?? null, ext: x.ext },
+  }, ahora)
+  aparicion(db, p.id, { origen: 'carpeta', contexto: proyecto, titulo: x.ruta ?? null, fecha: x.fecha ?? null })
+  if (x.destilar !== false && texto.length > 300) encolarDestilado(db, lote_, p.id, nivel === 'propia' ? 1 : 0)
+  return p.nueva
+}
+
 function anotarMedio(db: Db, lote_: string, x: { huella: string; clase: string; ext: string; nombre: string; apariciones: Aparicion[] }, ahora: number) {
   const ya = db.prepare('SELECT apariciones FROM takeout_medios WHERE huella = ?').get(x.huella) as { apariciones: string } | undefined
   if (!ya) {
@@ -300,7 +330,7 @@ function tramosDe(ruta: string): { partes: string[]; temporal: string | null } {
   return { partes, temporal: dir }
 }
 
-const SISTEMA_IMAGEN = `Describís una imagen del archivo personal del operador (algo que le pasó a Gemini, o una slide o infografía que generó NotebookLM). Que la descripción sirva para encontrarla y entenderla sin verla.
+const SISTEMA_IMAGEN = `Describís una imagen del archivo personal del operador (algo que le pasó a una IA, una slide o infografía que generó NotebookLM, o un archivo de sus carpetas, como la página escaneada de un cuaderno: si está escrita a mano, transcribila fiel en texto_visible). Que la descripción sirva para encontrarla y entenderla sin verla.
 Forma: {"titulo": string (máx. 70), "tipo": "captura" | "foto" | "diagrama" | "slide" | "infografia" | "documento" | "meme" | "otro", "descripcion": string (qué se ve y de qué trata, 2 a 6 frases), "texto_visible": string (el texto que aparece, fiel y en orden; vacío si no hay)}`
 
 /** El texto de un documento: PDF, Word, Excel, PowerPoint, Markdown, texto, CSV, JSON, XML o HTML. */
@@ -333,7 +363,8 @@ const nivelDe = (aps: Aparicion[], defecto: string) => aps.map((a) => a.nivel).s
 async function procesarMedio(db: Db, m: any, ahora: number): Promise<number | null> {
   const aps = json<Aparicion[]>(m.apariciones, []) ?? []
   const primera = aps[0]
-  const titulo = primera?.rol && primera.rol !== 'adjunto' ? primera.titulo : m.nombre
+  const titulo = primera?.rol && primera.rol !== 'adjunto' && primera.rol !== 'archivo' ? primera.titulo : m.nombre
+  const enCarpeta = aps.find((a) => a.origen === 'carpeta')
   const fecha = aps.map((a) => a.fecha).filter(Boolean).sort()[0] ?? null
   let contenido = ''
   let etiqueta: string = m.clase
@@ -349,31 +380,31 @@ async function procesarMedio(db: Db, m: any, ahora: number): Promise<number | nu
     if (!contenido) throw new Error('No había voz que transcribir')
   } else if (m.clase === 'imagen') {
     const mime = m.ext === 'png' ? 'image/png' : m.ext === 'webp' ? 'image/webp' : 'image/jpeg'
-    const contexto = primera ? `${primera.origen === 'notebooklm' ? `La generó NotebookLM en el cuaderno «${primera.contexto}» («${primera.titulo}»)` : `La adjuntó en una charla con ${IA[primera.origen]} («${primera.titulo}»)`}${primera.fecha ? `, el ${primera.fecha}` : ''}.` : ''
+    const contexto = enCarpeta ? `Está en su carpeta «${enCarpeta.de ?? ''}», en «${enCarpeta.titulo}»${enCarpeta.fecha ? ` (${enCarpeta.fecha})` : ''}.` : primera ? `${primera.origen === 'notebooklm' ? `La generó NotebookLM en el cuaderno «${primera.contexto}» («${primera.titulo}»)` : `La adjuntó en una charla con ${IA[primera.origen]} («${primera.titulo}»)`}${primera.fecha ? `, el ${primera.fecha}` : ''}.` : ''
     const crudo = await ver(db, fs.readFileSync(m.ruta), mime, SISTEMA_IMAGEN, `${contexto} Devolvé solo el JSON.`)
     const d = leerJson<any>(crudo) ?? { descripcion: crudo }
     contenido = [d.descripcion ? String(d.descripcion) : '', d.texto_visible ? `[Texto en la imagen]\n${d.texto_visible}` : ''].filter(Boolean).join('\n\n')
     if (d.tipo) etiqueta = String(d.tipo).slice(0, 20)
     if (!contenido.trim()) throw new Error('La imagen no dio descripción')
-    if (d.titulo && (!primera || primera.rol === 'adjunto')) m.tituloVisto = String(d.titulo).slice(0, 80)
+    if (d.titulo && (!primera || primera.rol === 'adjunto' || primera.rol === 'archivo')) m.tituloVisto = String(d.titulo).slice(0, 80)
   } else {
     contenido = textoDeDocumento(fs.readFileSync(m.ruta), m.ext).replace(/\u0000/g, '').trim().slice(0, 400_000)
     if (contenido.length < 20) throw new Error('El documento no tenía texto que leer')
   }
   const enNlm = aps.find((a) => a.origen === 'notebooklm')
   const deGpt = aps.some((a) => a.origen === 'chatgpt') && !aps.some((a) => a.origen === 'gemini')
-  const fuente = enNlm ? fuenteCuaderno(db, enNlm.contexto, enNlm.contexto) : deGpt ? FUENTES.gptAdjuntos.id : FUENTES.adjuntos.id
+  const fuente = enNlm ? fuenteCuaderno(db, enNlm.contexto, enNlm.contexto) : enCarpeta ? fuenteCarpeta(db, enCarpeta.de ?? 'Carpeta', enCarpeta.contexto || null) : deGpt ? FUENTES.gptAdjuntos.id : FUENTES.adjuntos.id
   const nivel = nivelDe(aps, enNlm ? 'generada' : 'primaria')
   const nombreTipo = m.clase === 'audio' ? (enNlm ? 'Audio' : 'Audio adjunto') : m.clase === 'imagen' ? 'Imagen' : 'Documento'
-  const donde = aps.length ? `\n\n— ${aps.length === 1 ? 'Apareció' : `Apareció ${aps.length} veces`}: ${aps.slice(0, 8).map((a) => `${IA[a.origen] ?? a.origen} «${a.titulo}»${a.fecha ? ` (${a.fecha})` : ''}`).join('; ')}` : ''
+  const donde = aps.length ? `\n\n— ${aps.length === 1 ? 'Apareció' : `Apareció ${aps.length} veces`}: ${aps.slice(0, 8).map((a) => `${IA[a.origen] ?? a.de ?? a.origen} «${a.titulo}»${a.fecha ? ` (${a.fecha})` : ''}`).join('; ')}` : ''
   const p = pieza(db, {
     fuente, nivel, titulo: `${nombreTipo} · ${m.tituloVisto ?? titulo}`.slice(0, 300), fecha, contenido: contenido + donde,
-    etiquetas: ['takeout', etiqueta, ...(enNlm ? ['notebooklm'] : deGpt ? ['chatgpt'] : ['gemini'])], origenId: `takeout:medio:${m.huella}`,
-    meta: { takeout: m.lote, huella: m.huella, archivo: m.nombre, clase: m.clase, apariciones: aps.length },
+    etiquetas: ['takeout', etiqueta, ...(enNlm ? ['notebooklm'] : enCarpeta ? ['carpeta', slug(enCarpeta.de ?? 'carpeta')] : deGpt ? ['chatgpt'] : ['gemini'])], origenId: `takeout:medio:${m.huella}`,
+    meta: { takeout: m.lote, huella: m.huella, archivo: m.nombre, clase: m.clase, apariciones: aps.length, ...(enCarpeta ? { carpeta: enCarpeta.de, proyecto: enCarpeta.contexto || null, ruta: enCarpeta.titulo } : {}) },
   }, ahora)
   for (const a of aps) aparicion(db, p.id, { origen: a.origen, contexto: a.contexto, titulo: a.titulo, fecha: a.fecha })
-  // Su voz (un audio que le pasó a Gemini) se destila sola; lo demás entra en el destilado de su chat o su cuaderno.
-  if (m.clase === 'audio' && nivel === 'propia' && contenido.length > 400) encolarDestilado(db, m.lote, p.id, 1)
+  // Su voz (un audio que le pasó a Gemini, una página de su cuaderno) se destila sola; lo demás entra en el destilado de su chat o su cuaderno.
+  if ((m.clase === 'audio' || enCarpeta) && nivel === 'propia' && contenido.length > 400) encolarDestilado(db, m.lote, p.id, 1)
   return p.id
 }
 
@@ -382,7 +413,8 @@ async function procesarMedio(db: Db, m: any, ahora: number): Promise<number | nu
 const DE_TAKEOUT = 'el archivo de un año del jugador: sus charlas con Gemini, sus notas de voz y sus cuadernos de NotebookLM'
 const DE_CHATGPT = 'sus charlas con ChatGPT, la primera IA que usó (desde 2024: lo más viejo de su archivo; lo que diga ahí puede haber cambiado mucho)'
 /** Qué archivo se está leyendo, según el lote. */
-const deQue = (lote_: string) => (lote_ === REPROCESO ? DE_ARCHIVO : lote_.startsWith('chatgpt-') ? DE_CHATGPT : DE_TAKEOUT)
+const DE_CARPETA = 'una carpeta de documentos que fue juntando y ordenando por proyecto: documentación que le pidió armar a un asistente (un bot), material de sus proyectos, páginas escaneadas de sus cuadernos y sus audios'
+const deQue = (lote_: string) => (lote_ === REPROCESO ? DE_ARCHIVO : lote_.startsWith('chatgpt-') ? DE_CHATGPT : lote_.startsWith('carpeta-') ? DE_CARPETA : DE_TAKEOUT)
 export const DE_ARCHIVO = 'el archivo personal del jugador: lo que escribió y dijo, sus audios, sus charlas y lo que fue guardando'
 const SISTEMA_DESTILADO = (yo: string, de = DE_TAKEOUT) => `Sos Mastropiero y estás leyendo ${de} (${yo}). Lo hacés para conocerlo mejor, para que cada proyecto sepa su historia y para armar su línea de tiempo.
 Leés UNA unidad que tiene FECHA. Todo lo que extraigas es de ESE momento, no de hoy: un proyecto pudo cambiar mucho desde entonces.
@@ -494,7 +526,8 @@ export async function destilarUnidad(db: Db, fila: { pieza_id: number; lote: str
   const cat = catalogo(db)
   const yo = personaje(db, 'jugador').nombre
   const deArchivo = fila.lote === REPROCESO
-  const origen = p.meta?.chat ? `${p.meta.grupo ? 'un chat grupal' : 'una conversación'} con ${p.meta.ia ?? 'Gemini'}` : p.titulo.startsWith('Contexto · ') ? 'el contexto entero de un cuaderno de NotebookLM (sus fuentes, notas, chats y lo que generó)' : deArchivo ? origenDe(p) : p.nivel === 'propia' ? 'una nota de voz suya (transcripta)' : 'una pieza de su archivo'
+  const enCarpeta = p.meta?.carpeta ? `${p.meta.clase === 'imagen' ? 'una imagen (o la página escaneada de un cuaderno)' : p.meta.clase === 'audio' ? 'un audio' : 'un documento'} de su carpeta «${p.meta.carpeta}»${p.meta.proyecto ? `, en «${p.meta.proyecto}»` : ''}${p.meta.autor ? ` (lo armó su bot «${p.meta.autor}», a pedido suyo)` : ''}` : null
+  const origen = enCarpeta ? enCarpeta : p.meta?.chat ? `${p.meta.grupo ? 'un chat grupal' : 'una conversación'} con ${p.meta.ia ?? 'Gemini'}` : p.titulo.startsWith('Contexto · ') ? 'el contexto entero de un cuaderno de NotebookLM (sus fuentes, notas, chats y lo que generó)' : deArchivo ? origenDe(p) : p.nivel === 'propia' ? 'una nota de voz suya (transcripta)' : 'una pieza de su archivo'
   const tramos = tramosDeTexto(textoDeUnidad(db, p))
   const salidas: any[] = []
   for (const [i, t] of tramos.entries()) {
@@ -551,7 +584,7 @@ function guardarDestilado(db: Db, fila: { pieza_id: number; lote: string }, p: a
 
   // El pulso: cada tema, con la fecha en que apareció.
   const pulso = db.prepare('INSERT OR IGNORE INTO temas_pulso (clave, tema, fecha, pieza_id, origen) VALUES (?, ?, ?, ?, ?)')
-  for (const t of d.temas) pulso.run(claveDe(t), t, p.fecha ?? null, p.id, fila.lote === REPROCESO ? p.fuente : p.meta?.chat ? (p.meta.origen ?? 'gemini') : 'notebooklm')
+  for (const t of d.temas) pulso.run(claveDe(t), t, p.fecha ?? null, p.id, fila.lote === REPROCESO ? p.fuente : p.meta?.carpeta ? 'carpeta' : p.meta?.chat ? (p.meta.origen ?? 'gemini') : 'notebooklm')
 
   // La línea temporal y el grafo: los eventos con fecha y las relaciones entre personas.
   const buscar = (n: string) => cat.buscar(n)
@@ -660,7 +693,7 @@ function mapaDelAno(db: Db, lote_: string, ahora: number) {
   asegurarFuente(db, FUENTES.historia)
   pieza(db, {
     fuente: FUENTES.historia.id, nivel: 'investigacion', titulo: 'Mapa del año · los temas que más volvieron', fecha: fechaLocal(ahora),
-    contenido: `Los temas que más tocaste en tus charlas con IA (${lote_.startsWith('chatgpt-') ? 'ChatGPT' : 'Gemini y NotebookLM'}), cuántas veces y en qué meses.\n\n${filas.map(linea).join('\n')}`,
+    contenido: `Los temas que más tocaste en ${lote_.startsWith('carpeta-') ? 'tu archivo (charlas con IA, documentos y carpetas)' : `tus charlas con IA (${lote_.startsWith('chatgpt-') ? 'ChatGPT' : 'Gemini y NotebookLM'})`}, cuántas veces y en qué meses.\n\n${filas.map(linea).join('\n')}`,
     etiquetas: ['takeout', 'mapa', 'pulso'], origenId: `takeout:mapa:${lote_}`, meta: { takeout: lote_ },
   }, ahora)
 }

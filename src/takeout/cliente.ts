@@ -7,11 +7,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { spawn } from 'node:child_process'
 import { abrirZip, type EntradaZip, type Zip } from './zip.ts'
 import { aMarkdown, chatsDeGemini, claseDeArchivo, dia, queEs, turnosDeChatNlm, turnosDeGemini, type ClaseMedio } from './leer.ts'
 import type { Aparicion } from './nube.ts'
 import { chatsDeChatGPT, esExportChatGPT, loteChatGPT, nombresOriginales } from './chatgpt.ts'
+import { achicar, descartable } from './achicar.ts'
+import { esCarpetaImportable, loteCarpeta, prepararCarpeta } from './carpeta.ts'
 
 type Ref = { zip: Zip; e: EntradaZip }
 type Medio = { huella: string; clase: ClaseMedio; ext: string; nombre: string; ruta: string; apariciones: Aparicion[] }
@@ -20,37 +21,14 @@ type Log = (t: string) => void
 /** El id del lote: el de la exportación («takeout-20261014T112845Z»), así repetir no duplica. */
 export function loteDe(carpeta: string): string {
   if (esExportChatGPT(carpeta)) return loteChatGPT(carpeta)
+  if (esCarpetaImportable(carpeta)) return loteCarpeta(carpeta)
   const z = fs.readdirSync(carpeta).find((f) => /^takeout-\d{8}T\d{6}Z/.test(f))
   return z ? /^(takeout-\d{8}T\d{6}Z)/.exec(z)![1] : `takeout-${path.basename(path.resolve(carpeta)).replace(/[^\w.-]/g, '-').slice(0, 40)}`
 }
 
-const ejecutar = (args: string[]) => new Promise<boolean>((ok) => {
-  const p = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...args], { stdio: 'ignore' })
-  p.on('error', () => ok(false))
-  p.on('exit', (c) => ok(c === 0))
-})
-
-/** Achica un medio: el resultado queda en «salida». false si no se pudo (formato roto, sin ffmpeg). */
-async function achicar(datos: Buffer, ext: string, clase: ClaseMedio, salida: string, tmp: string): Promise<boolean> {
-  if (clase === 'documento') { fs.writeFileSync(salida, datos); return true }
-  const entrada = path.join(tmp, `entrada-${crypto.randomBytes(6).toString('hex')}.${ext || 'bin'}`)
-  fs.writeFileSync(entrada, datos)
-  try {
-    const ok = clase === 'audio'
-      ? await ejecutar(['-i', entrada, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'libmp3lame', '-b:a', '32k', salida])
-      : await ejecutar(['-i', entrada, '-frames:v', '1', '-vf', "scale='min(1600,iw)':-2", '-q:v', '4', salida])
-    if (ok && clase === 'audio' && fs.statSync(salida).size > 60 * 1024 * 1024) await ejecutar(['-i', entrada, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'libmp3lame', '-b:a', '16k', salida])
-    return ok && fs.existsSync(salida) && fs.statSync(salida).size > 0
-  } finally {
-    fs.rmSync(entrada, { force: true })
-  }
-}
-
-/** Lo que no vale subir: volcados de datos enormes (json, xml, html de varios MB) y documentos gigantes. */
-const descartable = (ext: string, bytes: number) => (/^(json|xml|html?)$/.test(ext) && bytes > 2 * 1024 * 1024) || bytes > 400 * 1024 * 1024 || (/^(pdf|docx|xlsx|pptx|md|txt|csv)$/.test(ext) && bytes > 30 * 1024 * 1024)
-
 export async function prepararTakeout(carpeta: string, o: { salida?: string; log?: Log; paralelo?: number } = {}): Promise<{ lote: string; dir: string; paquete: string; medios: Medio[]; resumen: Record<string, number> }> {
   if (esExportChatGPT(carpeta)) return prepararChatGPT(carpeta, o)
+  if (esCarpetaImportable(carpeta)) return prepararCarpeta(carpeta, o) as any
   const log = o.log ?? (() => {})
   const lote = loteDe(carpeta)
   const dir = path.resolve(o.salida ?? path.join(process.cwd(), 'data', 'takeout', lote))
@@ -325,8 +303,10 @@ export async function subirTakeout(url: string, clave: string, dir: string, lote
     }
   }
   const estado = async () => ((await pedir('/api/takeout')).lotes as any[]).find((l) => l.id === lote)
+  // Leído: la nube ya dejó la cuenta de lo que entró (ingesta_chats, ingesta_cuadernos, ingesta_docs…).
+  const leido = (x: any) => Object.keys(x?.resumen ?? {}).some((k) => k.startsWith('ingesta_'))
   let l = await estado()
-  if (!l?.resumen?.ingesta_chats && !l?.resumen?.ingesta_cuadernos) {
+  if (!leido(l)) {
     const paquete = path.join(dir, 'paquete.jsonl')
     const total = fs.statSync(paquete).size
     const fd = fs.openSync(paquete, 'r')
@@ -347,7 +327,7 @@ export async function subirTakeout(url: string, clave: string, dir: string, lote
       await new Promise((ok) => setTimeout(ok, 5000))
       l = await estado()
       if (l?.estado === 'error') throw new Error(l.error ?? 'La nube no pudo leer el paquete')
-      if (l?.resumen?.ingesta_chats || l?.resumen?.ingesta_cuadernos) break
+      if (leido(l)) break
     }
     log(`Leído: ${Object.entries(l.resumen).filter(([k]) => k.startsWith('ingesta_')).map(([k, v]) => `${k.slice(8)} ${v}`).join(' · ')}`)
   } else log('El paquete ya estaba en la nube.')
