@@ -56,3 +56,57 @@ test('Taller: si algo falla, queda en fallo con el motivo', async () => {
   assert.match(a.progreso!, /NaN caído/)
   _probarTaller({ imagen: async () => PNG })
 })
+
+test('Taller: imagen con aspecto, estilo y variantes; la librería agrupa versiones; borrar; personaje desde alguien de su mundo; charla; sugerencias', async () => {
+  const { libreria, borrarArtefacto, crearCharla, sugerenciasTaller } = await import('../src/taller.ts')
+  const { asegurarEntidad } = await import('../src/entidades.ts')
+  const { insertar } = await import('../src/corpus.ts')
+  const db = abrir(':memory:')
+  const pedidos: string[] = []
+  _probarTaller({ imagen: async (p, o) => { pedidos.push(`${o.tamano}|${p}`); return PNG }, voz: async (t) => Buffer.from(`mp3:${t}`) })
+  const vistos: string[] = []
+  _probarModelo(async (_l, o) => {
+    const s = String(o.mensajes[0].content)
+    const u = String(o.mensajes.at(-1)!.content)
+    vistos.push(u)
+    if (s.includes('diseñás un personaje')) return { texto: JSON.stringify({ nombre: 'Ana de cuento', descripcion: 'Guía de barrio.', personalidad: ['curiosa'], apariencia_prompt: 'woman guide', frase: 'Vamos por acá', voz: 'ef_dora' }), llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }
+    if (s.includes('charla corta entre dos voces')) return { texto: JSON.stringify({ titulo: 'Sobre mapas', turnos: [{ quien: 'A', texto: 'Hablemos de mapas.' }, { quien: 'B', texto: 'Dale.' }] }), llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }
+    if (s.includes('Proponés 3 cosas')) return { texto: JSON.stringify({ sugerencias: [{ titulo: 'Afiche', pedido: 'Un afiche del Proyecto Prueba' }, { titulo: 'x', pedido: 'y' }, { titulo: 'z', pedido: 'w' }, { titulo: 'de más', pedido: 'no' }] }), llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }
+    return { texto: '{}', llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }
+  })
+
+  const img = await crearImagen(db, 'un faro', { aspecto: '9:16', estilo: 'acuarela', variantes: 3 })
+  assert.deepEqual(img.archivos, ['imagen-1.png', 'imagen-2.png', 'imagen-3.png'])
+  assert.ok(pedidos.every((p) => p.startsWith('768x1344|') && /watercolor/.test(p)))
+  const v2 = await iterarArtefacto(db, img.id, 'de noche')
+  assert.deepEqual([v2.version, v2.meta.aspecto, v2.meta.estilo], [2, '9:16', 'acuarela'], 'la versión nueva conserva aspecto y estilo')
+  assert.match(v2.meta.prompt, /un faro\. Cambio: de noche/)
+  _probarTaller({ imagen: async (_p, o) => { if (o.tamano !== '1024x1024') throw new Error('tamaño no soportado'); return PNG } })
+  assert.equal((await crearImagen(db, 'otro', { aspecto: '16:9' })).estado, 'listo', 'si no acepta el tamaño, sale cuadrada')
+  _probarTaller({ imagen: async () => PNG })
+
+  const ob = libreria(db)
+  assert.equal(ob.length, 2, 'una obra por cadena de versiones')
+  const faro = ob.find((o) => o.raiz === img.id)!
+  assert.deepEqual([faro.ultima.id, faro.versiones.map((v) => v.version)], [v2.id, [2, 1]])
+  assert.equal(libreria(db, { q: 'otro' }).length, 1)
+
+  borrarArtefacto(db, img.id)
+  const tras = libreria(db).find((o) => o.ultima.id === v2.id)!
+  assert.equal(tras.versiones.length, 1, 'la que salía de la borrada queda como obra propia')
+  assert.ok(!fs.existsSync(carpeta(img.id)))
+
+  const ana = asegurarEntidad(db, { tipo: 'persona', nombre: 'Ana Prueba', notas: 'guía de recorridos por el barrio' })
+  insertar(db, { fuente: 'operador', titulo: 'Paseo', contenido: 'Ana nos llevó por la ribera.', nivel: 'propia', entidades: [ana], origenId: 't:pa' })
+  const pj = await crearPersonaje(db, '', { entidadId: ana })
+  assert.equal(pj.estado, 'listo')
+  assert.match(vistos.at(-1)!, /Un personaje basado en Ana Prueba[\s\S]*guía de recorridos[\s\S]*Ana nos llevó por la ribera/)
+
+  const ch = await crearCharla(db, 'mapas de ciudad')
+  assert.deepEqual([ch.tipo, ch.titulo, ch.archivos], ['voz', 'Sobre mapas', ['charla.mp3']])
+  assert.deepEqual(ch.meta.guion.map((t: any) => t.voz), ['em_alex', 'ef_dora'])
+
+  const sug = await sugerenciasTaller(db, 'imagen')
+  assert.equal(sug.length, 3)
+  assert.equal(sug[0].pedido, 'Un afiche del Proyecto Prueba')
+})

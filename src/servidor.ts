@@ -27,7 +27,7 @@ import { diaDelPlan, guardarNota, guardarWoop, mapaDelPlan, marcarHabito, marcar
 import { crearAprendizaje, editarAprendizaje, leerAprendizaje, listarAprendizajes, practicasDe, prepararRepaso, recursosDe, registrarPractica } from './aprender.ts'
 import { guardarFoto } from './chat/adjuntos.ts'
 import { aplicarBaseEntrante, recibirArchivo, recibirBase } from './mudanza.ts'
-import { artefactoAlCorpus, carpeta as carpetaTaller, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, hayFfmpeg, iterarArtefacto, listarArtefactos, VOCES } from './taller.ts'
+import { artefactoAlCorpus, ASPECTOS, borrarArtefacto, carpeta as carpetaTaller, crearCharla, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, ESTILOS, hayFfmpeg, iterarArtefacto, libreria, listarArtefactos, sugerenciasTaller, VOCES } from './taller.ts'
 import { conMatriz, desvincularDeProyecto, grafoPersonas, guardarRelacion, nuevaPersona, personas, vincularAProyecto } from './personas.ts'
 import { controlarReproceso, enLaNube, estadoReproceso, trabajarReproceso } from './reproceso.ts'
 import { lineaTemporal, resolverEvento } from './linea.ts'
@@ -465,13 +465,26 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['POST', /^\/api\/cuentas\/(\d+)\/redactar$/, async (b, [c]) => redactarPublicaciones(db, id(c), { n: Number(b.n) || 3, tema: b.tema || null })],
   ['POST', /^\/api\/publicaciones\/(\d+)$/, (b, [p]) => resolverPublicacion(db, id(p), { accion: b.accion, texto: b.texto, cuando: b.cuando ? Number(b.cuando) : null, url: b.url || null })],
-  ['GET', /^\/api\/taller$/, () => ({ artefactos: listarArtefactos(db, { limite: 80 }), voces: VOCES, ffmpeg: hayFfmpeg() })],
+  ['GET', /^\/api\/taller$/, (_, __, q) => {
+    const obras = libreria(db, { tipo: q.get('tipo') || undefined, q: q.get('q') || undefined })
+    const cuenta: Record<string, number> = {}
+    for (const o of libreria(db)) cuenta[o.ultima.tipo] = (cuenta[o.ultima.tipo] ?? 0) + 1
+    return { obras, haciendo: listarArtefactos(db, { limite: 40 }).filter((a) => a.estado === 'haciendo'), cuenta, voces: VOCES, estilos: Object.fromEntries(Object.entries(ESTILOS).map(([k, v]) => [k, v.nombre])), aspectos: Object.fromEntries(Object.entries(ASPECTOS).map(([k, v]) => [k, v.nombre])), ffmpeg: hayFfmpeg(), artefactos: listarArtefactos(db, { limite: 80 }) }
+  }],
+  ['GET', /^\/api\/taller\/sugerencias$/, async (_, __, q) => ({ sugerencias: await sugerenciasTaller(db, q.get('tipo') || 'imagen') })],
+  ['POST', /^\/api\/taller\/(\d+)\/borrar$/, (_, [a]) => (borrarArtefacto(db, id(a)), { ok: true })],
   // Crear corre en segundo plano (un video tarda minutos): la pantalla ve el avance en la lista.
   ['POST', /^\/api\/taller$/, (b) => {
     const pedido = String(b.pedido ?? '').trim()
-    if (!pedido) throw new Error('Decime qué querés crear')
-    const crear = { juego: () => crearJuego(db, pedido), imagen: () => crearImagen(db, pedido, { modelo: b.modelo || undefined }), voz: () => crearVoz(db, pedido, { voz: b.voz || undefined }),
-      personaje: () => crearPersonaje(db, pedido), video: () => crearVideo(db, pedido, { personajeId: b.personajeId ? Number(b.personajeId) : null, voz: b.voz || undefined }) }[b.tipo as string]
+    if (!pedido && !(b.tipo === 'personaje' && b.entidadId)) throw new Error('Decime qué querés crear')
+    const n = (v: unknown) => (v == null || v === '' ? null : Number(v))
+    const crear = {
+      juego: () => crearJuego(db, pedido, { personajeId: n(b.personajeId), entidadId: n(b.entidadId) }),
+      imagen: () => crearImagen(db, pedido, { modelo: b.modelo || undefined, aspecto: b.aspecto || undefined, estilo: b.estilo || null, variantes: n(b.variantes) ?? 1 }),
+      voz: () => (b.modo === 'charla' ? crearCharla(db, pedido, { voces: Array.isArray(b.voces) ? b.voces : undefined }) : crearVoz(db, pedido, { voz: b.voz || undefined })),
+      personaje: () => crearPersonaje(db, pedido, { entidadId: n(b.entidadId) }),
+      video: () => crearVideo(db, pedido, { personajeId: n(b.personajeId), voz: b.voz || undefined, formato: b.formato || undefined, escenas: n(b.escenas) ?? undefined, movimiento: b.movimiento !== false }),
+    }[b.tipo as string]
     if (!crear) throw new Error('Tipo inválido')
     void crear().catch((e) => console.error('  taller:', e))
     return { ok: true }

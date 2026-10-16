@@ -54,6 +54,7 @@ const error = (e) => toast(esc(e.message ?? e), 'error')
 
 function abrirModal(html) {
   document.activeElement?.blur?.()
+  $('#modal').className = 'modal' // cada modal arranca con su tamaño normal (el que necesite más, se agranda)
   $('#modal').innerHTML = html
   $('#velo').hidden = false
   // El foco va al primer campo: si se queda en el botón que abrió el modal, lo que tipeás se pierde (y la barra espaciadora lo reabre).

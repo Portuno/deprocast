@@ -32,7 +32,7 @@ import { aportes, ayudantesDe, CLASES_AYUDANTE, pedirAportes, quitarAyudante, su
 import { encolarPregunta, listarPreguntas } from '../preguntas.ts'
 import { curva, prediccionesDe } from '../gemelo.ts'
 import { listarCuentas, listarPublicaciones, redactarPublicaciones } from '../cuentas.ts'
-import { crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, iterarArtefacto, listarArtefactos, VOCES } from '../taller.ts'
+import { crearCharla, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, ESTILOS, iterarArtefacto, listarArtefactos, VOCES } from '../taller.ts'
 import { buscarOportunidades, listarOportunidades, redactarOportunidad } from '../radar.ts'
 import { buscarWeb, hayBuscadorWeb, leerPagina } from '../web.ts'
 import { listarSesiones, momentos as momentosDirecto, sesionActiva } from '../directo.ts'
@@ -1172,10 +1172,22 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'crear_en_taller', familia: 'accion',
-    descripcion: `El Taller crea cosas: un juego (HTML jugable), una imagen, una voz (texto leído), un personaje (ficha + retrato + voz) o un video corto (guion, imágenes, voz, montaje). Corre en segundo plano: decile que lo va a ver en Taller. Voces: ${Object.entries(VOCES).map(([k, v]) => `${k} (${v})`).join(', ')}.`,
-    parametros: S({ tipo: str('Qué crear', { enum: ['juego', 'imagen', 'voz', 'personaje', 'video'] }), pedido: str('Lo que pide, con todo el detalle que dio'), voz: str('Voz (para voz, video)'), personaje: int('id de un personaje del Taller, para un video') }, ['tipo', 'pedido']),
+    descripcion: `El Taller crea cosas: un juego (HTML jugable), una imagen (con aspecto, estilo y variantes), una voz (texto leído), una charla a dos voces sobre un tema de su archivo, un personaje (ficha + retrato + voz; puede salir de alguien de su mundo) o un video corto (guion, imágenes, voz, montaje; apaisado, vertical o cuadrado). Corre en segundo plano: decile que lo va a ver en Taller. Voces: ${Object.entries(VOCES).map(([k, v]) => `${k} (${v})`).join(', ')}.`,
+    parametros: S({
+      tipo: str('Qué crear', { enum: ['juego', 'imagen', 'voz', 'charla', 'personaje', 'video'] }), pedido: str('Lo que pide, con todo el detalle que dio (para una charla: el tema)'), voz: str('Voz (para voz, video)'),
+      personaje: int('id de un personaje del Taller (para un video o un juego)'), entidad: int('id de una persona, proyecto o entidad de su mundo (para un personaje o un juego que salga de ahí)'),
+      aspecto: str('Imagen: 1:1, 16:9 o 9:16', { enum: ['1:1', '16:9', '9:16'] }), estilo: str('Imagen: estilo', { enum: Object.keys(ESTILOS) }), variantes: int('Imagen: cuántas (1 a 4)'),
+      formato: str('Video: 16:9, 9:16 (vertical, para reels) o 1:1', { enum: ['16:9', '9:16', '1:1'] }), escenas: int('Video: cuántas escenas (3 a 8)'),
+    }, ['tipo', 'pedido']),
     ejecutar: (a, { db }) => {
-      const f = { juego: () => crearJuego(db, a.pedido), imagen: () => crearImagen(db, a.pedido), voz: () => crearVoz(db, a.pedido, { voz: a.voz }), personaje: () => crearPersonaje(db, a.pedido), video: () => crearVideo(db, a.pedido, { personajeId: a.personaje ?? null, voz: a.voz }) }[a.tipo as string]
+      const f = {
+        juego: () => crearJuego(db, a.pedido, { personajeId: a.personaje ?? null, entidadId: a.entidad ?? null }),
+        imagen: () => crearImagen(db, a.pedido, { aspecto: a.aspecto, estilo: a.estilo ?? null, variantes: a.variantes }),
+        voz: () => crearVoz(db, a.pedido, { voz: a.voz }),
+        charla: () => crearCharla(db, a.pedido),
+        personaje: () => crearPersonaje(db, a.pedido, { entidadId: a.entidad ?? null }),
+        video: () => crearVideo(db, a.pedido, { personajeId: a.personaje ?? null, voz: a.voz, formato: a.formato, escenas: a.escenas }),
+      }[a.tipo as string]
       if (!f) return { error: 'Tipo inválido' }
       void f().catch(() => {})
       return { empezado: true, donde: 'Taller' }
