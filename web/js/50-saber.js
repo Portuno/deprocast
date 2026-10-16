@@ -44,7 +44,7 @@ function montarCorpus() {
   $('#principal').innerHTML = `
     <div class="titulo"><h1>Corpus</h1>
       <p>Todo lo que Mastropiero sabe, por la voz que habla en cada pieza. Lo estructurado entra listo; lo crudo pasa por extractor → clasificador → vectorizador.</p>
-      <div class="fila"><button class="btn" id="c-quantomos" title="Las unidades mínimas que destila la pipeline">Quántomos</button><button class="btn" id="c-fuentes">Fuentes</button><button class="btn" id="c-voces" title="Muchos audios de una: se transcriben y entran como tuyos">🎙 Notas de voz</button><button class="btn" id="c-paginas" title="Fotos o escaneos de tus cuadernos">📓 Cuaderno escaneado</button><button class="btn" id="c-takeout" title="Google Takeout (Gemini, NotebookLM) y ChatGPT: cómo va la importación, temas y nombres para confirmar">🗂 Importaciones</button><button class="btn" id="c-reproceso" title="Procesar con NaN lo que todavía no se procesó (y lo nuevo que entra): pasajes, destilado, eventos y relaciones">⚙ Procesar</button><button class="btn btn-primario" id="c-ingerir">＋ Ingerir</button></div>
+      <div class="fila"><button class="btn" id="c-quantomos" title="Las unidades mínimas que destila la pipeline">Quántomos</button><button class="btn" id="c-fuentes">Fuentes</button><button class="btn" id="c-voces" title="Muchos audios de una: se transcriben y entran como tuyos">🎙 Notas de voz</button><button class="btn" id="c-paginas" title="Fotos o escaneos de tus cuadernos">📓 Cuaderno escaneado</button><button class="btn" id="c-takeout" title="Google Takeout (Gemini, NotebookLM) y ChatGPT: cómo va la importación, temas y nombres para confirmar">🗂 Importaciones</button><button class="btn" id="c-anotaciones" title="Pegá notas o ideas: quedan como tuyas y de ahí salen recuerdos, propuestas y quántomos">📝 Anotaciones</button><button class="btn" id="c-reproceso" title="Procesar con NaN lo que todavía no se procesó (y lo nuevo que entra): pasajes, destilado, eventos y relaciones">⚙ Procesar</button><button class="btn btn-primario" id="c-ingerir">＋ Ingerir</button></div>
     </div>
     <div class="niveles" id="c-niveles"></div>
     <div class="corpus-barra">
@@ -61,6 +61,7 @@ function montarCorpus() {
   $('#c-paginas').onclick = () => modalTandas('pagina')
   $('#c-takeout').onclick = () => modalTakeout()
   $('#c-reproceso').onclick = () => modalReproceso()
+  $('#c-anotaciones').onclick = () => modalAnotaciones()
   $('#c-fuentes').onclick = modalFuentes
   $('#c-quantomos').onclick = () => irA('quantomos')
   let espera
@@ -690,7 +691,7 @@ async function verEntidad(id) {
       ${e.notas ? `<div class="notas">${esc(e.notas)}</div>` : ''}
       <div class="fila" style="margin:12px 0 4px"><button class="btn btn-chico btn-primario" id="ent-preguntar">☿ Preguntarle a Mastropiero</button>${e.tipo === 'proyecto' ? '<button class="btn btn-chico" id="ent-espacio" title="Todo el proyecto en un lugar, y su equipo de agentes">🧪 Espacio y sandbox</button>' : ''}<button class="btn btn-chico" id="ent-unir" title="Es la misma que otra entidad: juntarlas en una">Unir con…</button>
         ${e.meta?.operador ? '<button class="btn btn-chico" id="ent-ficha-jugador">Tu ficha de jugador</button>' : e.tipo === 'persona' ? '<button class="btn btn-chico" id="ent-soy-yo" title="Marcar esta persona como vos: tu ficha de jugador y la suya pasan a ser una">Soy yo</button>' : ''}</div>
-      <div class="tabs chicas" id="ent-tabs">${[['corpus', 'Corpus'], ['misiones', 'Misiones'], ['historia', 'Historia'], ['inventario', 'Inventario']].map(([k, n]) => `<button data-etab="${k}" class="${k === entTab ? 'on' : ''}">${n}</button>`).join('')}</div>
+      <div class="tabs chicas" id="ent-tabs">${[['corpus', 'Corpus'], ['ejes', 'Ejes'], ['misiones', 'Misiones'], ['historia', 'Historia'], ['inventario', 'Inventario']].map(([k, n]) => `<button data-etab="${k}" class="${k === entTab ? 'on' : ''}">${n}</button>`).join('')}</div>
       <div id="ent-ficha"></div>
       <div id="ent-corpus" ${entTab === 'corpus' ? '' : 'hidden'}>
       ${coocurrencias.length ? `<h3 class="sub">Aparece con</h3><div class="coocurre">${coocurrencias.map((x) => `<button data-co="${x.id}">${TIPO_ENT[x.tipo]?.glifo ?? ''} ${esc(x.nombre)}<em>${x.compartidas}</em></button>`).join('')}</div>` : ''}
@@ -704,6 +705,7 @@ async function verEntidad(id) {
       $$('#ent-tabs [data-etab]').forEach((b) => b.classList.toggle('on', b.dataset.etab === entTab))
       $('#ent-corpus').hidden = entTab !== 'corpus'
       if (entTab === 'corpus') $('#ent-ficha').innerHTML = ''
+      else if (entTab === 'ejes') pintarEjes($('#ent-ficha'), e.id)
       else fichaPersonaje($('#ent-ficha'), `entidad:${e.id}`, { tabs: [entTab] })
     }
     $$('#ent-tabs [data-etab]').forEach((b) => (b.onclick = () => { entTab = b.dataset.etab; pintarTab() }))
@@ -771,5 +773,80 @@ async function modalEspacio(id) {
       b.textContent = '🧪 Rearmar sandbox'
     } catch (e) { error(e); b.textContent = '🧪 Armar sandbox' }
     b.disabled = false
+  }
+}
+
+// ─── anotaciones ────────────────────────────────────────────────────────
+
+/** Pegar un bloque de notas: se procesa de una y se muestra qué quedó y dónde. */
+function modalAnotaciones() {
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>📝 Anotaciones</h2>
+    <p class="tenue">Pegá tus notas o ideas tal cual (si vienen marcadas [Confirmado] o [Inferido], mejor). Quedan como tuyas en el corpus, y de ahí salen recuerdos, propuestas para La Fragua (como diseño: nada se hace solo), personas y proyectos, e ideas para pesar.</p>
+    <textarea class="campo-suelto" id="an-texto" rows="12" placeholder="Pegá acá…"></textarea>
+    <div class="fila"><label class="tenue chico">De cuándo son <input type="date" id="an-fecha" class="campo-suelto" style="width:auto;margin:0"></label><span class="espacio"></span><button class="btn btn-primario" id="an-ir">Procesar</button></div>
+    <div id="an-resultado"></div>`)
+  $('#an-ir').onclick = async () => {
+    const texto = $('#an-texto').value.trim()
+    if (texto.length < 20) return toast('Pegá las anotaciones', 'error')
+    const b = $('#an-ir')
+    b.disabled = true
+    $('#an-resultado').innerHTML = '<p class="tenue"><span class="pensando"><span><i></i><i></i><i></i></span></span> Leyendo tus anotaciones…</p>'
+    try {
+      const r = await api('/anotaciones', { texto, fecha: $('#an-fecha').value || null })
+      $('#an-resultado').innerHTML = `<div class="an-res">
+        <p>✓ Quedó como pieza tuya: <a href="#" class="ref" data-pieza="${r.pieza}">«${esc(r.resumen || 'Anotaciones')}»</a></p>
+        ${r.recuerdos.length ? `<h4>Memoria · ${r.recuerdos.length}</h4><ul>${r.recuerdos.map((x) => `<li>${esc(x.texto)} <small class="tenue">${x.revisado ? 'confirmado' : 'para revisar'}</small></li>`).join('')}</ul>` : ''}
+        ${r.propuestas.length ? `<h4>Propuestas en La Fragua (diseño) · ${r.propuestas.length}</h4><ul>${r.propuestas.map((p) => `<li>#${p.id} ${esc(p.titulo)}${p.sensible ? ' <span class="tipo-chip">pide tu ok</span>' : ''}</li>`).join('')}</ul><button class="btn btn-chico" id="an-fragua">Ver en La Fragua</button>` : ''}
+        ${r.enlazadas.length ? `<p class="chico">Enlazadas: ${r.enlazadas.map((e) => esc(e.nombre)).join(', ')}</p>` : ''}
+        ${r.nuevas.length ? `<p class="chico">Nuevas, esperan tu ok en Corpus → 🗂 Importaciones: ${r.nuevas.map((e) => esc(e.nombre)).join(', ')}</p>` : ''}
+        ${r.quantomos ? `<p class="chico">${r.quantomos} ideas como quántomos para pesar.</p>` : ''}
+      </div>`
+      $('[data-pieza]', $('#an-resultado')).onclick = (e) => { e.preventDefault(); modalPieza(r.pieza) }
+      const fr = $('#an-fragua')
+      if (fr) fr.onclick = () => { cerrarModal(); irA('fragua') }
+      $('#an-texto').value = ''
+    } catch (e) { $('#an-resultado').innerHTML = ''; error(e) } finally { b.disabled = false }
+  }
+}
+
+// ─── la matriz de un término ────────────────────────────────────────────
+
+const mesCorto = (m) => new Date(`${m}-01T12:00:00`).toLocaleDateString('es-AR', { month: 'short', year: '2-digit' })
+
+/** Una entidad en sus ejes: cuándo (eventos y menciones por mes), con quién, dónde, de qué y en qué proyectos. */
+async function pintarEjes(cont, id) {
+  cont.innerHTML = '<p class="tenue">Armando sus ejes…</p>'
+  let x
+  try { x = await api(`/entidades/${id}/ejes`) } catch (e) { cont.innerHTML = ''; return error(e) }
+  const max = Math.max(1, ...x.tiempo.porMes.map((m) => m.n))
+  const chip = (o, extra = '') => `<button class="ej-chip" data-ent-ir="${o.id}">${esc(o.nombre)}${extra}</button>`
+  cont.innerHTML = `<div class="ejes">
+    <section><h4>⟿ Tiempo</h4>${x.tiempo.porMes.length ? `<div class="ej-barras">${x.tiempo.porMes.map((m, i, t) => `<span title="${esc(mesCorto(m.mes))}: ${m.n} piezas"><i style="height:${Math.max(8, (m.n / max) * 100)}%"></i>${i === 0 || i === t.length - 1 || m.mes.endsWith('-01') ? `<small>${esc(mesCorto(m.mes))}</small>` : ''}</span>`).join('')}</div>` : '<p class="tenue chico">Sin piezas con fecha.</p>'}
+      ${x.tiempo.eventos.length ? `<ul class="ej-eventos">${x.tiempo.eventos.slice(0, 10).map((ev) => `<li><span class="mono">${esc(ev.fecha)}</span> ${esc(ev.titulo)}</li>`).join('')}</ul>` : ''}</section>
+    <section><h4>☍ Gente</h4>${x.gente.relaciones.length ? `<div class="ej-chips">${x.gente.relaciones.map((r) => chip(r, r.relacion ? ` <em>${esc(r.relacion)}</em>` : '')).join('')}</div>` : ''}
+      ${x.gente.aparece.length ? `<p class="tenue chico">Aparece con</p><div class="ej-chips">${x.gente.aparece.map((r) => chip(r, ` <em>${r.veces}</em>`)).join('')}</div>` : ''}${!x.gente.relaciones.length && !x.gente.aparece.length ? '<p class="tenue chico">Nadie todavía.</p>' : ''}</section>
+    <section><h4>⌖ Lugares</h4>${x.lugares.length ? `<div class="ej-chips">${x.lugares.map((l) => chip(l, ` <em>${l.veces}</em>${l.lat != null ? ` <small class="tenue">${l.lat.toFixed(1)}, ${l.lon.toFixed(1)}</small>` : ''}`)).join('')}</div>` : '<p class="tenue chico">Ninguno.</p>'}</section>
+    <section><h4>◇ Temas</h4>${x.temas.length ? `<div class="ej-chips">${x.temas.map((t) => `<span class="ej-chip">${esc(t.tema)} <em>${t.n}</em></span>`).join('')}</div>` : '<p class="tenue chico">Sin temas destilados todavía.</p>'}</section>
+    <section><h4>◆ Proyectos</h4>${x.proyectos.length ? `<div class="ej-chips">${x.proyectos.map((p) => chip(p, ` <em>${p.veces}</em>`)).join('')}</div>` : '<p class="tenue chico">Ninguno.</p>'}</section>
+    <section class="ej-homonimos"><h4>¿Hay más de uno con este nombre?</h4><p class="tenue chico">Si «${esc(x.entidad.nombre)}» junta cosas distintas que se llaman igual (una persona y un estudio con su nombre, dos homónimos), Mastropiero lo revisa y las separás con un toque.</p>
+      <button class="btn btn-chico" id="ej-acepciones">Revisar</button><div id="ej-resultado"></div></section>
+  </div>`
+  $$('[data-ent-ir]', cont).forEach((b) => (b.onclick = () => verEntidad(Number(b.dataset.entIr))))
+  $('#ej-acepciones').onclick = async () => {
+    const b = $('#ej-acepciones')
+    b.disabled = true
+    $('#ej-resultado').innerHTML = '<p class="tenue chico"><span class="pensando"><span><i></i><i></i><i></i></span></span> Leyendo dónde aparece…</p>'
+    try {
+      const r = await api(`/entidades/${id}/acepciones`, {})
+      if (r.acepciones.length < 2) return void ($('#ej-resultado').innerHTML = `<p class="chico">Es una sola cosa${r.acepciones[0]?.descripcion ? `: ${esc(r.acepciones[0].descripcion)}` : ''}.</p>`)
+      $('#ej-resultado').innerHTML = r.acepciones.map((a, i) => `<div class="ej-acepcion"><b>${esc(a.nombre)}</b> <span class="tipo-chip">${esc(a.tipo)}</span><p class="chico">${esc(a.descripcion)}</p>
+        <details><summary class="chico">${a.piezas.length} piezas</summary>${a.piezas.map((p) => `<div class="chico">#${p.id} ${esc(p.titulo)}</div>`).join('')}</details>
+        ${i === 0 ? '<small class="tenue">Esta queda como está.</small>' : `<button class="btn btn-chico btn-primario" data-separar="${i}">Separar como entidad nueva</button>`}</div>`).join('')
+      $$('[data-separar]').forEach((s) => (s.onclick = async () => {
+        const a = r.acepciones[Number(s.dataset.separar)]
+        if (!confirm(`¿Separar «${a.nombre}» como entidad nueva? Se le mueven ${a.piezas.length} piezas.`)) return
+        try { const n = await api(`/entidades/${id}/separar`, { nombre: a.nombre, tipo: a.tipo, notas: a.descripcion, piezas: a.piezas.map((p) => p.id) }); toast(`Separada<small>${n.movidas} piezas pasaron a «${esc(a.nombre)}».</small>`, 'suave'); traerEntidades(); verEntidad(n.id) } catch (e) { error(e) }
+      }))
+    } catch (e) { $('#ej-resultado').innerHTML = ''; error(e) } finally { b.disabled = false }
   }
 }

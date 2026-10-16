@@ -1813,3 +1813,20 @@ details.puentes > summary { cursor: pointer; padding: 6px 0; }
 .es-exp select { width: auto; margin: 0; }
 @media (max-width: 1100px) { .es-cuerpo { grid-template-columns: 1fr; } .es-capas, .es-inspector { max-height: none; } .es-nuevo { grid-template-columns: 1fr; } }
 .es-cabezal-zona { position: absolute; top: 0; bottom: 0; left: 130px; right: 0; pointer-events: none; }
+
+/* ─── la matriz de un término ─── */
+.ejes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-top: 10px; }
+.ejes section { border: 1px solid var(--linea); border-radius: 12px; padding: 10px 12px; background: var(--panel); }
+.ejes h4 { margin: 0 0 8px; font-size: 13px; }
+.ej-barras { display: flex; align-items: flex-end; gap: 3px; height: 90px; overflow-x: auto; padding-bottom: 16px; }
+.ej-barras span { position: relative; flex: 0 0 22px; height: 100%; display: flex; align-items: flex-end; }
+.ej-barras i { display: block; width: 100%; background: var(--acento); border-radius: 3px 3px 0 0; }
+.ej-barras small { position: absolute; bottom: -15px; left: 50%; transform: translateX(-50%); font-size: 9px; color: var(--debil); white-space: nowrap; }
+.ej-eventos { margin: 8px 0 0; padding-left: 16px; font-size: 12.5px; }
+.ej-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.ej-chip { border: 1px solid var(--linea); background: var(--panel-2); color: var(--texto); border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 12.5px; cursor: pointer; }
+span.ej-chip { cursor: default; }
+.ej-chip em { font-style: normal; color: var(--tenue); font-size: 11.5px; }
+.ej-homonimos { grid-column: 1 / -1; }
+.ej-acepcion { border-top: 1px solid var(--linea); padding: 8px 0; }
+.ej-acepcion p { margin: 4px 0; }

@@ -17,6 +17,7 @@ import { deshacerAcciones, separarInversa, ultimasDeshacibles, type Inversa } fr
 import { resolverPropuesta } from './index.ts'
 import { lineaParaHerramienta } from '../linea.ts'
 import { agenteDeCapas } from '../estudio.ts'
+import { procesarAnotaciones } from '../anotaciones.ts'
 import { diaDelPlan, guardarWoop, habitos as listarHabitos, marcarHabito, VERBOS, votar } from '../cien.ts'
 import { crearAprendizaje, listarAprendizajes, prepararRepaso, recursosDe, registrarPractica } from '../aprender.ts'
 import { CATEGORIAS, listarMovimientos, registrarMovimiento, resumenMes, resumenPorProyecto, ritmoMeta } from '../finanzas.ts'
@@ -222,6 +223,16 @@ export const HERRAMIENTAS: Herramienta[] = [
       return { total: r.total, piezas: r.piezas.map((p) => piezaCorta(p)) }
     },
     resumen: (a, r) => `buscó «${a.consulta}» → ${Array.isArray(r) ? r.length : r?.piezas?.length ?? 0} piezas`,
+  },
+  {
+    nombre: 'procesar_anotaciones', familia: 'accion',
+    descripcion: 'Cuando pega un bloque de anotaciones o ideas (a veces marcadas [Confirmado] / [Inferido]): lo guarda como pieza suya y de ahí saca recuerdos (lo confirmado, revisado), propuestas para La Fragua (lo que es funcionalidad de Deprocast, como diseño y con sus restricciones), entidades (las nuevas quedan para su ok) y quántomos. Pasale el texto tal cual.',
+    parametros: S({ texto: str('Las anotaciones, completas y sin cambiar'), fecha: str('YYYY-MM-DD si dice de cuándo son') }, ['texto']),
+    ejecutar: async (a, { db }) => {
+      const r = await procesarAnotaciones(db, a.texto, { fecha: a.fecha || null })
+      return { pieza: r.pieza, recuerdos: r.recuerdos.length, propuestas: r.propuestas.map((p) => `#${p.id} ${p.titulo}${p.sensible ? ' (sensible: pide su ok)' : ''}`), entidades_enlazadas: r.enlazadas.map((e) => e.nombre), entidades_nuevas: r.nuevas.map((e) => e.nombre), quantomos: r.quantomos }
+    },
+    resumen: (_, r) => `procesó tus anotaciones: ${r?.recuerdos ?? 0} recuerdos, ${r?.propuestas?.length ?? 0} propuestas, ${r?.quantomos ?? 0} ideas`,
   },
   {
     nombre: 'ver_linea', familia: 'lectura',
@@ -1306,7 +1317,7 @@ export const NUCLEO = [
 ]
 export const GRUPOS: Record<string, string[]> = {
   liga: ['ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
-  corpus: ['no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
+  corpus: ['procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   vida: ['ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   web: ['buscar_web', 'leer_pagina', 'guardar_link', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
@@ -1318,7 +1329,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   const t = mensaje.toLowerCase()
   const g: string[] = []
   if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox/.test(t)) g.push('liga')
-  if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout/.test(t)) g.push('corpus')
+  if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|\[confirmado\]|\[inferido\]/.test(t)) g.push('corpus')
   if (/primaria|reporte|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
   if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|bitácora|gemelo|brújula|brujula|persona|amig|famil/.test(t)) g.push('vida')
   if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link/.test(t)) g.push('web')

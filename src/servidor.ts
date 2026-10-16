@@ -33,6 +33,8 @@ import { controlarReproceso, enLaNube, estadoReproceso, trabajarReproceso } from
 import { lineaTemporal, resolverEvento } from './linea.ts'
 import * as estudio from './estudio.ts'
 import { qrPng } from './qr.ts'
+import { procesarAnotaciones } from './anotaciones.ts'
+import { acepciones, ejesDe, separarEntidad } from './ejes.ts'
 import { guardarYo, leerYo } from './yo.ts'
 import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora.ts'
 import { anotar as anotarEnCriba, anotarSolo, cribar, deshacerUltima, marcador, siguiente } from './criba.ts'
@@ -494,6 +496,12 @@ const rutas: [string, RegExp, Ruta][] = [
     void crear().catch((e) => console.error('  taller:', e))
     return { ok: true }
   }],
+  // La matriz de un término (sus ejes) y los homónimos.
+  ['GET', /^\/api\/entidades\/(\d+)\/ejes$/, (_, [e]) => ejesDe(db, id(e))],
+  ['POST', /^\/api\/entidades\/(\d+)\/acepciones$/, async (_, [e]) => ({ acepciones: await acepciones(db, id(e)) })],
+  ['POST', /^\/api\/entidades\/(\d+)\/separar$/, (b, [e]) => separarEntidad(db, id(e), { nombre: String(b.nombre ?? ''), tipo: b.tipo, notas: b.notas ?? null, piezas: (Array.isArray(b.piezas) ? b.piezas : []).map(Number) })],
+  // Anotaciones: un bloque de notas suyas se procesa de una (pieza, memoria, propuestas «diseño», entidades, quántomos).
+  ['POST', /^\/api\/anotaciones$/, async (b) => procesarAnotaciones(db, String(b.texto ?? ''), { fecha: b.fecha || null })],
   // El Estudio: posproducción de un video (las subidas crudas van más abajo).
   ['GET', /^\/api\/estudio$/, () => ({
     proyectos: libreria(db, { tipo: 'estudio' }),
