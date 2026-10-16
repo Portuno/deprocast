@@ -71,6 +71,7 @@ test('carpeta: con sus reglas entra por el mismo camino — texto sacado en la c
   f('faro/datos.csv', `lugar,visitas\n${Array.from({ length: 30 }, (_, i) => `plaza ${i},${i * 3}`).join('\n')}`)
   f('faro/informe.docx', zip({ 'word/document.xml': `<w:document><w:body><w:p><w:r><w:t>Informe del piloto de Faro.</w:t></w:r></w:p><w:p><w:r><w:t>${'Los recorridos funcionaron mejor de lo esperado. '.repeat(10)}</w:t></w:r></w:p></w:body></w:document>` }))
   f('faro/script.py', 'print("no entra")')
+  f('faro/esquema.xml', '<esquema>un volcado de datos que no es una imagen</esquema>')
   f('privado/documento.txt', 'Esto es privado y no se importa nunca, aunque sea largo y tenga texto suficiente.')
   f('lote.zip', zip({ 'dentro/idea.md': `# Una idea\n\n${'Sumar un mapa sonoro con audios del barrio. '.repeat(8)}`, 'dentro/notas.txt': notas }))
   f('libretas/hoja.jpg', Buffer.alloc(200)) // chiquita: un ícono, no se sube
@@ -86,6 +87,7 @@ test('carpeta: con sus reglas entra por el mismo camino — texto sacado en la c
   assert.match(inventario, /repetido\tfaro\/copia del resumen\.md/, 'la misma copia en otra carpeta entra una vez')
   assert.match(inventario, /repetido\tlote\.zip\/dentro\/notas\.txt/, 'lo de adentro del zip que ya estaba suelto, también')
   assert.match(inventario, /icono\tlibretas\/hoja\.jpg/)
+  assert.match(inventario, /otro_formato\tfaro\/esquema\.xml/, 'fuera de los textos, solo imágenes y audios')
   const lineas = fs.readFileSync(prep.paquete, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
   assert.ok(!lineas.some((l) => /privado/.test(JSON.stringify(l))), 'lo excluido no viaja')
   const docx = lineas.find((l) => l.ruta === 'faro/informe.docx')

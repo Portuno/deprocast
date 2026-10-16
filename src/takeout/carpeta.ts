@@ -73,7 +73,7 @@ function recorrer(carpeta: string, excluir: RegExp[], conZips: boolean, alSaltea
         zips.push(z)
         for (const e of z.entradas) {
           if (e.dir) continue
-          const relE = `${rel}/${e.nombre}`
+          const relE = `${rel}/${e.nombre.replace(/\\/g, '/')}`
           if (algun(excluir, relE)) { alSaltear(relE); continue }
           archivos.push({ rel: relE, bytes: e.tamano, mtime: st.mtimeMs, leer: () => z.leer(e) })
         }
@@ -191,7 +191,8 @@ export async function prepararCarpeta(carpeta: string, o: { salida?: string; log
       const cl = claseDeArchivo(nombre)
       const ext = path.extname(nombre).toLowerCase().slice(1)
       const esTexto = TEXTO.test(ext) || OFFICE.test(ext)
-      if (!esTexto && !cl) { anotar('otro_formato', a.rel); continue }
+      // Fuera de los textos, solo imágenes y audios (un .xml suelto, un .xls viejo o un zip dentro de un zip no entran).
+      if (!esTexto && cl?.clase !== 'imagen' && cl?.clase !== 'audio') { anotar('otro_formato', a.rel); continue }
       if (esTexto && ((/^(json|jsonl|html?|csv|tsv)$/.test(ext) && a.bytes > 2 * 1024 * 1024) || a.bytes > 600 * 1024 * 1024)) { anotar('muy_grande', a.rel); continue }
       if (cl?.clase === 'imagen' && a.bytes < 12 * 1024) { anotar('icono', a.rel); continue }
       if (cl?.clase === 'audio' && a.bytes > 1500 * 1024 * 1024) { anotar('muy_grande', a.rel); continue }
