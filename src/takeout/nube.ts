@@ -722,6 +722,35 @@ async function unPaso(db: Db): Promise<boolean> {
   return true
 }
 
+/**
+ * Una unidad importada más para destilar (de un lote que ya tiene todos sus medios listos: así cada chat se lee con sus
+ * adjuntos). La usa el Procesar para ayudar al Takeout sin pisarse: tomar una fila es atómico. false si no hay ninguna.
+ */
+export async function destilarImportadoSiguiente(db: Db): Promise<boolean> {
+  const fila = db.prepare(`SELECT d.pieza_id, d.lote, d.intentos FROM takeout_destilado d JOIN takeout_lotes l ON l.id = d.lote LEFT JOIN corpus c ON c.id = d.pieza_id
+    WHERE d.estado = 'pendiente' AND l.estado = 'procesando' AND NOT EXISTS (SELECT 1 FROM takeout_medios m WHERE m.lote = l.id AND m.estado IN ('esperando', 'pendiente', 'procesando'))
+    ORDER BY d.prioridad DESC, c.fecha DESC LIMIT 1`).get() as { pieza_id: number; lote: string; intentos: number } | undefined
+  if (!fila) return false
+  if (!db.prepare(`UPDATE takeout_destilado SET estado = 'procesando', intentos = intentos + 1 WHERE pieza_id = ? AND estado = 'pendiente'`).run(fila.pieza_id).changes) return true
+  try {
+    await destilarUnidad(db, fila, Date.now())
+    sumarResumen(db, fila.lote, { destilados: 1 })
+  } catch (e) {
+    db.prepare(`UPDATE takeout_destilado SET estado = ?, error = ? WHERE pieza_id = ?`).run(fila.intentos + 1 >= 3 ? 'fallo' : 'pendiente', e instanceof Error ? e.message.slice(0, 500) : String(e), fila.pieza_id)
+  }
+  return true
+}
+
+/** Cuánto le falta a lo importado (para que el Procesar lo muestre). */
+export function importadoPendiente(db: Db): { destilado: number; hechos: number; medios: number } {
+  const n = (sql: string) => (db.prepare(sql).get() as { n: number }).n
+  return {
+    destilado: n(`SELECT COUNT(*) AS n FROM takeout_destilado WHERE lote != '${REPROCESO}' AND estado IN ('pendiente', 'procesando')`),
+    hechos: n(`SELECT COUNT(*) AS n FROM takeout_destilado WHERE lote != '${REPROCESO}' AND estado = 'hecho'`),
+    medios: n(`SELECT COUNT(*) AS n FROM takeout_medios WHERE estado IN ('pendiente', 'procesando')`),
+  }
+}
+
 /** Trabaja hasta vaciar todo, en varios carriles. Se puede llamar cuantas veces se quiera: si ya anda, no hace nada. */
 export async function trabajarTakeout(db: Db): Promise<void> {
   if (trabajando) return

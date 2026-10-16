@@ -133,6 +133,7 @@ async function modalReproceso() {
       <div class="hud-fichas">
         <span class="hud-ficha"><small>🔎 Pasajes</small><b>${d.pasajes.piezas}/${d.pasajes.total}</b><em>${mill(d.pasajes.pasajes)} pasajes</em></span>
         <span class="hud-ficha"><small>🧪 Destilado</small><b>${d.destilado.hechos}/${dTotal}</b><em>${d.destilado.fallos ? `${d.destilado.fallos} fallaron` : d.destilado.horasQueFaltan ? `~${d.destilado.horasQueFaltan} h más` : ''}</em></span>
+        ${d.importado?.destilado || d.importado?.medios ? `<span class="hud-ficha"><small>🗂 Lo importado</small><b>${d.importado.hechos}/${d.importado.hechos + d.importado.destilado}</b><em>${d.importado.medios ? `${d.importado.medios} imágenes o audios antes` : 'destilando'}</em></span>` : ''}
         <span class="hud-ficha"><small>🧠 Recuerdos y quántomos</small><b>${d.items.hechos}</b><em>${d.items.faltan ? `faltan ${d.items.faltan}` : 'al día'}</em></span>
         <span class="hud-ficha"><small>⟿ Eventos</small><b>${d.eventos}</b><em>${d.cronicas} crónicas</em></span>
         <span class="hud-ficha"><small>☍ Relaciones</small><b>${d.relaciones}</b><em>tipadas</em></span>

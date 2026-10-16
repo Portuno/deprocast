@@ -173,3 +173,21 @@ test('el chat trae solo lo relevante de su archivo, con ids para citar (y un mod
   assert.match(promptMastropiero(db, '¿cuándo sale el vuelo?', null, null, a), /Lo que su archivo dice de esto[\s\S]*\[#\d+\] «Viaje/)
   assert.equal((await archivoRelevante(db, 'hola')).texto, '', 'un saludo no busca nada')
 })
+
+test('procesar no espera a lo importado: lo ayuda a destilar (si sus medios ya están) y sigue con los pasajes', async () => {
+  juguete()
+  const db = abrir(':memory:')
+  db.prepare(`INSERT INTO takeout_lotes (id, estado, creado_en) VALUES ('chatgpt-prueba', 'procesando', 1)`).run()
+  const chat = insertar(db, { fuente: 'operador', titulo: 'ChatGPT · Una charla', nivel: 'investigacion', fecha: '2025-03-01', origenId: 'takeout:chatgpt:x1', contenido: 'Charla larga sobre el proyecto. '.repeat(30), meta: { chat: 'x1', ia: 'ChatGPT', origen: 'chatgpt' } })!
+  db.prepare(`INSERT INTO takeout_destilado (pieza_id, lote, prioridad, estado) VALUES (?, 'chatgpt-prueba', 0, 'pendiente')`).run(chat)
+  let sistema = ''
+  _probarTakeout({ destilar: async (_db, s) => { sistema = s; return { resumen: 'Habló del proyecto.', valor: 1, temas: [], proyectos: [], personas: [], ideas: [], decisiones: [], abierto: [], sobre_el: [] } } })
+  process.env.MASTRO_REPROCESO_LOCAL = '1'
+  fijarAjuste(db, 'reproceso_activo', '1')
+  await trabajarReproceso(db)
+  assert.equal((db.prepare('SELECT estado FROM takeout_destilado WHERE pieza_id = ?').get(chat) as any).estado, 'hecho')
+  assert.match(sistema, /ChatGPT, la primera IA que usó/, 'se destila con el prompt de su lote')
+  assert.ok(db.prepare('SELECT 1 FROM pasajes WHERE pieza_id = ?').get(chat), 'y tiene sus pasajes')
+  assert.deepEqual(estadoReproceso(db).importado, { destilado: 0, hechos: 1, medios: 0 })
+  delete process.env.MASTRO_REPROCESO_LOCAL
+})

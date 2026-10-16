@@ -11,7 +11,7 @@
 import { ajuste, fijarAjuste, json, type Db } from './db.ts'
 import { nanConfigurado, tokensReproceso } from './nan.ts'
 import { pasajesDe, vectorizarItems } from './semantica.ts'
-import { destilarUnidad, historiaDe, proyectosConHistoria, REPROCESO, takeoutTrabajando } from './takeout/nube.ts'
+import { destilarImportadoSiguiente, destilarUnidad, historiaDe, importadoPendiente, proyectosConHistoria, REPROCESO, takeoutTrabajando } from './takeout/nube.ts'
 import { cronicaDelMes, mesesSinCronica } from './linea.ts'
 
 /** Solo en la nube (o si se fuerza para probar): todo esto gasta tokens. */
@@ -87,6 +87,11 @@ async function hacerDestilado(db: Db): Promise<boolean> {
   return true
 }
 
+async function hacerImportado(db: Db): Promise<boolean> {
+  estado.paso = 'destilando lo importado'
+  return destilarImportadoSiguiente(db)
+}
+
 /** Cuando el destilado se vació: la crónica de los meses con material nuevo y, si hubo bastante nuevo, la historia de cada proyecto. */
 async function hacerSintesis(db: Db): Promise<boolean> {
   if (enSintesis) return false
@@ -132,11 +137,14 @@ export async function trabajarReproceso(db: Db): Promise<void> {
     let vuelta = 0
     for (;;) {
       if (ajuste(db, 'reproceso_activo') !== '1') { estado.paso = 'en pausa'; break }
-      // El Takeout tiene prioridad: si está trabajando, espera.
-      if (takeoutTrabajando()) { estado.paso = 'esperando al Takeout'; await new Promise((ok) => setTimeout(ok, 30_000)); continue }
       if (vuelta++ % 20 === 0) encolarReproceso(db)
+      // No espera al Takeout: los pasajes y los vectores siguen, y dos carriles ayudan a destilar lo importado
+      // (lo importado primero: es lo que acabás de subir).
+      const conImportado = takeoutTrabajando() || importadoPendiente(db).destilado > 0
       const hizo = await Promise.all(Array.from({ length: CARRILES }, async (_, carril) => {
-        const pasos = carril === 0 ? [hacerPasajes, hacerItems, hacerDestilado] : [hacerDestilado, hacerPasajes]
+        const pasos = carril === 0 ? [hacerPasajes, hacerItems, hacerDestilado]
+          : conImportado && carril <= 2 ? [hacerImportado, hacerDestilado, hacerPasajes]
+          : [hacerDestilado, hacerPasajes]
         for (const paso of pasos) if (await paso(db).catch((e) => { console.error('  reproceso:', e instanceof Error ? e.message : e); return false })) return true
         return false
       }))
@@ -167,6 +175,7 @@ export function estadoReproceso(db: Db, ahora = Date.now()) {
     eventos: n('SELECT COUNT(*) AS n FROM eventos'), relaciones: n(`SELECT COUNT(*) AS n FROM conexiones WHERE origen LIKE 'destilado:%'`),
     cronicas: n(`SELECT COUNT(*) AS n FROM corpus WHERE origen_id LIKE 'linea:mes:%'`),
     tokens: { hoy: t.hoy, total: t.total },
+    importado: importadoPendiente(db),
     ultimos: (db.prepare(`SELECT d.pieza_id AS id, c.titulo, d.salida, d.hecho_en FROM takeout_destilado d JOIN corpus c ON c.id = d.pieza_id WHERE d.lote = ? AND d.estado = 'hecho' ORDER BY d.hecho_en DESC LIMIT 6`).all(REPROCESO) as any[])
       .map((r) => ({ id: r.id, titulo: r.titulo, resumen: String(json<any>(r.salida, {})?.resumen ?? '').slice(0, 300), en: r.hecho_en })),
   }
