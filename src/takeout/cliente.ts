@@ -11,6 +11,7 @@ import { spawn } from 'node:child_process'
 import { abrirZip, type EntradaZip, type Zip } from './zip.ts'
 import { aMarkdown, chatsDeGemini, claseDeArchivo, dia, queEs, turnosDeChatNlm, turnosDeGemini, type ClaseMedio } from './leer.ts'
 import type { Aparicion } from './nube.ts'
+import { chatsDeChatGPT, esExportChatGPT, loteChatGPT, nombresOriginales } from './chatgpt.ts'
 
 type Ref = { zip: Zip; e: EntradaZip }
 type Medio = { huella: string; clase: ClaseMedio; ext: string; nombre: string; ruta: string; apariciones: Aparicion[] }
@@ -18,6 +19,7 @@ type Log = (t: string) => void
 
 /** El id del lote: el de la exportación («takeout-20261014T112845Z»), así repetir no duplica. */
 export function loteDe(carpeta: string): string {
+  if (esExportChatGPT(carpeta)) return loteChatGPT(carpeta)
   const z = fs.readdirSync(carpeta).find((f) => /^takeout-\d{8}T\d{6}Z/.test(f))
   return z ? /^(takeout-\d{8}T\d{6}Z)/.exec(z)![1] : `takeout-${path.basename(path.resolve(carpeta)).replace(/[^\w.-]/g, '-').slice(0, 40)}`
 }
@@ -48,6 +50,7 @@ async function achicar(datos: Buffer, ext: string, clase: ClaseMedio, salida: st
 const descartable = (ext: string, bytes: number) => (/^(json|xml|html?)$/.test(ext) && bytes > 2 * 1024 * 1024) || bytes > 400 * 1024 * 1024 || (/^(pdf|docx|xlsx|pptx|md|txt|csv)$/.test(ext) && bytes > 30 * 1024 * 1024)
 
 export async function prepararTakeout(carpeta: string, o: { salida?: string; log?: Log; paralelo?: number } = {}): Promise<{ lote: string; dir: string; paquete: string; medios: Medio[]; resumen: Record<string, number> }> {
+  if (esExportChatGPT(carpeta)) return prepararChatGPT(carpeta, o)
   const log = o.log ?? (() => {})
   const lote = loteDe(carpeta)
   const dir = path.resolve(o.salida ?? path.join(process.cwd(), 'data', 'takeout', lote))
@@ -218,6 +221,80 @@ export async function prepararTakeout(carpeta: string, o: { salida?: string; log
   log(`Listo: paquete de ${Math.round(fs.statSync(paquete).size / 1048576)} MB y ${medios.size} medios (${Math.round(lista.reduce((s, m) => s + fs.statSync(m.ruta).size, 0) / 1048576)} MB)`)
   return { lote, dir, paquete, medios: [...medios.values()], resumen }
 }
+
+// ─── ChatGPT ────────────────────────────────────────────────────────────
+
+/**
+ * La exportación de ChatGPT (una carpeta, no zips): las conversaciones van al mismo paquete que el Takeout (una línea
+ * «chatgpt» por charla) y sus imágenes se achican igual. En la nube sigue el mismo camino: piezas, medios, destilado,
+ * entidades, quántomos e historia.
+ */
+export async function prepararChatGPT(carpeta: string, o: { salida?: string; log?: Log; paralelo?: number } = {}) {
+  const log = o.log ?? (() => {})
+  const lote = loteChatGPT(carpeta)
+  const dir = path.resolve(o.salida ?? path.join(process.cwd(), 'data', 'takeout', lote))
+  const dirMedios = path.join(dir, 'medios')
+  const tmp = path.join(dir, 'tmp')
+  fs.mkdirSync(dirMedios, { recursive: true })
+  fs.mkdirSync(tmp, { recursive: true })
+  const resumen: Record<string, number> = {}
+  const mas = (k: string, n = 1) => { resumen[k] = (resumen[k] ?? 0) + n }
+  const chats = chatsDeChatGPT(carpeta)
+  const originales = nombresOriginales(carpeta)
+  log(`ChatGPT: ${chats.length} conversaciones, ${chats.reduce((s, c) => s + c.turnos.length, 0)} turnos`)
+
+  // Cada archivo una vez (por su huella), con todas las charlas donde apareció.
+  const medios = new Map<string, Medio>()
+  const porArchivo = new Map<string, string | null>()
+  const pendientes = chats.flatMap((c) => c.turnos.flatMap((t) => t.adjuntos.filter((a) => a.archivo).map((a) => ({ archivo: a.archivo!, ap: { origen: 'chatgpt', contexto: c.id, titulo: c.titulo, fecha: dia(t.cuando), nivel: 'primaria', rol: 'adjunto' } as Aparicion }))))
+  const cola = [...pendientes]
+  const trabajar = async () => {
+    for (let p = cola.shift(); p; p = cola.shift()) {
+      let huella = porArchivo.get(p.archivo)
+      if (huella === undefined) {
+        huella = null
+        const datos = fs.readFileSync(path.join(carpeta, p.archivo))
+        const original = originales[p.archivo] ?? ''
+        const cl = claseDeArchivo(original, datos.subarray(0, 16)) ?? claseDeArchivo('', datos.subarray(0, 16))
+        if (cl && !descartable(cl.ext, datos.length)) {
+          const h = crypto.createHash('sha1').update(datos).digest('hex')
+          const extOut = cl.clase === 'audio' ? 'mp3' : cl.clase === 'imagen' ? 'jpg' : cl.ext === 'htm' ? 'html' : cl.ext
+          const salida = path.join(dirMedios, `${h}.${extOut}`)
+          if (medios.has(h) || (fs.existsSync(salida) && fs.statSync(salida).size > 0) || await achicar(datos, cl.ext, cl.clase, salida, tmp)) {
+            huella = h
+            if (!medios.has(h)) medios.set(h, { huella: h, clase: cl.clase, ext: extOut, nombre: (original || p.archivo).slice(0, 200), ruta: salida, apariciones: [] })
+          } else mas('medios_rotos')
+        } else mas('medios_salteados')
+        porArchivo.set(p.archivo, huella)
+      }
+      if (huella) medios.get(huella)!.apariciones.push(p.ap)
+    }
+  }
+  await Promise.all(Array.from({ length: o.paralelo ?? 4 }, trabajar))
+  fs.rmSync(tmp, { recursive: true, force: true })
+
+  const paquete = path.join(dir, 'paquete.jsonl')
+  const fd = fs.openSync(`${paquete}.parcial`, 'w')
+  const w = (x: unknown) => fs.writeSync(fd, `${JSON.stringify(x)}\n`)
+  try {
+    w({ t: 'lote', id: lote, creado: Date.now(), origen: 'chatgpt' })
+    for (const c of chats) w({ t: 'chatgpt', id: c.id, titulo: c.titulo, desde: c.desde, hasta: c.hasta, grupo: c.grupo ?? false, turnos: c.turnos.map((t) => ({ cuando: t.cuando, prompt: t.prompt, respuesta: t.respuesta, adjuntos: t.adjuntos.map((a) => ({ huella: a.archivo ? porArchivo.get(a.archivo) ?? null : null, nombre: originales[a.archivo ?? ''] ?? a.nombre })) })) })
+    for (const m of medios.values()) {
+      const unicas = [...new Map(m.apariciones.map((a) => [`${a.origen}|${a.contexto}|${a.fecha}|${a.titulo}`, a])).values()]
+      w({ t: 'medio', huella: m.huella, clase: m.clase, ext: m.ext, nombre: m.nombre, apariciones: unicas })
+    }
+    w({ t: 'fin' })
+  } finally {
+    fs.closeSync(fd)
+  }
+  fs.renameSync(`${paquete}.parcial`, paquete)
+  mas('chats', chats.length)
+  mas('medios', medios.size)
+  fs.writeFileSync(path.join(dir, 'medios.json'), JSON.stringify([...medios.values()].map((m) => ({ ...m, apariciones: [] }))))
+  log(`Listo: paquete de ${Math.round(fs.statSync(paquete).size / 1048576)} MB y ${medios.size} imágenes`)
+  return { lote, dir, paquete, medios: [...medios.values()], resumen }
+}
+
 
 // ─── subir ──────────────────────────────────────────────────────────────
 

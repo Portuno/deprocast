@@ -67,7 +67,7 @@ async function pintarCola() {
 const ESTADO_LOTE = { subiendo: 'subiendo desde la compu', ingiriendo: 'leyendo el paquete', procesando: 'escuchando, mirando y destilando', historia: 'armando la historia de cada proyecto', terminado: 'terminado', error: 'con error' }
 
 async function modalTakeout() {
-  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>🗂 Google Takeout</h2><div id="tk-cuerpo"><p class="tenue">Cargando…</p></div>`)
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>🗂 Importaciones · Google Takeout y ChatGPT</h2><div id="tk-cuerpo"><p class="tenue">Cargando…</p></div>`)
   const pintar = async () => {
     if (!$('#tk-cuerpo')) return
     let d
@@ -82,7 +82,7 @@ async function modalTakeout() {
     const dt = n(d.destilado, () => true)
     const dh = n(d.destilado, (x) => x.estado === 'hecho')
     $('#tk-cuerpo').innerHTML = !l
-      ? `<p>Todavía no subiste un Takeout. Desde la compu, con los zips en una carpeta:</p><pre>npm run mastro -- takeout "C:\ruta\a\takeout" ${esc(location.origin)}</pre><p class="tenue">La compu solo lee los zips y achica los medios; escuchar, mirar, destilar y armar la historia de cada proyecto lo hace Deprocast acá, sin gastar tu tope.</p>`
+      ? `<p>Todavía no importaste nada. Desde la compu, con la carpeta del Takeout (los zips) o la de la exportación de ChatGPT:</p><pre>npm run mastro -- takeout "C:\ruta\a\la\carpeta" ${esc(location.origin)}</pre><p class="tenue">La compu solo lee los zips y achica los medios; escuchar, mirar, destilar y armar la historia de cada proyecto lo hace Deprocast acá, sin gastar tu tope.</p>`
       : `<p><b>${esc(l.id)}</b> · ${esc(ESTADO_LOTE[l.estado] ?? l.estado)}${l.error ? ` · <span class="mal">${esc(l.error)}</span>` : ''}${d.trabajando ? ' · <span class="tenue">trabajando ahora</span>' : ''}</p>
         <div class="hud-fichas">${medios}<span class="hud-ficha"><small>🧪 Destilado</small><b>${dh}/${dt}</b><em>${n(d.destilado, (x) => x.estado === 'fallo') ? `${n(d.destilado, (x) => x.estado === 'fallo')} fallaron` : ''}</em></span></div>
         ${dt ? `<span class="hud-barra" style="margin:8px 0"><i style="width:${Math.round((dh / dt) * 100)}%"></i></span>` : ''}
@@ -116,8 +116,8 @@ async function modalTakeout() {
 
 /** El reproceso: cuánto va (pasajes, recuerdos, destilado, eventos, relaciones, crónicas), lo gastado y lo último destilado. */
 async function modalReproceso() {
-  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>♻ Reproceso</h2>
-    <p class="tenue">Deprocast relee todo tu archivo con los modelos de NaN: lo corta en pasajes para encontrar cualquier cosa, destila cada pieza (resumen, temas, ideas, decisiones, personas, lugares), saca los eventos con fecha para tu <a href="#" id="rp-linea">Línea</a> y las relaciones entre tu gente para el grafo. Corre en la nube, de fondo, hasta terminar.</p>
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>⚙ Procesar</h2>
+    <p class="tenue">Procesa por primera vez todo lo que entró a tu corpus y todavía no pasó por los modelos de NaN (y lo nuevo, a medida que entra): lo corta en pasajes para encontrar cualquier cosa, destila cada pieza (resumen, temas, ideas, decisiones, personas, lugares), saca los eventos con fecha para tu <a href="#" id="rp-linea">Línea</a> y las relaciones entre tu gente para el grafo. Corre en la nube, de fondo, hasta terminar. Lo que importás (Takeout, ChatGPT) se procesa solo al subirlo; acá se termina de procesar todo lo demás.</p>
     <div id="rp-cuerpo"><p class="tenue">Cargando…</p></div>`)
   $('#rp-linea').onclick = (e) => { e.preventDefault(); cerrarModal(); irA('linea') }
   const mill = (n) => (n >= 1e6 ? `${(n / 1e6).toLocaleString('es-AR', { maximumFractionDigits: 1 })} M` : n >= 1e3 ? `${Math.round(n / 1e3)} mil` : String(n))
@@ -129,7 +129,7 @@ async function modalReproceso() {
     const dTotal = d.destilado.hechos + d.destilado.pendientes
     const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0)
     cont.innerHTML = `
-      <p><b>${d.activo ? (d.trabajando ? 'Trabajando' : 'Prendido') : 'En pausa'}</b>${d.paso ? ` · <span class="tenue">${esc(d.paso)}</span>` : ''}</p>
+      <p><b>${d.activo ? (d.trabajando ? 'Procesando' : 'Prendido') : 'En pausa'}</b>${d.destilado.pendientes ? ` · ${d.destilado.pendientes} piezas sin procesar` : ' · todo procesado'}${d.paso ? ` · <span class="tenue">${esc(d.paso)}</span>` : ''}</p>
       <div class="hud-fichas">
         <span class="hud-ficha"><small>🔎 Pasajes</small><b>${d.pasajes.piezas}/${d.pasajes.total}</b><em>${mill(d.pasajes.pasajes)} pasajes</em></span>
         <span class="hud-ficha"><small>🧪 Destilado</small><b>${d.destilado.hechos}/${dTotal}</b><em>${d.destilado.fallos ? `${d.destilado.fallos} fallaron` : d.destilado.horasQueFaltan ? `~${d.destilado.horasQueFaltan} h más` : ''}</em></span>
@@ -140,9 +140,9 @@ async function modalReproceso() {
       </div>
       <span class="hud-barra" style="margin:10px 0 4px" title="Destilado"><i style="width:${pct(d.destilado.hechos, dTotal)}%"></i></span>
       <span class="hud-barra" style="margin:0 0 10px" title="Pasajes"><i style="width:${pct(d.pasajes.piezas, d.pasajes.total)}%"></i></span>
-      <div class="fila">${d.activo ? '<button class="btn" data-rp="pausar">Pausar</button>' : `<button class="btn btn-primario" data-rp="empezar" ${d.enLaNube ? '' : 'disabled title="Corre en la nube: prendelo desde tu Deprocast en la nube"'}>Empezar</button>`}
+      <div class="fila">${d.activo ? '<button class="btn" data-rp="pausar">Pausar</button>' : `<button class="btn btn-primario" data-rp="empezar" ${d.enLaNube ? '' : 'disabled title="Corre en la nube: prendelo desde tu Deprocast en la nube"'}>${d.destilado.hechos ? 'Procesar lo pendiente' : 'Procesar'}</button>`}
         ${d.destilado.fallos || d.pasajes.fallos ? '<button class="btn" data-rp="reintentar">Reintentar lo que falló</button>' : ''}</div>
-      ${d.enLaNube ? '' : '<p class="tenue chico">Esta es la copia de la compu: acá no se gasta nada. El reproceso se prende en la nube.</p>'}
+      ${d.enLaNube ? '' : '<p class="tenue chico">Esta es la copia de la compu: acá no se gasta nada. Se procesa desde la nube.</p>'}
       ${d.ultimos.length ? `<h3>Lo último que destiló</h3>${d.ultimos.map((u) => `<div class="sq"><span><a href="#" class="ref" data-pieza="${u.id}"><b>${esc(u.titulo.slice(0, 80))}</b></a><small>${esc(u.resumen)}</small></span></div>`).join('')}` : ''}`
     $$('[data-rp]', cont).forEach((b) => (b.onclick = async () => { try { await api('/reproceso', { accion: b.dataset.rp }); pintar() } catch (e) { error(e) } }))
     $$('[data-pieza]', cont).forEach((a) => (a.onclick = (e) => { e.preventDefault(); modalPieza(Number(a.dataset.pieza)) }))

@@ -185,3 +185,61 @@ test('takeout: de los zips a la nube — piezas con su fecha y su voz, medios qu
   assert.ok(conAna.n >= 2)
   assert.ok(nube.estadoTakeout(db).temas.length >= 1)
 })
+
+test('chatgpt: la exportación entra por el mismo camino — la rama que quedó, su voz transcripta, adjuntos, destilado situado y sin el chat grupal como su voz', async () => {
+  const carpeta = path.join(tmp, 'f347054d-2025-01-20-10-00-00-abc')
+  fs.mkdirSync(carpeta, { recursive: true })
+  const t = (s: string) => Date.parse(s) / 1000
+  const msg = (id: string, parent: string | null, role: string, cuando: string, content: any, metadata: any = {}) => ({ id, parent, children: [], message: { id, author: { role }, create_time: t(cuando), content, metadata } })
+  fs.writeFileSync(path.join(carpeta, 'conversations-000.json'), JSON.stringify([{
+    conversation_id: 'gpt-1', title: 'Plan para Faro', create_time: t('2024-06-01T10:00:00Z'), update_time: t('2024-06-01T11:00:00Z'), current_node: 'a2',
+    mapping: {
+      raiz: { id: 'raiz', parent: null, children: ['u1'], message: null },
+      u1: msg('u1', 'raiz', 'user', '2024-06-01T10:00:00Z', { content_type: 'multimodal_text', parts: ['Armame un plan para el Proyecto Faro con Ana', { content_type: 'image_asset_pointer', asset_pointer: 'file-service://file-DOC1' }] }, { attachments: [{ id: 'file-DOC1', name: 'notas.md' }] }),
+      vieja: msg('vieja', 'u1', 'assistant', '2024-06-01T10:01:00Z', { content_type: 'text', parts: ['RESPUESTA DESCARTADA'] }),
+      piensa: msg('piensa', 'u1', 'assistant', '2024-06-01T10:01:30Z', { content_type: 'thoughts', thoughts: [{ content: 'PENSAMIENTO INTERNO' }] }),
+      a1: msg('a1', 'piensa', 'assistant', '2024-06-01T10:02:00Z', { content_type: 'text', parts: [`Primero, un barrio piloto. ${'Después, sumar recorridos y gente del barrio. '.repeat(8)}`] }),
+      u2: msg('u2', 'a1', 'user', '2024-06-01T10:05:00Z', { content_type: 'multimodal_text', parts: [{ content_type: 'real_time_user_audio_video_asset_pointer' }, { content_type: 'audio_transcription', text: 'Dale, arrancamos por Ruzafa', direction: 'in' }] }),
+      a2: msg('a2', 'u2', 'assistant', '2024-06-01T10:05:10Z', { content_type: 'multimodal_text', parts: [{ content_type: 'audio_transcription', text: 'Perfecto, Ruzafa entonces.', direction: 'out' }, { content_type: 'audio_asset_pointer' }] }),
+    },
+  }]))
+  fs.writeFileSync(path.join(carpeta, 'group_chats.json'), JSON.stringify({ chats: [{ id: 'g1', name: 'Contrato', created_at: '2025-01-03T10:00:00Z', last_action_at: '2025-01-04T10:00:00Z', messages: [
+    { role: 'user', text: 'Necesitamos un contrato', created_at: '2025-01-03T10:00:00Z' }, { role: 'assistant', text: 'Acá va un modelo.', created_at: '2025-01-03T10:01:00Z' },
+  ] }] }))
+  fs.writeFileSync(path.join(carpeta, 'conversation_asset_file_names.json'), JSON.stringify({ 'file-DOC1.dat': 'notas.md' }))
+  fs.writeFileSync(path.join(carpeta, 'file-DOC1.dat'), '# Notas\nRecorridos por Ruzafa los domingos.')
+
+  const prep = await prepararTakeout(carpeta, { salida: path.join(tmp, 'compu-gpt') })
+  assert.equal(prep.lote, 'chatgpt-2025-01-20-10-00-00')
+  assert.equal(prep.medios.length, 1)
+
+  const db = abrir()
+  const paquete = fs.readFileSync(prep.paquete)
+  nube.recibirParte(prep.lote, 0, paquete)
+  nube.paqueteListo(db, prep.lote, paquete.length)
+  const ing = await nube.ingerirPaquete(db, prep.lote)
+  assert.equal(ing.chats, 2)
+  const chat = db.prepare(`SELECT * FROM corpus WHERE origen_id = 'takeout:chatgpt:gpt-1'`).get() as any
+  assert.deepEqual([chat.titulo, chat.fuente, chat.nivel, chat.fecha], ['ChatGPT · Plan para Faro', 'chatgpt-chats', 'investigacion', '2024-06-01'])
+  assert.match(chat.contenido, /\*\*Yo:\*\* Armame un plan[\s\S]*\[Adjuntos: notas\.md\][\s\S]*\*\*ChatGPT:\*\* Primero, un barrio piloto[\s\S]*\*\*Yo:\*\* Dale, arrancamos por Ruzafa[\s\S]*\*\*ChatGPT:\*\* Perfecto, Ruzafa/)
+  assert.doesNotMatch(chat.contenido, /RESPUESTA DESCARTADA|PENSAMIENTO INTERNO/, 'solo la rama que quedó, sin lo interno del modelo')
+  const yo = db.prepare(`SELECT * FROM corpus WHERE origen_id = 'takeout:chatgpt-yo:gpt-1'`).get() as any
+  assert.deepEqual([yo.nivel, yo.fuente], ['propia', 'chatgpt'])
+  assert.match(yo.contenido, /arrancamos por Ruzafa/, 'lo que dijo por voz es su voz')
+  assert.ok(db.prepare(`SELECT 1 FROM corpus WHERE origen_id = 'takeout:chatgpt:grupo-g1'`).get())
+  assert.ok(!db.prepare(`SELECT 1 FROM corpus WHERE origen_id = 'takeout:chatgpt-yo:grupo-g1'`).get(), 'del chat grupal no se sabe quién es él')
+
+  nube.recibirMedio(db, prep.lote, prep.medios[0].huella, prep.medios[0].ext, fs.readFileSync(prep.medios[0].ruta))
+  nube.cerrarLote(db, prep.lote)
+  const vistos: { sistema: string; usuario: string }[] = []
+  nube._probarTakeout({ destilar: async (_db, sistema, usuario) => { vistos.push({ sistema, usuario }); return { resumen: 'Planeó Faro con Ana.', valor: 2, temas: ['barrio piloto'], proyectos: [], personas: [{ nombre: 'Ana', rol: 'guía' }], ideas: [{ texto: 'Piloto en Ruzafa', proyecto: null }], decisiones: [], abierto: [], sobre_el: [] } } })
+  nube._probarHistoria(async () => ({ eras: [], hoy: null, cambios: null, ideas_para_revisar: [], pregunta: '' }))
+  await nube.trabajarTakeout(db)
+  const adj = db.prepare(`SELECT * FROM corpus WHERE origen_id LIKE 'takeout:medio:%' AND contenido LIKE '%Ruzafa los domingos%'`).get() as any
+  assert.equal(adj.fuente, 'chatgpt-adjuntos')
+  const delChat = vistos.find((v) => /Plan para Faro/.test(v.usuario))!
+  assert.match(delChat.sistema, /ChatGPT, la primera IA que usó/)
+  assert.match(delChat.usuario, /una conversación con ChatGPT[\s\S]*fecha 2024-06-01[\s\S]*Ruzafa los domingos/, 'situado en su fecha y con su adjunto')
+  assert.ok(db.prepare(`SELECT 1 FROM corpus WHERE titulo = 'Destilado · Plan para Faro'`).get())
+  assert.equal((db.prepare('SELECT estado FROM takeout_lotes WHERE id = ?').get(prep.lote) as any).estado, 'terminado')
+})

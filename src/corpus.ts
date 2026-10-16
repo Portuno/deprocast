@@ -149,7 +149,7 @@ export function insertar(db: Db, p: NuevaPieza, ahora = Date.now()): number | nu
  * mostrar el contenido directo. La etiqueta queda en la fuente y en el título guardado.
  */
 export function tituloLimpio(titulo: string): string {
-  const ETIQUETA = /^(lo que le dije a gemini|lo que le pregunt[eé] a notebooklm|chat en notebooklm|gemini|notebooklm|nota de voz|fuente|contexto|destilado|audio adjunto|audio|imagen|documento|nota|para hacer|historia de|tailored_report|slides|infographic|app|table|audio_overview|explainer_video|file|artefacto)\s*·\s*/i
+  const ETIQUETA = /^(lo que le dije a (?:gemini|chatgpt)|lo que le pregunt[eé] a notebooklm|chat en notebooklm|gemini|chatgpt|notebooklm|nota de voz|fuente|contexto|destilado|audio adjunto|audio|imagen|documento|nota|para hacer|historia de|tailored_report|slides|infographic|app|table|audio_overview|explainer_video|file|artefacto)\s*·\s*/i
   let t = titulo.trim()
   for (let i = 0; i < 3 && ETIQUETA.test(t); i++) t = t.replace(ETIQUETA, '')
   return t || titulo

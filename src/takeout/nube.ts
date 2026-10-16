@@ -44,6 +44,9 @@ const FUENTES = {
   yo: { id: 'gemini', nombre: 'Gemini', nivel: 'propia', descripcion: 'Lo que le dijiste a Gemini (tu voz).' },
   adjuntos: { id: 'gemini-adjuntos', nombre: 'Gemini · adjuntos', nivel: 'primaria', descripcion: 'Lo que le pasaste a Gemini: imágenes descritas, audios transcriptos, documentos leídos.' },
   nlm: { id: 'notebooklm', nombre: 'NotebookLM', nivel: 'investigacion', descripcion: 'Tus cuadernos de NotebookLM, cada uno como un contexto con sus fuentes, notas, chats y artefactos.' },
+  gpt: { id: 'chatgpt-chats', nombre: 'ChatGPT · conversaciones', nivel: 'investigacion', descripcion: 'Tus charlas con ChatGPT (la primera IA que usaste), una pieza por conversación, con sus fechas.' },
+  gptYo: { id: 'chatgpt', nombre: 'ChatGPT', nivel: 'propia', descripcion: 'Lo que le dijiste a ChatGPT (tu voz), escrito o por voz.' },
+  gptAdjuntos: { id: 'chatgpt-adjuntos', nombre: 'ChatGPT · adjuntos', nivel: 'primaria', descripcion: 'Lo que le pasaste a ChatGPT: imágenes descritas y documentos leídos.' },
   destilado: { id: 'takeout-destilado', nombre: 'Takeout · destilado', nivel: 'investigacion', descripcion: 'Lo que Mastropiero destiló de cada conversación, nota de voz y cuaderno, situado en su fecha.' },
   historia: { id: 'takeout-historia', nombre: 'Historia de proyectos', nivel: 'investigacion', descripcion: 'Cada proyecto por eras: cómo era, qué cambió e ideas viejas que valdría mirar hoy.' },
 } as const
@@ -60,7 +63,9 @@ export const claveDe = (s: string) => s.toLowerCase().normalize('NFD').replace(/
 
 // ─── lotes ──────────────────────────────────────────────────────────────
 
-export type Aparicion = { origen: 'gemini' | 'notebooklm'; contexto: string; titulo: string; fecha: string | null; nivel: string; rol: string }
+export type Aparicion = { origen: 'gemini' | 'notebooklm' | 'chatgpt'; contexto: string; titulo: string; fecha: string | null; nivel: string; rol: string }
+/** Cómo se llama cada IA de donde vino algo. */
+const IA: Record<string, string> = { gemini: 'Gemini', notebooklm: 'NotebookLM', chatgpt: 'ChatGPT' }
 
 function lote(db: Db, id: string, ahora = Date.now()) {
   db.prepare(`INSERT OR IGNORE INTO takeout_lotes (id, estado, creado_en) VALUES (?, 'subiendo', ?)`).run(id, ahora)
@@ -125,7 +130,7 @@ export async function ingerirPaquete(db: Db, lote_: string, ahora = Date.now()):
     for await (const linea of lineasDe(rutaPaquete(lote_))) {
       if (!linea.trim()) continue
       const x = JSON.parse(linea)
-      if (x.t === 'gemini') ingerirChat(db, lote_, x, ahora) && mas('chats')
+      if (x.t === 'gemini' || x.t === 'chatgpt') ingerirChat(db, lote_, x, ahora, x.t) && mas('chats')
       else if (x.t === 'cuaderno') {
         const fuente = fuenteCuaderno(db, x.carpeta, x.titulo)
         const overview = ingerirCuaderno(db, lote_, fuente, x, ahora)
@@ -171,22 +176,25 @@ export function encolarDestilado(db: Db, lote_: string, piezaId: number, priorid
 
 type TurnoPaquete = { cuando: number; prompt: string; respuesta: string; adjuntos: { huella: string | null; nombre: string }[] }
 
-function ingerirChat(db: Db, lote_: string, x: { id: string; titulo: string; desde: number; hasta: number; turnos: TurnoPaquete[] }, ahora: number): boolean {
+function ingerirChat(db: Db, lote_: string, x: { id: string; titulo: string; desde: number; hasta: number; grupo?: boolean; turnos: TurnoPaquete[] }, ahora: number, origen: 'gemini' | 'chatgpt' = 'gemini'): boolean {
+  const ia = IA[origen]
+  const [fChats, fYo] = origen === 'chatgpt' ? [FUENTES.gpt, FUENTES.gptYo] : [FUENTES.chats, FUENTES.yo]
   const cuerpo = x.turnos.map((t) => [
     `## ${hora(t.cuando)}`,
-    t.prompt ? `**Yo:** ${t.prompt}` : '',
+    t.prompt ? `**${x.grupo ? 'Participante' : 'Yo'}:** ${t.prompt}` : '',
     t.adjuntos.length ? `[Adjuntos: ${t.adjuntos.map((a) => a.nombre).join(', ')}]` : '',
-    t.respuesta ? `**Gemini:** ${t.respuesta}` : '',
+    t.respuesta ? `**${ia}:** ${t.respuesta}` : '',
   ].filter(Boolean).join('\n\n')).join('\n\n')
   const fecha = diaDe(x.desde)
-  const meta = { takeout: lote_, chat: x.id, desde: x.desde, hasta: x.hasta, turnos: x.turnos.length }
+  const meta = { takeout: lote_, chat: x.id, ia, origen, desde: x.desde, hasta: x.hasta, turnos: x.turnos.length, ...(x.grupo ? { grupo: true } : {}) }
   const c = pieza(db, {
-    fuente: FUENTES.chats.id, nivel: 'investigacion', titulo: `Gemini · ${x.titulo}`, fecha, etiquetas: ['gemini', 'takeout'],
-    contenido: `Conversación con Gemini · ${hora(x.desde)} → ${hora(x.hasta)} · ${x.turnos.length} pedidos\n\n${cuerpo}`, origenId: `takeout:gemini:${x.id}`, meta,
+    fuente: fChats.id, nivel: 'investigacion', titulo: `${ia} · ${x.titulo}`, fecha, etiquetas: [origen, 'takeout'],
+    contenido: `${x.grupo ? 'Chat grupal' : 'Conversación'} con ${ia} · ${hora(x.desde)} → ${hora(x.hasta)} · ${x.turnos.length} pedidos\n\n${cuerpo}`, origenId: `takeout:${origen}:${x.id}`, meta,
   }, ahora)
-  aparicion(db, c.id, { origen: 'gemini', contexto: x.id, titulo: x.titulo, fecha })
-  const yo = x.turnos.filter((t) => t.prompt.trim()).map((t) => `[${hora(t.cuando)}] ${t.prompt}`)
-  if (yo.length) pieza(db, { fuente: FUENTES.yo.id, nivel: 'propia', titulo: `Lo que le dije a Gemini · ${x.titulo}`, fecha, contenido: yo.join('\n\n'), etiquetas: ['gemini', 'takeout'], origenId: `takeout:gemini-yo:${x.id}`, meta }, ahora)
+  aparicion(db, c.id, { origen, contexto: x.id, titulo: x.titulo, fecha })
+  // Lo que dijo él (en un chat grupal no se sabe quién de los participantes es: no entra como su voz).
+  const yo = x.grupo ? [] : x.turnos.filter((t) => t.prompt.trim()).map((t) => `[${hora(t.cuando)}] ${t.prompt}`)
+  if (yo.length) pieza(db, { fuente: fYo.id, nivel: 'propia', titulo: `Lo que le dije a ${ia} · ${x.titulo}`, fecha, contenido: yo.join('\n\n'), etiquetas: [origen, 'takeout'], origenId: `takeout:${origen}-yo:${x.id}`, meta }, ahora)
   if (cuerpo.length > 300) encolarDestilado(db, lote_, c.id, 0)
   return c.nueva
 }
@@ -341,7 +349,7 @@ async function procesarMedio(db: Db, m: any, ahora: number): Promise<number | nu
     if (!contenido) throw new Error('No había voz que transcribir')
   } else if (m.clase === 'imagen') {
     const mime = m.ext === 'png' ? 'image/png' : m.ext === 'webp' ? 'image/webp' : 'image/jpeg'
-    const contexto = primera ? `${primera.origen === 'gemini' ? `La adjuntó en una charla con Gemini («${primera.titulo}»)` : `La generó NotebookLM en el cuaderno «${primera.contexto}» («${primera.titulo}»)`}${primera.fecha ? `, el ${primera.fecha}` : ''}.` : ''
+    const contexto = primera ? `${primera.origen === 'notebooklm' ? `La generó NotebookLM en el cuaderno «${primera.contexto}» («${primera.titulo}»)` : `La adjuntó en una charla con ${IA[primera.origen]} («${primera.titulo}»)`}${primera.fecha ? `, el ${primera.fecha}` : ''}.` : ''
     const crudo = await ver(db, fs.readFileSync(m.ruta), mime, SISTEMA_IMAGEN, `${contexto} Devolvé solo el JSON.`)
     const d = leerJson<any>(crudo) ?? { descripcion: crudo }
     contenido = [d.descripcion ? String(d.descripcion) : '', d.texto_visible ? `[Texto en la imagen]\n${d.texto_visible}` : ''].filter(Boolean).join('\n\n')
@@ -353,13 +361,14 @@ async function procesarMedio(db: Db, m: any, ahora: number): Promise<number | nu
     if (contenido.length < 20) throw new Error('El documento no tenía texto que leer')
   }
   const enNlm = aps.find((a) => a.origen === 'notebooklm')
-  const fuente = enNlm ? fuenteCuaderno(db, enNlm.contexto, enNlm.contexto) : FUENTES.adjuntos.id
+  const deGpt = aps.some((a) => a.origen === 'chatgpt') && !aps.some((a) => a.origen === 'gemini')
+  const fuente = enNlm ? fuenteCuaderno(db, enNlm.contexto, enNlm.contexto) : deGpt ? FUENTES.gptAdjuntos.id : FUENTES.adjuntos.id
   const nivel = nivelDe(aps, enNlm ? 'generada' : 'primaria')
   const nombreTipo = m.clase === 'audio' ? (enNlm ? 'Audio' : 'Audio adjunto') : m.clase === 'imagen' ? 'Imagen' : 'Documento'
-  const donde = aps.length ? `\n\n— ${aps.length === 1 ? 'Apareció' : `Apareció ${aps.length} veces`}: ${aps.slice(0, 8).map((a) => `${a.origen === 'gemini' ? 'Gemini' : 'NotebookLM'} «${a.titulo}»${a.fecha ? ` (${a.fecha})` : ''}`).join('; ')}` : ''
+  const donde = aps.length ? `\n\n— ${aps.length === 1 ? 'Apareció' : `Apareció ${aps.length} veces`}: ${aps.slice(0, 8).map((a) => `${IA[a.origen] ?? a.origen} «${a.titulo}»${a.fecha ? ` (${a.fecha})` : ''}`).join('; ')}` : ''
   const p = pieza(db, {
     fuente, nivel, titulo: `${nombreTipo} · ${m.tituloVisto ?? titulo}`.slice(0, 300), fecha, contenido: contenido + donde,
-    etiquetas: ['takeout', etiqueta, ...(enNlm ? ['notebooklm'] : ['gemini'])], origenId: `takeout:medio:${m.huella}`,
+    etiquetas: ['takeout', etiqueta, ...(enNlm ? ['notebooklm'] : deGpt ? ['chatgpt'] : ['gemini'])], origenId: `takeout:medio:${m.huella}`,
     meta: { takeout: m.lote, huella: m.huella, archivo: m.nombre, clase: m.clase, apariciones: aps.length },
   }, ahora)
   for (const a of aps) aparicion(db, p.id, { origen: a.origen, contexto: a.contexto, titulo: a.titulo, fecha: a.fecha })
@@ -371,6 +380,9 @@ async function procesarMedio(db: Db, m: any, ahora: number): Promise<number | nu
 // ─── 3. destilado ───────────────────────────────────────────────────────
 
 const DE_TAKEOUT = 'el archivo de un año del jugador: sus charlas con Gemini, sus notas de voz y sus cuadernos de NotebookLM'
+const DE_CHATGPT = 'sus charlas con ChatGPT, la primera IA que usó (desde 2024: lo más viejo de su archivo; lo que diga ahí puede haber cambiado mucho)'
+/** Qué archivo se está leyendo, según el lote. */
+const deQue = (lote_: string) => (lote_ === REPROCESO ? DE_ARCHIVO : lote_.startsWith('chatgpt-') ? DE_CHATGPT : DE_TAKEOUT)
 export const DE_ARCHIVO = 'el archivo personal del jugador: lo que escribió y dijo, sus audios, sus charlas y lo que fue guardando'
 const SISTEMA_DESTILADO = (yo: string, de = DE_TAKEOUT) => `Sos Mastropiero y estás leyendo ${de} (${yo}). Lo hacés para conocerlo mejor, para que cada proyecto sepa su historia y para armar su línea de tiempo.
 Leés UNA unidad que tiene FECHA. Todo lo que extraigas es de ESE momento, no de hoy: un proyecto pudo cambiar mucho desde entonces.
@@ -441,7 +453,7 @@ function catalogo(db: Db): { texto: string; buscar: (nombre: string) => { id: nu
 function textoDeUnidad(db: Db, p: { id: number; titulo: string; contenido: string; fuente: string; meta: any }): string {
   const meta = p.meta ?? {}
   if (meta.chat) {
-    const adj = db.prepare(`SELECT c.titulo, c.contenido FROM takeout_apariciones a JOIN corpus c ON c.id = a.pieza_id WHERE a.origen = 'gemini' AND a.contexto = ? AND c.id != ? AND c.origen_id LIKE 'takeout:medio:%'`).all(meta.chat, p.id) as { titulo: string; contenido: string }[]
+    const adj = db.prepare(`SELECT c.titulo, c.contenido FROM takeout_apariciones a JOIN corpus c ON c.id = a.pieza_id WHERE a.origen IN ('gemini', 'chatgpt') AND a.contexto = ? AND c.id != ? AND c.origen_id LIKE 'takeout:medio:%'`).all(meta.chat, p.id) as { titulo: string; contenido: string }[]
     return [p.contenido, ...adj.map((a) => `\n### ${a.titulo}\n${a.contenido.slice(0, 3000)}`)].join('\n')
   }
   if (meta.cuaderno && p.titulo.startsWith('Contexto · ')) {
@@ -482,11 +494,11 @@ export async function destilarUnidad(db: Db, fila: { pieza_id: number; lote: str
   const cat = catalogo(db)
   const yo = personaje(db, 'jugador').nombre
   const deArchivo = fila.lote === REPROCESO
-  const origen = p.meta?.chat ? 'una conversación con Gemini' : p.titulo.startsWith('Contexto · ') ? 'el contexto entero de un cuaderno de NotebookLM (sus fuentes, notas, chats y lo que generó)' : deArchivo ? origenDe(p) : p.nivel === 'propia' ? 'una nota de voz suya (transcripta)' : 'una pieza de su archivo'
+  const origen = p.meta?.chat ? `${p.meta.grupo ? 'un chat grupal' : 'una conversación'} con ${p.meta.ia ?? 'Gemini'}` : p.titulo.startsWith('Contexto · ') ? 'el contexto entero de un cuaderno de NotebookLM (sus fuentes, notas, chats y lo que generó)' : deArchivo ? origenDe(p) : p.nivel === 'propia' ? 'una nota de voz suya (transcripta)' : 'una pieza de su archivo'
   const tramos = tramosDeTexto(textoDeUnidad(db, p))
   const salidas: any[] = []
   for (const [i, t] of tramos.entries()) {
-    salidas.push(await destilar(db, SISTEMA_DESTILADO(yo, deArchivo ? DE_ARCHIVO : DE_TAKEOUT), `Unidad: ${origen} · «${p.titulo}» · fecha ${p.fecha ?? 'sin fecha'}${tramos.length > 1 ? ` · tramo ${i + 1} de ${tramos.length}` : ''}\n\nCatálogo de entidades que ya conoce:\n${cat.texto || '(vacío)'}\n\nTexto:\n${t}`, deArchivo ? 'reproceso' : 'takeout'))
+    salidas.push(await destilar(db, SISTEMA_DESTILADO(yo, deQue(fila.lote)), `Unidad: ${origen} · «${p.titulo}» · fecha ${p.fecha ?? 'sin fecha'}${tramos.length > 1 ? ` · tramo ${i + 1} de ${tramos.length}` : ''}\n\nCatálogo de entidades que ya conoce:\n${cat.texto || '(vacío)'}\n\nTexto:\n${t}`, deArchivo ? 'reproceso' : 'takeout'))
   }
   const d = juntarDestilados(salidas)
   guardarDestilado(db, fila, p, d, cat, ahora)
@@ -531,7 +543,7 @@ function guardarDestilado(db: Db, fila: { pieza_id: number; lote: string }, p: a
   ].filter(Boolean).join('\n\n')
   asegurarFuente(db, FUENTES.destilado)
   const dest = pieza(db, {
-    fuente: FUENTES.destilado.id, nivel: 'investigacion', titulo: `Destilado · ${p.titulo.replace(/^(Gemini|Contexto|Nota de voz|Audio adjunto) · /, '')}`.slice(0, 300), fecha: p.fecha,
+    fuente: FUENTES.destilado.id, nivel: 'investigacion', titulo: `Destilado · ${p.titulo.replace(/^(Gemini|ChatGPT|Contexto|Nota de voz|Audio adjunto) · /, '')}`.slice(0, 300), fecha: p.fecha,
     contenido: cuerpo, etiquetas: [...(fila.lote === REPROCESO ? [] : ['takeout']), 'destilado', ...d.temas.slice(0, 6)], entidades, origenId: `takeout:destilado:${p.id}`,
     meta: { takeout: fila.lote, de: p.id, valor: d.valor },
   }, ahora)
@@ -539,7 +551,7 @@ function guardarDestilado(db: Db, fila: { pieza_id: number; lote: string }, p: a
 
   // El pulso: cada tema, con la fecha en que apareció.
   const pulso = db.prepare('INSERT OR IGNORE INTO temas_pulso (clave, tema, fecha, pieza_id, origen) VALUES (?, ?, ?, ?, ?)')
-  for (const t of d.temas) pulso.run(claveDe(t), t, p.fecha ?? null, p.id, fila.lote === REPROCESO ? p.fuente : p.meta?.chat ? 'gemini' : 'notebooklm')
+  for (const t of d.temas) pulso.run(claveDe(t), t, p.fecha ?? null, p.id, fila.lote === REPROCESO ? p.fuente : p.meta?.chat ? (p.meta.origen ?? 'gemini') : 'notebooklm')
 
   // La línea temporal y el grafo: los eventos con fecha y las relaciones entre personas.
   const buscar = (n: string) => cat.buscar(n)
@@ -648,7 +660,7 @@ function mapaDelAno(db: Db, lote_: string, ahora: number) {
   asegurarFuente(db, FUENTES.historia)
   pieza(db, {
     fuente: FUENTES.historia.id, nivel: 'investigacion', titulo: 'Mapa del año · los temas que más volvieron', fecha: fechaLocal(ahora),
-    contenido: `Los temas que más tocaste en Gemini y NotebookLM, cuántas veces y en qué meses.\n\n${filas.map(linea).join('\n')}`,
+    contenido: `Los temas que más tocaste en tus charlas con IA (${lote_.startsWith('chatgpt-') ? 'ChatGPT' : 'Gemini y NotebookLM'}), cuántas veces y en qué meses.\n\n${filas.map(linea).join('\n')}`,
     etiquetas: ['takeout', 'mapa', 'pulso'], origenId: `takeout:mapa:${lote_}`, meta: { takeout: lote_ },
   }, ahora)
 }
