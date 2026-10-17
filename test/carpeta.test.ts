@@ -66,6 +66,9 @@ test('carpeta: con sus reglas entra por el mismo camino — texto sacado en la c
   const resumen = `# Faro: dónde estamos\n\n${'El mapa por capas avanza: lugares, recorridos e historias del barrio. '.repeat(8)}`
   f('Bot_faro_resumen_1409.md', resumen)
   f('faro/copia del resumen.md', resumen)
+  f('Bot_semana_agenda_1409.md', `# Agenda de la semana
+
+${'Lunes reunión, martes taller, miércoles piloto. '.repeat(8)}`)
   const notas = `Notas sueltas del piloto.\n\n${'Probar el recorrido del domingo con la gente del barrio. '.repeat(8)}`
   f('faro/notas 2026-03-02.txt', notas)
   f('faro/datos.csv', `lugar,visitas\n${Array.from({ length: 30 }, (_, i) => `plaza ${i},${i * 3}`).join('\n')}`)
@@ -99,11 +102,12 @@ test('carpeta: con sus reglas entra por el mismo camino — texto sacado en la c
   nube.recibirParte(prep.lote, 0, paquete)
   nube.paqueteListo(db, prep.lote, paquete.length)
   const ing = await nube.ingerirPaquete(db, prep.lote)
-  assert.equal(ing.docs, 5)
-  assert.equal(ing.docs_nuevos, 5)
+  assert.equal(ing.docs, 6)
+  assert.equal(ing.docs_nuevos, 6)
   const bot = db.prepare(`SELECT * FROM corpus WHERE titulo = 'Bot_faro_resumen_1409'`).get() as any
   assert.deepEqual([bot.nivel, bot.fecha, bot.autor, bot.fuente], ['investigacion', '2026-09-14', 'Bot', 'carpeta-pruebas-faro'], 'lo que armó el bot, con su fecha, su autor y su proyecto')
   assert.equal((db.prepare(`SELECT padre_id FROM fuentes WHERE id = 'carpeta-pruebas-faro'`).get() as any).padre_id, 'carpeta-pruebas')
+  assert.equal((db.prepare(`SELECT fuente FROM corpus WHERE titulo = 'Bot_semana_agenda_1409'`).get() as any).fuente, 'carpeta-pruebas', 'sin una carpeta «semana», va a la raíz y no inventa un proyecto')
   const nota = db.prepare(`SELECT * FROM corpus WHERE titulo = 'notas 2026-03-02'`).get() as any
   assert.deepEqual([nota.nivel, nota.fecha], ['primaria', '2026-03-02'])
   const csv = db.prepare(`SELECT id FROM corpus WHERE titulo = 'datos'`).get() as any
@@ -115,7 +119,7 @@ test('carpeta: con sus reglas entra por el mismo camino — texto sacado en la c
   nube.recibirParte(prep.lote, 0, paquete)
   const otra = await nube.ingerirPaquete(db, prep.lote)
   assert.equal(otra.docs_nuevos ?? 0, 0)
-  assert.equal((db.prepare(`SELECT COUNT(*) AS n FROM corpus WHERE origen_id LIKE 'carpeta:texto:%'`).get() as any).n, 5)
+  assert.equal((db.prepare(`SELECT COUNT(*) AS n FROM corpus WHERE origen_id LIKE 'carpeta:texto:%'`).get() as any).n, 6)
 
   // Una página de su libreta (un medio de la carpeta): se describe con su contexto, es su voz y se destila sola.
   const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(3000, 1)])

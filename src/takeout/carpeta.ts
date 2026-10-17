@@ -167,10 +167,12 @@ export async function prepararCarpeta(carpeta: string, o: { salida?: string; log
   const autorRe = reglas.autor ? new RegExp(reglas.autor) : null
   const proyectoRe = reglas.proyectoDelNombre ? new RegExp(reglas.proyectoDelNombre) : null
   const nivelDe = (rel: string) => (algun(propia, rel) ? 'propia' : algun(investigacion, rel) ? 'investigacion' : algun(generada, rel) ? 'generada' : 'primaria')
+  // Un archivo suelto en la raíz va al proyecto que dice su nombre solo si hay una carpeta con ese nombre (si no, a la raíz).
+  const carpetas = new Map(fs.readdirSync(carpeta, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => [d.name.toLowerCase(), d.name]))
   const proyectoDe = (rel: string) => {
     const partes = rel.split('/')
     if (partes.length > 1) return partes[0]
-    return proyectoRe?.exec(partes[0])?.[1]?.toLowerCase() ?? null
+    return carpetas.get(proyectoRe?.exec(partes[0])?.[1]?.toLowerCase() ?? '') ?? null
   }
 
   const { archivos, zips } = recorrer(carpeta, excluir, reglas.zips !== false, (rel) => anotar('excluido', rel))
