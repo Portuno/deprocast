@@ -774,13 +774,27 @@ export async function destilarImportadoSiguiente(db: Db): Promise<boolean> {
   return true
 }
 
-/** Cuánto le falta a lo importado (para que el Procesar lo muestre). */
-export function importadoPendiente(db: Db): { destilado: number; hechos: number; medios: number } {
-  const n = (sql: string) => (db.prepare(sql).get() as { n: number }).n
+/** Cómo se llama un lote para la pantalla. */
+export const nombreDeLote = (id: string) => (id.startsWith('carpeta-') ? id.slice(8).replace(/-\d{8}$/, '').replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase()) : id.startsWith('chatgpt-') ? 'ChatGPT' : 'Google Takeout (Gemini y NotebookLM)')
+
+type Avance = { hechos: number; total: number; porHora: number; fallos: number }
+export type LoteEnCurso = { id: string; nombre: string; estado: string; medios: Avance; destilado: Avance }
+
+/** Cuánto le falta a lo importado (para que el Procesar lo muestre): en total y por cada lote que no terminó. */
+export function importadoPendiente(db: Db, ahora = Date.now()): { destilado: number; hechos: number; medios: number; lotes: LoteEnCurso[] } {
+  const n = (sql: string, ...a: (string | number)[]) => (db.prepare(sql).get(...a) as { n: number }).n
+  const hora = ahora - 3_600_000
+  const avance = (tabla: string, lote_: string): Avance => {
+    const r = db.prepare(`SELECT SUM(estado = 'hecho') AS hechos, SUM(estado IN ('hecho', 'pendiente', 'procesando', 'esperando')) AS total, SUM(estado = 'fallo') AS fallos, SUM(estado = 'hecho' AND hecho_en >= ?) AS porHora FROM ${tabla} WHERE lote = ?`).get(hora, lote_) as any
+    return { hechos: r?.hechos ?? 0, total: r?.total ?? 0, porHora: r?.porHora ?? 0, fallos: r?.fallos ?? 0 }
+  }
+  const lotes = (db.prepare(`SELECT id, estado FROM takeout_lotes WHERE estado != 'terminado' ORDER BY creado_en`).all() as { id: string; estado: string }[])
+    .map((l) => ({ id: l.id, nombre: (db.prepare('SELECT nombre FROM fuentes WHERE id = ?').get(l.id.replace(/-\d{8}$/, '')) as { nombre: string } | undefined)?.nombre ?? nombreDeLote(l.id), estado: l.estado, medios: avance('takeout_medios', l.id), destilado: avance('takeout_destilado', l.id) }))
   return {
     destilado: n(`SELECT COUNT(*) AS n FROM takeout_destilado WHERE lote != '${REPROCESO}' AND estado IN ('pendiente', 'procesando')`),
     hechos: n(`SELECT COUNT(*) AS n FROM takeout_destilado WHERE lote != '${REPROCESO}' AND estado = 'hecho'`),
     medios: n(`SELECT COUNT(*) AS n FROM takeout_medios WHERE estado IN ('pendiente', 'procesando')`),
+    lotes,
   }
 }
 

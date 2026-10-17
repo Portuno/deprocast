@@ -33,7 +33,8 @@ const fallo = (db: Db, pieza: number, paso: string, e: unknown) =>
   db.prepare(`INSERT INTO reproceso_fallos (pieza_id, paso, intentos, error) VALUES (?, ?, 1, ?) ON CONFLICT (pieza_id, paso) DO UPDATE SET intentos = intentos + 1, error = excluded.error`)
     .run(pieza, paso, e instanceof Error ? e.message.slice(0, 400) : String(e).slice(0, 400))
 
-const estado = { trabajando: false, paso: '' }
+/** paso: el detalle (p. ej. la crónica de qué mes); carriles: qué hace cada carril ahora (para decir «ahora está…»). */
+const estado = { trabajando: false, paso: '', carriles: [] as string[] }
 const tomadas = new Set<number>() // piezas que un carril ya agarró para pasajes (que otro no las repita)
 let enSintesis = false
 let enItems = false
@@ -126,6 +127,8 @@ async function hacerSintesis(db: Db): Promise<boolean> {
 }
 
 const CARRILES = 4
+/** Qué paso de la pantalla es cada cosa que hace un carril. */
+const QUE_HACE = new Map<(db: Db) => Promise<boolean>, string>([[hacerPasajes, 'pasajes'], [hacerItems, 'recuerdos'], [hacerDestilado, 'destilado'], [hacerImportado, 'importado']])
 
 /** Trabaja hasta que no quede nada o se pause. Si ya anda, no hace nada. */
 export async function trabajarReproceso(db: Db): Promise<void> {
@@ -145,13 +148,26 @@ export async function trabajarReproceso(db: Db): Promise<void> {
         const pasos = carril === 0 ? [hacerPasajes, hacerItems, hacerDestilado]
           : conImportado && carril <= 2 ? [hacerImportado, hacerDestilado, hacerPasajes]
           : [hacerDestilado, hacerPasajes]
-        for (const paso of pasos) if (await paso(db).catch((e) => { console.error('  reproceso:', e instanceof Error ? e.message : e); return false })) return true
-        return false
+        try {
+          for (const paso of pasos) {
+            estado.carriles[carril] = QUE_HACE.get(paso) ?? ''
+            if (await paso(db).catch((e) => { console.error('  reproceso:', e instanceof Error ? e.message : e); return false })) return true
+          }
+          return false
+        } finally {
+          estado.carriles[carril] = ''
+        }
       }))
-      if (!hizo.some(Boolean) && !(await hacerSintesis(db).catch(() => false))) { estado.paso = 'al día'; break }
+      if (!hizo.some(Boolean)) {
+        estado.carriles = ['sintesis']
+        const sintetizo = await hacerSintesis(db).catch(() => false)
+        estado.carriles = []
+        if (!sintetizo) { estado.paso = 'al día'; break }
+      }
     }
   } finally {
     estado.trabajando = false
+    estado.carriles = []
   }
 }
 
@@ -165,6 +181,8 @@ export function estadoReproceso(db: Db, ahora = Date.now()) {
   const t = tokensReproceso(db, ahora)
   return {
     activo: ajuste(db, 'reproceso_activo') === '1', enLaNube: enLaNube(), trabajando: estado.trabajando, paso: estado.paso,
+    // Qué se está haciendo en este momento: los carriles del Procesar y, si anda, el obrero del Takeout (imágenes, audios, destilado de lo importado).
+    ahora: [...new Set([...estado.carriles.filter(Boolean), ...(takeoutTrabajando() ? ['takeout'] : [])])],
     pasajes: { piezas: n('SELECT COUNT(DISTINCT pieza_id) AS n FROM pasajes'), total: n('SELECT COUNT(*) AS n FROM corpus'), pasajes: n('SELECT COUNT(*) AS n FROM pasajes'), fallos: n(`SELECT COUNT(*) AS n FROM reproceso_fallos WHERE paso = 'pasajes' AND intentos >= 3`) },
     items: {
       hechos: n('SELECT COUNT(*) AS n FROM vec_items'),
@@ -175,7 +193,7 @@ export function estadoReproceso(db: Db, ahora = Date.now()) {
     eventos: n('SELECT COUNT(*) AS n FROM eventos'), relaciones: n(`SELECT COUNT(*) AS n FROM conexiones WHERE origen LIKE 'destilado:%'`),
     cronicas: n(`SELECT COUNT(*) AS n FROM corpus WHERE origen_id LIKE 'linea:mes:%'`),
     tokens: { hoy: t.hoy, total: t.total },
-    importado: importadoPendiente(db),
+    importado: importadoPendiente(db, ahora),
     ultimos: (db.prepare(`SELECT d.pieza_id AS id, c.titulo, d.salida, d.hecho_en FROM takeout_destilado d JOIN corpus c ON c.id = d.pieza_id WHERE d.lote = ? AND d.estado = 'hecho' ORDER BY d.hecho_en DESC LIMIT 6`).all(REPROCESO) as any[])
       .map((r) => ({ id: r.id, titulo: r.titulo, resumen: String(json<any>(r.salida, {})?.resumen ?? '').slice(0, 300), en: r.hecho_en })),
   }

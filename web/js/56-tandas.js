@@ -120,7 +120,7 @@ async function modalTakeout() {
 /** El reproceso: cuánto va (pasajes, recuerdos, destilado, eventos, relaciones, crónicas), lo gastado y lo último destilado. */
 async function modalReproceso() {
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>⚙ Procesar</h2>
-    <p class="tenue">Procesa por primera vez todo lo que entró a tu corpus y todavía no pasó por los modelos de NaN (y lo nuevo, a medida que entra): lo corta en pasajes para encontrar cualquier cosa, destila cada pieza (resumen, temas, ideas, decisiones, personas, lugares), saca los eventos con fecha para tu <a href="#" id="rp-linea">Línea</a> y las relaciones entre tu gente para el grafo. Corre en la nube, de fondo, hasta terminar. Lo que importás (Takeout, ChatGPT) se procesa solo al subirlo; acá se termina de procesar todo lo demás.</p>
+    <p class="tenue">Pasa tu corpus por los modelos de NaN, en la nube y de fondo: lo corta en pasajes para buscar, lo destila y saca eventos para tu <a href="#" id="rp-linea">Línea</a> y relaciones para el grafo. Lo que importás se procesa solo al subirlo.</p>
     <div id="rp-cuerpo"><p class="tenue">Cargando…</p></div>`)
   $('#rp-linea').onclick = (e) => { e.preventDefault(); cerrarModal(); irA('linea') }
   const mill = (n) => (n >= 1e6 ? `${(n / 1e6).toLocaleString('es-AR', { maximumFractionDigits: 1 })} M` : n >= 1e3 ? `${Math.round(n / 1e3)} mil` : String(n))
@@ -129,25 +129,78 @@ async function modalReproceso() {
     if (!cont) return
     let d
     try { d = await api('/reproceso') } catch (e) { cont.innerHTML = `<p class="tenue">${esc(e.message)}</p>`; return }
+    const fmt = (n) => Number(n || 0).toLocaleString('es-AR')
+    const pct = (a, b) => (b ? Math.min(100, Math.floor((a / b) * 100)) : 100)
+    // Cuánto falta, en minutos u horas, al ritmo de la última hora.
+    const eta = (faltan, porHora) => (!faltan || !porHora ? '' : faltan / porHora < 1 ? `~${Math.max(1, Math.round((faltan / porHora) * 60))} min` : `~${Math.ceil(faltan / porHora)} h`)
+    const ahora = new Set(d.ahora || [])
+    const lotes = d.importado?.lotes || []
+    const mediosPend = lotes.reduce((t, l) => t + (l.medios.total - l.medios.hechos), 0)
     const dTotal = d.destilado.hechos + d.destilado.pendientes
-    const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0)
+    const itemsTotal = d.items.hechos + d.items.faltan
+
+    /** Un paso: qué es, cuánto va (escrito entero) y en qué está: ahora, listo, en cola o esperando a otro. */
+    const paso = ({ icono, titulo, que, hechos, total, unidad, activo, espera, nota }) => {
+      const listo = !total || hechos >= total
+      const est = activo ? 'ahora' : listo ? 'listo' : espera ? 'espera' : 'cola'
+      return `<div class="rp-paso ${est}">
+        <div class="rp-cab"><span class="rp-tit">${icono} ${titulo}</span><span class="rp-estado">${{ ahora: '● Ahora', listo: '✓ Listo', espera: '⏸ Espera', cola: 'En cola' }[est]}</span></div>
+        ${que ? `<p class="rp-que">${que}</p>` : ''}
+        <div class="rp-num"><span><b>${fmt(hechos)}</b> de ${fmt(total)} ${unidad}</span><span class="rp-pct">${pct(hechos, total)}%</span></div>
+        <span class="rp-barra"><i style="width:${pct(hechos, total)}%"></i></span>
+        ${nota ? `<p class="rp-nota">${nota}</p>` : ''}
+      </div>`
+    }
+
+    // Lo importado, lote por lote: primero sus imágenes y audios; después se destila (cada cosa con sus adjuntos ya leídos).
+    const importado = lotes.map((l) => {
+      const mFaltan = l.medios.total - l.medios.hechos
+      const dFaltan = l.destilado.total - l.destilado.hechos
+      const trabajando = ahora.has('takeout') || ahora.has('importado')
+      const extra = l.estado === 'subiendo' || l.estado === 'ingiriendo' ? 'Todavía está llegando desde tu compu.' : l.estado === 'historia' ? 'Ya destiló todo: está armando la historia de cada proyecto.' : ''
+      return `<div class="rp-lote"><h4>🗂 ${esc(l.nombre)}${extra ? ` <small>· ${extra}</small>` : ''}</h4>
+        ${l.medios.total ? paso({ icono: '🖼', titulo: 'Imágenes y audios', que: 'Describe cada imagen y transcribe cada audio (después el archivo se borra).', hechos: l.medios.hechos, total: l.medios.total, unidad: 'archivos', activo: mFaltan > 0 && ahora.has('takeout'), nota: [mFaltan ? `Faltan ${fmt(mFaltan)}` : '', eta(mFaltan, l.medios.porHora), l.medios.fallos ? `${fmt(l.medios.fallos)} no se pudieron leer` : ''].filter(Boolean).join(' · ') }) : ''}
+        ${paso({ icono: '🧪', titulo: 'Destilar lo importado', que: 'Lee cada conversación o documento en su fecha: resumen, ideas, proyectos, personas, eventos.', hechos: l.destilado.hechos, total: l.destilado.total, unidad: 'piezas', activo: !mFaltan && dFaltan > 0 && trabajando, espera: mFaltan > 0, nota: mFaltan && dFaltan ? 'Empieza cuando terminen sus imágenes y audios (así cada pieza se lee con sus adjuntos).' : [dFaltan ? `Faltan ${fmt(dFaltan)}` : '', eta(dFaltan, l.destilado.porHora), l.destilado.fallos ? `${fmt(l.destilado.fallos)} fallaron` : ''].filter(Boolean).join(' · ') })}
+      </div>`
+    }).join('')
+
+    // La frase de arriba: qué está haciendo y qué falta.
+    const QUE = { pasajes: 'cortando piezas en pasajes', recuerdos: 'preparando recuerdos y quántomos para buscarlos', destilado: 'destilando tu corpus', importado: 'destilando lo importado', takeout: mediosPend ? 'leyendo las imágenes y audios de lo importado' : 'destilando lo importado', sintesis: d.paso || 'escribiendo crónicas e historias' }
+    const haciendo = [...new Set([...ahora].map((k) => QUE[k]).filter(Boolean))]
+    const falta = [
+      mediosPend ? `${fmt(mediosPend)} imágenes y audios importados` : '',
+      ...lotes.map((l) => (l.destilado.total - l.destilado.hechos ? `${fmt(l.destilado.total - l.destilado.hechos)} piezas de ${esc(l.nombre)} por destilar` : '')),
+      d.destilado.pendientes ? `${fmt(d.destilado.pendientes)} piezas de tu corpus por destilar${d.destilado.horasQueFaltan ? ` (~${d.destilado.horasQueFaltan} h)` : ''}` : '',
+      d.pasajes.total - d.pasajes.piezas > 0 ? `${fmt(d.pasajes.total - d.pasajes.piezas)} piezas sin pasajes` : '',
+      d.items.faltan ? `${fmt(d.items.faltan)} recuerdos y quántomos` : '',
+    ].filter(Boolean)
+    const titulo = !d.activo ? '⏸ En pausa' : d.trabajando || ahora.size ? '▶ Trabajando' : falta.length ? 'Prendido, esperando' : '✓ Al día'
+
     cont.innerHTML = `
-      <p><b>${d.activo ? (d.trabajando ? 'Procesando' : 'Prendido') : 'En pausa'}</b>${d.destilado.pendientes ? ` · ${d.destilado.pendientes} piezas sin procesar` : ' · todo procesado'}${d.paso ? ` · <span class="tenue">${esc(d.paso)}</span>` : ''}</p>
-      <div class="hud-fichas">
-        <span class="hud-ficha"><small>🔎 Pasajes</small><b>${d.pasajes.piezas}/${d.pasajes.total}</b><em>${mill(d.pasajes.pasajes)} pasajes</em></span>
-        <span class="hud-ficha"><small>🧪 Destilado</small><b>${d.destilado.hechos}/${dTotal}</b><em>${d.destilado.fallos ? `${d.destilado.fallos} fallaron` : d.destilado.horasQueFaltan ? `~${d.destilado.horasQueFaltan} h más` : ''}</em></span>
-        ${d.importado?.destilado || d.importado?.medios ? `<span class="hud-ficha"><small>🗂 Lo importado</small><b>${d.importado.hechos}/${d.importado.hechos + d.importado.destilado}</b><em>${d.importado.medios ? `${d.importado.medios} imágenes o audios antes` : 'destilando'}</em></span>` : ''}
-        <span class="hud-ficha"><small>🧠 Recuerdos y quántomos</small><b>${d.items.hechos}</b><em>${d.items.faltan ? `faltan ${d.items.faltan}` : 'al día'}</em></span>
-        <span class="hud-ficha"><small>⟿ Eventos</small><b>${d.eventos}</b><em>${d.cronicas} crónicas</em></span>
-        <span class="hud-ficha"><small>☍ Relaciones</small><b>${d.relaciones}</b><em>tipadas</em></span>
-        <span class="hud-ficha"><small>⚡ Tokens hoy</small><b>${mill(d.tokens.hoy)}</b><em>total ${mill(d.tokens.total)}</em></span>
+      <div class="rp-resumen">
+        <div class="rp-estado-grande">${titulo}</div>
+        <p><b>Ahora:</b> ${haciendo.length ? haciendo.join(' · ') : d.activo ? 'nada en este momento' : 'nada (está en pausa)'}</p>
+        ${falta.length ? `<p><b>Falta:</b></p><ul class="rp-falta">${falta.map((x) => `<li>${x}</li>`).join('')}</ul>` : '<p><b>Falta:</b> nada, todo está procesado.</p>'}
       </div>
-      <span class="hud-barra" style="margin:10px 0 4px" title="Destilado"><i style="width:${pct(d.destilado.hechos, dTotal)}%"></i></span>
-      <span class="hud-barra" style="margin:0 0 10px" title="Pasajes"><i style="width:${pct(d.pasajes.piezas, d.pasajes.total)}%"></i></span>
-      <div class="fila">${d.activo ? '<button class="btn" data-rp="pausar">Pausar</button>' : `<button class="btn btn-primario" data-rp="empezar" ${d.enLaNube ? '' : 'disabled title="Corre en la nube: prendelo desde tu Deprocast en la nube"'}>${d.destilado.hechos ? 'Procesar lo pendiente' : 'Procesar'}</button>`}
+      ${lotes.length ? `<h3 class="rp-h">Lo que importaste</h3>${importado}` : ''}
+      <h3 class="rp-h">Tu corpus</h3>
+      ${paso({ icono: '🔎', titulo: 'Pasajes', que: 'Corta cada pieza en pedazos con sentido, para encontrar cualquier cosa al buscar.', hechos: d.pasajes.piezas, total: d.pasajes.total, unidad: 'piezas', activo: ahora.has('pasajes'), nota: [`${fmt(d.pasajes.pasajes)} pasajes en total`, d.pasajes.fallos ? `${fmt(d.pasajes.fallos)} fallaron` : ''].filter(Boolean).join(' · ') })}
+      ${paso({ icono: '🧪', titulo: 'Destilado', que: 'Lee cada pieza que no vino de una importación y saca resumen, temas, ideas, personas, lugares y eventos.', hechos: d.destilado.hechos, total: dTotal, unidad: 'piezas', activo: ahora.has('destilado'), nota: [d.destilado.pendientes ? `Faltan ${fmt(d.destilado.pendientes)}` : '', d.destilado.horasQueFaltan ? `~${d.destilado.horasQueFaltan} h` : '', d.destilado.fallos ? `${fmt(d.destilado.fallos)} fallaron` : ''].filter(Boolean).join(' · ') })}
+      ${paso({ icono: '🧠', titulo: 'Recuerdos y quántomos', que: 'Los prepara para que se encuentren por significado, no solo por palabra.', hechos: d.items.hechos, total: itemsTotal, unidad: '', activo: ahora.has('recuerdos') })}
+      <div class="rp-paso ${ahora.has('sintesis') ? 'ahora' : 'cola'}"><div class="rp-cab"><span class="rp-tit">📜 Crónicas e historias</span><span class="rp-estado">${ahora.has('sintesis') ? '● Ahora' : 'Al final'}</span></div>
+        <p class="rp-que">${ahora.has('sintesis') ? esc(d.paso) : 'Cuando se vacía el destilado: la crónica de cada mes con material nuevo y la historia de cada proyecto.'}</p></div>
+      <h3 class="rp-h">Lo que salió hasta ahora</h3>
+      <div class="rp-salio">
+        <div><b>${fmt(d.eventos)}</b><span>eventos con fecha en tu Línea</span></div>
+        <div><b>${fmt(d.cronicas)}</b><span>crónicas de mes</span></div>
+        <div><b>${fmt(d.relaciones)}</b><span>relaciones entre personas</span></div>
+        <div><b>${fmt(d.items.hechos)}</b><span>recuerdos y quántomos buscables</span></div>
+        <div><b>${mill(d.tokens.hoy)}</b><span>tokens de NaN hoy · ${mill(d.tokens.total)} en total</span></div>
+      </div>
+      <div class="fila" style="margin-top:12px">${d.activo ? '<button class="btn" data-rp="pausar">Pausar</button>' : `<button class="btn btn-primario" data-rp="empezar" ${d.enLaNube ? '' : 'disabled title="Corre en la nube: prendelo desde tu Deprocast en la nube"'}>${d.destilado.hechos ? 'Procesar lo pendiente' : 'Procesar'}</button>`}
         ${d.destilado.fallos || d.pasajes.fallos ? '<button class="btn" data-rp="reintentar">Reintentar lo que falló</button>' : ''}</div>
       ${d.enLaNube ? '' : '<p class="tenue chico">Esta es la copia de la compu: acá no se gasta nada. Se procesa desde la nube.</p>'}
-      ${d.ultimos.length ? `<h3>Lo último que destiló</h3>${d.ultimos.map((u) => `<div class="sq"><span><a href="#" class="ref" data-pieza="${u.id}"><b>${esc(u.titulo.slice(0, 80))}</b></a><small>${esc(u.resumen)}</small></span></div>`).join('')}` : ''}`
+      ${d.ultimos.length ? `<h3 class="rp-h">Lo último que destiló</h3>${d.ultimos.map((u) => `<div class="sq"><span><a href="#" class="ref" data-pieza="${u.id}"><b>${esc(u.titulo.slice(0, 80))}</b></a><small>${esc(u.resumen)}</small></span></div>`).join('')}` : ''}`
     $$('[data-rp]', cont).forEach((b) => (b.onclick = async () => { try { await api('/reproceso', { accion: b.dataset.rp }); pintar() } catch (e) { error(e) } }))
     $$('[data-pieza]', cont).forEach((a) => (a.onclick = (e) => { e.preventDefault(); modalPieza(Number(a.dataset.pieza)) }))
   }

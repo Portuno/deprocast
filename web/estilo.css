@@ -1842,3 +1842,33 @@ span.ej-chip { cursor: default; }
 .dir-ent small.dir-parece { font-family: inherit; font-size: 12.5px; }
 .dir-ent > span:first-child { flex: 1; min-width: 0; }
 .dir-ent-cab { flex-wrap: nowrap; }
+
+/* El Procesar: qué hace ahora, qué falta y cada paso con su número escrito entero. */
+.rp-resumen { padding: 12px 14px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--linea); margin: 4px 0 6px; }
+.rp-resumen p { margin: 4px 0 0; line-height: 1.45; }
+.rp-estado-grande { font: 600 18px var(--display, var(--cuerpo)); }
+.rp-h { margin: 18px 0 8px; font-size: 15px; }
+.rp-lote h4 { margin: 10px 0 6px; font-size: 14px; }
+.rp-lote h4 small { font-weight: 400; color: var(--tenue); }
+.rp-paso { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--linea); background: var(--panel-2); margin-bottom: 8px; }
+.rp-paso.ahora { border-color: var(--acento); box-shadow: 0 0 0 1px color-mix(in srgb, var(--acento) 35%, transparent); }
+.rp-cab { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.rp-tit { font-weight: 600; }
+.rp-estado { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--linea); color: var(--tenue); white-space: nowrap; }
+.rp-paso.ahora .rp-estado { color: var(--acento-texto); border-color: var(--acento); }
+.rp-paso.listo .rp-estado { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 50%, transparent); }
+.rp-paso.espera .rp-estado { color: var(--aviso); border-color: color-mix(in srgb, var(--aviso) 50%, transparent); }
+.rp-que { margin: 3px 0 6px; font-size: 13px; color: var(--tenue); line-height: 1.4; }
+.rp-num { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 14px; }
+.rp-num b { font: 600 16px var(--mono); }
+.rp-pct { font: 600 13px var(--mono); color: var(--tenue); }
+.rp-barra { display: block; height: 8px; border-radius: 4px; background: var(--linea); overflow: hidden; margin-top: 5px; }
+.rp-barra i { display: block; height: 100%; border-radius: inherit; background: var(--acento); }
+.rp-paso.listo .rp-barra i { background: var(--ok); }
+.rp-paso.espera .rp-barra i { background: var(--tenue); }
+.rp-nota { margin: 5px 0 0; font-size: 12.5px; color: var(--tenue); }
+.rp-salio { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.rp-salio div { padding: 10px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--linea); display: flex; flex-direction: column; gap: 2px; }
+.rp-salio b { font: 600 18px var(--mono); }
+.rp-salio span { font-size: 12.5px; color: var(--tenue); line-height: 1.35; }
+.rp-falta { margin: 4px 0 0; padding-left: 20px; line-height: 1.5; }

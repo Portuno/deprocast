@@ -188,6 +188,8 @@ test('procesar no espera a lo importado: lo ayuda a destilar (si sus medios ya e
   assert.equal((db.prepare('SELECT estado FROM takeout_destilado WHERE pieza_id = ?').get(chat) as any).estado, 'hecho')
   assert.match(sistema, /ChatGPT, la primera IA que usó/, 'se destila con el prompt de su lote')
   assert.ok(db.prepare('SELECT 1 FROM pasajes WHERE pieza_id = ?').get(chat), 'y tiene sus pasajes')
-  assert.deepEqual(estadoReproceso(db).importado, { destilado: 0, hechos: 1, medios: 0 })
+  const { lotes, ...importado } = estadoReproceso(db).importado
+  assert.deepEqual(importado, { destilado: 0, hechos: 1, medios: 0 })
+  assert.deepEqual(lotes.map((l) => [l.nombre, l.destilado.hechos, l.destilado.total]), [['ChatGPT', 1, 1]], 'el Procesar muestra cuánto va cada lote que no terminó')
   delete process.env.MASTRO_REPROCESO_LOCAL
 })
