@@ -175,8 +175,19 @@ export type Guardado = { piezaId: number; nueva: boolean; lectura: Lectura | nul
 export async function guardarLink(db: Db, url: string, o: { nota?: string | null; lectura?: Lectura; ahora?: number } = {}): Promise<Guardado> {
   const { ingerir } = await import('../mastropiero.ts')
   const origen = `url:${normalizarUrl(url)}`
-  const ya = db.prepare('SELECT id FROM corpus WHERE origen_id = ?').get(origen) as { id: number } | undefined
-  if (ya) return { piezaId: ya.id, nueva: false, lectura: null }
+  const ya = db.prepare('SELECT id, meta FROM corpus WHERE origen_id = ?').get(origen) as { id: number; meta: string | null } | undefined
+  if (ya) {
+    // Si entró solo la cáscara (un video sin transcripción), mandarlo de nuevo vuelve a leerlo: si ahora sale, se completa.
+    if (!/"sinTranscripcion":true/.test(ya.meta ?? '')) return { piezaId: ya.id, nueva: false, lectura: null }
+    const l = o.lectura ?? await leer(url)
+    if (l.sinMateria) return { piezaId: ya.id, nueva: false, lectura: l }
+    db.prepare(`UPDATE corpus SET contenido = ?, titulo = ?, estado = 'disponible', autor = COALESCE(?, autor),
+      meta = json_remove(json_set(COALESCE(meta, '{}'), '$.palabras', ?, '$.aviso', NULL), '$.sinTranscripcion'),
+      etiquetas = (SELECT json_group_array(value) FROM json_each(COALESCE(corpus.etiquetas, '[]')) WHERE value != 'sin-transcripcion') WHERE id = ?`)
+      .run(l.markdown, l.titulo.slice(0, 200), l.meta.autor ?? null, l.palabras, ya.id)
+    db.prepare('DELETE FROM pasajes WHERE pieza_id = ?').run(ya.id) // cambió el texto: sus pasajes se rehacen
+    return { piezaId: ya.id, nueva: false, lectura: l }
+  }
   const l = o.lectura ?? await leer(url)
   const nota = o.nota?.trim()
   const contenido = [nota ? `> Nota: ${nota}` : '', l.markdown || `[${l.url}](${l.url})`, l.aviso ? `_(${l.aviso})_` : ''].filter(Boolean).join('\n\n')

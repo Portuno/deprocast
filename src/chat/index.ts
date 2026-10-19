@@ -36,7 +36,11 @@ import { activas, ejecutarHerramienta, esquemas, GRUPOS, gruposDelMensaje, HERRA
 import { archivoRelevante } from '../semantica.ts'
 
 export const MASTROPIERO = 'mastropiero'
-const MAX_VUELTAS = 10
+const MAX_VUELTAS = 8
+/** Desde esta vuelta se le pide que cierre con lo que tiene. */
+const AVISO_VUELTAS = 5
+/** Lo que ya leyó en una vuelta anterior del mismo turno viaja recortado a esto. */
+export const RECORTE_YA_LEIDO = 1500
 
 // ─── conversaciones ─────────────────────────────────────────────────────
 
@@ -315,13 +319,30 @@ type Turno = {
   grupos?: Set<string>
 }
 
+/**
+ * Cada vuelta de herramientas reenvía todo: con 6 a 8 vueltas, un turno pasaba los 200 mil tokens (y tardaba). Las
+ * salidas que el modelo ya leyó en una vuelta anterior de este turno viajan recortadas; la última, entera. La base las
+ * guarda completas.
+ */
+export function recortarYaLeido(conv: Record<string, unknown>[], desde: number) {
+  const ultimo = conv.findLastIndex((m) => m.role === 'assistant')
+  for (let i = desde; i < ultimo; i++) {
+    const m = conv[i]
+    const c = String(m.content ?? '')
+    if (m.role === 'tool' && c.length > RECORTE_YA_LEIDO && !c.endsWith('[ya leído: recortado]')) conv[i] = { ...m, content: `${c.slice(0, RECORTE_YA_LEIDO)}… [ya leído: recortado]` }
+  }
+}
+
 async function bucle(t: Turno): Promise<string> {
   const conv = [...t.previos]
+  const desde = conv.length
   const clase = t.clase === 'mastropiero' || !cadena(t.clase).length || t.clase === 'vectorizador' ? 'mastropiero' : t.clase
   for (let vuelta = 0; vuelta < MAX_VUELTAS; vuelta++) {
     if (t.vivo) Object.assign(t.vivo, { borrador: '', herramienta: null, argumentos: null })
+    recortarYaLeido(conv, desde)
+    const cierre = vuelta >= AVISO_VUELTAS ? [{ role: 'system', content: `Llevás ${vuelta} vueltas de herramientas en este turno: cerrá con lo que ya tenés y contestá (como mucho una vuelta más).` }] : []
     const r = await llamarModelo({ db: t.db, clase, agenteId: t.agenteId }, {
-      mensajes: [{ role: 'system', content: t.sistema }, ...conv], herramientas: esquemas(t.grupos ? activas(t.hs, t.grupos) : t.hs), temperatura: 0.5, maxTokens: 4096,
+      mensajes: [{ role: 'system', content: t.sistema }, ...conv, ...cierre], herramientas: esquemas(t.grupos ? activas(t.hs, t.grupos) : t.hs), temperatura: 0.5, maxTokens: 4096,
     }, t.vivo ? (parcial) => (t.vivo!.borrador = parcial) : undefined)
     t.alGuardar({ rol: 'asistente', texto: r.texto || null, llamadas: r.llamadas, razonamiento: r.razonamiento, modelo: r.modelo, tokens: r.tokens })
     if (t.vivo) t.vivo.borrador = ''

@@ -140,3 +140,67 @@ test('YouTube: la pieza trae la transcripción con su minuto y la descripción; 
   assert.match(q.etiquetas, /sin-transcripcion/)
   assert.match(s.lectura!.aviso!, /Sin transcripción \(el video no tiene subtítulos\)/)
 })
+
+test('YouTube: los subtítulos por el cliente de Android (XML), el bloqueo se dice como bloqueo, y el link repetido relee lo que entró sin transcripción', async () => {
+  const { _probarLector, guardarLink } = await import('../src/lector/index.ts')
+  const { transcripcionDeXml } = await import('../src/lector/youtube.ts')
+  assert.equal(transcripcionDeXml('<transcript><text start="1" dur="2">Hola &amp;amp; chau</text><text start="50.5" dur="2">Sigue &#39;acá&#39;</text></transcript>'), "[0:01] Hola & chau\n\n[0:50] Sigue 'acá'")
+  let modo: 'bloqueado' | 'android' = 'bloqueado'
+  const pedidos: string[] = []
+  _probarLector(async (url, init) => {
+    pedidos.push(url)
+    if (url.includes('/oembed')) return new Response(JSON.stringify({ title: 'Un video', author_name: 'Un canal', html: '' }), { status: 200 })
+    if (url.includes('/watch')) return new Response(`<script>var ytInitialPlayerResponse = ${JSON.stringify(modo === 'bloqueado' ? { playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'Confirmá que no sos un bot' } } : { videoDetails: { title: 'Un video', author: 'Un canal', shortDescription: 'La descripción' }, playabilityStatus: { status: 'OK' } })};</script>"INNERTUBE_API_KEY":"clave-x","VISITOR_DATA":"vis-1"`, { status: 200 })
+    if (url.includes('/youtubei/v1/player')) {
+      if (modo === 'bloqueado') return new Response(JSON.stringify({ playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'Confirmá que no sos un bot' } }), { status: 200 })
+      assert.match(url, /key=clave-x/)
+      assert.match(String(init?.body), /"clientName":"ANDROID"/)
+      return new Response(JSON.stringify({ playabilityStatus: { status: 'OK' }, captions: { playerCaptionsTracklistRenderer: { captionTracks: [{ baseUrl: 'https://yt.test/android?v=1&fmt=srv3', languageCode: 'es' }] } } }), { status: 200 })
+    }
+    if (url.startsWith('https://yt.test/android')) return new Response('<transcript><text start="0" dur="3">Lo que dice el video.</text></transcript>', { status: 200 })
+    return new Response('', { status: 404 })
+  })
+  const db = abrir(':memory:')
+  const a = await guardarLink(db, 'https://www.youtube.com/watch?v=bloq1')
+  assert.match(a.lectura!.aviso!, /YouTube no dejó leer el video desde acá \(Confirmá que no sos un bot\)/, 'un bloqueo no es «no tiene subtítulos»')
+  assert.equal((db.prepare('SELECT estado FROM corpus WHERE id = ?').get(a.piezaId) as any).estado, 'pendiente')
+  // El mismo link otra vez, ahora que se puede leer: se completa la misma pieza.
+  modo = 'android'
+  const b = await guardarLink(db, 'https://www.youtube.com/watch?v=bloq1')
+  assert.equal(b.piezaId, a.piezaId)
+  const p = db.prepare('SELECT * FROM corpus WHERE id = ?').get(a.piezaId) as any
+  assert.equal(p.estado, 'disponible')
+  assert.match(p.contenido, /## Descripción\n\nLa descripción[\s\S]*## Transcripción · es\n\n\[0:00\] Lo que dice el video\./)
+  assert.doesNotMatch(p.etiquetas ?? '', /sin-transcripcion/)
+  assert.doesNotMatch(p.meta, /sinTranscripcion/)
+  // Una pieza completa no se vuelve a leer.
+  const antes = pedidos.length
+  await guardarLink(db, 'https://www.youtube.com/watch?v=bloq1')
+  assert.equal(pedidos.length, antes)
+})
+
+test('chat: lo ya leído en vueltas anteriores viaja recortado, desde la 5.ª se le pide cerrar y no pasa de 8 vueltas', async () => {
+  const C = await import('../src/chat/index.ts')
+  const largo = 'x'.repeat(5000)
+  const conv: any[] = [
+    { role: 'user', content: 'viejo' },
+    { role: 'assistant', content: '', tool_calls: [{ id: 'a' }] }, { role: 'tool', tool_call_id: 'a', content: largo },
+    { role: 'assistant', content: '', tool_calls: [{ id: 'b' }] }, { role: 'tool', tool_call_id: 'b', content: largo },
+  ]
+  C.recortarYaLeido(conv, 1)
+  assert.ok(conv[2].content.length < C.RECORTE_YA_LEIDO + 40 && conv[2].content.endsWith('[ya leído: recortado]'), 'la que ya leyó, recortada')
+  assert.equal(conv[4].content, largo, 'la última vuelta, entera')
+
+  const db = abrir(':memory:')
+  const vistos: any[][] = []
+  C._probarModelo(async (_l, o) => {
+    if (!(o.herramientas as any[])?.length) return { texto: '{}', razonamiento: null, modelo: 'falso', tokens: 1, llamadas: [] } // los otros llamados (correcciones, título)
+    vistos.push(o.mensajes as any[])
+    return { texto: '', razonamiento: null, modelo: 'falso', tokens: 1, llamadas: [{ id: `v${vistos.length}`, nombre: 'pedir_herramientas', argumentos: '{"grupos":[]}' }] }
+  })
+  const c = C.crearConversacion(db)
+  await C.enviar(db, c.id, 'Hacé algo que no termina nunca')
+  assert.equal(vistos.length, 8, 'corta en 8 vueltas')
+  assert.ok(!vistos[4].some((m) => m.role === 'system' && /cerrá con lo que ya tenés/.test(m.content)))
+  assert.ok(vistos[5].some((m) => m.role === 'system' && /Llevás 5 vueltas/.test(m.content)), 'desde la 5.ª se le pide cerrar')
+})
