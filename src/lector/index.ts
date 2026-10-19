@@ -104,7 +104,7 @@ async function oembed(url: string, endpoint: string, fuente: string): Promise<Le
     const sin = !v?.transcripcion
     return lectura(url, fuente, v?.titulo || titulo, md, {
       meta: { sitio: 'YouTube', autor: v?.canal || j.author_name },
-      ...(sin ? { sinMateria: true, aviso: `Sin transcripción (${v?.motivo ?? 'no pude leer el video'}): guardé el título y la descripción. Si me pasás el audio, lo transcribo.` } : {}),
+      ...(sin ? { sinMateria: true, aviso: `Sin transcripción (${v?.motivo ?? 'no pude leer el video'}): guardé el título${v?.descripcion ? ' y la descripción' : ''}. Si me pasás el audio, lo transcribo.${v?.rastro?.length ? ` [${v.rastro.join(' · ')}]` : ''}` } : {}),
     })
   }
   const md = [`# ${titulo}`, j.author_name ? `De: ${j.author_name}` : '', cuerpo].filter(Boolean).join('\n\n')
@@ -180,7 +180,11 @@ export async function guardarLink(db: Db, url: string, o: { nota?: string | null
     // Si entró solo la cáscara (un video sin transcripción), mandarlo de nuevo vuelve a leerlo: si ahora sale, se completa.
     if (!/"sinTranscripcion":true/.test(ya.meta ?? '')) return { piezaId: ya.id, nueva: false, lectura: null }
     const l = o.lectura ?? await leer(url)
-    if (l.sinMateria) return { piezaId: ya.id, nueva: false, lectura: l }
+    if (l.sinMateria) {
+      // Sigue sin salir: al menos queda el motivo de ahora (y la descripción, si esta vez llegó).
+      db.prepare(`UPDATE corpus SET contenido = ?, meta = json_set(COALESCE(meta, '{}'), '$.aviso', ?) WHERE id = ?`).run([l.markdown, l.aviso ? `_(${l.aviso})_` : ''].filter(Boolean).join('\n\n'), l.aviso ?? null, ya.id)
+      return { piezaId: ya.id, nueva: false, lectura: l }
+    }
     db.prepare(`UPDATE corpus SET contenido = ?, titulo = ?, estado = 'disponible', autor = COALESCE(?, autor),
       meta = json_remove(json_set(COALESCE(meta, '{}'), '$.palabras', ?, '$.aviso', NULL), '$.sinTranscripcion'),
       etiquetas = (SELECT json_group_array(value) FROM json_each(COALESCE(corpus.etiquetas, '[]')) WHERE value != 'sin-transcripcion') WHERE id = ?`)

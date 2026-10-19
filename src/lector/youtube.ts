@@ -12,7 +12,8 @@ import { leerJson } from '../modelo.ts'
 
 type Pedir = (url: string, init?: RequestInit) => Promise<Response>
 export type Pista = { baseUrl: string; languageCode?: string; kind?: string }
-export type VideoYoutube = { titulo: string | null; canal: string | null; descripcion: string; transcripcion: string | null; idioma: string | null; automatica: boolean; motivo?: string }
+/** rastro: qué contestó cada camino (página, Android, iOS, subtítulos), para saber por qué no salió. */
+export type VideoYoutube = { titulo: string | null; canal: string | null; descripcion: string; transcripcion: string | null; idioma: string | null; automatica: boolean; motivo?: string; rastro?: string[] }
 
 /** El id del video de un link (watch?v=, youtu.be/, shorts/). */
 export function idDeVideo(url: string): string | null {
@@ -88,15 +89,22 @@ type Jugador = { videoDetails?: any; captions?: any; playabilityStatus?: { statu
 const pistasDe = (j: Jugador | null): Pista[] => j?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? []
 const bloqueado = (j: Jugador | null) => !!j?.playabilityStatus?.status && j.playabilityStatus.status !== 'OK'
 
-/** Lee un video: título, canal, descripción y transcripción (o el motivo por el que no hay). Nunca tira. */
+/** Los clientes móviles que piden el reproductor (si uno está bloqueado o cambió, se prueba el otro). */
+const MOVILES = [
+  { nombre: 'android', ua: `com.google.android.youtube/${ANDROID} (Linux; U; Android 14) gzip`, client: { clientName: 'ANDROID', clientVersion: ANDROID, androidSdkVersion: 34 } },
+  { nombre: 'ios', ua: 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)', client: { clientName: 'IOS', clientVersion: '20.10.4', deviceMake: 'Apple', deviceModel: 'iPhone16,2', osName: 'iPhone', osVersion: '18.3.2.22D82' } },
+]
+
+/** Lee un video: título, canal, descripción y transcripción (o el motivo por el que no hay, con el rastro). Nunca tira. */
 export async function leerVideo(url: string, pedir: Pedir): Promise<VideoYoutube | null> {
   const id = idDeVideo(url)
   if (!id) return null
+  const rastro: string[] = []
+  const estadoDe = (j: Jugador | null) => (j ? `${j.playabilityStatus?.status ?? '?'}${j.playabilityStatus?.reason ? ` «${j.playabilityStatus.reason}»` : ''}, ${pistasDe(j).length} pistas` : 'sin respuesta')
   // 1. La página: descripción, clave y visitante (el consentimiento de la UE se da por aceptado con la cookie).
   let web: Jugador | null = null
   let clave = CLAVE_WEB
   let visitante: string | null = null
-  let motivoPagina = ''
   try {
     const r = await pedir(`https://www.youtube.com/watch?v=${id}&hl=es`, { headers: { cookie: 'CONSENT=YES+cb; SOCS=CAI' } })
     if (r.ok) {
@@ -104,46 +112,61 @@ export async function leerVideo(url: string, pedir: Pedir): Promise<VideoYoutube
       web = respuestaDelReproductor(html)
       clave = /"INNERTUBE_API_KEY":"([^"]+)"/.exec(html)?.[1] ?? clave
       visitante = /"VISITOR_DATA":"([^"]+)"/.exec(html)?.[1] ?? null
-    } else motivoPagina = `YouTube respondió ${r.status}`
+      rastro.push(`página: ${web ? estadoDe(web) : 'sin reproductor'}`)
+    } else rastro.push(`página: respondió ${r.status}`)
   } catch (e) {
-    motivoPagina = `no pude abrir el video (${e instanceof Error ? e.message : e})`
+    rastro.push(`página: ${e instanceof Error ? e.message : e}`)
   }
-  // 2. El reproductor como Android: trae las pistas que sí se pueden bajar.
-  let android: Jugador | null = null
-  try {
-    const r = await pedir(`https://www.youtube.com/youtubei/v1/player?key=${clave}&prettyPrint=false`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'user-agent': `com.google.android.youtube/${ANDROID} (Linux; U; Android 14) gzip`, ...(visitante ? { 'x-goog-visitor-id': visitante } : {}) },
-      body: JSON.stringify({ videoId: id, context: { client: { clientName: 'ANDROID', clientVersion: ANDROID, androidSdkVersion: 34, hl: 'es', gl: 'ES', ...(visitante ? { visitorData: visitante } : {}) } } }),
-    })
-    if (r.ok) android = await r.json()
-  } catch { /* queda la pista de la web */ }
+  // 2. El reproductor como los clientes móviles: traen las pistas que sí se pueden bajar.
+  const moviles: { nombre: string; ua: string; j: Jugador | null }[] = []
+  for (const m of MOVILES) {
+    let j: Jugador | null = null
+    try {
+      const r = await pedir(`https://www.youtube.com/youtubei/v1/player?key=${clave}&prettyPrint=false`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'user-agent': m.ua, ...(visitante ? { 'x-goog-visitor-id': visitante } : {}) },
+        body: JSON.stringify({ videoId: id, context: { client: { ...m.client, hl: 'es', gl: 'ES', ...(visitante ? { visitorData: visitante } : {}) } } }),
+      })
+      if (r.ok) j = await r.json()
+      rastro.push(`${m.nombre}: ${r.ok ? estadoDe(j) : `respondió ${r.status}`}`)
+    } catch (e) {
+      rastro.push(`${m.nombre}: ${e instanceof Error ? e.message : e}`)
+    }
+    moviles.push({ ...m, j })
+    if (pistasDe(j).length) break // con uno que dé pistas alcanza
+  }
 
-  const d = (web?.videoDetails?.shortDescription ? web.videoDetails : android?.videoDetails) ?? web?.videoDetails ?? {}
+  const todos = [web, ...moviles.map((m) => m.j)]
+  const d = todos.find((j) => j?.videoDetails?.shortDescription)?.videoDetails ?? todos.find((j) => j?.videoDetails)?.videoDetails ?? {}
   const base = { titulo: d.title ?? null, canal: d.author ?? null, descripcion: String(d.shortDescription ?? '').trim() }
-  const sin = (motivo: string, extra: Partial<VideoYoutube> = {}): VideoYoutube => ({ ...base, transcripcion: null, idioma: null, automatica: false, motivo, ...extra })
+  const sin = (motivo: string): VideoYoutube => ({ ...base, transcripcion: null, idioma: null, automatica: false, motivo, rastro })
 
-  // 3. Las pistas, en orden: Android (XML) y después la de la web (json3, y si no, XML).
-  const candidatas: { pista: Pista; formatos: string[] }[] = []
-  const pa = elegirPista(pistasDe(android))
-  if (pa?.baseUrl) candidatas.push({ pista: pa, formatos: [''] })
+  // 3. Las pistas, en orden: las móviles (XML) y después la de la web (json3, y si no, XML).
+  const candidatas: { pista: Pista; formatos: string[]; ua?: string; de: string }[] = []
+  for (const m of moviles) { const p = elegirPista(pistasDe(m.j)); if (p?.baseUrl) candidatas.push({ pista: p, formatos: [''], ua: m.ua, de: m.nombre }) }
   const pw = elegirPista(pistasDe(web))
-  if (pw?.baseUrl) candidatas.push({ pista: pw, formatos: ['json3', ''] })
+  if (pw?.baseUrl) candidatas.push({ pista: pw, formatos: ['json3', ''], de: 'web' })
   if (!candidatas.length) {
-    if (bloqueado(web) && (!android || bloqueado(android))) return sin(`YouTube no dejó leer el video desde acá (${web?.playabilityStatus?.reason ?? android?.playabilityStatus?.reason ?? web?.playabilityStatus?.status})`)
-    if (!web && !android) return sin(motivoPagina || 'YouTube no mostró el reproductor (¿bloqueo o consentimiento?)')
+    const conRespuesta = todos.filter(Boolean) as Jugador[]
+    if (conRespuesta.length && conRespuesta.every(bloqueado)) {
+      const razon = conRespuesta.map((j) => j.playabilityStatus?.reason).find(Boolean) ?? conRespuesta[0].playabilityStatus?.status
+      return sin(`YouTube no dejó leer el video desde acá (${razon})`)
+    }
+    if (!conRespuesta.length) return sin('YouTube no mostró el reproductor (¿bloqueo o consentimiento?)')
     return sin('el video no tiene subtítulos')
   }
-  for (const { pista, formatos } of candidatas) {
+  for (const { pista, formatos, ua, de } of candidatas) {
     for (const fmt of formatos) {
       try {
         const u = pista.baseUrl.replace(/&fmt=[^&]*/, '') + (fmt ? `&fmt=${fmt}` : '')
-        const r = await pedir(u, pista === pa ? { headers: { 'user-agent': `com.google.android.youtube/${ANDROID} (Linux; U; Android 14) gzip` } } : undefined)
-        if (!r.ok) continue
-        const cuerpo = await r.text()
+        const r = await pedir(u, ua ? { headers: { 'user-agent': ua } } : undefined)
+        const cuerpo = r.ok ? await r.text() : ''
         const texto = !cuerpo.trim() ? '' : fmt === 'json3' ? transcripcionDeJson3(JSON.parse(cuerpo)) : transcripcionDeXml(cuerpo)
-        if (texto) return { ...base, transcripcion: texto, idioma: pista.languageCode ?? null, automatica: pista.kind === 'asr' }
-      } catch { /* la siguiente */ }
+        if (texto) return { ...base, transcripcion: texto, idioma: pista.languageCode ?? null, automatica: pista.kind === 'asr', rastro }
+        rastro.push(`subtítulos ${de}${fmt ? ` ${fmt}` : ''}: ${r.status}${r.ok ? ' vacío' : ''}`)
+      } catch (e) {
+        rastro.push(`subtítulos ${de}: ${e instanceof Error ? e.message : e}`)
+      }
     }
   }
   return sin('YouTube no entregó los subtítulos (los tiene, pero vinieron vacíos)')
