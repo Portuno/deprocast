@@ -54,7 +54,7 @@ test('YouTube: un video del chat entra a la cola, se lee, se completa, se destil
   nube._probarHistoria(async () => ({ eras: [], hoy: null, cambios: null, ideas_para_revisar: [], pregunta: '' }))
   const g = await guardarLink(db, 'https://youtu.be/vidUno00001')
   assert.match(g.lectura!.aviso!, /La transcripción está en camino/)
-  await hasta(() => estado(db, 'vidUno00001') === 'listo' && estado(db, 'recUno00001') === 'compu')
+  await hasta(() => estado(db, 'vidUno00001') === 'listo' && estado(db, 'recUno00001') === 'compu' && !!db.prepare(`SELECT 1 FROM corpus WHERE url LIKE 'https://ejemplo.org/paper-pilotos%'`).get())
   const p = db.prepare('SELECT * FROM corpus WHERE id = ?').get(g.piezaId) as any
   assert.equal(p.estado, 'disponible')
   assert.equal(p.fecha, '2026-05-04')
@@ -101,6 +101,9 @@ test('YouTube: si la nube está bloqueada espera a la compu; la compu lo lee y l
   assert.deepEqual(items.map((i) => i.id), ['bloqUno0001'])
   assert.ok(yt.estadoYoutube(db).compu.activa)
   await yt.recibirDeLaCompu(db, { id: 'bloqUno0001', video: { titulo: 'Un video', canal: 'Un canal', descripcion: 'La descripción', transcripcion: '[0:00] Lo que dice el video.', idioma: 'es' } })
+  assert.equal(estado(db, 'bloqUno0001'), 'listo')
+  // Un «no salió» tardío (un error al subir, un reintento) no pisa lo que ya llegó.
+  await yt.recibirDeLaCompu(db, { id: 'bloqUno0001', error: 'The operation was aborted due to timeout', video: { motivo: 'timeout' } })
   assert.equal(estado(db, 'bloqUno0001'), 'listo')
   assert.match((db.prepare('SELECT contenido FROM corpus WHERE id = ?').get(g.piezaId) as any).contenido, /La descripción[\s\S]*\[0:00\] Lo que dice el video\./)
 

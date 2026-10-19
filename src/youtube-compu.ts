@@ -36,20 +36,31 @@ export async function lectorYoutube(url: string, clave: string, o: { unaVez?: bo
   for (;;) {
     const { items } = await pedir('/api/youtube/compu').catch((e) => { log(`No pude preguntar: ${e instanceof Error ? e.message : e}`); return { items: [] } })
     for (const it of items as { id: string; tipo: string; url: string; max_videos: number | null }[]) {
+      // Leer (acá) y subir (a la nube) fallan distinto: si no se pudo leer, la nube se entera; si no se pudo subir, se
+      // reintenta en la próxima vuelta (no se manda un «no salió» que pise lo que quizás sí llegó).
+      let cuerpo: Record<string, unknown>
+      let linea: string
       try {
         if (it.tipo === 'canal') {
           const c = await videosDelCanal(it.id.replace(/^canal:/, ''), pedirLector, it.max_videos ?? 50)
-          const r = await pedir('/api/youtube/leido', { id: it.id, titulo: c.titulo, videos: c.videos })
-          log(`📺 ${c.titulo ?? it.id}: ${c.videos.length} videos (${r.nuevos ?? 0} nuevos a la cola)`)
+          cuerpo = { id: it.id, titulo: c.titulo, videos: c.videos }
+          linea = `📺 ${c.titulo ?? it.id}: ${c.videos.length} videos`
         } else {
           const v = await leerVideo(it.url, pedirLector)
-          await pedir('/api/youtube/leido', { id: it.id, video: v })
-          log(v?.transcripcion ? `▶ ${v.titulo ?? it.id}: ${v.transcripcion.split(/\s+/).length} palabras` : `▶ ${v?.titulo ?? it.id}: sin transcripción (${v?.motivo ?? '?'})`)
+          cuerpo = { id: it.id, video: v }
+          linea = v?.transcripcion ? `▶ ${v.titulo ?? it.id}: ${v.transcripcion.split(/\s+/).length} palabras` : `▶ ${v?.titulo ?? it.id}: sin transcripción (${v?.motivo ?? '?'})`
         }
       } catch (e) {
         const motivo = e instanceof Error ? e.message : String(e)
-        log(`✗ ${it.id}: ${motivo}`)
+        log(`✗ ${it.id}: no se pudo leer (${motivo})`)
         await pedir('/api/youtube/leido', { id: it.id, error: motivo, video: { motivo } }).catch(() => {})
+        continue
+      }
+      try {
+        const r = await pedir('/api/youtube/leido', cuerpo)
+        log(it.tipo === 'canal' ? `${linea} (${r.nuevos ?? 0} nuevos a la cola)` : linea)
+      } catch (e) {
+        log(`⟳ ${it.id}: leído, pero no se pudo subir (${e instanceof Error ? e.message : e}); va de nuevo en la próxima vuelta`)
       }
     }
     if (o.unaVez) return

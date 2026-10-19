@@ -174,6 +174,8 @@ export async function completarVideo(db: Db, id: string, v: VideoLeido, ahora = 
     v.transcripcion ? `## Transcripción${v.automatica ? ' (subtítulos automáticos)' : ''}${v.idioma ? ` · ${v.idioma}` : ''}\n\n${v.transcripcion}` : '',
   ].filter(Boolean).join('\n\n')
   if (!v.transcripcion) {
+    // Uno que ya está leído no se pisa con un «no salió» (un reintento tardío, un error al subir).
+    if (item.estado === 'listo') return { piezaId, listo: true }
     const aviso = `Sin transcripción (${v.motivo ?? 'no se pudo leer'})`
     db.prepare(`UPDATE corpus SET titulo = ?, autor = COALESCE(?, autor), contenido = ?, meta = json_set(COALESCE(meta, '{}'), '$.aviso', ?) WHERE id = ?`).run(titulo.slice(0, 300), v.canal, `${md}\n\n_(${aviso}. Si me pasás el audio, lo transcribo.)_`, aviso, piezaId)
     db.prepare(`UPDATE youtube_cola SET estado = 'sin_subtitulos', motivo = ?, leido_en = ? WHERE id = ?`).run(v.motivo ?? null, ahora, id)
@@ -188,7 +190,8 @@ export async function completarVideo(db: Db, id: string, v: VideoLeido, ahora = 
   db.prepare(`UPDATE youtube_cola SET estado = 'listo', motivo = NULL, leido_en = ? WHERE id = ?`).run(ahora, id)
   abrirLote(db, lote, ahora)
   encolarDestilado(db, lote, piezaId, 1)
-  await explorarRecomendados(db, item, titulo, v.descripcion, lote, ahora).catch((e) => console.error('  youtube recomendados:', e instanceof Error ? e.message : e))
+  // Lo que recomienda se explora de fondo: leer 8 páginas puede llevar minutos y quien subió el video no tiene por qué esperar.
+  void explorarRecomendados(db, item, titulo, v.descripcion, lote, ahora).catch((e) => console.error('  youtube recomendados:', e instanceof Error ? e.message : e))
   void trabajarTakeout(db).catch(() => {})
   return { piezaId, listo: true }
 }
@@ -199,7 +202,9 @@ export async function explorarRecomendados(db: Db, item: ItemCola, titulo: strin
   const videos = links.filter((u) => clasificarYoutube(u)?.tipo === 'video')
   // Solo un nivel: lo que trajo un video recomendado no trae más.
   if (!item.de?.startsWith('video:')) {
-    for (const u of videos.slice(0, MAX_VIDEOS_RECOMENDADOS)) await encolarYoutube(db, u, { de: `video:${item.id}` }, ahora)
+    let nuevos = 0
+    for (const u of videos.slice(0, MAX_VIDEOS_RECOMENDADOS)) if ((await encolarYoutube(db, u, { de: `video:${item.id}` }, ahora))?.nueva) nuevos++
+    if (nuevos) void trabajarYoutube(db).catch(() => {})
   }
   const web = links.filter((u) => !clasificarYoutube(u) && !NO_ES_FUENTE.test(u)).slice(0, MAX_LINKS)
   if (!web.length) return
@@ -211,6 +216,8 @@ export async function explorarRecomendados(db: Db, item: ItemCola, titulo: strin
       if (g.nueva && (g.lectura?.palabras ?? 0) >= 150) encolarDestilado(db, lote, g.piezaId, 0)
     } catch { /* un link que no se deja leer no frena al resto */ }
   }
+  abrirLote(db, lote, ahora)
+  void trabajarTakeout(db).catch(() => {})
 }
 
 /** Llegó la lista de un canal: cada video a la cola, y la pieza del canal lo cuenta. */
