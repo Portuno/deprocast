@@ -742,10 +742,35 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/finanzas\/sugeridos\/(\d+)$/, (b, [m]) => resolverSugerido(db, id(m), b.accion === 'aceptar' ? 'aceptar' : 'descartar', { monto: b.monto != null ? Number(b.monto) : undefined, descripcion: b.descripcion }) ?? { descartado: true }],
 
   ['GET', /^\/api\/radar$/, () => ({
-    oportunidades: listarOportunidades(db, { estados: ['nueva', 'me_interesa', 'hecha'], limite: 200 }), cuotas: cuotas(db), conBuscador: hayBuscadorWeb(),
+    oportunidades: listarOportunidades(db, { estados: ['nueva', 'me_interesa', 'hecha', 'descartada'], limite: 300 }), cuotas: cuotas(db), conBuscador: hayBuscadorWeb(),
+    sinUbicar: (db.prepare(`SELECT COUNT(*) AS n FROM oportunidades WHERE ubicada IS NULL AND estado != 'descartada'`).get() as { n: number }).n,
     primarias: listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana: semanaDe(), estados: ['activa'] }).map((m) => ({ id: m.id, titulo: m.titulo })),
   })],
-  ['POST', /^\/api\/radar\/buscar$/, async (b) => buscarOportunidades(db, { misionId: b.misionId ? Number(b.misionId) : null, texto: b.texto || null })],
+  ['POST', /^\/api\/radar\/buscar$/, async (b) => {
+    const r = await buscarOportunidades(db, { misionId: b.misionId ? Number(b.misionId) : null, texto: b.texto || null })
+    // Las de antes del mapa se ubican de fondo (dónde y cuándo).
+    void import('./radar.ts').then((x) => x.ubicarOportunidades(db, { max: 60 })).catch(() => {})
+    return r
+  }],
+  ['POST', /^\/api\/radar\/ubicar$/, async () => (await import('./radar.ts')).ubicarOportunidades(db)],
+  // El calendario: su Google (ida y vuelta) y lo que Deprocast sabe con fecha, por capas.
+  ['GET', /^\/api\/calendario$/, async (_, __, q) => {
+    const hoy = fechaLocal()
+    const capas = q.get('capas') ? new Set(String(q.get('capas')).split(',')) : undefined
+    return (await import('./agenda.ts')).itemsDelCalendario(db, q.get('desde') || hoy, q.get('hasta') || q.get('desde') || hoy, capas)
+  }],
+  ['GET', /^\/api\/calendario\/estado$/, async () => (await import('./agenda.ts')).estadoCalendario()],
+  ['POST', /^\/api\/calendario$/, async (b) => (await import('./agenda.ts')).crearEvento({ titulo: String(b.titulo ?? ''), fecha: String(b.fecha ?? ''), hora: b.hora || null, duracionMin: Number(b.duracionMin) || null, lugar: b.lugar || null, descripcion: b.descripcion || null })],
+  ['POST', /^\/api\/calendario\/llevar$/, async (b) => (await import('./agenda.ts')).llevarAGoogle(db, String(b.origen ?? ''), Number(b.id), { ...(b.fecha ? { fecha: String(b.fecha) } : {}), ...(b.hora !== undefined ? { hora: b.hora || null } : {}) })],
+  ['POST', /^\/api\/calendario\/quitar$/, async (b) => ({ quitado: await (await import('./agenda.ts')).quitarDeGoogle(db, String(b.origen ?? ''), Number(b.id)) })],
+  ['POST', /^\/api\/calendario\/evento\/([\w-]+)$/, async (b, [g]) => (await import('./agenda.ts')).editarEvento(g, {
+    ...(b.titulo != null ? { titulo: String(b.titulo) } : {}), ...(b.fecha ? { fecha: String(b.fecha) } : {}), ...(b.hora !== undefined ? { hora: b.hora || null } : {}),
+    ...(b.duracionMin != null ? { duracionMin: Number(b.duracionMin) || null } : {}), ...(b.lugar !== undefined ? { lugar: b.lugar || null } : {}), ...(b.descripcion !== undefined ? { descripcion: b.descripcion || null } : {}),
+  })],
+  ['POST', /^\/api\/calendario\/evento\/([\w-]+)\/borrar$/, async (_, [g]) => { await (await import('./agenda.ts')).borrarEvento(db, g); return { borrado: g } }],
+  // El mapa: lugares, Línea, Radar, misiones y su calendario, por capas.
+  ['GET', /^\/api\/mapa$/, async (_, __, q) => (await import('./mapa.ts')).puntosDelMapa(db, q.get('capas') ? new Set(String(q.get('capas')).split(',')) : undefined)],
+  ['GET', /^\/api\/mapa\/buscar$/, async (_, __, q) => ({ lugar: await (await import('./mapa.ts')).ubicar(db, String(q.get('q') ?? '').slice(0, 200)) })],
   ['POST', /^\/api\/radar\/(\d+)$/, (b, [o]) => marcarOportunidad(db, id(o), b.estado)],
   ['POST', /^\/api\/radar\/(\d+)\/borrador$/, async (b, [o]) => redactarOportunidad(db, id(o), b.pedido || null)],
   ['GET', /^\/api\/gemelo$/, (_, __, q) => {

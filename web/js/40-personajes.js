@@ -198,7 +198,7 @@ async function traerMisiones() {
         <section class="mis-card">
           <div class="mis-card-cab"><h3>Side quests <small class="tenue">${d.terciarias.length}</small></h3></div>
           <div class="mis-lista">${d.terciarias.map((m) => `<div class="sq ${m.estado}" data-mid="${m.id}"><span>⚑ ${esc(m.titulo)}${m.disparador ? `<small>${esc(Object.values(m.disparador).filter(Boolean).join(' · '))}</small>` : m.vence ? `<small class="${m.vence < E.hoy.fecha ? 'vencida' : ''}">${esc(m.vence)}</small>` : ''}${m.estado === 'sugerida' ? '<small class="sugerida">sugerida</small>' : ''}</span>
-            <span class="fila">${m.estado === 'sugerida' ? '<button class="btn btn-chico" data-m-estado="activa">Aceptar</button>' : '<button class="btn btn-chico" data-m-estado="hecha" title="Cumplida">✓</button>'}<button class="btn btn-chico" data-m-estado="descartada" title="Descartar">✕</button></span></div>`).join('') || '<p class="tenue chico">Ninguna abierta. Las anota Mastropiero cuando contás algo de pasada («cuando pase por…»).</p>'}</div>
+            <span class="fila">${m.vence && m.estado !== 'sugerida' ? '<button class="btn btn-chico" data-m-agendar title="Llevar a mi calendario">📅</button>' : ''}${m.estado === 'sugerida' ? '<button class="btn btn-chico" data-m-estado="activa">Aceptar</button>' : '<button class="btn btn-chico" data-m-estado="hecha" title="Cumplida">✓</button>'}<button class="btn btn-chico" data-m-estado="descartada" title="Descartar">✕</button></span></div>`).join('') || '<p class="tenue chico">Ninguna abierta. Las anota Mastropiero cuando contás algo de pasada («cuando pase por…»).</p>'}</div>
           <form class="mis-form" id="sq-form"><input class="campo-suelto" id="sq-titulo" placeholder="Qué hacer…"><input class="campo-suelto" id="sq-donde" placeholder="Dónde o cuándo se activa"><button class="btn btn-chico">Anotar</button></form>
         </section>
         <section class="mis-card">
@@ -282,6 +282,10 @@ function engancharPrimaria(raiz, recargar) {
   $$('[data-m-estado]', raiz).forEach((b) => (b.onclick = async () => {
     try { await api(`/misiones/${b.closest('[data-mid]').dataset.mid}`, { estado: b.dataset.mEstado }); await recargar() } catch (e) { error(e) }
   }))
+  $$('[data-m-agendar]', raiz).forEach((b) => (b.onclick = () => trabajando(b, '…', async () => {
+    await api('/calendario/llevar', { origen: 'mision', id: Number(b.closest('[data-mid]').dataset.mid) })
+    toast('En tu calendario 📅', 'suave')
+  }).catch(error)))
   $$('[data-m-corregir]', raiz).forEach((b) => (b.onclick = () => { const s = b.closest('[data-mid]').querySelector('[data-m-slider]'); s.hidden = !s.hidden }))
   $$('[data-m-auto]', raiz).forEach((b) => (b.onclick = async () => { try { await api(`/misiones/${b.closest('[data-mid]').dataset.mid}`, { progresoAuto: true }); recargar() } catch (e) { error(e) } }))
   $$('[data-m-prog]', raiz).forEach((r) => {

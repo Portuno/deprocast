@@ -1103,6 +1103,50 @@ export const HERRAMIENTAS: Herramienta[] = [
     },
   },
   {
+    nombre: 'ver_calendario', familia: 'lectura',
+    descripcion: 'Su calendario entre dos días: su Google Calendar y lo que Deprocast sabe con fecha (Línea, Radar con fechas de cierre, misiones que vencen, tareas de los Cien Días, horario fijo). Cada evento de Google trae su id (para editarlo o borrarlo); lo de Deprocast trae su origen (para agendar_en_calendario).',
+    parametros: S({ desde: str('YYYY-MM-DD; vacío = hoy'), hasta: str('YYYY-MM-DD; vacío = 7 días después de «desde»'), capas: str('Opcional: google, linea, radar, mision, plan, horario (separadas por coma)') }),
+    ejecutar: async (a, { db }) => {
+      const { itemsDelCalendario } = await import('../agenda.ts')
+      const desde = a.desde || fechaLocal()
+      const hasta = a.hasta || fechaLocal(new Date(`${desde}T12:00:00`).getTime() + 7 * 86_400_000)
+      const r = await itemsDelCalendario(db, desde, hasta, a.capas ? new Set(String(a.capas).split(',').map((x) => x.trim())) : undefined)
+      return { conectado: r.estado.conectado, aviso: r.aviso, items: r.items.filter((x) => !x.fondo).map((x) => ({ id: x.google ?? x.id, capa: x.capa, titulo: x.titulo, fecha: x.fecha, hora: x.hora, fin: x.fin, lugar: x.lugar, origen: x.ref && x.ref.tipo !== 'google' && x.ref.tipo !== 'pieza' ? `${x.ref.tipo}:${x.ref.id}` : x.id.startsWith('evento:') ? x.id : null, enGoogle: !!x.google })) }
+    },
+  },
+  {
+    nombre: 'crear_evento_calendario', familia: 'accion',
+    descripcion: 'Crea un evento en su Google Calendar. Sin hora = todo el día. Confirmá con él la fecha y la hora si las dijo con palabras («el viernes»).',
+    parametros: S({ titulo: str('Título'), fecha: str('YYYY-MM-DD'), hora: str('HH:MM; vacío = todo el día'), duracion_min: int('Duración en minutos (60 por defecto)'), lugar: str('Dónde'), descripcion: str('Nota') }, ['titulo', 'fecha']),
+    ejecutar: async (a) => ({ creado: await (await import('../agenda.ts')).crearEvento({ titulo: a.titulo, fecha: a.fecha, hora: a.hora || null, duracionMin: a.duracion_min || null, lugar: a.lugar || null, descripcion: a.descripcion || null }) }),
+    resumen: (a) => `agendó «${recorte(a.titulo ?? '', 40)}» el ${a.fecha}${a.hora ? ` a las ${a.hora}` : ''}`,
+  },
+  {
+    nombre: 'editar_evento_calendario', familia: 'accion',
+    descripcion: 'Cambia un evento de su Google Calendar (el id sale de ver_calendario): título, fecha, hora, duración, lugar o nota. Solo lo que cambia.',
+    parametros: S({ id: str('id del evento de Google'), titulo: str('Título nuevo'), fecha: str('YYYY-MM-DD'), hora: str('HH:MM; «todo el día» = vacío'), duracion_min: int('Duración en minutos'), lugar: str('Dónde'), descripcion: str('Nota') }, ['id']),
+    ejecutar: async (a) => ({ editado: await (await import('../agenda.ts')).editarEvento(String(a.id), { ...(a.titulo ? { titulo: a.titulo } : {}), ...(a.fecha ? { fecha: a.fecha } : {}), ...(a.hora !== undefined ? { hora: a.hora || null } : {}), ...(a.duracion_min ? { duracionMin: a.duracion_min } : {}), ...(a.lugar !== undefined ? { lugar: a.lugar || null } : {}), ...(a.descripcion !== undefined ? { descripcion: a.descripcion || null } : {}) }) }),
+    resumen: (a) => `cambió un evento del calendario${a.fecha ? ` al ${a.fecha}` : ''}`,
+  },
+  {
+    nombre: 'borrar_evento_calendario', familia: 'destructiva',
+    descripcion: 'Borra un evento de su Google Calendar. Primero mostrale cuál (título, día y hora de ver_calendario) y pedile confirmación.',
+    parametros: S({ id: str('id del evento de Google'), titulo: str('El título, para confirmar'), confirmado: bool('true solo si el operador confirmó') }, ['id']),
+    ejecutar: async (a, { db }) => {
+      const c = exigirConfirmacion(a, `borra de tu calendario «${a.titulo ?? a.id}»`)
+      if (c) return c
+      await (await import('../agenda.ts')).borrarEvento(db, String(a.id))
+      return { borrado: a.id }
+    },
+  },
+  {
+    nombre: 'agendar_en_calendario', familia: 'accion',
+    descripcion: 'Lleva algo de Deprocast a su Google Calendar: una oportunidad del Radar, un evento de la Línea o una misión (el origen sale de ver_calendario o de la pantalla). Si ya estaba, lo actualiza; no duplica.',
+    parametros: S({ origen: str('oportunidad | evento | mision', { enum: ['oportunidad', 'evento', 'mision'] }), id: int('id'), fecha: str('YYYY-MM-DD, si no tiene o querés otra'), hora: str('HH:MM, si querés') }, ['origen', 'id']),
+    ejecutar: async (a, { db }) => ({ agendado: await (await import('../agenda.ts')).llevarAGoogle(db, a.origen, Number(a.id), { ...(a.fecha ? { fecha: a.fecha } : {}), ...(a.hora ? { hora: a.hora } : {}) }) }),
+    resumen: (a) => `llevó ${a.origen} #${a.id} a su calendario`,
+  },
+  {
     nombre: 'ver_plan', familia: 'lectura',
     descripcion: 'Su plan con fecha (los Cien Días): el día (número, semana, foco), frentes, hábitos de hoy y de la semana, verbos votados, WOOP, tareas del día y obligatorias atrasadas.',
     parametros: S({ fecha: str('YYYY-MM-DD; vacío = hoy') }),
@@ -1332,7 +1376,7 @@ export const GRUPOS: Record<string, string[]> = {
   liga: ['ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
+  vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   web: ['buscar_web', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   crear: ['ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
@@ -1344,7 +1388,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox/.test(t)) g.push('liga')
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|\[confirmado\]|\[inferido\]/.test(t)) g.push('corpus')
   if (/primaria|reporte|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
-  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|bitácora|gemelo|brújula|brujula|persona|amig|famil/.test(t)) g.push('vida')
+  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')
   if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal/.test(t)) g.push('web')
   if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo/.test(t)) g.push('crear')
   return g

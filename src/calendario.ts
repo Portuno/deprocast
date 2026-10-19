@@ -176,10 +176,44 @@ export function urlsCalendario(): string[] {
   return (process.env.GCAL_ICS_URLS ?? '').split(',').map((s) => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean)
 }
 
+/** Los textos iCal de los calendarios configurados (con caché de 10 minutos). */
+async function textosIcs(avisos: string[]): Promise<string[]> {
+  const textos: string[] = []
+  for (const url of urlsCalendario()) {
+    const c = cache.get(url)
+    if (c && Date.now() - c.en < 10 * 60_000) { textos.push(c.texto); continue }
+    try {
+      const texto = await traer(url)
+      cache.set(url, { en: Date.now(), texto })
+      textos.push(texto)
+    } catch (e) {
+      avisos.push(`No pude leer un calendario: ${e instanceof Error ? e.message : e}`)
+    }
+  }
+  return textos
+}
+
+/** Los eventos iCal de varios días (se bajan una vez). Para la vista del calendario sin Google conectado. */
+export async function eventosIcsDelRango(dias: string[]): Promise<{ porDia: Map<string, Evento[]>; avisos: string[] }> {
+  const avisos: string[] = []
+  const textos = await textosIcs(avisos)
+  return { porDia: new Map(dias.map((d) => [d, eventosDelDia(textos, d)])), avisos }
+}
+
 /** Eventos del día de todos los calendarios configurados. Un calendario que falla no frena a los otros. */
 export async function agendaDelDia(fecha: string): Promise<{ eventos: Evento[]; avisos: string[] }> {
   const avisos: string[] = []
   const textos: string[] = []
+  // Su Google Calendar por la API (ida y vuelta), si está conectado.
+  const deGoogle: Evento[] = []
+  const g = await import('./google-calendario.ts')
+  if (g.googleConectado()) {
+    try {
+      for (const e of await g.listarGoogle(fecha, fecha)) deGoogle.push({ titulo: e.titulo, inicio: e.inicio, fin: e.fin, todoElDia: e.todoElDia, lugar: e.lugar })
+    } catch (e) {
+      avisos.push(`No pude leer tu Google Calendar: ${e instanceof Error ? e.message : e}`)
+    }
+  }
   for (const url of urlsCalendario()) {
     const c = cache.get(url)
     if (c && Date.now() - c.en < 10 * 60_000) {
@@ -194,5 +228,8 @@ export async function agendaDelDia(fecha: string): Promise<{ eventos: Evento[]; 
       avisos.push(`No pude leer un calendario: ${e instanceof Error ? e.message : e}`)
     }
   }
-  return { eventos: eventosDelDia(textos, fecha), avisos }
+  // El mismo evento por la API y por un iCal del mismo calendario aparece una vez.
+  const vistos = new Set(deGoogle.map((e) => `${e.inicio}|${e.titulo}`))
+  const eventos = [...deGoogle, ...eventosDelDia(textos, fecha).filter((e) => !vistos.has(`${e.inicio}|${e.titulo}`))].sort((a, b) => a.inicio - b.inicio)
+  return { eventos, avisos }
 }

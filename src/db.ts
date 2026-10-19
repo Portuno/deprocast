@@ -818,6 +818,24 @@ CREATE TABLE IF NOT EXISTS reproceso_fallos (
   error TEXT,
   PRIMARY KEY (pieza_id, paso)
 );
+-- Lo que Deprocast llevó a su Google Calendar (una oportunidad, un evento de la Línea, una misión): así no se duplica y
+-- un cambio de fecha acá se edita allá.
+CREATE TABLE IF NOT EXISTS calendario_vinculos (
+  origen TEXT NOT NULL,
+  origen_id INTEGER NOT NULL,
+  google_id TEXT NOT NULL,
+  creado_en INTEGER NOT NULL,
+  PRIMARY KEY (origen, origen_id)
+);
+-- Lugares ya buscados en el mapa (OpenStreetMap): una vez cada texto, también los que no se encontraron.
+CREATE TABLE IF NOT EXISTS geocache (
+  clave TEXT PRIMARY KEY,
+  texto TEXT NOT NULL,
+  lat REAL,
+  lon REAL,
+  nombre TEXT,
+  buscado_en INTEGER NOT NULL
+);
 -- YouTube: videos y canales por leer. La nube no puede (YouTube la marca como bot): los lee el servicio de
 -- transcripciones o la compu. estado: pendiente | compu (espera a la compu) | listo | sin_subtitulos | fallo.
 CREATE TABLE IF NOT EXISTS youtube_cola (
@@ -1035,6 +1053,8 @@ CREATE INDEX IF NOT EXISTS quantomos_etapa ON quantomos(etapa);
 
 /** Columnas que se sumaron después de la primera versión: se agregan sin tocar los datos. */
 const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
+  // El radar con lugar y fecha (para el mapa y el calendario): fecha/fecha_fin son las del evento; cierre, la fecha límite.
+  oportunidades: [['lugar', 'TEXT'], ['online', 'INTEGER'], ['lat', 'REAL'], ['lon', 'REAL'], ['fecha', 'TEXT'], ['fecha_fin', 'TEXT'], ['ubicada', 'INTEGER']],
   corpus: [
     ['nivel', 'TEXT'],
     ['tipo', "TEXT NOT NULL DEFAULT 'materia'"], // materia | referencia | ficha | lista | enlace

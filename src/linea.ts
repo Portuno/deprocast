@@ -125,6 +125,13 @@ export function resolverEvento(db: Db, id: number, accion: 'agendar' | 'descarta
   if (accion === 'descartar') return void db.prepare(`UPDATE eventos SET estado = 'descartado' WHERE id = ?`).run(id)
   const m = anotarSideQuest(db, { titulo: e.titulo, detalle: `Salió de «${e.pieza}» [#${e.pieza_id}]${e.hora ? ` · ${e.hora}` : ''}${e.lugar ? ` · ${e.lugar}` : ''}`, vence: e.precision === 'dia' ? e.fecha : null, creadaPor: 'linea' }, ahora)
   db.prepare(`UPDATE eventos SET estado = 'agendado' WHERE id = ?`).run(id)
+  // Si su Google Calendar está conectado, también va allá (con día exacto).
+  if (e.precision === 'dia' && String(e.fecha ?? '').length === 10) {
+    void import('./agenda.ts').then(async (a) => {
+      const { googleConectado } = await import('./google-calendario.ts')
+      if (googleConectado()) await a.llevarAGoogle(db, 'evento', id)
+    }).catch((err) => console.error('  línea → calendario:', err instanceof Error ? err.message : err))
+  }
   return m
 }
 
