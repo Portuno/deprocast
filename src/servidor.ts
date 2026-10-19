@@ -990,7 +990,11 @@ const servidor = http.createServer(async (req, res) => {
   if (url.pathname.startsWith('/adjuntos/')) {
     const archivo = path.join(dirAdjuntos(), path.basename(decodeURIComponent(url.pathname)))
     if (!fs.existsSync(archivo)) return void res.writeHead(404).end('No encontrado')
-    res.writeHead(200, { 'content-type': TIPOS_MIME[path.extname(archivo).toLowerCase()] ?? 'image/jpeg', 'cache-control': 'private, max-age=31536000', 'x-content-type-options': 'nosniff' })
+    const ext = path.extname(archivo).toLowerCase()
+    // Imágenes y PDF se ven en el navegador (aislados); lo demás se baja. Nunca corre nada en la página.
+    const tipo = TIPOS_MIME[ext] ?? ({ '.pdf': 'application/pdf', '.txt': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.csv': 'text/plain; charset=utf-8' } as Record<string, string>)[ext] ?? 'application/octet-stream'
+    const ver = /^image\/(jpeg|png|webp)$/.test(tipo) || ext === '.pdf' || tipo.startsWith('text/plain')
+    res.writeHead(200, { 'content-type': ext === '.json' ? 'text/plain; charset=utf-8' : tipo, 'cache-control': 'private, max-age=31536000', 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox', 'content-disposition': `${ver ? 'inline' : 'attachment'}; filename="${path.basename(archivo).replace(/^\d+-[0-9a-f]+\./, 'adjunto.')}"` })
     return void fs.createReadStream(archivo).pipe(res)
   }
   if (url.pathname.startsWith('/taller/')) {
@@ -1043,6 +1047,10 @@ const servidor = http.createServer(async (req, res) => {
         const c = await clasificar(db, { imagen: { datos: foto.datos, mime: foto.mime }, texto: url.searchParams.get('texto') || '' })
         const registrado = c.tipo !== 'otro' && c.confianza >= 0.5 ? registrarCaptura(db, c, { foto: foto.url, fuente: 'pantalla' }) : null
         return void res.end(JSON.stringify({ captura: c, registrado, foto: foto.url }))
+      }
+      if (req.method === 'POST' && url.pathname === '/api/chat/archivo') {
+        const { guardarArchivo } = await import('./chat/adjuntos.ts')
+        return void res.end(JSON.stringify(await guardarArchivo(url.searchParams.get('nombre') || 'archivo', await leerCrudo(req, 31 * 1024 * 1024))))
       }
       if (req.method === 'POST' && url.pathname === '/api/chat/imagen') {
         const r = await guardarImagen(db, url.searchParams.get('nombre') || 'imagen', await leerCrudo(req, 30 * 1024 * 1024))

@@ -217,12 +217,52 @@ Forma: {"titulo": string (máx. 60: el título de la página si tiene, o de qué
 - Si la página está en blanco o no es una página de cuaderno, transcripcion vacía y legible 0.`
 
 /** Fotos enormes o en formatos raros (HEIC): a JPEG de hasta 2000 px con ffmpeg, si hace falta y se puede. */
+/**
+ * La orientación que dice el EXIF de un JPEG (1 = derecha; 2 a 8 = girada o espejada), sin librerías: el segmento APP1
+ * «Exif», su cabecera TIFF y la etiqueta 0x0112 del primer directorio. 1 si no hay o no se entiende.
+ */
+export function orientacionExif(b: Buffer): number {
+  if (b.length < 4 || b[0] !== 0xff || b[1] !== 0xd8) return 1
+  let i = 2
+  while (i + 4 < b.length && b[i] === 0xff) {
+    const marca = b[i + 1]
+    const largo = b.readUInt16BE(i + 2)
+    if (marca === 0xe1 && b.toString('latin1', i + 4, i + 10) === 'Exif\0\0') {
+      const t = i + 10
+      const le = b.toString('latin1', t, t + 2) === 'II'
+      const u16 = (o: number) => (le ? b.readUInt16LE(o) : b.readUInt16BE(o))
+      const u32 = (o: number) => (le ? b.readUInt32LE(o) : b.readUInt32BE(o))
+      const ifd = t + u32(t + 4)
+      if (ifd + 2 > b.length) return 1
+      for (let k = 0, n = u16(ifd); k < n; k++) {
+        const e = ifd + 2 + k * 12
+        if (e + 12 > b.length) break
+        if (u16(e) === 0x0112) { const v = u16(e + 8); return v >= 1 && v <= 8 ? v : 1 }
+      }
+      return 1
+    }
+    if (marca === 0xda) break // empezó la imagen: ya no hay metadatos
+    i += 2 + largo
+  }
+  return 1
+}
+
+/** El filtro de ffmpeg que endereza cada orientación EXIF (null: ya está derecha). */
+export function filtroDeOrientacion(o: number): string | null {
+  return ({ 2: 'hflip', 3: 'hflip,vflip', 4: 'vflip', 5: 'transpose=0', 6: 'transpose=1', 7: 'transpose=3', 8: 'transpose=2' } as Record<number, string>)[o] ?? null
+}
+
 export function aJpeg(ruta: string, bytes: number): { datos: Buffer; mime: string } {
   const ext = path.extname(ruta).toLowerCase()
-  const directo = ['.jpg', '.jpeg', '.png', '.webp'].includes(ext) && bytes <= 4 * 1024 * 1024
+  // Una foto del celular viene «de costado» con una marca EXIF que el navegador respeta pero el modelo no: se endereza.
+  const cabeza = Buffer.alloc(Math.min(bytes, 256 * 1024))
+  const fd = fs.openSync(ruta, 'r')
+  try { fs.readSync(fd, cabeza, 0, cabeza.length, 0) } finally { fs.closeSync(fd) }
+  const girar = filtroDeOrientacion(orientacionExif(cabeza))
+  const directo = ['.jpg', '.jpeg', '.png', '.webp'].includes(ext) && bytes <= 4 * 1024 * 1024 && !girar
   if (directo) return { datos: fs.readFileSync(ruta), mime: ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg' }
   const salida = path.join(os.tmpdir(), `mastro-pag-${Date.now()}.jpg`)
-  const r = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', ruta, '-vf', "scale='min(2000,iw)':-2", '-q:v', '3', salida], { encoding: 'utf8' })
+  const r = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-noautorotate', '-i', ruta, '-vf', [girar, "scale='min(2000,iw)':-2"].filter(Boolean).join(','), '-map_metadata', '-1', '-q:v', '3', salida], { encoding: 'utf8' })
   if (r.status !== 0 || !fs.existsSync(salida)) {
     if (['.jpg', '.jpeg', '.png', '.webp'].includes(ext)) return { datos: fs.readFileSync(ruta), mime: ext === '.png' ? 'image/png' : 'image/jpeg' }
     throw new Error(`No pude leer la imagen ${path.basename(ruta)} (si es HEIC, exportala como JPG)`)

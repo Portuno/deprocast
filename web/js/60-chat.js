@@ -101,9 +101,9 @@ const hiloHTMLBase = () => `
   <div class="chat-compositor">
     ${E.chatConModelo ? '' : '<div class="aviso aviso-modelo">Sin modelo: Mastropiero necesita NAN_API_KEY en .env para conversar.</div>'}
     <div class="chat-acciones" id="chat-acciones" hidden></div>
-    <div class="chat-adjuntos" id="chat-adjuntos" hidden></div>
     <form id="chat-form">
-      <label class="btn btn-icono" id="chat-adjuntar" title="Adjuntar imágenes (también podés pegarlas con Ctrl+V o arrastrarlas)">📎<input type="file" accept="image/*" multiple hidden id="chat-img-in"></label>
+      <div class="chat-adjuntos" id="chat-adjuntos" hidden></div>
+      <label class="btn btn-icono" id="chat-adjuntar" title="Adjuntar imágenes o archivos (PDF, Word, Excel, PowerPoint, texto). También podés pegarlos o arrastrarlos">📎<input type="file" accept="image/*,.pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json" multiple hidden id="chat-img-in"></label>
       <label class="btn btn-icono" id="chat-audio" title="Subir un audio: se transcribe y entra como lo que contás" hidden>🎙<input type="file" accept="audio/*" hidden id="chat-audio-in"></label>
       <textarea id="chat-txt" rows="1" placeholder="Escribile a Mastropiero…" title="Enter envía. Shift+Enter, nueva línea."></textarea><button class="btn btn-primario" id="chat-enviar">Enviar</button>
     </form>
@@ -116,18 +116,18 @@ function engancharCompositor() {
   txt.oninput = () => { chat.borrador = txt.value; ajustar() }
   txt.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviarChat() } }
   $('#chat-form').onsubmit = (e) => { e.preventDefault(); enviarChat() }
-  $('#chat-img-in').onchange = (e) => { adjuntarImagenes([...e.target.files]); e.target.value = '' }
+  $('#chat-img-in').onchange = (e) => { adjuntar([...e.target.files]); e.target.value = '' }
   txt.onpaste = (e) => {
-    const imgs = [...(e.clipboardData?.files ?? [])].filter((f) => /^image\//.test(f.type))
-    if (imgs.length) { e.preventDefault(); adjuntarImagenes(imgs) }
+    const fs = [...(e.clipboardData?.files ?? [])]
+    if (fs.length) { e.preventDefault(); adjuntar(fs) }
   }
   const zona = $('.chat-compositor')
   zona.ondragover = (e) => { if ([...e.dataTransfer.items].some((x) => x.kind === 'file')) { e.preventDefault(); zona.classList.add('soltando') } }
   zona.ondragleave = () => zona.classList.remove('soltando')
   zona.ondrop = (e) => {
     zona.classList.remove('soltando')
-    const imgs = [...e.dataTransfer.files].filter((f) => /^image\//.test(f.type))
-    if (imgs.length) { e.preventDefault(); adjuntarImagenes(imgs) }
+    const fs = [...e.dataTransfer.files]
+    if (fs.length) { e.preventDefault(); adjuntar(fs) }
   }
   pintarAdjuntos()
   $('#chat-audio-in').onchange = async (e) => {
@@ -388,6 +388,34 @@ function turnoHTML(t, q, vivo) {
   return h + t.errores.map((m) => `<div class="m-error">${esc(m.texto)}</div>`).join('')
 }
 
+const EXT_DOC = /\.(pdf|docx|xlsx|pptx|txt|md|csv|json)$/i
+const ICONO_ARCHIVO = { pdf: '📕', docx: '📘', xlsx: '📗', pptx: '📙', txt: '📄', md: '📄', csv: '📊', json: '🧾' }
+const pesoLegible = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`)
+
+/** Lo que se suelta, se pega o se elige: imágenes por un lado, documentos por otro; lo demás se avisa. */
+function adjuntar(archivos) {
+  const imgs = archivos.filter((f) => /^image\//.test(f.type))
+  const docs = archivos.filter((f) => !/^image\//.test(f.type) && EXT_DOC.test(f.name))
+  const otros = archivos.length - imgs.length - docs.length
+  if (otros) toast(`${otros === 1 ? 'Ese archivo no lo leo' : `${otros} archivos no los leo`}: imágenes, PDF, Word, Excel, PowerPoint o texto. (Un audio, con 🎙)`, 'suave')
+  if (imgs.length) adjuntarImagenes(imgs)
+  if (docs.length) adjuntarArchivos(docs)
+}
+
+/** Sube cada documento: el servidor lo guarda y saca su texto, que Mastropiero lee con el mensaje. */
+async function adjuntarArchivos(archivos) {
+  for (const f of archivos) {
+    const a = { id: Math.random(), tipo: 'archivo', nombre: f.name, bytes: f.size, subiendo: true, marca: null }
+    chat.adjuntos.push(a)
+    pintarAdjuntos()
+    try {
+      const r = await fetch(`/api/chat/archivo?nombre=${encodeURIComponent(f.name)}`, { method: 'POST', body: f }).then(async (x) => { const j = await x.json(); if (!x.ok) throw new Error(j.error); return j })
+      Object.assign(a, { subiendo: false, marca: r.marca, palabras: r.palabras, url: r.url })
+    } catch (e) { error(e); chat.adjuntos = chat.adjuntos.filter((x) => x !== a) }
+    pintarAdjuntos()
+  }
+}
+
 /** Sube cada imagen (se achica y se describe en el servidor) y la deja lista para mandar con el próximo mensaje. */
 async function adjuntarImagenes(archivos) {
   for (const f of archivos) {
@@ -406,20 +434,37 @@ function pintarAdjuntos() {
   const cont = $('#chat-adjuntos')
   if (!cont) return
   cont.hidden = !chat.adjuntos.length
-  cont.innerHTML = chat.adjuntos.map((a) => `<span class="adj ${a.subiendo ? 'subiendo' : ''}" title="${esc(a.descripcion ?? 'Subiendo y mirando la imagen…')}"><img src="${a.vista}" alt=""><button type="button" data-quitar-adj="${a.id}" title="Quitar">✕</button></span>`).join('')
+  cont.innerHTML = chat.adjuntos.map((a) => a.tipo === 'archivo'
+    ? `<span class="adj adj-archivo ${a.subiendo ? 'subiendo' : ''}"><i>${ICONO_ARCHIVO[(a.nombre.split('.').pop() || '').toLowerCase()] ?? '📄'}</i><span><b title="${esc(a.nombre)}">${esc(a.nombre)}</b><small>${a.subiendo ? 'Leyendo…' : `${pesoLegible(a.bytes)} · ${a.palabras ? `${a.palabras.toLocaleString('es-AR')} palabras` : 'sin texto legible'}`}</small></span><button type="button" data-quitar-adj="${a.id}" title="Quitar">✕</button></span>`
+    : `<span class="adj ${a.subiendo ? 'subiendo' : ''}" title="${esc(a.descripcion ?? 'Subiendo y mirando la imagen…')}"><img src="${a.vista}" alt=""><small>${a.subiendo ? 'Mirando…' : 'Lista'}</small><button type="button" data-quitar-adj="${a.id}" title="Quitar">✕</button></span>`).join('')
   $$('[data-quitar-adj]', cont).forEach((b) => (b.onclick = () => { chat.adjuntos = chat.adjuntos.filter((a) => String(a.id) !== b.dataset.quitarAdj); pintarAdjuntos() }))
 }
 
-/** Lo que escribió él, con sus imágenes como miniaturas (la marca [imagen:url|descripción] no se muestra). */
+/**
+ * Lo que escribió él, con sus imágenes en galería (se abren grandes ahí mismo) y sus archivos como tarjetas.
+ * Las marcas [imagen:url|descripción] y [archivo:url|nombre|palabras] no se muestran.
+ */
 function textoConImagenes(texto) {
   const imgs = []
-  const limpio = String(texto ?? '').replace(/\[imagen:(\/adjuntos\/[^\]|\s]+)\|([^\]]*)\]/g, (_, url, d) => { imgs.push({ url, d }); return '' }).trim()
-  return `${limpio ? `<div>${conMenciones(esc(limpio))}</div>` : ''}${imgs.length ? `<div class="m-imgs">${imgs.map((x) => `<a href="${esc(x.url)}" target="_blank" rel="noopener" title="${esc(x.d)}"><img src="${esc(x.url)}" alt="${esc(x.d)}" loading="lazy"></a>`).join('')}</div>` : ''}`
+  const docs = []
+  const limpio = String(texto ?? '')
+    .replace(/\[imagen:(\/adjuntos\/[^\]|\s]+)\|([^\]]*)\]/g, (_, url, d) => { imgs.push({ url, d }); return '' })
+    .replace(/\[archivo:(\/adjuntos\/[^\]|\s]+)\|([^\]|]*)\|([^\]]*)\]/g, (_, url, nombre, p) => { docs.push({ url, nombre, p }); return '' }).trim()
+  return `${limpio ? `<div>${conMenciones(esc(limpio))}</div>` : ''}${imgs.length ? `<div class="m-imgs ${imgs.length === 1 ? 'una' : ''}">${imgs.map((x) => `<button type="button" class="m-img" data-ver-img="${esc(x.url)}" data-desc="${esc(x.d)}" title="Ver grande"><img src="${esc(x.url)}" alt="${esc(x.d)}" loading="lazy"></button>`).join('')}</div>` : ''}${docs.length ? `<div class="m-docs">${docs.map((x) => `<a class="m-doc" href="${esc(x.url)}" target="_blank" rel="noopener"><i>${ICONO_ARCHIVO[(x.nombre.split('.').pop() || '').toLowerCase()] ?? '📄'}</i><span><b>${esc(x.nombre)}</b><small>${esc(x.p)} · lo leyó Mastropiero</small></span></a>`).join('')}</div>` : ''}`
 }
+
+/** Una imagen del chat, grande, con lo que Mastropiero vio en ella. */
+function verImagenChat(url, desc) {
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><div class="visor-img"><img src="${esc(url)}" alt="${esc(desc)}"></div>${desc && desc !== 'sin descripción' ? `<p class="tenue chico" style="margin-top:10px"><b>Lo que vio Mastropiero:</b> ${esc(desc)}</p>` : ''}<p class="chico"><a href="${esc(url)}" target="_blank" rel="noopener">Abrir el original ↗</a></p>`)
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest?.('[data-ver-img]')
+  if (b) { e.preventDefault(); verImagenChat(b.dataset.verImg, b.dataset.desc ?? '') }
+})
 
 async function enviarChat() {
   const txt = $('#chat-txt')
-  if (chat.adjuntos.some((a) => a.subiendo)) return toast('Esperá: todavía estoy mirando la imagen', 'suave')
+  if (chat.adjuntos.some((a) => a.subiendo)) return toast(chat.adjuntos.some((a) => a.subiendo && a.tipo === 'archivo') ? 'Esperá: todavía estoy leyendo el archivo' : 'Esperá: todavía estoy mirando la imagen', 'suave')
   const marcas = chat.adjuntos.map((a) => a.marca).filter(Boolean)
   const texto = [txt.value.trim(), ...marcas].filter(Boolean).join('\n')
   if (!texto || chat.pensando) return
