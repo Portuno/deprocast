@@ -24,6 +24,7 @@ import { menciones, sinArrobas } from './menciones.ts'
 import { perfilDeRendimiento, textoDeRendimiento } from './rendimiento.ts'
 import { finanzasParaPrompt } from './finanzas.ts'
 import { aprenderParaPrompt } from './aprender.ts'
+import { focoParaRun } from './foco.ts'
 
 export const NIVELES_MISION = ['principal', 'primaria', 'secundaria', 'terciaria'] as const
 export type NivelMision = (typeof NIVELES_MISION)[number]
@@ -233,8 +234,8 @@ export function asegurarPrincipal(db: Db, clave: string): Mision | null {
 
 // ─── progreso ───────────────────────────────────────────────────────────
 
-export type Senales = { bandas: number; aportes: number; misiones: number; piezas: number; movimientos: number }
-export type Avance = { progreso: number; bandas: { hechas: number; parciales: number; no: number; total: number }; minutos: number; auto: boolean; senales?: Senales }
+export type Senales = { bandas: number; aportes: number; misiones: number; piezas: number; movimientos: number; previo?: number }
+export type Avance = { progreso: number; bandas: { hechas: number; parciales: number; no: number; total: number }; minutos: number; auto: boolean; senales?: Senales; previos?: { piezaId: number; titulo: string; fecha: string | null }[] }
 
 /**
  * Lo hecho que empuja una primaria (o la principal): sus bandas, los aportes de sus ayudantes y, si es de un proyecto,
@@ -243,22 +244,27 @@ export type Avance = { progreso: number; bandas: { hechas: number; parciales: nu
 function senalesDe(db: Db, m: Mision, hijas: { estado: string }[]): Senales {
   const bandas = hijas.filter((h) => h.estado === 'hecha').length + hijas.filter((h) => h.estado === 'parcial').length / 2
   const aportes = (db.prepare(`SELECT COUNT(*) AS n FROM corpus WHERE json_extract(meta, '$.aporte') = 1 AND json_extract(meta, '$.primaria') = ?`).get(m.id) as { n: number }).n
-  if (!m.entidadId) return { bandas, aportes, misiones: 0, piezas: 0, movimientos: 0 }
+  // Lo que ya había hecho hacia esto antes de crearla (arranque al 20 %).
+  const previo = (db.prepare(`SELECT COUNT(*) AS n FROM previos WHERE tipo = 'mision' AND ref_id = ?`).get(m.id) as { n: number }).n
+  if (!m.entidadId) return { bandas, aportes, misiones: 0, piezas: 0, movimientos: 0, ...(previo ? { previo } : {}) }
   const { desde, hasta } = m.semana ? diasDeSemana(m.semana) : { desde: fechaLocal(m.creadaEn), hasta: fechaLocal() }
   const t0 = new Date(`${desde}T00:00:00`).getTime()
   const t1 = new Date(`${hasta}T23:59:59`).getTime()
   const n = (sql: string, ...args: (string | number)[]) => (db.prepare(sql).get(...args) as { n: number }).n
   return {
-    bandas, aportes,
+    bandas, aportes, ...(previo ? { previo } : {}),
     misiones: n(`SELECT COUNT(*) AS n FROM misiones WHERE entidad_id = ? AND id != ? AND COALESCE(padre_id, 0) != ? AND estado = 'hecha' AND cerrada_en BETWEEN ? AND ?`, m.entidadId, m.id, m.id, t0, t1),
     piezas: n(`SELECT COUNT(*) AS n FROM corpus WHERE nivel = 'propia' AND substr(COALESCE(fecha, ''), 1, 10) BETWEEN ? AND ? AND EXISTS (SELECT 1 FROM json_each(corpus.entidades) WHERE value = ?)`, desde, hasta, m.entidadId),
     movimientos: n('SELECT COUNT(*) AS n FROM movimientos WHERE entidad_id = ? AND fecha BETWEEN ? AND ?', m.entidadId, desde, hasta),
   }
 }
 
-/** De lo hecho al %: cada banda cuenta entera; aportes y misiones del proyecto, media; piezas y movimientos, un poco (con tope). */
+/**
+ * De lo hecho al %: cada banda cuenta entera; aportes y misiones del proyecto, media; piezas y movimientos, un poco (con
+ * tope). Lo previo (lo que ya había hecho antes de crearla, hasta 3) la arranca cerca del 20 %: nadie empieza de cero.
+ */
 export function progresoInferido(s: Senales): number {
-  const trabajo = s.bandas + s.aportes / 2 + s.misiones / 2 + Math.min(4, s.piezas) / 4 + Math.min(2, s.movimientos) / 4
+  const trabajo = s.bandas + s.aportes / 2 + s.misiones / 2 + Math.min(4, s.piezas) / 4 + Math.min(2, s.movimientos) / 4 + Math.min(3, s.previo ?? 0) * 0.3
   return Math.min(95, Math.round(100 * (1 - Math.exp(-trabajo / 4))))
 }
 
@@ -278,7 +284,8 @@ export function avanceDe(db: Db, id: number): Avance {
   const manual = (db.prepare('SELECT progreso_manual FROM misiones WHERE id = ?').get(id) as { progreso_manual: number | null }).progreso_manual === 1
   if (manual) return { progreso: m.progreso, ...base, auto: false }
   const senales = senalesDe(db, m, hijas)
-  return { progreso: Math.max(m.progreso, progresoInferido(senales)), ...base, auto: true, senales }
+  const previos = senales.previo ? (db.prepare(`SELECT pieza_id AS piezaId, titulo, fecha FROM previos WHERE tipo = 'mision' AND ref_id = ? ORDER BY fecha DESC`).all(m.id) as any[]) : undefined
+  return { progreso: Math.max(m.progreso, progresoInferido(senales)), ...base, auto: true, senales, ...(previos ? { previos } : {}) }
 }
 
 export function conAvance(db: Db, ms: Mision[]) {
@@ -742,6 +749,7 @@ async function generar(
     `\n${calibracion(db, o.ahora) || 'Todavía no hay runs anteriores para calibrar.'}`,
     textoDeRendimiento(perfilDeRendimiento(db, o.ahora)) ? `\nCómo rinde según sus runs (datos, no opiniones):\n${textoDeRendimiento(perfilDeRendimiento(db, o.ahora))}` : '',
     finanzasParaPrompt(db, o.ahora) ? `\nSu plata (tenela en cuenta: lo que trae ingresos pesa más si la meta viene lejos):\n${finanzasParaPrompt(db, o.ahora)}` : '',
+    focoParaRun(db, o.ahora) ? `\n${focoParaRun(db, o.ahora)}` : '',
     aprenderParaPrompt(db, o.ahora) ? `\nLo que quiere aprender (si entra, una banda corta de práctica de lo que lleva más días quieto):\n${aprenderParaPrompt(db, o.ahora)}` : '',
   ].filter(Boolean).join('\n')
   const { datos, modelo } = await pedirJson<{ resumen?: string; misiones?: any[] }>({ db, clase: 'mastropiero', agenteId: 'run' }, SISTEMA_RUN, usuario, { temperatura: 0.6, maxTokens: 6000 })

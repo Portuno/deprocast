@@ -232,6 +232,11 @@ export const ACCIONES: Acciones = {
     if (!r?.texto) return null
     return `🜂 **La semana destilada**\n\n${r.texto}${r.patrones ? `\n\nEncontré ${r.patrones} patrón${r.patrones > 1 ? 'es' : ''}: quedaron como quántomos para que los peses (Corpus → Quántomos).` : ''}${r.preguntas ? ` Y te dejé ${r.preguntas === 1 ? 'una pregunta' : `${r.preguntas} preguntas`}.` : ''}`
   },
+  /** El domingo: la evidencia de la semana de cada identidad, contra su historia vieja (una pregunta cada una, sin modelo). */
+  async evidencia(db, _fecha, ahora) {
+    const n = (await import('./evidencia.ts')).preguntasDeEvidencia(db, ahora)
+    return n ? `🗳 Te dejé ${n === 1 ? 'una pregunta' : `${n} preguntas`} sobre tu evidencia de la semana (/pregunta en Telegram, o en Hoy).` : null
+  },
   /** El domingo a la noche: el reporte de la semana que termina. */
   async reporte_semanal(db, _fecha, ahora) {
     const semana = semanaDe(ahora)

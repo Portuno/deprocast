@@ -332,8 +332,10 @@ async function montarDirecto() {
   $('#principal').innerHTML = `
     <div class="titulo"><h1>Directo</h1><p>El resumen de lo que Mastropiero vio, y una bandeja para aceptar o descartar. Las tareas, entidades y conexiones no entran solas.</p>
       <div class="fila"><button class="btn btn-primario" id="dv-boton">${directo.sesion ? 'Apagar el Directo' : '● Prender el Directo'}</button></div></div>
+    <div id="dv-foco"></div>
     <div id="dv"></div>`
   $('#dv-boton').onclick = modalDirecto
+  pintarFoco($('#dv-foco'))
   try {
     const d = await api('/directo')
     directoFirma = JSON.stringify(E.hoy?.directo ?? null)

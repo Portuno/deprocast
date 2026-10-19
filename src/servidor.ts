@@ -344,6 +344,7 @@ const rutas: [string, RegExp, Ruta][] = [
       agenda: eventos.map((e) => ({ titulo: e.titulo, inicio: e.inicio, fin: e.fin, todoElDia: e.todoElDia })),
       fijo: bloquesDelDia(db, fecha),
       bucles: (await import('./bucles.ts')).listarBucles(db, { limite: 3 }).filter((b) => b.veces >= 2 || b.dias >= 14),
+      foco: await (async () => { const f = await import('./foco.ts'); return { hoy: f.focoDelDia(db, fecha), meta: f.metaDeBloque(db) } })(),
       rutinas: listarRutinas(db).filter((r) => r.activa && r.dias.includes(String(ahora.getDay())) && r.hora > hhmm).map((r) => ({ nombre: r.nombre, hora: r.hora })).slice(0, 4),
       salud: { kcal: salud.kcal, proteina: salud.proteina, comidas: salud.comidas, ejercicio: salud.ejercicio, sueno: salud.sueno, peso: salud.peso, metas: salud.metas, entrenosSemana: resumenSemana(db, fecha).entrenos },
       plan: enPlan ? { habitos: plan.habitos.filter((h) => h.toca), verbos: plan.dia.verbos, tareas: plan.tareas.map((t) => ({ id: t.id, titulo: t.titulo, estado: t.estado, hito: t.hito, obligatoria: t.obligatoria })) } : null,
@@ -363,6 +364,7 @@ const rutas: [string, RegExp, Ruta][] = [
       if (!/^(0|\d{2,3}\s*\/\s*\d{1,2})$/.test(c)) throw new Error('El ciclo va como «90/20» (minutos de foco / de descanso), o 0 para no usar ciclos')
       fijarAjuste(db, 'ciclo_bandas', c.replace(/\s+/g, ''))
     }
+    if (b.apps_estimulo != null) fijarAjuste(db, 'apps_estimulo', String(b.apps_estimulo).slice(0, 500))
     for (const k of ['primarias_semana', 'tokens_dia_max', 'pensar_cada_horas', 'directo_auto', 'fragua_por_noche']) if (b[k] != null && String(b[k]).trim()) fijarAjuste(db, k, String(b[k]).trim())
     if (b.meta_ingresos_mes != null) fijarAjuste(db, 'meta_ingresos_mes', String(b.meta_ingresos_mes).trim())
     if (b.horario_fijo != null) fijarHorario(db, String(b.horario_fijo).trim() ? horarioDeTexto(String(b.horario_fijo)) : [])
@@ -606,7 +608,22 @@ const rutas: [string, RegExp, Ruta][] = [
     repaso: (db.prepare(`SELECT id, texto, por_que, tema, vuelve_en, repaso FROM preguntas WHERE origen = 'repaso' AND estado = 'pendiente' ORDER BY vuelve_en`).all() as any[])
       .map((p) => ({ id: p.id, texto: p.texto, porQue: p.por_que, tema: p.tema, vuelveEn: p.vuelve_en, vuelta: p.repaso, toca: p.vuelve_en <= Date.now() })),
   })],
-  ['POST', /^\/api\/aprender$/, (b) => crearAprendizaje(db, { tema: b.tema, porQue: b.porQue, nivelActual: b.nivelActual, nivelObjetivo: b.nivelObjetivo })],
+  ['POST', /^\/api\/aprender$/, async (b) => {
+    const a = crearAprendizaje(db, { tema: b.tema, porQue: b.porQue, nivelActual: b.nivelActual, nivelObjetivo: b.nivelObjetivo })
+    const ev = await import('./evidencia.ts')
+    const previos = await ev.buscarPrevios(db, 'aprendizaje', a.id, `${a.tema}. ${a.porQue ?? ''}`).catch(() => [])
+    return { ...a, previos, yaEmpezaste: ev.textoYaEmpezaste(previos) }
+  }],
+  // El libro de evidencia: quién quiere ser y los hechos que lo votan; y el foco (del Directo).
+  ['GET', /^\/api\/identidades$/, async () => ({ identidades: (await import('./evidencia.ts')).libroDeEvidencia(db), opciones: {
+    primarias: listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', estados: ['activa'], limite: 30 }).map((m) => ({ id: m.id, titulo: m.titulo })),
+    habitos: db.prepare('SELECT id, titulo FROM habitos WHERE activo = 1 ORDER BY orden').all(),
+    aprendizajes: db.prepare(`SELECT id, tema FROM aprendizajes WHERE estado = 'activo' ORDER BY id`).all(),
+  } })],
+  ['POST', /^\/api\/identidades$/, async (b) => (await import('./evidencia.ts')).crearIdentidad(db, { frase: b.frase, historiaVieja: b.historiaVieja ?? null, ataduras: b.ataduras ?? {} })],
+  ['POST', /^\/api\/identidades\/(\d+)$/, async (b, [i]) => (await import('./evidencia.ts')).editarIdentidad(db, id(i), b)],
+  ['POST', /^\/api\/identidades\/(\d+)\/evidencia$/, async (b, [i]) => { (await import('./evidencia.ts')).anotarEvidencia(db, id(i), b.texto, b.fecha ?? null); return { ok: true } }],
+  ['GET', /^\/api\/foco$/, async (_, __, q) => (await import('./foco.ts')).tendenciaFoco(db, Math.min(60, Number(q.get('dias')) || 14))],
   ['GET', /^\/api\/aprender\/(\d+)$/, (_, [a]) => {
     const x = leerAprendizaje(db, id(a))
     if (!x) throw new Error(`No existe el aprendizaje ${a}`)
@@ -1280,6 +1297,8 @@ async function latido() {
   if (enRutinas || process.env.MASTRO_SIN_RUTINAS) return
   enRutinas = true
   try {
+    // Lo nuevo (primarias, aprendizajes, metas) busca lo que ya había hecho hacia eso. En la nube (o sin NaN: por palabras).
+    if (enLaNube() || !nanConfigurado()) await (await import('./evidencia.ts')).buscarPreviosPendientes(db).catch((e) => console.error('  previos:', e instanceof Error ? e.message : e))
     for (const r of await correrRutinas(db)) console.log(`  ⏰ rutina ${r.id}: ${r.ok ? 'hecha' : 'falló'}${r.mensaje ? ` — ${r.mensaje.slice(0, 80)}` : ''}`)
   } catch (e) {
     console.error('  ⏰ rutinas:', e instanceof Error ? e.message : e)

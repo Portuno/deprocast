@@ -2061,3 +2061,38 @@ span.ej-chip { cursor: default; }
 .rp-tj summary { cursor: pointer; }
 .rp-tj p { white-space: pre-line; color: var(--tenue); margin: 6px 0 0; }
 @media (max-width: 640px) { .bucle { flex-wrap: wrap; } .bucle-fin { width: 100%; justify-content: flex-end; } }
+
+/* ─── Evidencia y foco ───────────────────────────────────────────────── */
+.ev-id h3 { margin: 0; font-size: 15.5px; font-weight: 600; }
+.ev-vieja { margin: 0; color: var(--tenue); font-size: 12.5px; }
+.ev-vieja s { text-decoration-color: var(--mal); }
+.ev-num { display: flex; align-items: baseline; gap: 8px; }
+.ev-num b { font-size: 28px; color: var(--acento-texto); line-height: 1; }
+.ev-num span { color: var(--tenue); font-size: 12px; }
+.ev-semanas { display: flex; gap: 6px; align-items: flex-end; height: 46px; }
+.ev-semanas span { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 2px; }
+.ev-semanas i { display: block; width: 100%; min-height: 2px; background: var(--acento); border-radius: 3px 3px 0 0; opacity: .8; }
+.ev-semanas small { font-size: 10px; color: var(--tenue); }
+.ev-lineas { list-style: none; margin: 0; padding: 0; font-size: 12.5px; }
+.ev-lineas li { display: flex; gap: 6px; padding: 3px 0; border-top: 1px solid var(--linea); }
+.ev-lineas li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev-lineas small { color: var(--debil); }
+.ev-anotar { gap: 6px; }
+.ev-anotar input { flex: 1; margin: 0; }
+.ev-checks { border: 1px solid var(--linea); border-radius: 8px; padding: 6px 10px; margin: 10px 0 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
+.ev-checks legend { font-size: 11.5px; color: var(--tenue); padding: 0 4px; }
+.mp-previo { color: var(--ok); font-size: 11.5px; }
+.foco-panel { margin-bottom: 14px; }
+.foco-fichas { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 10px; }
+.foco-fichas div { display: flex; flex-direction: column; }
+.foco-fichas b { font-size: 20px; }
+.foco-fichas span { font-size: 11.5px; color: var(--tenue); }
+.foco-barras { position: relative; display: flex; gap: 4px; align-items: flex-end; height: 110px; padding-bottom: 16px; }
+.foco-barras span { position: relative; flex: 1; height: 100%; display: flex; align-items: flex-end; justify-content: center; }
+.foco-barras i { display: block; width: 70%; min-height: 1px; background: var(--acento); border-radius: 3px 3px 0 0; }
+.foco-barras em { position: absolute; bottom: 0; width: 25%; right: 0; background: var(--mal); opacity: .75; border-radius: 2px 2px 0 0; }
+.foco-barras small { position: absolute; bottom: -16px; font-size: 10px; color: var(--debil); }
+.foco-meta { position: absolute; left: 0; right: 0; margin: 0; border: 0; border-top: 1px dashed var(--ok); pointer-events: none; }
+.foco-apps summary { cursor: pointer; color: var(--tenue); font-size: 12.5px; margin-top: 6px; }
+.foco-apps input { flex: 1; }
+@media (max-width: 640px) { .foco-fichas { grid-template-columns: 1fr 1fr; } }

@@ -810,7 +810,13 @@ export const HERRAMIENTAS: Herramienta[] = [
     nombre: 'crear_aprendizaje', familia: 'accion',
     descripcion: 'Anota algo que quiere aprender (un tema o una habilidad), con por qué y hasta dónde quiere llegar.',
     parametros: S({ tema: str('Corto: «Francés», «SQL», «Teórico de conducir»'), por_que: str('Para qué'), nivel_actual: str('Dónde está hoy'), nivel_objetivo: str('Hasta dónde quiere llegar') }, ['tema']),
-    ejecutar: (a, { db }) => { const r = crearAprendizaje(db, { tema: a.tema, porQue: a.por_que, nivelActual: a.nivel_actual, nivelObjetivo: a.nivel_objetivo }); return { ...r, recursos: recursosDe(db, r.tema) } },
+    ejecutar: async (a, { db }) => {
+      const r = crearAprendizaje(db, { tema: a.tema, porQue: a.por_que, nivelActual: a.nivel_actual, nivelObjetivo: a.nivel_objetivo })
+      // Arranque al 20 %: lo que ya hizo hacia esto (decíselo: «ya empezaste»).
+      const ev = await import('../evidencia.ts')
+      const previos = await ev.buscarPrevios(db, 'aprendizaje', r.id, `${r.tema}. ${r.porQue ?? ''}`).catch(() => [])
+      return { ...r, recursos: recursosDe(db, r.tema), ya_empezaste: ev.textoYaEmpezaste(previos) || null }
+    },
     resumen: (a) => `anotó que quiere aprender ${recorte(a.tema, 40)}`,
   },
   {
@@ -1213,6 +1219,25 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `importó de YouTube ${recorte(String(a.links ?? ''), 50)}`,
   },
   {
+    nombre: 'ver_evidencia', familia: 'lectura',
+    descripcion: 'Su libro de evidencia: las identidades que eligió («soy alguien que…»), su historia vieja y los hechos que las votan (bandas, hábitos, misiones, prácticas y lo anotado) en 30 días y por semana. También su foco según el Directo (bloque más largo, cambios por hora, minutos en apps de estímulo, meta de bloque).',
+    parametros: S({}),
+    ejecutar: async (_a, { db }) => {
+      const f = (await import('../foco.ts')).tendenciaFoco(db, 14)
+      return {
+        identidades: (await import('../evidencia.ts')).libroDeEvidencia(db).map((i) => ({ id: i.id, frase: i.frase, historia_vieja: i.historiaVieja, evidencias_30_dias: i.dias30, esta_semana: i.semana, por_semana: i.semanas, ultimas: i.ultimas.slice(0, 5) })),
+        foco: { meta_de_bloque: f.meta, mejor_bloque_semana: f.mejorSemana, promedio_bloque: f.promedioBloque, promedio_estimulo: f.promedioEstimulo, dias: f.dias.filter((d) => d.minutos) },
+      }
+    },
+  },
+  {
+    nombre: 'anotar_evidencia', familia: 'accion',
+    descripcion: 'Suma a su libro de evidencia algo que hizo y vota una de sus identidades (lo que no se cuenta solo: «hoy le dije que no a…»). identidad: el id de ver_evidencia.',
+    parametros: S({ identidad: int('id de la identidad'), texto: str('Lo que hizo, concreto'), fecha: str('YYYY-MM-DD; vacío = hoy') }, ['identidad', 'texto']),
+    ejecutar: async (a, { db }) => { (await import('../evidencia.ts')).anotarEvidencia(db, a.identidad, a.texto, a.fecha ?? null); return { ok: true } },
+    resumen: (a) => `sumó evidencia: ${recorte(a.texto, 40)}`,
+  },
+  {
     nombre: 'ver_bucles', familia: 'lectura',
     descripcion: 'Lo que sigue volviendo: los bucles abiertos que más pesan (lo que quedó sin resolver en sus charlas y notas, side quests quietas), con cuántas veces volvió y desde cuándo. estado: abierto (por defecto), cerrado, agendado o soltado.',
     parametros: S({ estado: str('abierto | cerrado | agendado | soltado'), limite: int('Cuántos (por defecto 7)') }),
@@ -1412,7 +1437,7 @@ export const GRUPOS: Record<string, string[]> = {
   liga: ['ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
+  vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   web: ['buscar_web', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   crear: ['ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
@@ -1424,7 +1449,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox/.test(t)) g.push('liga')
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|\[confirmado\]|\[inferido\]/.test(t)) g.push('corpus')
   if (/primaria|reporte|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
-  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')
+  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')
   if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal/.test(t)) g.push('web')
   if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo/.test(t)) g.push('crear')
   return g

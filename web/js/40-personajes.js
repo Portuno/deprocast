@@ -164,6 +164,7 @@ async function traerMisiones() {
           ? `<div class="mp-acc"><button class="btn btn-chico btn-primario" data-m-estado="activa">Aceptar</button><button class="btn btn-chico" data-m-editar>Cambiar</button><button class="btn btn-chico" data-m-estado="descartada" title="Descartar">✕</button></div>`
           : `<div class="mp-avance"><span class="mp-barra"><i style="width:${m.avance.progreso}%"></i></span><b>${m.avance.progreso}%</b></div>
              <small class="tenue">${m.avance.bandas.total ? `${m.avance.bandas.hechas} bandas · ${m.avance.minutos} min` : 'sin bandas todavía'}</small>
+             ${m.avance.previos?.length ? `<small class="mp-previo" title="${esc(m.avance.previos.map((p) => `${p.titulo}${p.fecha ? ` (${p.fecha})` : ''}`).join('\n'))}">↳ Ya empezaste: ${m.avance.previos.length} ${m.avance.previos.length === 1 ? 'cosa' : 'cosas'} de antes</small>` : ''}
              <div class="mp-acc">${m.estado === 'activa' ? '<button class="btn btn-chico" data-m-estado="hecha" title="Cumplida">✓</button>' : '<button class="btn btn-chico" data-m-estado="activa" title="Reabrir">↺</button>'}<button class="btn btn-chico" data-m-detalle title="Avance, ayudantes y aportes">⋯</button><button class="btn btn-chico" data-m-editar title="Cambiar">✎</button><button class="btn btn-chico" data-m-estado="descartada" title="Descartar">✕</button></div>`}
       </article>`
     }
@@ -398,11 +399,12 @@ function montarJugador() {
   $('#principal').innerHTML = `
     <div class="cabecera"><div class="cabecera-texto"><h1 id="j-nombre">Jugador</h1><p>Tu historia y lo que Mastropiero sabe de vos.</p></div>
       <div class="fila"><button class="btn" id="j-procesar" title="Lee tu memoria y tu material propio y propone historia, inventario, candidatas a misión principal y primarias">Procesarme</button></div></div>
-    <div class="tabs" id="j-tabs">${[['historia', 'Historia'], ['inventario', 'Inventario'], ['memoria', 'Memoria'], ['bitacora', 'Bitácora'], ['plata', 'Plata']].map(([k, n]) => `<button data-tab="${k}" class="${jugTab === k ? 'on' : ''}">${n}</button>`).join('')}</div>
+    <div class="tabs" id="j-tabs">${[['historia', 'Historia'], ['evidencia', 'Evidencia'], ['inventario', 'Inventario'], ['memoria', 'Memoria'], ['bitacora', 'Bitácora'], ['plata', 'Plata']].map(([k, n]) => `<button data-tab="${k}" class="${jugTab === k ? 'on' : ''}">${n}</button>`).join('')}</div>
     <div id="j-cuerpo"></div>`
   $('#j-procesar').onclick = () => procesarme($('#j-procesar'))
   $$('#j-tabs [data-tab]').forEach((b) => (b.onclick = () => { jugTab = b.dataset.tab; montarJugador() }))
   if (jugTab === 'memoria') montarNorte($('#j-cuerpo'))
+  else if (jugTab === 'evidencia') montarEvidencia($('#j-cuerpo'))
   else if (jugTab === 'plata') montarPlata($('#j-cuerpo'))
   else if (jugTab === 'bitacora') montarBitacora($('#j-cuerpo'))
   else fichaPersonaje($('#j-cuerpo'), 'jugador', {

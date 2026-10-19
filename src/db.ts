@@ -890,6 +890,41 @@ CREATE TABLE IF NOT EXISTS bucles (
 );
 CREATE INDEX IF NOT EXISTS bucles_estado ON bucles(estado);
 CREATE INDEX IF NOT EXISTS bucles_clave ON bucles(clave);
+-- Arranque al 20 %: lo que ya hizo hacia algo nuevo (una primaria, un aprendizaje, una meta), encontrado en su corpus.
+CREATE TABLE IF NOT EXISTS previos (
+  tipo TEXT NOT NULL,                 -- mision | aprendizaje | meta
+  ref_id INTEGER NOT NULL,
+  pieza_id INTEGER NOT NULL,
+  titulo TEXT,
+  fecha TEXT,
+  fragmento TEXT,
+  en INTEGER NOT NULL,
+  PRIMARY KEY (tipo, ref_id, pieza_id)
+);
+CREATE TABLE IF NOT EXISTS previos_buscados (
+  tipo TEXT NOT NULL,
+  ref_id INTEGER NOT NULL,
+  en INTEGER NOT NULL,
+  PRIMARY KEY (tipo, ref_id)
+);
+-- El libro de evidencia: quién quiere ser (1 a 3 frases), su historia vieja y lo que lo ata a los hechos.
+CREATE TABLE IF NOT EXISTS identidades (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  frase TEXT NOT NULL,
+  historia_vieja TEXT,
+  ataduras TEXT NOT NULL DEFAULT '{}', -- JSON {primarias: [id], habitos: [id], aprendizajes: [id], categorias: [str], palabras: [str]}
+  estado TEXT NOT NULL DEFAULT 'activa', -- activa | archivada
+  creada_en INTEGER NOT NULL
+);
+-- Lo que él anota a mano como evidencia (lo demás se cuenta solo de bandas, hábitos, misiones y prácticas).
+CREATE TABLE IF NOT EXISTS evidencias (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  identidad_id INTEGER NOT NULL,
+  texto TEXT NOT NULL,
+  fecha TEXT NOT NULL,
+  en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS evidencias_identidad ON evidencias(identidad_id, fecha);
 -- Cada mención ya contada (abierto:<pieza>:<i>, mision:<id>): así no suma dos veces.
 CREATE TABLE IF NOT EXISTS bucles_vistos (
   origen TEXT PRIMARY KEY,
@@ -1208,6 +1243,7 @@ const RUTINAS_SISTEMA = [
   { id: 'radar', nombre: 'El radar sale a buscar oportunidades', hora: '09:30', dias: '14', accion: 'radar' },
   { id: 'calificacion', nombre: 'El gemelo se califica', hora: '23:40', dias: '0123456', accion: 'calificacion' },
   { id: 'reporte_semanal', nombre: 'Reporte de la semana', hora: '21:00', dias: '0', accion: 'reporte_semanal' },
+  { id: 'evidencia', nombre: 'Tu evidencia de la semana contra tu historia vieja', hora: '19:30', dias: '0', accion: 'evidencia' },
   { id: 'brujula', nombre: 'La brújula del día', hora: '08:10', dias: '0123456', accion: 'brujula' },
   { id: 'mentor', nombre: 'El Mentor recomienda qué leer o ver', hora: '08:05', dias: '1', accion: 'mentor' },
   { id: 'puentes', nombre: 'Puentes con tu gente', hora: '11:00', dias: '0', accion: 'puentes' },
@@ -1240,6 +1276,7 @@ const AJUSTES_SISTEMA: Record<string, string> = {
   reproceso_activo: '0', // el reproceso (pasajes, destilado, eventos, relaciones) corre de fondo en la nube; lo prende él
   reproceso_rerank: '1', // el chat reordena con un modelo chico lo que trae del archivo; 0 = solo por puntaje
   directo_auto: '1', // del Directo, las ideas y lo que miró entran solas (tareas, personas y conexiones esperan su ok); 0 = todo espera
+  apps_estimulo: 'instagram, tiktok, shorts, reels, x.com, twitter, facebook, reddit, twitch', // foco: lo de alto estímulo (editable)
   ciclo_bandas: '90/20', // runs: minutos de foco seguidos y de descanso lejos de la pantalla; 0 = sin ciclos
   fragua_por_noche: '3', // cuántas propuestas forja la rutina «fragua» por noche; 0 = ninguna
   lectura_obras: '10', // cuántas obras de la Librería expande la lectura nocturna

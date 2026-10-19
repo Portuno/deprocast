@@ -171,7 +171,7 @@ function widgetStats() {
   const ritmo = d?.plata?.ritmo
   return `<div class="hud-hero hud-hero-fila">${anilloHud(d?.teConozco ?? 0, 100, d?.teConozco != null ? `${d.teConozco}%` : '—', 'te conozco')}
       <div><small class="hud-etq">El gemelo</small><p class="hud-texto">Cuánto acierta Mastropiero cuando predice tu día (últimas 3 semanas).</p></div></div>
-    <div class="hud-fichas">${fichaHud('Bandas', `${hechas}/${total}`, 'esta semana')}${r ? fichaHud('Plata del mes', `${Math.round(r.ingresos)}€`, r.meta ? `de ${r.meta} €` : '') : ''}${d?.gasto ? fichaHud('Tokens hoy', fmtTokens(d.gasto.total), d.gasto.tope ? `tope ${fmtTokens(d.gasto.tope)}` : '') : ''}</div>
+    <div class="hud-fichas">${d?.foco?.hoy?.minutos ? fichaHud('Foco hoy', `${d.foco.hoy.bloqueMax}′`, d.foco.meta ? `meta ${d.foco.meta}′` : 'bloque más largo') : ''}${fichaHud('Bandas', `${hechas}/${total}`, 'esta semana')}${r ? fichaHud('Plata del mes', `${Math.round(r.ingresos)}€`, r.meta ? `de ${r.meta} €` : '') : ''}${d?.gasto ? fichaHud('Tokens hoy', fmtTokens(d.gasto.total), d.gasto.tope ? `tope ${fmtTokens(d.gasto.tope)}` : '') : ''}</div>
     <div class="hud-semana">${sem.map((x) => `<span title="${x.fecha}: ${x.hechos} de ${x.total}"><i style="height:${x.total ? Math.round((x.hechos / x.total) * 100) : 0}%"></i><small>${DIA_LETRA[new Date(`${x.fecha}T12:00:00`).getDay()]}</small></span>`).join('')}</div>
     ${r?.meta ? barraHud(r.ingresos, r.meta) : ''}${ritmo?.falta ? filaHud('Para llegar a la meta', `${Math.round(ritmo.porDia)} € por día`, 'tenue') : ''}
     ${pieHud('Leeme los números de la semana: ¿qué ves?')}`
