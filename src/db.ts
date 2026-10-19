@@ -818,6 +818,53 @@ CREATE TABLE IF NOT EXISTS reproceso_fallos (
   error TEXT,
   PRIMARY KEY (pieza_id, paso)
 );
+-- Tarjetas de recuerdo activo (idiomas, lo que mira y lee, lo que estudia), con repaso espaciado SM-2.
+-- mazo: «idioma:<aprendizaje>» | «consumo» | «aprender:<aprendizaje>». proxima: YYYY-MM-DD.
+CREATE TABLE IF NOT EXISTS tarjetas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  mazo TEXT NOT NULL,
+  frente TEXT NOT NULL,
+  dorso TEXT NOT NULL,
+  contexto TEXT,
+  origen_tipo TEXT,
+  origen_id INTEGER,
+  facilidad REAL NOT NULL DEFAULT 2.5,
+  intervalo INTEGER NOT NULL DEFAULT 0,
+  repeticiones INTEGER NOT NULL DEFAULT 0,
+  aciertos INTEGER NOT NULL DEFAULT 0,
+  fallos INTEGER NOT NULL DEFAULT 0,
+  proxima TEXT NOT NULL,
+  estado TEXT NOT NULL DEFAULT 'activa',
+  creada_en INTEGER NOT NULL,
+  ultima_en INTEGER,
+  UNIQUE (mazo, frente)
+);
+CREATE INDEX IF NOT EXISTS tarjetas_proxima ON tarjetas(estado, proxima);
+-- Un idioma que aprende: su aprendizaje, el código (Whisper, voces), el nivel y su práctica diaria.
+CREATE TABLE IF NOT EXISTS idiomas (
+  aprendizaje_id INTEGER PRIMARY KEY,
+  codigo TEXT NOT NULL,
+  nombre TEXT NOT NULL,
+  nivel TEXT,
+  objetivo TEXT,
+  minutos_dia INTEGER NOT NULL DEFAULT 15,
+  hora TEXT,
+  charla TEXT,
+  ultimo_envio TEXT,
+  creado_en INTEGER NOT NULL
+);
+-- Cada vuelta de la práctica de un idioma: lo que preguntó Mastropiero, lo que contestó él y la corrección.
+CREATE TABLE IF NOT EXISTS idioma_turnos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  aprendizaje_id INTEGER NOT NULL,
+  fecha TEXT NOT NULL,
+  pregunta TEXT,
+  respuesta TEXT,
+  por_voz INTEGER NOT NULL DEFAULT 0,
+  devolucion TEXT,
+  en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idioma_turnos_ap ON idioma_turnos(aprendizaje_id, en);
 -- Lo que Deprocast llevó a su Google Calendar (una oportunidad, un evento de la Línea, una misión): así no se duplica y
 -- un cambio de fecha acá se edita allá.
 CREATE TABLE IF NOT EXISTS calendario_vinculos (

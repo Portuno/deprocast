@@ -327,6 +327,7 @@ const rutas: [string, RegExp, Ruta][] = [
       aportes: aportes(db, { desde: Date.now() - 2 * 86_400_000, limite: 4 }),
       proximas: listarRuns(db, { desde: fechaLocal(Date.now() + 86_400_000), estados: ['propuesta'] }).map((r) => ({ ...r, misiones: misionesDeRun(db, r.id) })),
       brujula: leerBrujula(db, fecha),
+      tarjetasHoy: (db.prepare(`SELECT COUNT(*) AS n FROM tarjetas WHERE estado = 'activa' AND proxima <= ?`).get(fecha) as { n: number }).n,
       ajustes: { primarias_semana: ajuste(db, 'primarias_semana'), tokens_dia_max: ajuste(db, 'tokens_dia_max'), pensar_cada_horas: ajuste(db, 'pensar_cada_horas'), meta_ingresos_mes: ajuste(db, 'meta_ingresos_mes'), directo_auto: ajuste(db, 'directo_auto'), fragua_por_noche: ajuste(db, 'fragua_por_noche'), horario_fijo: horarioComoTexto(leerHorario(db)) },
     }
   }],
@@ -771,6 +772,17 @@ const rutas: [string, RegExp, Ruta][] = [
   // El mapa: lugares, Línea, Radar, misiones y su calendario, por capas.
   ['GET', /^\/api\/mapa$/, async (_, __, q) => (await import('./mapa.ts')).puntosDelMapa(db, q.get('capas') ? new Set(String(q.get('capas')).split(',')) : undefined)],
   ['GET', /^\/api\/mapa\/buscar$/, async (_, __, q) => ({ lugar: await (await import('./mapa.ts')).ubicar(db, String(q.get('q') ?? '').slice(0, 200)) })],
+  // Idiomas (la pista de aprendizaje) y las tarjetas de recuerdo activo.
+  ['GET', /^\/api\/idiomas$/, async () => { const m = await import('./idiomas.ts'); return { idiomas: m.listarIdiomas(db), disponibles: m.IDIOMAS, niveles: m.NIVELES, abierta: m.practicaAbierta(db)?.aprendizajeId ?? null } }],
+  ['POST', /^\/api\/idiomas$/, async (b) => (await import('./idiomas.ts')).crearIdioma(db, b)],
+  ['POST', /^\/api\/idiomas\/(\d+)$/, async (b, [i]) => (await import('./idiomas.ts')).editarIdioma(db, id(i), b)],
+  ['POST', /^\/api\/idiomas\/(\d+)\/abrir$/, async (_, [i]) => (await import('./idiomas.ts')).abrirPractica(db, id(i))],
+  ['POST', /^\/api\/idiomas\/(\d+)\/responder$/, async (b, [i]) => (await import('./idiomas.ts')).responderPractica(db, id(i), { texto: String(b.texto ?? '') })],
+  ['POST', /^\/api\/idiomas\/(\d+)\/cerrar$/, async (_, [i]) => { (await import('./idiomas.ts')).cerrarPractica(db, id(i)); return { ok: true } }],
+  ['POST', /^\/api\/idiomas\/voz$/, async (b) => ({ url: await (await import('./idiomas.ts')).audioDeFrase(String(b.texto ?? ''), String(b.codigo ?? ''), dirAdjuntos()) })],
+  ['GET', /^\/api\/tarjetas$/, async (_, __, q) => { const t = await import('./tarjetas.ts'); return { resumen: t.resumenTarjetas(db), paraHoy: t.paraRepasar(db, { mazo: q.get('mazo') || null, limite: Number(q.get('limite')) || 50 }) } }],
+  ['POST', /^\/api\/tarjetas$/, async (b) => (await import('./tarjetas.ts')).crearTarjeta(db, { mazo: String(b.mazo || 'general'), frente: b.frente, dorso: b.dorso, contexto: b.contexto ?? null })],
+  ['POST', /^\/api\/tarjetas\/(\d+)$/, async (b, [t]) => { const m = await import('./tarjetas.ts'); if (b.calidad === 'suspender') { m.suspenderTarjeta(db, id(t)); return { ok: true } } return m.responderTarjeta(db, id(t), b.calidad) }],
   ['POST', /^\/api\/radar\/(\d+)$/, (b, [o]) => marcarOportunidad(db, id(o), b.estado)],
   ['POST', /^\/api\/radar\/(\d+)\/borrador$/, async (b, [o]) => redactarOportunidad(db, id(o), b.pedido || null)],
   ['GET', /^\/api\/gemelo$/, (_, __, q) => {
@@ -1196,6 +1208,12 @@ const servidor = http.createServer(async (req, res) => {
           ? registrarCuadro(db, sesion, cuerpo, String(req.headers['content-type'] || 'image/jpeg'))
           : registrarAudio(db, sesion, cuerpo, url.searchParams.get('tipo') === 'medio' ? 'medio' : 'voz', url.searchParams.get('nombre') || 'tramo.webm', { desde }))
         return void res.end(JSON.stringify({ ok: true }))
+      }
+      // La respuesta de una práctica de idioma, grabada: se transcribe en ese idioma y vuelve la devolución.
+      const audioIdioma = req.method === 'POST' ? /^\/api\/idiomas\/(\d+)\/audio$/.exec(url.pathname) : null
+      if (audioIdioma) {
+        const audio = await leerCrudo(req, 25 * 1024 * 1024)
+        return void res.end(JSON.stringify(await (await import('./idiomas.ts')).responderPractica(db, Number(audioIdioma[1]), { audio, nombreAudio: url.searchParams.get('nombre') || 'respuesta.webm', segundos: Number(url.searchParams.get('segundos')) || null })))
       }
       // El extracto del banco, crudo.
       if (req.method === 'POST' && url.pathname === '/api/finanzas/csv') {

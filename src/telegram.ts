@@ -33,6 +33,10 @@ import { sintetizar } from './taller.ts'
 import { brujulaDelDia, textoDeBrujula } from './brujula.ts'
 import { recomendar } from './mentor.ts'
 import { cuadernoComoMd, descartarLink, piezaComoMd, procesarLink } from './lector/index.ts'
+import { abrirPractica, audioDeFrase, cerrarPractica, leerIdioma, listarIdiomas, marcarEnviada, marcarMensajePractica, practicaAbierta, practicasQueTocan, responderPractica } from './idiomas.ts'
+import { CALIDADES, leerTarjeta, paraRepasar, responderTarjeta, type Calidad } from './tarjetas.ts'
+import { dirAdjuntos } from './chat/adjuntos.ts'
+import path from 'node:path'
 
 const api = (metodo: string) => `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/${metodo}`
 
@@ -277,11 +281,98 @@ async function bandaActual(db: Db) {
 let ultimaBanda: number | null = null
 /** Cada minuto: si arrancó una banda nueva, se la manda sola (con botones). */
 export async function latidoTelegram(db: Db) {
-  if (!telegramConfigurado() || !suChat() || ajuste(db, 'telegram_bandas') === '0') return
+  if (!telegramConfigurado() || !suChat()) return
+  await practicasProgramadas(db)
+  if (ajuste(db, 'telegram_bandas') === '0') return
   const v = enCurso(db)
   const id = v?.actual?.id ?? null
   if (id && id !== ultimaBanda) { ultimaBanda = id; await bandaActual(db) }
   if (!id) ultimaBanda = null
+}
+
+// ─── idiomas y tarjetas ─────────────────────────────────────────────────
+
+const botonTerminar = (id: number): Botones => [[{ texto: '✋ Terminar', dato: `id:${id}:fin` }]]
+
+/** El audio de unas frases en su idioma (si kokoro tiene voz), para escucharlas y repetirlas en voz alta. */
+async function mandarFrasesEnAudio(codigo: string, titulo: string, texto: string) {
+  try {
+    const url = await audioDeFrase(texto, codigo, dirAdjuntos())
+    if (url) await mandarAudio(fs.readFileSync(path.join(dirAdjuntos(), path.basename(url))), titulo)
+  } catch { /* sin voz: queda el texto */ }
+}
+
+/** Abre una práctica: el mensaje en el idioma (con la ayuda en castellano) y, si hay voz, en audio. */
+async function abrirPracticaTelegram(db: Db, id: number) {
+  const i = leerIdioma(db, id)
+  if (!i) return decir('No encontré ese idioma.')
+  const p = await abrirPractica(db, id)
+  const mensajeId = await decir(`🗣 **${i.nombre}** · práctica\n\n${p.mensaje}${p.ayuda ? `\n\n_(${p.ayuda})_` : ''}\n\n_Contestá por audio (mejor: hablar desde el día uno) o escribiendo._`, botonTerminar(id))
+  marcarMensajePractica(db, id, mensajeId)
+  await mandarFrasesEnAudio(i.codigo, `${i.nombre} · escuchá`, p.mensaje)
+}
+
+/** Lo que contestó en la práctica: la devolución (correcciones, frases nuevas, la charla sigue). */
+async function responderPracticaTelegram(db: Db, id: number, r: { texto?: string; audio?: Buffer; nombreAudio?: string; segundos?: number | null }) {
+  const i = leerIdioma(db, id)!
+  let d
+  try { d = await responderPractica(db, id, r) } catch (e) { return decir(e instanceof Error ? e.message : String(e)) }
+  const texto = [
+    d.transcripcion ? `🎙 _${d.transcripcion}_` : '',
+    d.correcciones.length ? d.correcciones.map((c: any) => `✗ ${c.dijo}\n✓ **${c.natural}**${c.por_que ? `\n   _${c.por_que}_` : ''}`).join('\n') : '',
+    d.frases.length ? `🃏 **Frases nuevas**${d.tarjetasNuevas ? ` (${d.tarjetasNuevas} a tus tarjetas)` : ''}\n${d.frases.map((f: any) => `• **${f.frase}** — ${f.traduccion}${f.patron ? `\n   _${f.patron}_` : ''}`).join('\n')}` : '',
+    d.animo ? `💪 ${d.animo}` : '',
+    [d.respuesta, d.pregunta].filter(Boolean).join(' '),
+  ].filter(Boolean).join('\n\n')
+  const mensajeId = await decir(texto, botonTerminar(id))
+  marcarMensajePractica(db, id, mensajeId)
+  if (d.frases.length) await mandarFrasesEnAudio(i.codigo, `${i.nombre} · repetí en voz alta`, d.frases.map((f: any) => f.frase).join('. '))
+}
+
+const sinTildes = (t: string) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+
+/** /idioma [nombre]: abre la práctica ya (si tiene uno solo, ese; si no, botones). /idioma fin la cierra. */
+async function comandoIdioma(db: Db, resto: string) {
+  if (/^(fin|terminar|listo|basta)$/i.test(resto)) {
+    const p = practicaAbierta(db)
+    if (p) cerrarPractica(db, p.aprendizajeId)
+    return decir(p ? `✋ Cerramos la práctica de ${p.nombre.toLowerCase()}.` : 'No hay ninguna práctica abierta.')
+  }
+  const xs = listarIdiomas(db)
+  if (!xs.length) return decir('Todavía no estás aprendiendo ningún idioma. Arrancá uno en Aprender → Idiomas (con tu por qué: es lo que te va a sostener).')
+  const b = sinTildes(resto)
+  const elegido = b ? xs.find((i) => i.codigo === b || sinTildes(i.nombre).startsWith(b)) : xs.length === 1 ? xs[0] : null
+  if (elegido) return abrirPracticaTelegram(db, elegido.aprendizajeId)
+  return decir('¿Cuál practicamos?', [xs.map((i) => ({ texto: `${i.nombre}${i.racha ? ` 🔥${i.racha}` : ''}`, dato: `id:${i.aprendizajeId}:abrir` }))])
+}
+
+const nombreDeMazo = (db: Db, mazo: string) => mazo.startsWith('idioma:') ? leerIdioma(db, Number(mazo.slice(7)))?.nombre ?? 'Idioma' : mazo
+const NOMBRE_CALIDAD: Record<Calidad, string> = { otra: '↺ Otra vez', dificil: '😓 Difícil', bien: '🙂 Bien', facil: '😎 Fácil' }
+
+/** La próxima tarjeta que toca: primero solo el frente (recordar, no reconocer). */
+async function mandarTarjeta(db: Db, mensajeId?: number) {
+  const ts = paraRepasar(db, { limite: 200 })
+  if (!ts.length) {
+    const t = '🃏 No te queda ninguna tarjeta para hoy. ✓'
+    return mensajeId ? editar(mensajeId, t) : decir(t)
+  }
+  const t = ts[0]
+  const texto = `🃏 **${nombreDeMazo(db, t.mazo)}** · ${ts.length === 200 ? '200+' : ts.length} para hoy\n\n${t.frente}\n\n_Pensalo (o decilo en voz alta) y después mirá._`
+  const botones: Botones = [[{ texto: '👀 Ver', dato: `tj:${t.id}:ver` }]]
+  return mensajeId ? editar(mensajeId, texto, botones) : decir(texto, botones)
+}
+
+/** Si a algún idioma ya le toca su práctica de hoy, se la abre sola (una vez por día). */
+let abriendoPracticas = false
+async function practicasProgramadas(db: Db) {
+  if (abriendoPracticas) return
+  abriendoPracticas = true
+  try {
+    for (const i of practicasQueTocan(db)) {
+      marcarEnviada(db, i.aprendizajeId) // antes: si el modelo falla, no se reintenta cada minuto
+      await abrirPracticaTelegram(db, i.aprendizajeId).catch((e) => console.error(`[telegram] práctica de ${i.nombre}:`, e instanceof Error ? e.message : e))
+    }
+  } finally { abriendoPracticas = false }
 }
 
 // ─── conversar ──────────────────────────────────────────────────────────
@@ -373,7 +464,7 @@ async function mandarPregunta(db: Db) {
 export const COMANDOS = [
   ['hoy', 'Cómo viene el día'], ['run', 'La banda que toca ahora (o arrancar la propuesta)'], ['gasto', 'Anotar un gasto: /gasto 12,5 súper'],
   ['ingreso', 'Anotar un ingreso: /ingreso 800 freelance'], ['nota', 'Guardar algo sin charlar'], ['bitacora', 'Escribir en tu bitácora (privada)'],
-  ['brujula', 'El tridente del día'], ['mentor', 'Qué leer o ver ahora'], ['buscar', 'Buscar en tu corpus'], ['criba', 'Pesar piezas con botones'], ['pregunta', 'Que Mastropiero te pregunte algo'], ['voz', 'Respuestas también en audio: sí / no'], ['ayuda', 'Qué sé hacer'],
+  ['brujula', 'El tridente del día'], ['mentor', 'Qué leer o ver ahora'], ['buscar', 'Buscar en tu corpus'], ['criba', 'Pesar piezas con botones'], ['pregunta', 'Que Mastropiero te pregunte algo'], ['idioma', 'Practicar un idioma ahora: /idioma inglés (/idioma fin la cierra)'], ['tarjetas', 'Repasar las tarjetas que tocan hoy'], ['voz', 'Respuestas también en audio: sí / no'], ['ayuda', 'Qué sé hacer'],
 ] as const
 
 function resumenHoy(db: Db): string {
@@ -433,6 +524,8 @@ async function comando(db: Db, cmd: string, resto: string) {
       return decir(rs.length ? `🧭 **El Mentor**\n${rs.map((r) => `• **${r.accion}**\n  ${r.porQue}`).join('\n')}` : 'No encontré nada en tu Librería que empuje lo de esta semana.')
     }
     case '/pregunta': case '/preguntas': return mandarPregunta(db)
+    case '/idioma': case '/idiomas': case '/practica': return comandoIdioma(db, resto)
+    case '/tarjetas': case '/repasar': return mandarTarjeta(db)
     case '/voz': {
       const v = /^(no|off|0|apag)/i.test(resto) ? '0' : /^siempre/i.test(resto) ? 'siempre' : (ajuste(db, 'telegram_voz') ?? '0') === '0' || /^(s[ií]|on|1)/i.test(resto) ? '1' : '0'
       fijarAjuste(db, 'telegram_voz', v)
@@ -501,6 +594,27 @@ async function boton(db: Db, q: any) {
     if (mensajeId) preguntasEnviadas.delete(mensajeId)
     await decir(b === 's' ? 'Salteada.' : `Anotado: ${ops[Number(b)]}.`)
     return siguientePregunta(db) ? mandarPregunta(db) : undefined
+  }
+  if (k === 'id') {
+    const id = Number(a)
+    if (b === 'fin') {
+      cerrarPractica(db, id)
+      return decir('✋ Listo por hoy. Lo que practicaste ya cuenta en Aprender.')
+    }
+    return abrirPracticaTelegram(db, id)
+  }
+  if (k === 'tj') {
+    const t = leerTarjeta(db, Number(a))
+    if (!t) return mandarTarjeta(db)
+    if (b === 'ver') {
+      const texto = `🃏 **${nombreDeMazo(db, t.mazo)}**\n\n${t.frente}\n\n———\n${t.dorso}\n\n_¿Cómo te fue?_`
+      const botones: Botones = [CALIDADES.map((c) => ({ texto: NOMBRE_CALIDAD[c], dato: `tj:${t.id}:${c}` }))]
+      return mensajeId ? editar(mensajeId, texto, botones) : decir(texto, botones)
+    }
+    if (!CALIDADES.includes(b as Calidad)) return
+    const r = responderTarjeta(db, t.id, b as Calidad)
+    if (mensajeId) await editar(mensajeId, `🃏 ${t.frente}\n**${t.dorso.split('\n')[0]}**\n${NOMBRE_CALIDAD[b as Calidad]} · ${r.intervalo ? `vuelve en ${r.intervalo} día${r.intervalo === 1 ? '' : 's'}` : 'vuelve hoy'}`)
+    return mandarTarjeta(db)
   }
   if (k === 'k') {
     const id = Number(a)
@@ -571,6 +685,16 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
     preguntasEnviadas.delete(msg.reply_to_message.message_id)
     await decir('Anotado. ✓')
     return siguientePregunta(db) ? mandarPregunta(db) : undefined
+  }
+  // Con una práctica de idioma abierta, lo que diga (audio o texto, sin links ni comandos) es su respuesta.
+  const practica = practicaAbierta(db)
+  const vozPractica = msg.voice ?? msg.audio
+  if (practica && !msg.document && !msg.photo?.length && (vozPractica || (texto && !texto.startsWith('/') && !/https?:\/\//.test(texto)))) {
+    if (vozPractica) {
+      const { datos, nombre } = await bajar(vozPractica.file_id)
+      return responderPracticaTelegram(db, practica.aprendizajeId, { audio: datos, nombreAudio: nombre.endsWith('.oga') ? nombre.replace(/\.oga$/, '.ogg') : nombre, segundos: vozPractica.duration ?? null })
+    }
+    return responderPracticaTelegram(db, practica.aprendizajeId, { texto })
   }
   if (texto?.startsWith('/')) {
     const [cmd] = texto.split(/\s+/)

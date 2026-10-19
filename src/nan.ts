@@ -381,12 +381,12 @@ export async function nanChatHerramientasStream(
 }
 
 /** Audio → texto con el Whisper de NaN (en castellano). Un 5xx se reintenta una vez. */
-export async function nanTranscribir(db: Db, audio: Buffer, nombre: string): Promise<string> {
-  return (await nanTranscribirDetallado(db, audio, nombre, { palabras: false })).texto
+export async function nanTranscribir(db: Db, audio: Buffer, nombre: string, idioma = 'es'): Promise<string> {
+  return (await nanTranscribirDetallado(db, audio, nombre, { palabras: false, idioma })).texto
 }
 
 /** Whisper con el tiempo de cada palabra (para saber quién habló cuándo). Sin palabras si el servicio no las da. 429 y 5xx esperan y reintentan (hasta 3 veces). */
-export async function nanTranscribirDetallado(db: Db, audio: Buffer, nombre: string, o: { palabras?: boolean } = {}): Promise<{ texto: string; palabras: { start: number; end: number; word: string }[] }> {
+export async function nanTranscribirDetallado(db: Db, audio: Buffer, nombre: string, o: { palabras?: boolean; idioma?: string } = {}): Promise<{ texto: string; palabras: { start: number; end: number; word: string }[] }> {
   const tipo = /\.(mp3)$/i.test(nombre) ? 'audio/mpeg' : /\.(wav)$/i.test(nombre) ? 'audio/wav' : /\.(ogg|opus)$/i.test(nombre) ? 'audio/ogg' : /\.webm$/i.test(nombre) ? 'audio/webm' : 'audio/mp4'
   const ESPERAS = [2000, 5000, 10_000]
   for (let intento = 0; intento <= ESPERAS.length; intento++) {
@@ -394,7 +394,7 @@ export async function nanTranscribirDetallado(db: Db, audio: Buffer, nombre: str
     const form = new FormData()
     form.append('file', new Blob([new Uint8Array(audio)], { type: tipo }), nombre)
     form.append('model', 'whisper')
-    form.append('language', 'es')
+    form.append('language', o.idioma || 'es')
     if (o.palabras !== false) {
       form.append('response_format', 'verbose_json')
       form.append('timestamp_granularities[]', 'word')

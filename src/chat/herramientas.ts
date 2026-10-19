@@ -1213,6 +1213,26 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `importó de YouTube ${recorte(String(a.links ?? ''), 50)}`,
   },
   {
+    nombre: 'ver_idiomas', familia: 'lectura',
+    descripcion: 'Los idiomas que está aprendiendo: nivel, por qué, racha, minutos de la semana contra la meta, charlas, frases (tarjetas) y las que tocan hoy, y las últimas correcciones.',
+    parametros: S({}),
+    ejecutar: async (_a, { db }) => (await import('../idiomas.ts')).listarIdiomas(db).map((i) => ({
+      id: i.aprendizajeId, idioma: i.nombre, nivel: i.nivel, objetivo: i.objetivo, por_que: i.porQue, hora: i.hora, racha: i.racha,
+      minutos_semana: i.minutosSemana, meta_semana: i.metaSemana, charlas: i.charlas, tarjetas: i.tarjetas,
+      ultimas_correcciones: i.ultimos.flatMap((t: any) => t.devolucion?.correcciones ?? []).slice(0, 6),
+    })),
+  },
+  {
+    nombre: 'crear_idioma', familia: 'accion',
+    descripcion: 'Arranca un idioma nuevo en la sección Idiomas (práctica diaria + tarjetas). Necesita su por qué en sus palabras: si no lo dijo, preguntáselo antes, no lo inventes.',
+    parametros: S({ codigo: str('Código ISO: en, fr, it, pt, de, ja…'), por_que: str('Para qué lo quiere, en sus palabras'), nivel: str('A0, A1, A2, B1, B2, C1 o C2 (opcional)'), objetivo: str('A dónde quiere llegar (opcional)'), hora: str('HH:MM de la práctica por Telegram (opcional)'), minutos_dia: int('Minutos por día (opcional)') }, ['codigo', 'por_que']),
+    ejecutar: async (a, { db }) => {
+      const i = (await import('../idiomas.ts')).crearIdioma(db, { codigo: a.codigo, porQue: a.por_que, nivel: a.nivel ?? null, objetivo: a.objetivo ?? null, hora: a.hora ?? null, minutosDia: a.minutos_dia ?? null })
+      return { id: i.aprendizajeId, idioma: i.nombre, nivel: i.nivel, hora: i.hora, aviso: 'Listo: se practica en Idiomas o con /idioma por Telegram.' }
+    },
+    resumen: (a) => `arrancó ${a.codigo} en Idiomas`,
+  },
+  {
     nombre: 'ver_youtube', familia: 'lectura',
     descripcion: 'Cómo va la cola de YouTube: cuántos videos se leyeron, cuántos esperan (al servicio o a su compu), cuáles no tienen subtítulos, y los últimos con su estado.',
     parametros: S({}),
@@ -1376,7 +1396,7 @@ export const GRUPOS: Record<string, string[]> = {
   liga: ['ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
+  vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   web: ['buscar_web', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   crear: ['ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
@@ -1388,7 +1408,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox/.test(t)) g.push('liga')
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|\[confirmado\]|\[inferido\]/.test(t)) g.push('corpus')
   if (/primaria|reporte|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
-  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')
+  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')
   if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal/.test(t)) g.push('web')
   if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo/.test(t)) g.push('crear')
   return g

@@ -12,6 +12,7 @@ const VISTAS = {
   directo: { montar: montarDirecto, refrescar: refrescarDirecto },
   salud: { montar: montarSalud, refrescar: () => {} },
   aprender: { montar: montarAprender, refrescar: () => {} },
+  idiomas: { montar: montarIdiomas, refrescar: () => {} },
   radar: { montar: montarRadar, refrescar: refrescarRadar },
   taller: { montar: montarTaller, refrescar: refrescarTaller },
   estudio: { montar: montarEstudio, refrescar: refrescarEstudio },
