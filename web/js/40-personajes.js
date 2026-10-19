@@ -399,12 +399,13 @@ function montarJugador() {
   $('#principal').innerHTML = `
     <div class="cabecera"><div class="cabecera-texto"><h1 id="j-nombre">Jugador</h1><p>Tu historia y lo que Mastropiero sabe de vos.</p></div>
       <div class="fila"><button class="btn" id="j-procesar" title="Lee tu memoria y tu material propio y propone historia, inventario, candidatas a misión principal y primarias">Procesarme</button></div></div>
-    <div class="tabs" id="j-tabs">${[['historia', 'Historia'], ['evidencia', 'Evidencia'], ['inventario', 'Inventario'], ['memoria', 'Memoria'], ['bitacora', 'Bitácora'], ['plata', 'Plata']].map(([k, n]) => `<button data-tab="${k}" class="${jugTab === k ? 'on' : ''}">${n}</button>`).join('')}</div>
+    <div class="tabs" id="j-tabs">${[['historia', 'Historia'], ['evidencia', 'Evidencia'], ['modelos', 'Modelos'], ['inventario', 'Inventario'], ['memoria', 'Memoria'], ['bitacora', 'Bitácora'], ['plata', 'Plata']].map(([k, n]) => `<button data-tab="${k}" class="${jugTab === k ? 'on' : ''}">${n}</button>`).join('')}</div>
     <div id="j-cuerpo"></div>`
   $('#j-procesar').onclick = () => procesarme($('#j-procesar'))
   $$('#j-tabs [data-tab]').forEach((b) => (b.onclick = () => { jugTab = b.dataset.tab; montarJugador() }))
   if (jugTab === 'memoria') montarNorte($('#j-cuerpo'))
   else if (jugTab === 'evidencia') montarEvidencia($('#j-cuerpo'))
+  else if (jugTab === 'modelos') montarModelos($('#j-cuerpo'))
   else if (jugTab === 'plata') montarPlata($('#j-cuerpo'))
   else if (jugTab === 'bitacora') montarBitacora($('#j-cuerpo'))
   else fichaPersonaje($('#j-cuerpo'), 'jugador', {

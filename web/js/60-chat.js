@@ -74,6 +74,7 @@ function quienEs(c) {
   if (c?.modo === 'diario') return { glifo: '✎', nombre: 'Diario', sub: 'contale lo que quieras · Mastropiero escucha', color: 'var(--acento-texto)' }
   if (c?.modo === 'hoy') return { glifo: '☿', nombre: 'Mastropiero', sub: 'tu día · acá llega la jornada y el cierre', color: 'var(--acento-texto)' }
   if (!c || c.con === 'mastropiero') return { glifo: '☿', nombre: 'Mastropiero', sub: 'el agente omnívoro · opera toda la plataforma', color: 'var(--acento-texto)' }
+  if (String(c.con).startsWith('modelo:')) return { glifo: '♛', nombre: String(c.titulo ?? 'Tu modelo').replace(/^Con /, ''), sub: 'tu consejo de modelos · habla desde su manual', color: 'var(--acento-texto)', vivo: true }
   const f = E.roster.find((x) => x.id === c.con)
   const cl = f ? claseDe(f.clase) : null
   return {
@@ -305,7 +306,9 @@ function pintarChat() {
       ? 'Un espacio para contar tus cosas, escrito o en audio (🎙). Mastropiero escucha y pregunta poco; lo que contás queda como tu voz en el corpus y alimenta lo que sabe de vos.'
       : c?.modo === 'hoy'
         ? 'Acá llega tu jornada a la mañana y el cierre a la noche. Contale cómo va el día o pedile que lo reorganice.'
-        : c && c.con !== 'mastropiero'
+        : c && String(c.con).startsWith('modelo:')
+          ? 'Uno de tus modelos, hablando desde su manual operativo (principios, su vara, cómo decide). Contale una decisión o mostrale tu trabajo: te contesta con su vara. Lo que su manual no cubre, te lo dice.'
+          : c && c.con !== 'mastropiero'
           ? 'Un agente de la liga. Contesta desde su oficio y puede leer el corpus según su nivel; no actúa sobre la plataforma.'
           : 'Mastropiero ve y opera todo: tu día, tu memoria, la liga y el corpus. Pedile lo que quieras en lenguaje natural; lo destructivo te lo confirma antes.'
     col.innerHTML = `<div class="chat-bienvenida"><div class="avatar" style="--c:${q.color}">${q.glifo}</div>

@@ -61,9 +61,12 @@ const msj = (r: any): Mensaje => ({
 })
 
 export function crearConversacion(db: Db, con: string = MASTROPIERO, modo: Modo = 'chat', ahora = Date.now()): Conversacion {
-  if (con !== MASTROPIERO && !leer(db, con)) throw new Error(`No existe el agente ${con}`)
+  // Un modelo del consejo (modelo:<entidad>) habla desde su manual.
+  const esModelo = /^modelo:\d+$/.test(con)
+  if (esModelo && !db.prepare(`SELECT 1 FROM entidades WHERE id = ? AND json_extract(meta, '$.modelo') = 1`).get(Number(con.slice(7)))) throw new Error('Ese modelo no está en tu consejo')
+  if (con !== MASTROPIERO && !esModelo && !leer(db, con)) throw new Error(`No existe el agente ${con}`)
   if (con !== MASTROPIERO && modo !== 'chat') throw new Error('Hoy y el diario son con Mastropiero')
-  const id = con === MASTROPIERO ? MASTROPIERO : leer(db, con)!.id
+  const id = con === MASTROPIERO || esModelo ? con : leer(db, con)!.id
   const titulo = modo === 'hoy' ? 'Hoy' : null
   const r = db.prepare('INSERT INTO conversaciones (con, modo, titulo, creada_en, actualizada_en) VALUES (?, ?, ?, ?, ?)').run(id, modo, titulo, ahora, ahora)
   return leerConversacion(db, Number(r.lastInsertRowid))!
@@ -433,6 +436,10 @@ export async function enviar(db: Db, cid: number, texto: string, o: { hud?: stri
         },
         alGuardar, vivo,
       })
+    } else if (/^modelo:\d+$/.test(c.con)) {
+      // Hablar con un modelo del consejo: desde su manual, sin herramientas.
+      const { promptModelo } = await import('../modelos.ts')
+      await bucle({ db, sistema: promptModelo(db, Number(c.con.slice(7))), hs: [], previos, clase: 'mastropiero', agenteId: 'modelo', ctx: { db, conversacionId: cid }, alGuardar, vivo })
     } else {
       const f = leer(db, c.con)
       if (!f) throw new Error(`${c.con} ya no está en la liga (se retiró).`)

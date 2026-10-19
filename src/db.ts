@@ -925,6 +925,35 @@ CREATE TABLE IF NOT EXISTS evidencias (
   en INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS evidencias_identidad ON evidencias(identidad_id, fecha);
+-- Los sueños: entran por Telegram, a mano o por una app conectada (Morpheon). El audio se transcribe y se borra.
+CREATE TABLE IF NOT EXISTS suenos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pieza_id INTEGER,
+  fecha TEXT NOT NULL,                -- el día en que se despertó
+  texto TEXT NOT NULL,
+  despertar TEXT,                     -- HH:MM
+  duracion_min INTEGER,
+  lucido INTEGER,
+  emociones TEXT,                     -- JSON [string] (las que dijo él)
+  nota TEXT,
+  origen TEXT NOT NULL,               -- telegram | manual | app:<nombre>
+  destilado TEXT,                     -- JSON {titulo, escenas, personas, simbolos, emociones, lucido, fuente, cruce}
+  estado TEXT NOT NULL DEFAULT 'pendiente', -- pendiente | destilado | fallo
+  creado_en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS suenos_fecha ON suenos(fecha);
+-- Las apps que le hablan a Deprocast (Morpheon y las que vengan): el token se ve una vez; acá queda su hash.
+CREATE TABLE IF NOT EXISTS apps_conectadas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL,
+  prefijo TEXT NOT NULL,              -- los primeros caracteres del token (para encontrarlo y reconocerlo)
+  token_hash TEXT NOT NULL,
+  permisos TEXT NOT NULL,             -- JSON [suenos, eventos]
+  creada_en INTEGER NOT NULL,
+  ultima_vez INTEGER,
+  usos INTEGER NOT NULL DEFAULT 0,
+  revocada_en INTEGER
+);
 -- Cada mención ya contada (abierto:<pieza>:<i>, mision:<id>): así no suma dos veces.
 CREATE TABLE IF NOT EXISTS bucles_vistos (
   origen TEXT PRIMARY KEY,
@@ -1182,6 +1211,8 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   conversaciones: [
     ['modo', "TEXT NOT NULL DEFAULT 'chat'"], // chat | hoy | diario
   ],
+  // ¿Idea nueva o repetida? Contra los quántomos de antes, por sentido.
+  quantomos: [['novedad', 'TEXT'], ['novedad_de', 'INTEGER'], ['novedad_sim', 'REAL']],
   misiones: [
     ['armado', 'TEXT'], // bien | mal: si la banda estuvo bien armada
     ['progreso_manual', 'INTEGER'], // 1 = el % lo fijó él; si no, el avance de una primaria se infiere de lo hecho
@@ -1244,6 +1275,8 @@ const RUTINAS_SISTEMA = [
   { id: 'calificacion', nombre: 'El gemelo se califica', hora: '23:40', dias: '0123456', accion: 'calificacion' },
   { id: 'reporte_semanal', nombre: 'Reporte de la semana', hora: '21:00', dias: '0', accion: 'reporte_semanal' },
   { id: 'evidencia', nombre: 'Tu evidencia de la semana contra tu historia vieja', hora: '19:30', dias: '0', accion: 'evidencia' },
+  { id: 'modelos', nombre: 'Tu vara contra la de tus modelos', hora: '19:40', dias: '0', accion: 'modelos' },
+  { id: 'creencias', nombre: 'Creencias: ¿descubiertas o heredadas? (una vez por mes)', hora: '17:00', dias: '0', accion: 'creencias' },
   { id: 'brujula', nombre: 'La brújula del día', hora: '08:10', dias: '0123456', accion: 'brujula' },
   { id: 'mentor', nombre: 'El Mentor recomienda qué leer o ver', hora: '08:05', dias: '1', accion: 'mentor' },
   { id: 'puentes', nombre: 'Puentes con tu gente', hora: '11:00', dias: '0', accion: 'puentes' },

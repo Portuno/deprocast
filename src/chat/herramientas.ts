@@ -1219,6 +1219,46 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `importó de YouTube ${recorte(String(a.links ?? ''), 50)}`,
   },
   {
+    nombre: 'ver_suenos', familia: 'lectura',
+    descripcion: 'Sus sueños: los últimos (con lo que se leyó de cada uno: escenas, personas, símbolos, emociones, fuente y cruce con el día anterior), los símbolos que vuelven, quién aparece y las emociones por semana.',
+    parametros: S({}),
+    ejecutar: async (_a, { db }) => {
+      const v = (await import('../suenos.ts')).vistaSuenos(db)
+      return { total: v.total, lucidos: v.lucidos, simbolos: v.simbolos.map((s) => `${s.k} (${s.n})`), personas: v.personas.map((p) => `${p.k} (${p.n})`), fuentes: v.fuentes.map((f) => `${f.k} (${f.n})`), ultimos: v.suenos.slice(0, 8).map((s) => ({ id: s.id, fecha: s.fecha, texto: s.texto.slice(0, 400), leido: s.destilado })) }
+    },
+  },
+  {
+    nombre: 'anotar_sueno', familia: 'accion',
+    descripcion: 'Guarda un sueño que te cuenta: lo que soñó durmiendo (no un deseo ni una meta), en sus palabras, sin resumirlo, con la fecha en que se despertó.',
+    parametros: S({ texto: str('El sueño, como lo contó'), fecha: str('YYYY-MM-DD; vacío = hoy'), lucido: { type: 'boolean', description: 'Si se dio cuenta de que soñaba' } }, ['texto']),
+    ejecutar: async (a, { db }) => {
+      const sn = await import('../suenos.ts')
+      const s = await sn.registrarSueno(db, { texto: a.texto, fecha: a.fecha ?? null, lucido: a.lucido ?? null, origen: 'chat' })
+      if ((await import('../reproceso.ts')).enLaNube()) void sn.destilarSueno(db, s.id).catch(() => {})
+      return { id: s.id, fecha: s.fecha }
+    },
+    resumen: () => 'guardó un sueño',
+  },
+  {
+    nombre: 'ver_modelos', familia: 'lectura',
+    descripcion: 'Su consejo de modelos (1 a 3 personas que toma de referencia) con el resumen y los principios de su manual operativo.',
+    parametros: S({}),
+    ejecutar: async (_a, { db }) => { const m = await import('../modelos.ts'); return m.listarModelos(db).map((x) => ({ id: x.id, nombre: x.nombre, manual: m.resumenManual(x) })) },
+  },
+  {
+    nombre: 'que_haria', familia: 'lectura',
+    descripcion: '¿Qué haría uno de sus modelos en esta situación? Responde desde el manual operativo de esa persona (qué haría, por qué, el primer paso y qué evitaría). Útil en decisiones y al armar una run.',
+    parametros: S({ modelo: str('Nombre o id del modelo'), situacion: str('La situación o decisión, con contexto') }, ['modelo', 'situacion']),
+    ejecutar: async (a, { db }) => (await import('../modelos.ts')).queHaria(db, a.modelo, a.situacion),
+  },
+  {
+    nombre: 'sumar_modelo', familia: 'accion',
+    descripcion: 'Suma una persona a su consejo de modelos (hasta 3). Solo si él lo pide.',
+    parametros: S({ nombre: str('Nombre de la persona') }, ['nombre']),
+    ejecutar: async (a, { db }) => { const m = (await import('../modelos.ts')).sumarModelo(db, { nombre: a.nombre }); return { id: m.id, nombre: m.nombre, aviso: 'El manual se arma desde Jugador → Modelos (en la nube).' } },
+    resumen: (a) => `sumó a ${a.nombre} a su consejo`,
+  },
+  {
     nombre: 'ver_evidencia', familia: 'lectura',
     descripcion: 'Su libro de evidencia: las identidades que eligió («soy alguien que…»), su historia vieja y los hechos que las votan (bandas, hábitos, misiones, prácticas y lo anotado) en 30 días y por semana. También su foco según el Directo (bloque más largo, cambios por hora, minutos en apps de estímulo, meta de bloque).',
     parametros: S({}),
@@ -1437,7 +1477,7 @@ export const GRUPOS: Record<string, string[]> = {
   liga: ['ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
+  vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   web: ['buscar_web', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   crear: ['ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
@@ -1449,7 +1489,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox/.test(t)) g.push('liga')
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|\[confirmado\]|\[inferido\]/.test(t)) g.push('corpus')
   if (/primaria|reporte|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
-  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')
+  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')
   if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal/.test(t)) g.push('web')
   if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo/.test(t)) g.push('crear')
   return g

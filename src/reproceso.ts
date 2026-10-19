@@ -15,6 +15,8 @@ import { estadoYoutube } from './youtube.ts'
 import { destilarImportadoSiguiente, destilarUnidad, historiaDe, importadoPendiente, proyectosConHistoria, REPROCESO, takeoutTrabajando } from './takeout/nube.ts'
 import { cronicaDelMes, mesesSinCronica } from './linea.ts'
 import { cuantasFaltan, tarjetasDeLoConsumido } from './consumido.ts'
+import { marcarNovedad } from './quantomos.ts'
+import { destilarSuenoPendiente } from './suenos.ts'
 import { juntarBucles, resumenBucles } from './bucles.ts'
 
 /** Solo en la nube (o si se fuerza para probar): todo esto gasta tokens. */
@@ -71,7 +73,9 @@ async function hacerItems(db: Db): Promise<boolean> {
   enItems = true
   try {
     estado.paso = 'recuerdos y quántomos'
-    return (await vectorizarItems(db, 128)) > 0
+    const hechos = await vectorizarItems(db, 128)
+    // Con los vectores hechos: ¿idea nueva o repetida? (sin modelo).
+    return marcarNovedad(db) > 0 || hechos > 0
   } finally {
     enItems = false
   }
@@ -110,6 +114,12 @@ async function hacerBucles(db: Db): Promise<boolean> {
   }
 }
 
+/** Los sueños que entraron sin leer (por Telegram, a mano o desde Morpheon). */
+async function hacerSuenos(db: Db): Promise<boolean> {
+  estado.paso = 'leyendo tus sueños'
+  return destilarSuenoPendiente(db)
+}
+
 async function hacerImportado(db: Db): Promise<boolean> {
   estado.paso = 'destilando lo importado'
   return destilarImportadoSiguiente(db)
@@ -146,7 +156,7 @@ async function hacerSintesis(db: Db): Promise<boolean> {
 
 const CARRILES = 4
 /** Qué paso de la pantalla es cada cosa que hace un carril. */
-const QUE_HACE = new Map<(db: Db) => Promise<boolean>, string>([[hacerPasajes, 'pasajes'], [hacerItems, 'recuerdos'], [hacerDestilado, 'destilado'], [hacerImportado, 'importado'], [hacerTarjetas, 'tarjetas'], [hacerBucles, 'bucles']])
+const QUE_HACE = new Map<(db: Db) => Promise<boolean>, string>([[hacerPasajes, 'pasajes'], [hacerItems, 'recuerdos'], [hacerDestilado, 'destilado'], [hacerImportado, 'importado'], [hacerTarjetas, 'tarjetas'], [hacerBucles, 'bucles'], [hacerSuenos, 'suenos']])
 
 /** Trabaja hasta que no quede nada o se pause. Si ya anda, no hace nada. */
 export async function trabajarReproceso(db: Db): Promise<void> {
@@ -166,7 +176,7 @@ export async function trabajarReproceso(db: Db): Promise<void> {
         const pasos = carril === 0 ? [hacerPasajes, hacerItems, hacerDestilado]
           : conImportado && carril <= 2 ? [hacerImportado, hacerDestilado, hacerPasajes]
           // El último carril, antes de destilar: lo que se aprende de lo consumido y lo que sigue volviendo (no esperan a que se vacíe todo).
-          : carril === CARRILES - 1 ? [hacerTarjetas, hacerBucles, hacerDestilado, hacerPasajes]
+          : carril === CARRILES - 1 ? [hacerSuenos, hacerTarjetas, hacerBucles, hacerDestilado, hacerPasajes]
           : [hacerDestilado, hacerPasajes]
         try {
           for (const paso of pasos) {

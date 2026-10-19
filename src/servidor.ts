@@ -623,6 +623,41 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/identidades$/, async (b) => (await import('./evidencia.ts')).crearIdentidad(db, { frase: b.frase, historiaVieja: b.historiaVieja ?? null, ataduras: b.ataduras ?? {} })],
   ['POST', /^\/api\/identidades\/(\d+)$/, async (b, [i]) => (await import('./evidencia.ts')).editarIdentidad(db, id(i), b)],
   ['POST', /^\/api\/identidades\/(\d+)\/evidencia$/, async (b, [i]) => { (await import('./evidencia.ts')).anotarEvidencia(db, id(i), b.texto, b.fecha ?? null); return { ok: true } }],
+  // Sueños, consejo de modelos y apps conectadas.
+  ['GET', /^\/api\/suenos$/, async () => (await import('./suenos.ts')).vistaSuenos(db)],
+  ['POST', /^\/api\/suenos$/, async (b) => {
+    const sn = await import('./suenos.ts')
+    const s = await sn.registrarSueno(db, { texto: b.texto, fecha: b.fecha ?? null, despertar: b.despertar ?? null, lucido: b.lucido ?? null, emociones: b.emociones ?? null, nota: b.nota ?? null, origen: 'manual' })
+    if (enLaNube()) void sn.destilarSueno(db, s.id).catch(() => {})
+    return s
+  }],
+  ['POST', /^\/api\/suenos\/(\d+)\/destilar$/, async (_, [s]) => {
+    if (!enLaNube()) throw new Error('Los sueños se leen en la nube (gastan tokens de NaN)')
+    return (await import('./suenos.ts')).destilarSueno(db, id(s))
+  }],
+  ['GET', /^\/api\/modelos$/, async () => {
+    const m = await import('./modelos.ts')
+    return { modelos: m.listarModelos(db), enLaNube: enLaNube() }
+  }],
+  ['POST', /^\/api\/modelos$/, async (b) => (await import('./modelos.ts')).sumarModelo(db, { entidadId: b.entidadId ? Number(b.entidadId) : null, nombre: b.nombre ?? null })],
+  ['POST', /^\/api\/modelos\/(\d+)\/quitar$/, async (_, [m]) => { (await import('./modelos.ts')).quitarModelo(db, id(m)); return { ok: true } }],
+  ['POST', /^\/api\/modelos\/(\d+)\/manual$/, async (_, [m]) => {
+    if (!enLaNube()) throw new Error('El manual se arma en la nube (gasta tokens de NaN): pedilo desde tu Deprocast en la nube.')
+    return (await import('./modelos.ts')).armarManual(db, id(m))
+  }],
+  ['POST', /^\/api\/modelos\/(\d+)\/que-haria$/, async (b, [m]) => (await import('./modelos.ts')).queHaria(db, id(m), String(b.situacion ?? ''))],
+  ['POST', /^\/api\/modelos\/(\d+)\/hablar$/, async (_, [m]) => {
+    const md = (await import('./modelos.ts')).leerModelo(db, id(m))
+    if (!md) throw new Error('Ese modelo no está en tu consejo')
+    const ya = db.prepare(`SELECT id FROM conversaciones WHERE con = ? AND archivada = 0 ORDER BY actualizada_en DESC LIMIT 1`).get(`modelo:${md.id}`) as { id: number } | undefined
+    if (ya) return { id: ya.id }
+    const c = crearConversacion(db, `modelo:${md.id}`)
+    db.prepare('UPDATE conversaciones SET titulo = ? WHERE id = ?').run(`Con ${md.nombre}`, c.id)
+    return { id: c.id }
+  }],
+  ['GET', /^\/api\/apps-conectadas$/, async () => { const a = await import('./apps.ts'); return { apps: a.listarApps(db), permisos: a.PERMISOS } }],
+  ['POST', /^\/api\/apps-conectadas$/, async (b) => (await import('./apps.ts')).crearApp(db, String(b.nombre ?? ''), Array.isArray(b.permisos) ? b.permisos : ['suenos'])],
+  ['POST', /^\/api\/apps-conectadas\/(\d+)\/revocar$/, async (_, [a]) => { (await import('./apps.ts')).revocarApp(db, id(a)); return { ok: true } }],
   ['GET', /^\/api\/foco$/, async (_, __, q) => (await import('./foco.ts')).tendenciaFoco(db, Math.min(60, Number(q.get('dias')) || 14))],
   ['GET', /^\/api\/aprender\/(\d+)$/, (_, [a]) => {
     const x = leerAprendizaje(db, id(a))
@@ -913,6 +948,7 @@ const rutas: [string, RegExp, Ruta][] = [
 
   // Quántomos
   ['GET', /^\/api\/quantomos$/, (_, __, q) => listarQuantomos(db, {
+    novedad: q.get('novedad') || undefined,
     etapa: q.get('etapa') || undefined, q: q.get('q') || undefined, pesoMin: num(q.get('pesoMin')), desde: num(q.get('desde')), limite: num(q.get('limite')),
   })],
   ['GET', /^\/api\/quantomos\/(\d+)$/, (_, [k]) => {
@@ -978,6 +1014,53 @@ async function leerCuerpo(req: http.IncomingMessage): Promise<any> {
   }
 }
 
+/**
+ * Las apps conectadas (Morpheon y las que vengan): con su token (Authorization: Bearer), sin la clave de la pantalla.
+ * Solo estas rutas: GET /api/apps/yo, POST /api/apps/suenos (JSON, multipart con «audio», o el audio crudo) y POST
+ * /api/apps/eventos. Sin token o revocado: 401; sin el permiso: 403.
+ */
+async function atenderApp(req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
+  const responder = (codigo: number, cuerpo: unknown) => void res.writeHead(codigo, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }).end(JSON.stringify(cuerpo))
+  const apps = await import('./apps.ts')
+  const ruta = url.pathname.slice('/api/apps/'.length)
+  if (!['yo', 'suenos', 'eventos'].includes(ruta)) return responder(404, { error: 'Ruta desconocida' })
+  const permiso = ruta === 'yo' ? undefined : (ruta as 'suenos' | 'eventos')
+  const { app, motivo } = apps.autenticarApp(db, req.headers.authorization, permiso)
+  if (!app) return responder(motivo === 'sin_permiso' ? 403 : 401, { error: motivo === 'sin_permiso' ? `Esta app no tiene permiso para ${permiso}` : 'Falta el token o no es válido (Authorization: Bearer dpc_…)' })
+  try {
+    if (ruta === 'yo') return req.method === 'GET' ? responder(200, { app: app.nombre, permisos: app.permisos }) : responder(405, { error: 'Usá GET' })
+    if (req.method !== 'POST') return responder(405, { error: 'Usá POST' })
+    const tipo = String(req.headers['content-type'] ?? '')
+    const crudo = await leerCrudo(req, 30 * 1024 * 1024)
+    let campos: Record<string, any> = {}
+    let audio: { nombre: string; datos: Buffer } | null = null
+    if (/multipart\/form-data/i.test(tipo)) {
+      const m = apps.leerMultipart(crudo, tipo)
+      campos = m.campos
+      const a = m.archivos.audio ?? Object.values(m.archivos)[0]
+      if (a) audio = { nombre: a.nombre, datos: a.datos }
+    } else if (/^audio\//i.test(tipo)) {
+      campos = Object.fromEntries(url.searchParams)
+      audio = { nombre: url.searchParams.get('nombre') || `sueno.${tipo.split('/')[1]?.split(';')[0] || 'm4a'}`, datos: crudo }
+    } else {
+      try { campos = crudo.length ? JSON.parse(crudo.toString('utf8')) : {} } catch { return responder(400, { error: 'JSON inválido' }) }
+    }
+    if (ruta === 'suenos') {
+      const sn = await import('./suenos.ts')
+      const v = (x: unknown) => (x == null || x === '' ? null : x === true || x === 'true' || x === '1' || x === 1)
+      const s = await sn.registrarSueno(db, {
+        texto: campos.texto ?? null, audio: audio?.datos ?? null, nombreAudio: audio?.nombre, fecha: campos.fecha ?? null, despertar: campos.despertar ?? null,
+        duracionMin: campos.duracion_min ?? campos.duracion ?? null, lucido: v(campos.lucido), emociones: campos.emociones ?? null, nota: campos.nota ?? null, origen: `app:${app.nombre}`,
+      })
+      if (enLaNube()) void sn.destilarSueno(db, s.id).catch((e) => console.error('  sueño:', e instanceof Error ? e.message : e))
+      return responder(201, { id: s.id, fecha: s.fecha, texto: s.texto, estado: s.estado })
+    }
+    return responder(201, apps.recibirEvento(db, app, campos))
+  } catch (e) {
+    return responder(400, { error: e instanceof Error ? e.message : String(e) })
+  }
+}
+
 const servidor = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost')
   if (enVercel() && url.pathname === '/api/latido' && req.method === 'GET') {
@@ -1000,6 +1083,8 @@ const servidor = http.createServer(async (req, res) => {
   }
   if (enVercel()) latidoSiToca()
   if (enVercel() && req.method && !['GET', 'HEAD'].includes(req.method)) esperarSubida(res)
+  // Las apps conectadas entran con su token, no con la clave.
+  if (url.pathname.startsWith('/api/apps/')) return atenderApp(req, res, url)
   // Expuesto a la red: primero la clave (salvo desde esta misma compu).
   if (url.pathname === '/entrar') {
     if (req.method === 'POST') {

@@ -37,6 +37,8 @@ import { abrirPractica, audioDeFrase, cerrarPractica, leerIdioma, listarIdiomas,
 import { CALIDADES, leerTarjeta, paraRepasar, responderTarjeta, type Calidad } from './tarjetas.ts'
 import { dirAdjuntos } from './chat/adjuntos.ts'
 import { bucleMasViejos, cerrarBucle } from './bucles.ts'
+import { PARECE_SUENO, destilarSueno, registrarSueno } from './suenos.ts'
+import { enLaNube } from './reproceso.ts'
 import path from 'node:path'
 
 const api = (metodo: string) => `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/${metodo}`
@@ -377,6 +379,20 @@ async function practicasProgramadas(db: Db) {
   } finally { abriendoPracticas = false }
 }
 
+// ─── sueños ─────────────────────────────────────────────────────────────
+
+let esperandoSueno = 0
+async function guardarSuenoTelegram(db: Db, x: { texto?: string; audio?: Buffer; nombreAudio?: string }) {
+  esperandoSueno = 0
+  try {
+    const s = await registrarSueno(db, { ...x, origen: 'telegram' })
+    await decir(`🌙 Guardé tu sueño del ${s.fecha.slice(8, 10)}/${s.fecha.slice(5, 7)}.${enLaNube() ? ' Lo leo y te cuento qué veo.' : ''}`)
+    if (!enLaNube()) return
+    const d = (await destilarSueno(db, s.id)).destilado
+    if (d) await decir([`🌙 **${d.titulo}**`, d.simbolos.length ? `Símbolos: ${d.simbolos.join(', ')}` : '', d.emociones.length ? `Se sentía: ${d.emociones.join(', ')}` : '', d.fuente ? `Parece ${d.fuente}${d.por_que_fuente ? `: ${d.por_que_fuente}` : ''}` : '', d.cruce ? `_Con tu día anterior:_ ${d.cruce}` : ''].filter(Boolean).join('\n'))
+  } catch (e) { await decir(e instanceof Error ? e.message : String(e)) }
+}
+
 // ─── lo que sigue volviendo ─────────────────────────────────────────────
 
 /** Los domingos (desde las 11): los tres bucles abiertos más viejos, cada uno con sus tres finales. Una vez por semana. */
@@ -481,7 +497,7 @@ async function mandarPregunta(db: Db) {
 export const COMANDOS = [
   ['hoy', 'Cómo viene el día'], ['run', 'La banda que toca ahora (o arrancar la propuesta)'], ['gasto', 'Anotar un gasto: /gasto 12,5 súper'],
   ['ingreso', 'Anotar un ingreso: /ingreso 800 freelance'], ['nota', 'Guardar algo sin charlar'], ['bitacora', 'Escribir en tu bitácora (privada)'],
-  ['brujula', 'El tridente del día'], ['mentor', 'Qué leer o ver ahora'], ['buscar', 'Buscar en tu corpus'], ['criba', 'Pesar piezas con botones'], ['pregunta', 'Que Mastropiero te pregunte algo'], ['idioma', 'Practicar un idioma ahora: /idioma inglés (/idioma fin la cierra)'], ['tarjetas', 'Repasar las tarjetas que tocan hoy'], ['voz', 'Respuestas también en audio: sí / no'], ['ayuda', 'Qué sé hacer'],
+  ['brujula', 'El tridente del día'], ['mentor', 'Qué leer o ver ahora'], ['buscar', 'Buscar en tu corpus'], ['criba', 'Pesar piezas con botones'], ['pregunta', 'Que Mastropiero te pregunte algo'], ['idioma', 'Practicar un idioma ahora: /idioma inglés (/idioma fin la cierra)'], ['tarjetas', 'Repasar las tarjetas que tocan hoy'], ['sueno', 'Anotar un sueño: /sueno y lo contás (o mandá un audio que empiece con «soñé…»)'], ['voz', 'Respuestas también en audio: sí / no'], ['ayuda', 'Qué sé hacer'],
 ] as const
 
 function resumenHoy(db: Db): string {
@@ -543,6 +559,10 @@ async function comando(db: Db, cmd: string, resto: string) {
     case '/pregunta': case '/preguntas': return mandarPregunta(db)
     case '/idioma': case '/idiomas': case '/practica': return comandoIdioma(db, resto)
     case '/tarjetas': case '/repasar': return mandarTarjeta(db)
+    case '/sueno': case '/sueño': case '/soñé': case '/sone': {
+      if (!resto) { esperandoSueno = Date.now(); return decir('🌙 Contámelo: escribilo o mandá un audio (en los próximos 10 minutos lo guardo como sueño).') }
+      return guardarSuenoTelegram(db, { texto: resto })
+    }
     case '/voz': {
       const v = /^(no|off|0|apag)/i.test(resto) ? '0' : /^siempre/i.test(resto) ? 'siempre' : (ajuste(db, 'telegram_voz') ?? '0') === '0' || /^(s[ií]|on|1)/i.test(resto) ? '1' : '0'
       fijarAjuste(db, 'telegram_voz', v)
@@ -720,6 +740,13 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
     }
     return responderPracticaTelegram(db, practica.aprendizajeId, { texto })
   }
+  // Después de /sueno, lo siguiente que diga (texto o audio) es el sueño.
+  const vozSueno = msg.voice ?? msg.audio
+  if (esperandoSueno && Date.now() - esperandoSueno < 10 * 60_000 && (vozSueno || (texto && !texto.startsWith('/')))) {
+    if (vozSueno) { const { datos, nombre } = await bajar(vozSueno.file_id); return guardarSuenoTelegram(db, { audio: datos, nombreAudio: nombre.endsWith('.oga') ? nombre.replace(/\.oga$/, '.ogg') : nombre }) }
+    return guardarSuenoTelegram(db, { texto })
+  }
+  if (texto && !texto.startsWith('/') && PARECE_SUENO.test(texto)) return guardarSuenoTelegram(db, { texto })
   if (texto?.startsWith('/')) {
     const [cmd] = texto.split(/\s+/)
     return comando(db, cmd.toLowerCase().replace(/@\w+$/, ''), texto.slice(cmd.length).trim())
@@ -730,6 +757,8 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
     const { datos, nombre } = await bajar(voz.file_id)
     const t = await transcribir(db, datos, nombre.endsWith('.oga') ? nombre.replace(/\.oga$/, '.ogg') : nombre)
     if (!t.trim()) return decir('No entendí el audio.')
+    // Un audio que cuenta un sueño («soñé que…») va a Sueños, no a la charla.
+    if (PARECE_SUENO.test(t)) return guardarSuenoTelegram(db, { texto: t })
     // Una nota larga es material (una caminata pensando en voz alta): queda como pieza suya, además de lo que se haga con ella.
     const larga = (voz.duration ?? 0) >= 90 || t.length >= 900
     const g = larga ? guardarNotaDeVoz(db, t, voz.duration ?? null, voz.file_unique_id ?? voz.file_id) : null

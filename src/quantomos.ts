@@ -28,6 +28,10 @@ export type Quantomo = {
   cargaId: number | null
   creadoEn: number
   actualizadoEn: number
+  /** nueva | variacion | repetida (null: todavía sin vector) y de cuál, por sentido. */
+  novedad: string | null
+  novedadDe: number | null
+  novedadSim: number | null
 }
 
 function deFila(r: any): Quantomo {
@@ -49,6 +53,9 @@ function deFila(r: any): Quantomo {
     cargaId: r.carga_id,
     creadoEn: r.creado_en,
     actualizadoEn: r.actualizado_en,
+    novedad: r.novedad ?? null,
+    novedadDe: r.novedad_de ?? null,
+    novedadSim: r.novedad_sim ?? null,
   }
 }
 
@@ -93,18 +100,51 @@ export function quantomosDePieza(db: Db, piezaId: number): Quantomo[] {
   return db.prepare(`SELECT * FROM quantomos WHERE pieza_id = ? AND etapa NOT IN ('superado', 'descartado') ORDER BY id`).all(piezaId).map(deFila)
 }
 
-export function listarQuantomos(db: Db, f: { etapa?: string; q?: string; pesoMin?: number; desde?: number; limite?: number } = {}) {
+export function listarQuantomos(db: Db, f: { etapa?: string; q?: string; pesoMin?: number; desde?: number; limite?: number; novedad?: string } = {}) {
   const where: string[] = []
   const args: (string | number)[] = []
   if (f.etapa) where.push('etapa = ?'), args.push(f.etapa)
   else where.push(`etapa NOT IN ('superado', 'descartado')`)
   if (f.q) where.push('(texto LIKE ? OR titulo LIKE ?)'), args.push(`%${f.q}%`, `%${f.q}%`)
   if (f.pesoMin) where.push('peso >= ?'), args.push(f.pesoMin)
+  if (f.novedad) where.push('novedad = ?'), args.push(f.novedad)
   const w = `WHERE ${where.join(' AND ')}`
   const total = (db.prepare(`SELECT COUNT(*) AS n FROM quantomos ${w}`).get(...args) as { n: number }).n
   const filas = db.prepare(`SELECT * FROM quantomos ${w} ORDER BY etapa = 'propuesta' DESC, etapa = 'proto' DESC, actualizado_en DESC, id DESC LIMIT ? OFFSET ?`)
     .all(...args, f.limite ?? 50, f.desde ?? 0)
   return { total, quantomos: filas.map(deFila) }
+}
+
+// ─── ¿idea nueva o repetida? ────────────────────────────────────────────
+
+export const UMBRAL_REPETIDA = 0.92
+export const UMBRAL_VARIACION = 0.8
+
+/**
+ * Marca cada quántomo con vector contra los de antes (por sentido): ≥ 0,92 «repetida de #…», de 0,80 a 0,92
+ * «variación de #…», si no «nueva». Sin modelo: usa los vectores que ya hizo el Procesar. Devuelve cuántos marcó.
+ */
+export function marcarNovedad(db: Db, limite = 500): number {
+  const faltan = db.prepare(`SELECT q.id, v.vec FROM quantomos q JOIN vec_items v ON v.tipo = 'quantomo' AND v.id = q.id WHERE q.novedad IS NULL ORDER BY q.id LIMIT ?`).all(limite) as { id: number; vec: Uint8Array }[]
+  if (!faltan.length) return 0
+  const deBlob = (b: Uint8Array) => new Float32Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength))
+  const todos = (db.prepare(`SELECT q.id, v.vec FROM quantomos q JOIN vec_items v ON v.tipo = 'quantomo' AND v.id = q.id WHERE q.etapa != 'descartado' ORDER BY q.id`).all() as { id: number; vec: Uint8Array }[])
+    .map((r) => ({ id: r.id, v: deBlob(r.vec) }))
+  const marcar = db.prepare('UPDATE quantomos SET novedad = ?, novedad_de = ?, novedad_sim = ? WHERE id = ?')
+  for (const f of faltan) {
+    const v = deBlob(f.vec)
+    let mejor = { id: null as number | null, sim: 0 }
+    for (const o of todos) {
+      if (o.id >= f.id) break // solo contra los de antes
+      let s = 0
+      for (let i = 0; i < Math.min(v.length, o.v.length); i++) s += v[i] * o.v[i]
+      if (s > mejor.sim) mejor = { id: o.id, sim: s }
+    }
+    const sim = Math.round(mejor.sim * 1000) / 1000
+    const novedad = sim >= UMBRAL_REPETIDA ? 'repetida' : sim >= UMBRAL_VARIACION ? 'variacion' : 'nueva'
+    marcar.run(novedad, novedad === 'nueva' ? null : mejor.id, mejor.id ? sim : null, f.id)
+  }
+  return faltan.length
 }
 
 export function resumenQuantomos(db: Db) {

@@ -910,7 +910,8 @@ function modalAjustesHoy() {
       <input class="campo-suelto" type="time" data-rut-hora="${x.id}" value="${esc(x.hora)}" style="width:120px;margin:0"><small class="tenue">${x.dias === '0123456' ? 'todos los días' : x.dias.split('').map((d) => ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'][d]).join(', ')}</small></div>`).join('')}
     <h3 class="sub">Plantillas de run</h3>
     ${ps.map((p) => `<div class="fila" style="margin:4px 0"><span style="min-width:200px">${esc(p.nombre)}</span><small class="tenue">${esc(JSON.stringify(p.pedido))}</small>${p.sistema ? '' : `<button class="btn btn-chico btn-peligro" data-borrar-p="${p.id}">Borrar</button>`}</div>`).join('')}
-    <div class="fila" style="margin-top:16px"><button class="btn btn-primario" id="aj-guardar">Guardar</button></div>`)
+    <div class="fila" style="margin-top:16px"><button class="btn btn-primario" id="aj-guardar">Guardar</button><button class="btn" id="aj-apps" title="Morpheon y otras apps tuyas que le hablan a Deprocast">🔌 Apps conectadas</button></div>`)
+  $('#aj-apps').onclick = modalApps
   $$('[data-borrar-p]').forEach((b) => (b.onclick = async () => {
     try { await api(`/plantillas/${b.dataset.borrarP}/borrar`, {}); await traerHoy(); modalAjustesHoy() } catch (e) { error(e) }
   }))

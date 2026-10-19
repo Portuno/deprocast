@@ -237,6 +237,17 @@ export const ACCIONES: Acciones = {
     const n = (await import('./evidencia.ts')).preguntasDeEvidencia(db, ahora)
     return n ? `🗳 Te dejé ${n === 1 ? 'una pregunta' : `${n} preguntas`} sobre tu evidencia de la semana (/pregunta en Telegram, o en Hoy).` : null
   },
+  /** El domingo: tu vara contra la de cada modelo de tu consejo (una pregunta por modelo, sin modelo de lenguaje). */
+  async modelos(db, _fecha, ahora) {
+    const n = (await import('./modelos.ts')).preguntasDeCalibracion(db, ahora)
+    return n ? `♛ Te dejé ${n === 1 ? 'una pregunta' : `${n} preguntas`} para calibrar tu vara con la de tus modelos.` : null
+  },
+  /** Una vez por mes (corre los domingos y se fija si pasaron 4 semanas): ¿tus creencias son tuyas o heredadas? */
+  async creencias(db, _fecha, ahora) {
+    if (topeAlcanzado(db, ahora)) return null
+    const n = await (await import('./suenos.ts')).preguntarCreencias(db, ahora)
+    return n ? `🜁 Este mes: ${n === 1 ? 'una creencia tuya' : `${n} creencias tuyas`} para mirar de dónde ${n === 1 ? 'viene' : 'vienen'} (te llegan como preguntas, de a una).` : null
+  },
   /** El domingo a la noche: el reporte de la semana que termina. */
   async reporte_semanal(db, _fecha, ahora) {
     const semana = semanaDe(ahora)

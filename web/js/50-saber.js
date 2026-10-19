@@ -452,7 +452,7 @@ async function modalCarga(id) {
 
 // Quántomos
 
-const filtroQ = { etapa: '', q: '', desde: 0 }
+const filtroQ = { etapa: '', q: '', desde: 0, novedad: '' }
 let qLista = { total: 0, quantomos: [] }
 
 function pesoHTML(q) {
@@ -467,7 +467,7 @@ function quantomoHTML(q) {
   return `<div class="quantomo ${q.etapa}" data-q="${q.id}">
     <div class="q-top"><span class="pill ${q.etapa === 'sellado' ? 'activo' : q.etapa === 'propuesta' ? 'prueba' : 'banca'}">${q.etapa}</span>
       ${q.version > 1 ? `<span class="tipo-chip">v${q.version}</span>` : ''}${q.universo ? `<span class="tipo-chip">${esc(q.universo)}</span>` : ''}
-      ${q.l72 ? `<span class="tipo-chip" title="sello L72 de la 0.7.1">L72</span>` : ''}<span class="tenue">#${q.id}${q.procedencia ? ` · ${esc(q.procedencia.slice(0, 60))}` : ''}</span></div>
+      ${q.l72 ? `<span class="tipo-chip" title="sello L72 de la 0.7.1">L72</span>` : ''}${q.novedad ? `<span class="q-nov ${q.novedad}" title="${q.novedadSim != null ? `parecido ${Math.round(q.novedadSim * 100)} %` : 'nada parecido antes'}">${q.novedad === 'nueva' ? '✦ nueva' : `${q.novedad === 'repetida' ? '↻ repetida' : '≈ variación'} de #${q.novedadDe}`}</span>` : ''}<span class="tenue">#${q.id}${q.procedencia ? ` · ${esc(q.procedencia.slice(0, 60))}` : ''}</span></div>
     <div class="q-texto">${esc(q.texto)}</div>
     ${haiku ? `<div class="q-haiku">${haiku.versos.map(esc).join(' / ')}</div>` : ''}
     <div class="q-acciones">${pesoHTML(q)}
@@ -531,7 +531,9 @@ function refrescarQuantomos() {
   if (!$('#q-chips')) return
   const n = Object.fromEntries(E.quantomos.map((x) => [x.etapa, x.n]))
   const etapas = [['', 'Vigentes', (n.proto ?? 0) + (n.sellado ?? 0) + (n.propuesta ?? 0)], ['propuesta', 'Propuestas', n.propuesta ?? 0], ['proto', 'Proto', n.proto ?? 0], ['sellado', 'Sellados', n.sellado ?? 0], ['superado', 'Superados', n.superado ?? 0], ['descartado', 'Descartados', n.descartado ?? 0]]
-  $('#q-chips').innerHTML = etapas.map(([k, t, c]) => `<button class="chip ${filtroQ.etapa === k ? 'on' : ''}" data-etapa="${k}">${t} ${c.toLocaleString('es-AR')}</button>`).join('')
+  $('#q-chips').innerHTML = etapas.map(([k, t, c]) => `<button class="chip ${filtroQ.etapa === k ? 'on' : ''}" data-etapa="${k}">${t} ${c.toLocaleString('es-AR')}</button>`).join('') +
+    `<button class="chip ${filtroQ.novedad ? 'on' : ''}" id="q-nuevas" title="Solo las ideas que no se parecen a ninguna de antes">✦ Solo nuevas</button>`
+  $('#q-nuevas').onclick = () => { filtroQ.novedad = filtroQ.novedad ? '' : 'nueva'; filtroQ.desde = 0; refrescarQuantomos(); traerQuantomos() }
   $$('[data-etapa]').forEach((b) => (b.onclick = () => { filtroQ.etapa = b.dataset.etapa; filtroQ.desde = 0; refrescarQuantomos(); traerQuantomos() }))
 }
 
@@ -581,6 +583,7 @@ async function traerQuantomos(mas = false) {
   const p = new URLSearchParams({ limite: 40, desde: filtroQ.desde })
   if (filtroQ.etapa) p.set('etapa', filtroQ.etapa)
   if (filtroQ.q) p.set('q', filtroQ.q)
+  if (filtroQ.novedad) p.set('novedad', filtroQ.novedad)
   try {
     const r = await api(`/quantomos?${p}`)
     qLista = mas ? { total: r.total, quantomos: [...qLista.quantomos, ...r.quantomos] } : r

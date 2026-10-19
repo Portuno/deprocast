@@ -206,7 +206,7 @@ async function modalReproceso() {
     const ytPend = yt ? yt.cuenta.pendiente + yt.cuenta.compu : 0
     const ytPaso = ytPend ? paso({ icono: '🎬', titulo: 'Transcripciones de YouTube', que: 'Cada video que mandaste, con su transcripción; después se destila con lo importado.', hechos: yt.cuenta.listo, total: yt.cuenta.listo + ytPend, unidad: 'videos', activo: yt.trabajando || yt.compu.activa, espera: yt.cuenta.compu > 0 && !yt.compu.activa && !yt.servicio.disponible, nota: yt.cuenta.compu && !yt.compu.activa ? `${fmt(yt.cuenta.compu)} esperan tu compu: npm run mastro -- youtube ${esc(location.origin)}` : '' }) : ''
     // La frase de arriba: qué está haciendo y qué falta.
-    const QUE = { pasajes: 'cortando piezas en pasajes', recuerdos: 'preparando recuerdos y quántomos para buscarlos', destilado: 'destilando tu corpus', importado: 'destilando lo importado', tarjetas: 'armando tarjetas de lo que miraste', bucles: 'juntando lo que sigue volviendo', takeout: mediosPend ? 'leyendo las imágenes y audios de lo importado' : 'destilando lo importado', sintesis: d.paso || 'escribiendo crónicas e historias' }
+    const QUE = { pasajes: 'cortando piezas en pasajes', recuerdos: 'preparando recuerdos y quántomos para buscarlos', destilado: 'destilando tu corpus', importado: 'destilando lo importado', tarjetas: 'armando tarjetas de lo que miraste', bucles: 'juntando lo que sigue volviendo', suenos: 'leyendo tus sueños', takeout: mediosPend ? 'leyendo las imágenes y audios de lo importado' : 'destilando lo importado', sintesis: d.paso || 'escribiendo crónicas e historias' }
     const haciendo = [...new Set([...ahora].map((k) => QUE[k]).filter(Boolean))]
     const falta = [
       mediosPend ? `${fmt(mediosPend)} imágenes y audios importados` : '',
