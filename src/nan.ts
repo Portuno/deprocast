@@ -110,6 +110,24 @@ let transporte = async (url: string, init: RequestInit): Promise<Respuesta> => {
 }
 let dormir = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
+/**
+ * Cuántos pedidos van a NaN a la vez. La key admite 7 en paralelo (max_parallel_requests): con todos los carriles, el
+ * chat y Whisper juntos se pasaba y NaN cortaba con 429. Tope 6 (NAN_PARALELO para cambiarlo); el resto hace fila.
+ */
+let enVuelo = 0
+const fila: (() => void)[] = []
+const topeParalelo = () => Math.max(1, Math.floor(Number(env('NAN_PARALELO', '6'))) || 6)
+async function tomarLugar() {
+  while (enVuelo >= topeParalelo()) await new Promise<void>((ok) => fila.push(ok))
+  enVuelo++
+}
+function soltarLugar() {
+  enVuelo--
+  fila.shift()?.()
+}
+/** Para los tests: cuántos hay en vuelo ahora. */
+export const _enVuelo = () => enVuelo
+
 export function _probar(t: typeof transporte, d: typeof dormir = async () => {}) {
   transporte = t
   dormir = d
@@ -138,11 +156,16 @@ function key() {
 
 async function pedir(metodo: 'GET' | 'POST', ruta: string, body?: unknown): Promise<Respuesta> {
   await turno()
-  return transporte(`${base()}${ruta}`, {
-    method: metodo,
-    headers: { authorization: `Bearer ${key()}`, 'content-type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
+  await tomarLugar()
+  try {
+    return await transporte(`${base()}${ruta}`, {
+      method: metodo,
+      headers: { authorization: `Bearer ${key()}`, 'content-type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  } finally {
+    soltarLugar()
+  }
 }
 
 // ─── política ───────────────────────────────────────────────────────────
@@ -241,10 +264,10 @@ export type LlamadaHerramienta = { id: string; nombre: string; argumentos: strin
 /** Chat con herramientas (tool calling estilo OpenAI). Devuelve texto y/o pedidos de herramienta. */
 export async function nanChatHerramientas(
   l: Llamada,
-  o: { mensajes: Record<string, unknown>[]; herramientas: unknown[]; temperatura: number; maxTokens: number; razonarPoco?: boolean },
+  o: { mensajes: Record<string, unknown>[]; herramientas: unknown[]; temperatura: number; maxTokens: number; razonarPoco?: boolean; json?: boolean },
 ): Promise<{ texto: string; llamadas: LlamadaHerramienta[]; razonamiento: string | null; modelo: string; tokens: number }> {
   const { modelo, r } = await recorrer(l, cadena(l.clase), (m, razonarPoco) =>
-    pedir('POST', '/chat/completions', cuerpoChat(m, { ...o, json: false, razonarPoco: o.razonarPoco || razonarPoco })))
+    pedir('POST', '/chat/completions', cuerpoChat(m, { ...o, json: !!o.json && !o.herramientas.length, razonarPoco: o.razonarPoco || razonarPoco })))
   const msg = r.json?.choices?.[0]?.message ?? {}
   return {
     texto: typeof msg.content === 'string' ? msg.content.trim() : '',
@@ -301,7 +324,7 @@ export function acumuladorSSE() {
  */
 export async function nanChatHerramientasStream(
   l: Llamada,
-  o: { mensajes: Record<string, unknown>[]; herramientas: unknown[]; temperatura: number; maxTokens: number; razonarPoco?: boolean },
+  o: { mensajes: Record<string, unknown>[]; herramientas: unknown[]; temperatura: number; maxTokens: number; razonarPoco?: boolean; json?: boolean },
   alTexto: (parcial: string) => void,
 ): ReturnType<typeof nanChatHerramientas> {
   const modelo = cadena(l.clase)[0]
@@ -312,9 +335,12 @@ export async function nanChatHerramientasStream(
   let silencio: ReturnType<typeof setTimeout> | undefined
   const vigilar = () => { clearTimeout(silencio); silencio = setTimeout(() => control.abort(new Error('stream en silencio')), 90_000) }
   const tope = setTimeout(() => control.abort(new Error('stream demasiado largo')), 15 * 60_000)
+  let conLugar = false
   try {
     await turno()
-    const cuerpo = { ...cuerpoChat(modelo, { ...o, json: false }), stream: true, stream_options: { include_usage: true } }
+    await tomarLugar()
+    conLugar = true
+    const cuerpo = { ...cuerpoChat(modelo, { ...o, json: !!o.json && !o.herramientas.length }), stream: true, stream_options: { include_usage: true } }
     vigilar()
     const res = await fetch(`${base()}/chat/completions`, {
       method: 'POST',
@@ -348,6 +374,7 @@ export async function nanChatHerramientasStream(
     alTexto('')
     return nanChatHerramientas(l, o)
   } finally {
+    if (conLugar) soltarLugar()
     clearTimeout(silencio)
     clearTimeout(tope)
   }
@@ -358,10 +385,11 @@ export async function nanTranscribir(db: Db, audio: Buffer, nombre: string): Pro
   return (await nanTranscribirDetallado(db, audio, nombre, { palabras: false })).texto
 }
 
-/** Whisper con el tiempo de cada palabra (para saber quién habló cuándo). Sin palabras si el servicio no las da. */
+/** Whisper con el tiempo de cada palabra (para saber quién habló cuándo). Sin palabras si el servicio no las da. 429 y 5xx esperan y reintentan (hasta 3 veces). */
 export async function nanTranscribirDetallado(db: Db, audio: Buffer, nombre: string, o: { palabras?: boolean } = {}): Promise<{ texto: string; palabras: { start: number; end: number; word: string }[] }> {
   const tipo = /\.(mp3)$/i.test(nombre) ? 'audio/mpeg' : /\.(wav)$/i.test(nombre) ? 'audio/wav' : /\.(ogg|opus)$/i.test(nombre) ? 'audio/ogg' : /\.webm$/i.test(nombre) ? 'audio/webm' : 'audio/mp4'
-  for (let intento = 0; intento < 2; intento++) {
+  const ESPERAS = [2000, 5000, 10_000]
+  for (let intento = 0; intento <= ESPERAS.length; intento++) {
     await turno()
     const form = new FormData()
     form.append('file', new Blob([new Uint8Array(audio)], { type: tipo }), nombre)
@@ -373,14 +401,18 @@ export async function nanTranscribirDetallado(db: Db, audio: Buffer, nombre: str
     }
     const t0 = Date.now()
     let res: Response
+    let cuerpo: string
+    await tomarLugar()
     try {
       res = await fetch(`${base()}/audio/transcriptions`, { method: 'POST', headers: { authorization: `Bearer ${key()}` }, body: form, signal: AbortSignal.timeout(300_000) })
+      cuerpo = await res.text()
     } catch (e) {
-      if (intento === 1) throw new Error(`Sin conexión con Whisper: ${e instanceof Error ? e.message : e}`)
-      await dormir(4000)
+      if (intento === ESPERAS.length) throw new Error(`Sin conexión con Whisper: ${e instanceof Error ? e.message : e}`)
+      await dormir(ESPERAS[intento])
       continue
+    } finally {
+      soltarLugar()
     }
-    const cuerpo = await res.text()
     db.prepare(`INSERT INTO llamadas (motor, modelo, clase, agente_id, tokens_in, tokens_out, latencia_ms, status, en) VALUES ('nan', 'whisper', 'diario', 'mastropiero', NULL, NULL, ?, ?, ?)`)
       .run(Date.now() - t0, res.status, Date.now())
     if (res.ok) {
@@ -393,7 +425,9 @@ export async function nanTranscribirDetallado(db: Db, audio: Buffer, nombre: str
       } catch { /* algunas respuestas vienen en texto plano */ }
       return { texto: String(texto).trim(), palabras }
     }
-    if (res.status < 500 || intento === 1) throw new Error(`Whisper ${res.status}: ${cuerpo.slice(0, 160)}`)
+    if ((res.status !== 429 && res.status < 500) || intento === ESPERAS.length) throw new Error(`Whisper ${res.status}: ${cuerpo.slice(0, 160)}`)
+    const dice = Number(res.headers.get('retry-after'))
+    await dormir(Number.isFinite(dice) && dice > 0 ? Math.min(60_000, dice * 1000) : ESPERAS[intento])
   }
   throw new Error('Whisper no respondió')
 }

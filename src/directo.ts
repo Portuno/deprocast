@@ -10,7 +10,7 @@ import { ajuste, fechaLocal, json, type Db } from './db.ts'
 import { asegurarFuente, insertar } from './corpus.ts'
 import { leerEntidad, buscadorDeEntidades, anotarConexion, asegurarPorNombre, editarEntidad, TIPOS_ENTIDAD, type TipoEntidad } from './entidades.ts'
 import { escribaDeMemoria, memoriaParaPrompt, recordar } from './memoria.ts'
-import { pedirJson } from './modelo.ts'
+import { leerJson, pedirJson, porQueNoEsJson } from './modelo.ts'
 import { nanTranscribir, nanVision } from './nan.ts'
 import { anotarSideQuest, actualizarMision, enCurso, leerMision, listarMisiones, principalDe, semanaDe } from './misiones.ts'
 
@@ -77,8 +77,10 @@ Forma: {"app": string, "actividad": string, "tema": string, "detalle": string, "
 
 let vision = async (db: Db, imagen: string) => {
   const r = await nanVision({ db, clase: 'mastropiero', agenteId: 'directo' }, { sistema: VISTA, texto: 'Qué hay en esta pantalla:', imagen, maxTokens: 500 })
-  const j = r.texto.match(/\{[\s\S]*\}/)?.[0]
-  return j ? JSON.parse(j) : {}
+  // Tolerante: el modelo a veces manda el objeto y algo más atrás (otro objeto, una frase).
+  const j = leerJson<any>(r.texto)
+  if (!j) console.error(`  directo: la visión no devolvió JSON (${porQueNoEsJson(r.texto)})`)
+  return j ?? {}
 }
 let transcribir = (db: Db, audio: Buffer, nombre: string) => nanTranscribir(db, audio, nombre)
 export function _probarDirecto(o: { vision?: typeof vision; transcribir?: typeof transcribir }) {

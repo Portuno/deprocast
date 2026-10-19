@@ -140,14 +140,36 @@ export function _probarCronica(f: typeof cronicar) {
   cronicar = f
 }
 
-/** Los meses con material nuevo (3 destilados más que la última vez, o sin crónica todavía). */
+/**
+ * Los meses con material nuevo (3 destilados más que la última vez, o sin crónica todavía). Un mes cuya crónica falló
+ * 3 veces no vuelve hasta que sume 3 piezas más (antes se reintentaba para siempre con el mismo material).
+ */
 export function mesesSinCronica(db: Db): { mes: string; n: number }[] {
   const porMes = db.prepare(`SELECT substr(c.fecha, 1, 7) AS mes, COUNT(*) AS n FROM takeout_destilado d JOIN corpus c ON c.id = d.pieza_id
     WHERE d.estado = 'hecho' AND c.fecha GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]*' GROUP BY 1 HAVING n >= 3 ORDER BY 1`).all() as { mes: string; n: number }[]
   return porMes.filter((m) => {
+    const fallo = db.prepare('SELECT intentos, piezas FROM cronica_fallos WHERE mes = ?').get(m.mes) as { intentos: number; piezas: number } | undefined
+    if (fallo && fallo.intentos >= 3 && m.n < fallo.piezas + 3) return false
     const c = db.prepare('SELECT meta FROM corpus WHERE origen_id = ?').get(`linea:mes:${m.mes}`) as { meta: string | null } | undefined
     return !c || m.n >= (json<any>(c.meta, {})?.destilados ?? 0) + 3
   })
+}
+
+/**
+ * Anota que la crónica de un mes no salió (con qué material) y devuelve un error que dice cuál: mes, piezas, largo y
+ * huella. El log no repite: avisa al primer intento y cuando se deja (al tercero).
+ */
+function falloDeCronica(db: Db, mes: string, piezas: number, material: string, e: unknown, ahora: number): Error {
+  const huella = crypto.createHash('sha1').update(material).digest('hex').slice(0, 10)
+  const motivo = e instanceof Error ? e.message : String(e)
+  const previo = db.prepare('SELECT intentos, huella FROM cronica_fallos WHERE mes = ?').get(mes) as { intentos: number; huella: string } | undefined
+  const intentos = previo && previo.huella === huella ? previo.intentos + 1 : 1
+  db.prepare(`INSERT INTO cronica_fallos (mes, intentos, piezas, largo, huella, error, ultimo_en) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (mes) DO UPDATE SET intentos = excluded.intentos, piezas = excluded.piezas, largo = excluded.largo, huella = excluded.huella, error = excluded.error, ultimo_en = excluded.ultimo_en`)
+    .run(mes, intentos, piezas, material.length, huella, motivo.slice(0, 500), ahora)
+  const err = new Error(`La crónica de ${mes} no salió (${piezas} piezas, ${material.length} caracteres, material ${huella}, intento ${intentos}): ${motivo}`)
+  if (intentos === 1 || intentos === 3) console.error(`  crónica: ${err.message}${intentos === 3 ? ' · se deja hasta que el mes tenga material nuevo' : ''}`)
+  return err
 }
 
 export async function cronicaDelMes(db: Db, mes: string, ahora = Date.now()): Promise<number> {
@@ -155,16 +177,24 @@ export async function cronicaDelMes(db: Db, mes: string, ahora = Date.now()): Pr
     .map((r) => ({ ...r, d: json<any>(r.salida, {}) ?? {} }))
   const evs = db.prepare(`SELECT titulo, fecha, hora, tipo, lugar FROM eventos WHERE substr(fecha, 1, 7) = ? AND estado != 'descartado' ORDER BY fecha, hora`).all(mes) as any[]
   let material = ds.map((x) => `- ${x.fecha.slice(0, 10)} · ${x.titulo}: ${txt(x.d.resumen, 900)}${lista(x.d.decisiones).length ? ` | decidió: ${lista(x.d.decisiones).slice(0, 3).join('; ')}` : ''}${lista(x.d.abierto).length ? ` | abierto: ${lista(x.d.abierto).slice(0, 2).join('; ')}` : ''}`).join('\n')
-  if (material.length > 150_000) material = `${material.slice(0, 75_000)}\n…\n${material.slice(-75_000)}`
+  // Más largo, el modelo se corta antes de cerrar el JSON: cabeza y cola del mes.
+  if (material.length > 80_000) material = `${material.slice(0, 40_000)}\n…\n${material.slice(-40_000)}`
   const eventos = evs.map((e) => `- ${e.fecha}${e.hora ? ` ${e.hora}` : ''} [${e.tipo}] ${e.titulo}${e.lugar ? ` (${e.lugar})` : ''}`).join('\n')
-  const d = await cronicar(db, SISTEMA_CRONICA(personaje(db, 'jugador').nombre), `Mes: ${mes}\n\nLo que dice el archivo:\n${material}\n\nEventos:\n${eventos || '(ninguno con fecha)'}`)
+  const usuario = `Mes: ${mes}\n\nLo que dice el archivo:\n${material}\n\nEventos:\n${eventos || '(ninguno con fecha)'}`
+  let d: any
+  try {
+    d = await cronicar(db, SISTEMA_CRONICA(personaje(db, 'jugador').nombre), usuario)
+    if (!txt(d?.cronica)) throw new Error('vino vacía')
+  } catch (e) {
+    throw falloDeCronica(db, mes, ds.length, usuario, e, ahora)
+  }
+  db.prepare('DELETE FROM cronica_fallos WHERE mes = ?').run(mes)
   const contenido = [
     txt(d?.cronica, 12_000),
     lista(d?.giros).length ? `## Giros\n${lista(d.giros).map((g) => `- ${txt(g)}`).join('\n')}` : '',
     lista(d?.abierto).length ? `## Quedó abierto\n${lista(d.abierto).map((g) => `- ${txt(g)}`).join('\n')}` : '',
     `— Armada con ${ds.length} piezas y ${evs.length} eventos del mes.`,
   ].filter(Boolean).join('\n\n')
-  if (!txt(d?.cronica)) throw new Error(`La crónica de ${mes} vino vacía`)
   const titulo = `Mes · ${mes} · ${txt(d?.titulo, 80) || 'crónica'}`
   const ya = db.prepare('SELECT id FROM corpus WHERE origen_id = ?').get(`linea:mes:${mes}`) as { id: number } | undefined
   const meta = JSON.stringify({ destilados: ds.length, eventos: evs.length, cronica: mes })

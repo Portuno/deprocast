@@ -7,6 +7,7 @@
  * Sin URL pública: el servidor le pregunta a Telegram si hay mensajes (long polling). Solo atiende a su chat
  * (TELEGRAM_CHAT_ID): a cualquier otro le dice su id y nada más.
  */
+import crypto from 'node:crypto'
 import { anotarUso } from './uso.ts'
 import { asegurarFuente, insertar } from './corpus.ts'
 import { escribaDeMemoria } from './memoria.ts'
@@ -37,7 +38,8 @@ const api = (metodo: string) => `https://api.telegram.org/bot${process.env.TELEG
 
 let pedir = async (metodo: string, cuerpo: Record<string, unknown>): Promise<any> => {
   const r = await fetch(api(metodo), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cuerpo), signal: AbortSignal.timeout(65_000) })
-  return r.json()
+  const t = await r.text()
+  try { return JSON.parse(t) } catch { return { ok: false, error_code: r.status, description: `HTTP ${r.status}` } }
 }
 /** Para mandar un archivo (el audio de la respuesta): multipart. */
 let mandarArchivo = async (metodo: string, campos: Record<string, string>, campo: string, datos: Buffer, nombre: string): Promise<any> => {
@@ -45,7 +47,8 @@ let mandarArchivo = async (metodo: string, campos: Record<string, string>, campo
   for (const [k, v] of Object.entries(campos)) form.append(k, v)
   form.append(campo, new Blob([new Uint8Array(datos)]), nombre)
   const r = await fetch(api(metodo), { method: 'POST', body: form, signal: AbortSignal.timeout(120_000) })
-  return r.json()
+  const t = await r.text()
+  try { return JSON.parse(t) } catch { return { ok: false, error_code: r.status, description: `HTTP ${r.status}` } }
 }
 let bajar = async (fileId: string): Promise<{ datos: Buffer; nombre: string }> => {
   const f = await pedir('getFile', { file_id: fileId })
@@ -58,7 +61,28 @@ let ver = async (db: Db, imagen: Buffer) => (await nanVision({ db, clase: 'mastr
   sistema: 'Describí la imagen con detalle útil (qué es, texto visible, contexto), en castellano rioplatense, en 2 a 5 oraciones.', texto: 'Te mandaron esta foto:', imagen: `data:image/jpeg;base64,${imagen.toString('base64')}`,
 })).texto
 let hablar = (texto: string) => sintetizar(texto, 'em_alex')
-export function _probarTelegram(o: { pedir?: typeof pedir; bajar?: typeof bajar; transcribir?: typeof transcribir; ver?: typeof ver; mandarArchivo?: typeof mandarArchivo; hablar?: typeof hablar }) {
+/**
+ * Un envío (mensaje, edición, audio, archivo) que se corta por timeout, sin red o un 5xx de Telegram se reintenta dos
+ * veces (a los 1,5 y a los 4 s) antes de darlo por perdido. Un 4xx no: el problema es el mensaje, no la red.
+ */
+let esperar = (ms: number) => new Promise<void>((ok) => setTimeout(ok, ms))
+async function conReintento<T extends { ok?: boolean; error_code?: number } | undefined>(metodo: string, f: () => Promise<T>): Promise<T> {
+  const esperas = [1500, 4000]
+  for (let i = 0; ; i++) {
+    try {
+      const r = await f()
+      if (!(r && r.ok === false && (r.error_code ?? 0) >= 500) || i === esperas.length) return r
+    } catch (e) {
+      if (i === esperas.length) { console.error(`  telegram: ${metodo} no salió: ${e instanceof Error ? e.message : e}`); throw e }
+    }
+    await esperar(esperas[i])
+  }
+}
+const enviar_ = (metodo: string, cuerpo: Record<string, unknown>) => conReintento(metodo, () => pedir(metodo, cuerpo))
+const enviarArchivo = (metodo: string, campos: Record<string, string>, campo: string, datos: Buffer, nombre: string) => conReintento(metodo, () => mandarArchivo(metodo, campos, campo, datos, nombre))
+
+export function _probarTelegram(o: { pedir?: typeof pedir; bajar?: typeof bajar; transcribir?: typeof transcribir; ver?: typeof ver; mandarArchivo?: typeof mandarArchivo; hablar?: typeof hablar; esperar?: typeof esperar }) {
+  if (o.esperar) esperar = o.esperar
   if (o.pedir) pedir = o.pedir
   if (o.bajar) bajar = o.bajar
   if (o.transcribir) transcribir = o.transcribir
@@ -130,8 +154,8 @@ export async function decir(texto: string, botones?: Botones): Promise<number | 
   let id: number | null = null
   for (const [i, p] of partes.entries()) {
     const extra = i === partes.length - 1 ? teclado(botones) : {}
-    let r = await pedir('sendMessage', { chat_id: chat, text: aHtml(p), parse_mode: 'HTML', disable_web_page_preview: true, ...extra })
-    if (r && r.ok === false) r = await pedir('sendMessage', { chat_id: chat, text: sinMarcas(p), ...extra }) // HTML que no le gustó: va plano
+    let r = await enviar_('sendMessage', { chat_id: chat, text: aHtml(p), parse_mode: 'HTML', disable_web_page_preview: true, ...extra })
+    if (r && r.ok === false) r = await enviar_('sendMessage', { chat_id: chat, text: sinMarcas(p), ...extra }) // HTML que no le gustó: va plano
     id = r?.result?.message_id ?? id
   }
   return id
@@ -141,12 +165,12 @@ export async function decir(texto: string, botones?: Botones): Promise<number | 
 export async function mandarAudio(datos: Buffer, titulo: string, texto?: string): Promise<boolean> {
   const chat = suChat()
   if (!telegramActivo() || !chat) return false
-  const r = await mandarArchivo('sendAudio', { chat_id: chat, title: titulo, ...(texto ? { caption: texto.slice(0, 1000) } : {}) }, 'audio', datos, 'mastropiero.mp3')
+  const r = await enviarArchivo('sendAudio', { chat_id: chat, title: titulo, ...(texto ? { caption: texto.slice(0, 1000) } : {}) }, 'audio', datos, 'mastropiero.mp3')
   return !!r?.ok
 }
 
 async function editar(mensajeId: number, texto: string, botones?: Botones) {
-  const r = await pedir('editMessageText', { chat_id: suChat(), message_id: mensajeId, text: aHtml(texto), parse_mode: 'HTML', disable_web_page_preview: true, ...teclado(botones) })
+  const r = await enviar_('editMessageText', { chat_id: suChat(), message_id: mensajeId, text: aHtml(texto), parse_mode: 'HTML', disable_web_page_preview: true, ...teclado(botones) })
   if (r && r.ok === false) await decir(texto, botones)
 }
 
@@ -263,16 +287,43 @@ export async function latidoTelegram(db: Db) {
 // ─── conversar ──────────────────────────────────────────────────────────
 
 /** Lo que dice él → la conversación de Hoy → la respuesta de Mastropiero vuelve por Telegram (y en audio, si quiere). */
-/** Una nota de voz larga queda como pieza suya (con fecha) y el escriba saca recuerdos y side quests de ella. */
-function guardarNotaDeVoz(db: Db, texto: string, segundos: number | null, id: string | null): number | null {
+/** Lo que dice un audio sin mayúsculas, tildes, puntuación ni espacios de más: el mismo audio reenviado da lo mismo. */
+export const textoDeVozNormal = (t: string) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+
+/** Una nota que ya estaba (por su huella; o, en las viejas sin huella, por el mismo comienzo y un largo parecido). */
+function notaQueYaEstaba(db: Db, normal: string, huella: string): { id: number; fecha: string | null } | null {
+  const exacta = db.prepare(`SELECT id, fecha FROM corpus WHERE fuente = 'voz' AND json_extract(meta, '$.huella') = ?`).get(huella) as { id: number; fecha: string | null } | undefined
+  if (exacta) return exacta
+  const inicio = normal.slice(0, 400)
+  const viejas = db.prepare(`SELECT id, fecha, contenido FROM corpus WHERE fuente = 'voz' AND json_extract(meta, '$.huella') IS NULL AND length(contenido) BETWEEN ? AND ?`)
+    .all(Math.floor(normal.length * 0.8), Math.ceil(normal.length * 1.3)) as { id: number; fecha: string | null; contenido: string }[]
+  for (const v of viejas) {
+    const n = textoDeVozNormal(v.contenido)
+    if (n.slice(0, 400) === inicio && Math.abs(n.length - normal.length) <= normal.length * 0.1) return { id: v.id, fecha: v.fecha }
+  }
+  return null
+}
+
+/**
+ * Una nota de voz larga queda como pieza suya (con fecha) y el escriba saca recuerdos y side quests de ella. Si es una
+ * que ya estaba (la reenvió), no entra de nuevo: se cuenta el reenvío en la original.
+ */
+export function guardarNotaDeVoz(db: Db, texto: string, segundos: number | null, id: string | null): { pieza: number | null; repetida: { id: number; fecha: string | null } | null } {
   asegurarFuente(db, { id: 'voz', nombre: 'Notas de voz', nivel: 'propia', descripcion: 'Lo que grabás caminando o pensando en voz alta.' })
+  const normal = textoDeVozNormal(texto)
+  const huella = crypto.createHash('sha1').update(normal).digest('hex')
+  const ya = notaQueYaEstaba(db, normal, huella)
+  if (ya) {
+    db.prepare(`UPDATE corpus SET meta = json_set(COALESCE(meta, '{}'), '$.reenvios', COALESCE(json_extract(meta, '$.reenvios'), 0) + 1) WHERE id = ?`).run(ya.id)
+    return { pieza: null, repetida: ya }
+  }
   const pieza = insertar(db, {
     fuente: 'voz', nivel: 'propia', estado: 'disponible', fecha: fechaLocal(), contenido: texto, etiquetas: ['audio', 'telegram'],
     titulo: `Nota de voz · ${fechaLocal()} ${new Date().toTimeString().slice(0, 5)} · ${texto.replace(/\s+/g, ' ').slice(0, 50)}`,
-    origenId: id ? `telegram-voz:${id}` : null, datos: { segundos },
+    origenId: id ? `telegram-voz:${id}` : null, datos: { segundos }, meta: { huella },
   })
   if (pieza) void escribaDeMemoria(db, texto, null, { pieza }).catch(() => [])
-  return pieza
+  return { pieza, repetida: null }
 }
 
 async function conversar(db: Db, texto: string, o: { porVoz?: boolean } = {}) {
@@ -288,7 +339,7 @@ async function conversar(db: Db, texto: string, o: { porVoz?: boolean } = {}) {
   if (respuesta && (voz === 'siempre' || (voz === '1' && o.porVoz))) {
     try {
       await pedir('sendChatAction', { chat_id: suChat(), action: 'upload_voice' }).catch(() => {})
-      await mandarArchivo('sendAudio', { chat_id: suChat()!, title: 'Mastropiero' }, 'audio', await hablar(sinMarcas(respuesta).slice(0, 2500)), 'mastropiero.mp3')
+      await enviarArchivo('sendAudio', { chat_id: suChat()!, title: 'Mastropiero' }, 'audio', await hablar(sinMarcas(respuesta).slice(0, 2500)), 'mastropiero.mp3')
     } catch { /* el texto ya llegó */ }
   }
 }
@@ -403,7 +454,7 @@ async function boton(db: Db, q: any) {
       return mensajeId ? editar(mensajeId, '🗑 No lo guardé.') : decir('🗑 No lo guardé.')
     }
     const md = a === 'c' ? cuadernoComoMd(db, Number(b)) : piezaComoMd(db, Number(b))
-    return mandarArchivo('sendDocument', { chat_id: suChat()! }, 'document', Buffer.from(md.texto, 'utf8'), md.nombre)
+    return enviarArchivo('sendDocument', { chat_id: suChat()! }, 'document', Buffer.from(md.texto, 'utf8'), md.nombre)
   }
   if (k === 'x') {
     deshacerCaptura(db, TABLA[a] ?? 'salud', b)
@@ -500,7 +551,7 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
   if (!chatId) return
   if (!suChat()) {
     // Sin chat configurado: no atiende a nadie; le dice a quien escribe su id para que lo pongan en .env.
-    await pedir('sendMessage', { chat_id: chatId, text: `Hola. Para que te atienda, poné en .env: TELEGRAM_CHAT_ID=${chatId} y reiniciá Mastropiero.` })
+    await enviar_('sendMessage', { chat_id: chatId, text: `Hola. Para que te atienda, poné en .env: TELEGRAM_CHAT_ID=${chatId} y reiniciá Mastropiero.` })
     return
   }
   if (chatId !== suChat()) return // otro: silencio
@@ -533,10 +584,13 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
     if (!t.trim()) return decir('No entendí el audio.')
     // Una nota larga es material (una caminata pensando en voz alta): queda como pieza suya, además de lo que se haga con ella.
     const larga = (voz.duration ?? 0) >= 90 || t.length >= 900
-    const pieza = larga ? guardarNotaDeVoz(db, t, voz.duration ?? null, voz.file_unique_id ?? voz.file_id) : null
+    const g = larga ? guardarNotaDeVoz(db, t, voz.duration ?? null, voz.file_unique_id ?? voz.file_id) : null
+    const pieza = g?.pieza ?? null
     if (PARECE_REGISTRO.test(t) && (await registrarYContar(db, await clasificar(db, { texto: t }).catch(() => null), { texto: t }))) return
-    if (pieza) await decir(`🎙 Guardé tu nota de voz${voz.duration ? ` (${Math.max(1, Math.round(voz.duration / 60))} min)` : ''} en tu corpus, como tuya.`)
-    return conversar(db, pieza ? `(Nota de voz por Telegram, ya guardada en su corpus. Si trae algo para anotar —una side quest, un gasto, una idea de proyecto— anotalo.) ${t}` : t, { porVoz: true })
+    if (g?.repetida) await decir(`🎙 Ya lo tenía: es la nota${g.repetida.fecha ? ` del ${g.repetida.fecha.slice(8, 10)}/${g.repetida.fecha.slice(5, 7)}` : ''} (#${g.repetida.id}). No la guardo de nuevo.`)
+    else if (pieza) await decir(`🎙 Guardé tu nota de voz${voz.duration ? ` (${Math.max(1, Math.round(voz.duration / 60))} min)` : ''} en tu corpus, como tuya.`)
+    const guardada = pieza ?? g?.repetida?.id
+    return conversar(db, guardada ? `(Nota de voz por Telegram, ya guardada en su corpus [#${guardada}]. Si trae algo para anotar —una side quest, un gasto, una idea de proyecto— anotalo.) ${t}` : t, { porVoz: true })
   }
   if (msg.photo?.length) {
     // Una foto (una comida, un ticket, la balanza…): se registra sola si es un registro; si no, se charla.

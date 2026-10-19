@@ -8,9 +8,11 @@
  */
 import { leerHtml, type Meta } from './html.ts'
 import { textoDePdf } from '../cargas/pdf.ts'
+import { leerVideo } from './youtube.ts'
 import type { Db } from '../db.ts'
 
-export type Lectura = { url: string; titulo: string; markdown: string; meta: Meta; links: { url: string; texto: string; interno: boolean }[]; palabras: number; fuente: string; aviso?: string }
+/** sinMateria: entró solo la cáscara (un video sin subtítulos): la pieza queda pendiente y no cuenta como materia. */
+export type Lectura = { url: string; titulo: string; markdown: string; meta: Meta; links: { url: string; texto: string; interno: boolean }[]; palabras: number; fuente: string; aviso?: string; sinMateria?: boolean }
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'
 type Pedir = (url: string, init?: RequestInit) => Promise<Response>
@@ -91,12 +93,21 @@ async function oembed(url: string, endpoint: string, fuente: string): Promise<Le
   if (!j) return null
   const cuerpo = j.html ? leerHtml(j.html, url).markdown : ''
   const titulo = j.title || `${j.author_name ?? fuente}`
-  let descripcion = ''
   if (fuente === 'youtube') {
-    const r = await pedir(url).catch(() => null)
-    if (r?.ok) descripcion = leerHtml(await r.text(), url).meta.descripcion ?? ''
+    // Lo que dice el video: la descripción entera y la transcripción. Sin subtítulos, se guarda la cáscara y se avisa.
+    const v = await leerVideo(url, pedir).catch(() => null)
+    const md = [
+      `# ${v?.titulo || titulo}`, `Canal: ${v?.canal || j.author_name || '?'}`,
+      v?.descripcion ? `## Descripción\n\n${v.descripcion}` : '',
+      v?.transcripcion ? `## Transcripción${v.automatica ? ' (subtítulos automáticos)' : ''}${v.idioma ? ` · ${v.idioma}` : ''}\n\n${v.transcripcion}` : '',
+    ].filter(Boolean).join('\n\n')
+    const sin = !v?.transcripcion
+    return lectura(url, fuente, v?.titulo || titulo, md, {
+      meta: { sitio: 'YouTube', autor: v?.canal || j.author_name },
+      ...(sin ? { sinMateria: true, aviso: `Sin transcripción (${v?.motivo ?? 'no pude leer el video'}): guardé el título y la descripción. Si me pasás el audio, lo transcribo.` } : {}),
+    })
   }
-  const md = [`# ${titulo}`, j.author_name ? `${fuente === 'youtube' ? 'Canal' : 'De'}: ${j.author_name}` : '', descripcion, cuerpo].filter(Boolean).join('\n\n')
+  const md = [`# ${titulo}`, j.author_name ? `De: ${j.author_name}` : '', cuerpo].filter(Boolean).join('\n\n')
   return lectura(url, fuente, titulo, md, { meta: { sitio: j.provider_name ?? fuente, autor: j.author_name } })
 }
 
@@ -172,8 +183,10 @@ export async function guardarLink(db: Db, url: string, o: { nota?: string | null
   const { corpusId } = ingerir(db, {
     fuente: 'web', nivel: 'primaria', titulo: l.titulo.slice(0, 200), contenido, url: l.url, autor: l.meta.autor ?? null,
     fecha: l.meta.fecha ? String(l.meta.fecha).slice(0, 10) : null, dominio: 'compartido', origenId: origen,
-    meta: { ...l.meta, fuenteLectura: l.fuente, palabras: l.palabras, aviso: l.aviso ?? null, nota: nota ?? null },
+    meta: { ...l.meta, fuenteLectura: l.fuente, palabras: l.palabras, aviso: l.aviso ?? null, nota: nota ?? null, ...(l.sinMateria ? { sinTranscripcion: true } : {}) },
   }, o.ahora)
+  // Solo la cáscara (un video sin subtítulos): queda pendiente, así no cuenta como materia hasta que llegue el audio.
+  if (l.sinMateria) db.prepare(`UPDATE corpus SET estado = 'pendiente', etiquetas = json_insert(COALESCE(etiquetas, '[]'), '$[#]', 'sin-transcripcion') WHERE id = ?`).run(corpusId)
   return { piezaId: corpusId, nueva: true, lectura: l }
 }
 

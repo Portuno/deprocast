@@ -818,6 +818,16 @@ CREATE TABLE IF NOT EXISTS reproceso_fallos (
   error TEXT,
   PRIMARY KEY (pieza_id, paso)
 );
+-- La crónica de un mes que no salió: a los 3 intentos se deja, hasta que el mes tenga material nuevo.
+CREATE TABLE IF NOT EXISTS cronica_fallos (
+  mes TEXT PRIMARY KEY,
+  intentos INTEGER NOT NULL DEFAULT 0,
+  piezas INTEGER NOT NULL DEFAULT 0,
+  largo INTEGER,
+  huella TEXT,
+  error TEXT,
+  ultimo_en INTEGER
+);
 -- La línea temporal: lo que pasó o va a pasar según cada pieza, con la fecha resuelta contra la de la pieza.
 CREATE TABLE IF NOT EXISTS eventos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

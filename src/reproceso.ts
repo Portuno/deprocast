@@ -102,12 +102,8 @@ async function hacerSintesis(db: Db): Promise<boolean> {
     const meses = mesesSinCronica(db)
     if (meses.length) {
       estado.paso = `crónica de ${meses[0].mes}`
-      try { await cronicaDelMes(db, meses[0].mes) } catch (e) {
-        // Si no sale, que no lo reintente en cada vuelta: se marca como hecha con lo que había (vuelve con 3 piezas más).
-        console.error('  reproceso crónica:', e instanceof Error ? e.message : e)
-        db.prepare(`UPDATE corpus SET meta = json_set(COALESCE(meta, '{}'), '$.destilados', ?) WHERE origen_id = ?`).run(meses[0].n, `linea:mes:${meses[0].mes}`)
-        return false
-      }
+      // Si no sale, queda anotada en cronica_fallos (y lo loguea ahí, sin repetir): a los 3 intentos ese mes se deja.
+      try { await cronicaDelMes(db, meses[0].mes) } catch { return true }
       return true
     }
     const hechos = (db.prepare(`SELECT COUNT(*) AS n FROM takeout_destilado WHERE estado = 'hecho'`).get() as { n: number }).n
@@ -192,6 +188,7 @@ export function estadoReproceso(db: Db, ahora = Date.now()) {
     destilado: { hechos: destilado.hecho ?? 0, pendientes, fallos: destilado.fallo ?? 0, porHora: ultimaHora, horasQueFaltan: ultimaHora ? Math.ceil(pendientes / ultimaHora) : null },
     eventos: n('SELECT COUNT(*) AS n FROM eventos'), relaciones: n(`SELECT COUNT(*) AS n FROM conexiones WHERE origen LIKE 'destilado:%'`),
     cronicas: n(`SELECT COUNT(*) AS n FROM corpus WHERE origen_id LIKE 'linea:mes:%'`),
+    cronicasFallidas: n('SELECT COUNT(*) AS n FROM cronica_fallos WHERE intentos >= 3'),
     tokens: { hoy: t.hoy, total: t.total },
     importado: importadoPendiente(db, ahora),
     ultimos: (db.prepare(`SELECT d.pieza_id AS id, c.titulo, d.salida, d.hecho_en FROM takeout_destilado d JOIN corpus c ON c.id = d.pieza_id WHERE d.lote = ? AND d.estado = 'hecho' ORDER BY d.hecho_en DESC LIMIT 6`).all(REPROCESO) as any[])
@@ -210,6 +207,7 @@ export function controlarReproceso(db: Db, accion: string) {
   else if (accion === 'reintentar') {
     db.prepare(`UPDATE takeout_destilado SET estado = 'pendiente', intentos = 0, error = NULL WHERE lote = ? AND estado = 'fallo'`).run(REPROCESO)
     db.prepare('DELETE FROM reproceso_fallos').run()
+    db.prepare('DELETE FROM cronica_fallos').run()
     if (ajuste(db, 'reproceso_activo') === '1') void trabajarReproceso(db).catch(() => {})
   } else throw new Error('Acción desconocida')
   return estadoReproceso(db)

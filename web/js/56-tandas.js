@@ -188,7 +188,8 @@ async function modalReproceso() {
       ${paso({ icono: '🧪', titulo: 'Destilado', que: 'Lee cada pieza que no vino de una importación y saca resumen, temas, ideas, personas, lugares y eventos.', hechos: d.destilado.hechos, total: dTotal, unidad: 'piezas', activo: ahora.has('destilado'), nota: [d.destilado.pendientes ? `Faltan ${fmt(d.destilado.pendientes)}` : '', d.destilado.horasQueFaltan ? `~${d.destilado.horasQueFaltan} h` : '', d.destilado.fallos ? `${fmt(d.destilado.fallos)} fallaron` : ''].filter(Boolean).join(' · ') })}
       ${paso({ icono: '🧠', titulo: 'Recuerdos y quántomos', que: 'Los prepara para que se encuentren por significado, no solo por palabra.', hechos: d.items.hechos, total: itemsTotal, unidad: '', activo: ahora.has('recuerdos') })}
       <div class="rp-paso ${ahora.has('sintesis') ? 'ahora' : 'cola'}"><div class="rp-cab"><span class="rp-tit">📜 Crónicas e historias</span><span class="rp-estado">${ahora.has('sintesis') ? '● Ahora' : 'Al final'}</span></div>
-        <p class="rp-que">${ahora.has('sintesis') ? esc(d.paso) : 'Cuando se vacía el destilado: la crónica de cada mes con material nuevo y la historia de cada proyecto.'}</p></div>
+        <p class="rp-que">${ahora.has('sintesis') ? esc(d.paso) : 'Cuando se vacía el destilado: la crónica de cada mes con material nuevo y la historia de cada proyecto.'}</p>
+        ${d.cronicasFallidas ? `<p class="rp-nota">${fmt(d.cronicasFallidas)} ${d.cronicasFallidas === 1 ? 'mes no salió' : 'meses no salieron'} (3 intentos): vuelven solos cuando el mes tenga material nuevo, o con «Reintentar lo que falló».</p>` : ''}</div>
       <h3 class="rp-h">Lo que salió hasta ahora</h3>
       <div class="rp-salio">
         <div><b>${fmt(d.eventos)}</b><span>eventos con fecha en tu Línea</span></div>
@@ -198,7 +199,7 @@ async function modalReproceso() {
         <div><b>${mill(d.tokens.hoy)}</b><span>tokens de NaN hoy · ${mill(d.tokens.total)} en total</span></div>
       </div>
       <div class="fila" style="margin-top:12px">${d.activo ? '<button class="btn" data-rp="pausar">Pausar</button>' : `<button class="btn btn-primario" data-rp="empezar" ${d.enLaNube ? '' : 'disabled title="Corre en la nube: prendelo desde tu Deprocast en la nube"'}>${d.destilado.hechos ? 'Procesar lo pendiente' : 'Procesar'}</button>`}
-        ${d.destilado.fallos || d.pasajes.fallos ? '<button class="btn" data-rp="reintentar">Reintentar lo que falló</button>' : ''}</div>
+        ${d.destilado.fallos || d.pasajes.fallos || d.cronicasFallidas ? '<button class="btn" data-rp="reintentar">Reintentar lo que falló</button>' : ''}</div>
       ${d.enLaNube ? '' : '<p class="tenue chico">Esta es la copia de la compu: acá no se gasta nada. Se procesa desde la nube.</p>'}
       ${d.ultimos.length ? `<h3 class="rp-h">Lo último que destiló</h3>${d.ultimos.map((u) => `<div class="sq"><span><a href="#" class="ref" data-pieza="${u.id}"><b>${esc(u.titulo.slice(0, 80))}</b></a><small>${esc(u.resumen)}</small></span></div>`).join('')}` : ''}`
     $$('[data-rp]', cont).forEach((b) => (b.onclick = async () => { try { await api('/reproceso', { accion: b.dataset.rp }); pintar() } catch (e) { error(e) } }))
