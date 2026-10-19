@@ -1872,3 +1872,9 @@ span.ej-chip { cursor: default; }
 .rp-salio b { font: 600 18px var(--mono); }
 .rp-salio span { font-size: 12.5px; color: var(--tenue); line-height: 1.35; }
 .rp-falta { margin: 4px 0 0; padding-left: 20px; line-height: 1.5; }
+
+/* Importaciones · YouTube */
+.yt-caja { padding: 12px 14px; border-radius: 12px; border: 1px solid var(--linea); background: var(--panel-2); margin-bottom: 14px; }
+.yt-caja h3 { margin: 0 0 4px; }
+.yt-caja textarea { width: 100%; margin: 6px 0; }
+.yt-caja .fila { align-items: center; gap: 10px; }

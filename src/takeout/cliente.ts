@@ -276,7 +276,7 @@ export async function prepararChatGPT(carpeta: string, o: { salida?: string; log
 
 // ─── subir ──────────────────────────────────────────────────────────────
 
-async function entrar(base: string, clave: string): Promise<string> {
+export async function entrar(base: string, clave: string): Promise<string> {
   if (!clave || clave.length < 8) throw new Error('Falta la clave de la nube (MASTRO_CLAVE_NUBE en .env)')
   const r = await fetch(`${base}/entrar`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ clave }).toString(), redirect: 'manual' })
   const cookie = /mastro=[^;]+/.exec(r.headers.get('set-cookie') ?? '')?.[0]

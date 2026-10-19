@@ -78,6 +78,11 @@ function lote(db: Db, id: string, ahora = Date.now()) {
   db.prepare(`INSERT OR IGNORE INTO takeout_lotes (id, estado, creado_en) VALUES (?, 'subiendo', ?)`).run(id, ahora)
   return db.prepare('SELECT * FROM takeout_lotes WHERE id = ?').get(id) as any
 }
+/** Un lote que nace adentro (YouTube): sin paquete ni medios, abierto para destilar (si había terminado, se reabre). */
+export function abrirLote(db: Db, id: string, ahora = Date.now()) {
+  lote(db, id, ahora)
+  db.prepare(`UPDATE takeout_lotes SET estado = 'procesando', subido_en = COALESCE(subido_en, ?), terminado_en = NULL WHERE id = ?`).run(ahora, id)
+}
 const marcarLote = (db: Db, id: string, estado: string, extra: Record<string, unknown> = {}) => {
   db.prepare('UPDATE takeout_lotes SET estado = ? WHERE id = ?').run(estado, id)
   if ('error' in extra) db.prepare('UPDATE takeout_lotes SET error = ? WHERE id = ?').run(extra.error as string | null, id)
@@ -414,9 +419,17 @@ const DE_TAKEOUT = 'el archivo de un año del jugador: sus charlas con Gemini, s
 const DE_CHATGPT = 'sus charlas con ChatGPT, la primera IA que usó (desde 2024: lo más viejo de su archivo; lo que diga ahí puede haber cambiado mucho)'
 /** Qué archivo se está leyendo, según el lote. */
 const DE_CARPETA = 'una carpeta de documentos que fue juntando y ordenando por proyecto: documentación que le pidió armar a un asistente (un bot), material de sus proyectos, páginas escaneadas de sus cuadernos y sus audios'
-const deQue = (lote_: string) => (lote_ === REPROCESO ? DE_ARCHIVO : lote_.startsWith('chatgpt-') ? DE_CHATGPT : lote_.startsWith('carpeta-') ? DE_CARPETA : DE_TAKEOUT)
+const DE_YOUTUBE = 'videos de YouTube que eligió para investigar, y las fuentes que esos videos recomiendan: material de otros autores, no suyo'
+const deQue = (lote_: string) => (lote_ === REPROCESO ? DE_ARCHIVO : lote_.startsWith('chatgpt-') ? DE_CHATGPT : lote_.startsWith('carpeta-') ? DE_CARPETA : lote_.startsWith('youtube-') ? DE_YOUTUBE : DE_TAKEOUT)
+/** Lo que se le pide de más a un video (o a lo que un video recomendó). */
+const EXTRA_YOUTUBE = `
+Como es un video de YouTube (o una fuente que un video recomendó), sumá además:
+- "tesis": qué plantea, en 1 o 2 frases.
+- "titulo_vs_contenido": si el título promete lo que el contenido da, o si exagera o promete otra cosa (una frase).
+- "fuentes": [{"nombre": libro, autor, paper, sitio u otro video que recomienda o cita, "link": string | null}] (hasta 8).
+"sobre_el" va vacío: el material no habla de él.`
 export const DE_ARCHIVO = 'el archivo personal del jugador: lo que escribió y dijo, sus audios, sus charlas y lo que fue guardando'
-const SISTEMA_DESTILADO = (yo: string, de = DE_TAKEOUT) => `Sos Mastropiero y estás leyendo ${de} (${yo}). Lo hacés para conocerlo mejor, para que cada proyecto sepa su historia y para armar su línea de tiempo.
+const SISTEMA_DESTILADO = (yo: string, de = DE_TAKEOUT, extra = '') => `Sos Mastropiero y estás leyendo ${de} (${yo}). Lo hacés para conocerlo mejor, para que cada proyecto sepa su historia y para armar su línea de tiempo.
 Leés UNA unidad que tiene FECHA. Todo lo que extraigas es de ESE momento, no de hoy: un proyecto pudo cambiar mucho desde entonces.
 Devolvé:
 - "resumen": 2 a 4 frases en pasado, situadas en su fecha: de qué fue y qué pasó.
@@ -431,10 +444,10 @@ Devolvé:
 - "eventos": [{"titulo": qué pasó o va a pasar (frase corta), "fecha": "YYYY-MM-DD" | "YYYY-MM" | null, "hora": "HH:MM" | null, "tipo": "pasado" | "futuro", "lugar": string | null, "personas": [string], "confianza": 0 a 1}] (hasta 8): hechos concretos con fecha deducible. La fecha se resuelve contra la FECHA DE LA UNIDAD («mañana», «el viernes», «en marzo» se calculan desde ahí); «tipo» es respecto de esa fecha. Nada de rutinas ni generalidades; si no se puede fechar, no va.
 - "relaciones": [{"de": string, "con": string, "tipo": "pareja" | "familia" | "amistad" | "trabajo" | "socios" | "cliente" | "proveedor" | "conocidos" | "otro", "detalle": frase corta, "evidencia": la frase del texto}] (hasta 6): vínculos entre personas o grupos que el texto dice o deja claro. Para el jugador usá "yo".
 Reglas: cuando hablen de una persona o un proyecto del catálogo, usá su NOMBRE EXACTO del catálogo (también si aparece con un alias o mal escrito). Lo que no esté en el catálogo, con el nombre tal como aparece. No inventes nada que no esté en el texto.
-Forma: {"resumen": string, "valor": number, "temas": [string], "proyectos": [...], "personas": [...], "ideas": [...], "decisiones": [string], "abierto": [string], "sobre_el": [string], "lugares": [...], "eventos": [...], "relaciones": [...]}`
+Forma: {"resumen": string, "valor": number, "temas": [string], "proyectos": [...], "personas": [...], "ideas": [...], "decisiones": [string], "abierto": [string], "sobre_el": [string], "lugares": [...], "eventos": [...], "relaciones": [...]}${extra}`
 
 type Lugar = { nombre: string; tipo: string; lat: number | null; lon: number | null }
-type Destilado = { resumen: string; valor: number; temas: string[]; proyectos: { nombre: string; estado_entonces: string; ideas: string[] }[]; personas: { nombre: string; rol: string }[]; ideas: { texto: string; proyecto: string | null }[]; decisiones: string[]; abierto: string[]; sobre_el: string[]; lugares: Lugar[]; eventos: any[]; relaciones: any[] }
+type Destilado = { tesis?: string; titulo_vs_contenido?: string; fuentes?: { nombre: string; link: string | null }[]; resumen: string; valor: number; temas: string[]; proyectos: { nombre: string; estado_entonces: string; ideas: string[] }[]; personas: { nombre: string; rol: string }[]; ideas: { texto: string; proyecto: string | null }[]; decisiones: string[]; abierto: string[]; sobre_el: string[]; lugares: Lugar[]; eventos: any[]; relaciones: any[] }
 const coordenada = (v: unknown, max: number) => (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= max ? Math.round(v * 1000) / 1000 : null)
 
 const lista = (v: unknown) => (Array.isArray(v) ? v : [])
@@ -452,7 +465,11 @@ export function juntarDestilados(ds: any[]): Destilado {
     ya.ideas = [...new Set([...ya.ideas, ...lista(p?.ideas).map((i) => txt(i, 300)).filter(Boolean)])].slice(0, 8)
     proyectos.set(claveDe(nombre), ya)
   }
+  const tesis = ds.map((d) => txt(d?.tesis, 600)).filter(Boolean)
+  const tvc = ds.map((d) => txt(d?.titulo_vs_contenido, 400)).find(Boolean)
+  const fuentes = unicos(ds.flatMap((d) => lista(d?.fuentes).map((x) => ({ nombre: txt(x?.nombre ?? x, 200), link: x?.link ? txt(x.link, 400) : null }))), (x) => claveDe(x.nombre)).slice(0, 12)
   return {
+    ...(tesis.length ? { tesis: tesis.join(' ') } : {}), ...(tvc ? { titulo_vs_contenido: tvc } : {}), ...(fuentes.length ? { fuentes } : {}),
     resumen: ds.map((d) => txt(d?.resumen, 1200)).filter(Boolean).join(' '),
     valor: Math.max(0, ...ds.map((d) => Math.min(3, Math.max(0, Number(d?.valor) || 0)))),
     temas: unicos(ds.flatMap((d) => lista(d?.temas).map((t) => txt(t, 50).toLowerCase())), claveDe).slice(0, 10),
@@ -527,11 +544,12 @@ export async function destilarUnidad(db: Db, fila: { pieza_id: number; lote: str
   const yo = personaje(db, 'jugador').nombre
   const deArchivo = fila.lote === REPROCESO
   const enCarpeta = p.meta?.carpeta ? `${p.meta.clase === 'imagen' ? 'una imagen (o la página escaneada de un cuaderno)' : p.meta.clase === 'audio' ? 'un audio' : 'un documento'} de su carpeta «${p.meta.carpeta}»${p.meta.proyecto ? `, en «${p.meta.proyecto}»` : ''}${p.meta.autor ? ` (lo armó su bot «${p.meta.autor}», a pedido suyo)` : ''}` : null
-  const origen = enCarpeta ? enCarpeta : p.meta?.chat ? `${p.meta.grupo ? 'un chat grupal' : 'una conversación'} con ${p.meta.ia ?? 'Gemini'}` : p.titulo.startsWith('Contexto · ') ? 'el contexto entero de un cuaderno de NotebookLM (sus fuentes, notas, chats y lo que generó)' : deArchivo ? origenDe(p) : p.nivel === 'propia' ? 'una nota de voz suya (transcripta)' : 'una pieza de su archivo'
+  const deVideo = p.meta?.youtube ? `un video de YouTube${p.meta.canal ? ` del canal «${p.meta.canal}»` : ''}${p.meta.publicado ? `, publicado el ${p.meta.publicado}` : ''}` : p.meta?.recomendadoPor ? `una fuente que recomendó un video de YouTube («${p.meta.recomendadoPor}»)` : null
+  const origen = deVideo ? deVideo : enCarpeta ? enCarpeta : p.meta?.chat ? `${p.meta.grupo ? 'un chat grupal' : 'una conversación'} con ${p.meta.ia ?? 'Gemini'}` : p.titulo.startsWith('Contexto · ') ? 'el contexto entero de un cuaderno de NotebookLM (sus fuentes, notas, chats y lo que generó)' : deArchivo ? origenDe(p) : p.nivel === 'propia' ? 'una nota de voz suya (transcripta)' : 'una pieza de su archivo'
   const tramos = tramosDeTexto(textoDeUnidad(db, p))
   const salidas: any[] = []
   for (const [i, t] of tramos.entries()) {
-    salidas.push(await destilar(db, SISTEMA_DESTILADO(yo, deQue(fila.lote)), `Unidad: ${origen} · «${p.titulo}» · fecha ${p.fecha ?? 'sin fecha'}${tramos.length > 1 ? ` · tramo ${i + 1} de ${tramos.length}` : ''}\n\nCatálogo de entidades que ya conoce:\n${cat.texto || '(vacío)'}\n\nTexto:\n${t}`, deArchivo ? 'reproceso' : 'takeout'))
+    salidas.push(await destilar(db, SISTEMA_DESTILADO(yo, deQue(fila.lote), fila.lote.startsWith('youtube-') ? EXTRA_YOUTUBE : ''), `Unidad: ${origen} · «${p.titulo}» · fecha ${p.fecha ?? 'sin fecha'}${tramos.length > 1 ? ` · tramo ${i + 1} de ${tramos.length}` : ''}\n\nCatálogo de entidades que ya conoce:\n${cat.texto || '(vacío)'}\n\nTexto:\n${t}`, deArchivo ? 'reproceso' : 'takeout'))
   }
   const d = juntarDestilados(salidas)
   guardarDestilado(db, fila, p, d, cat, ahora)
@@ -566,12 +584,15 @@ function guardarDestilado(db: Db, fila: { pieza_id: number; lote: string }, p: a
   // La pieza del destilado: buscable, con su fecha y sus entidades.
   const cuerpo = [
     `**${p.fecha ?? 'Sin fecha'}** · ${p.titulo}`,
+    d.tesis ? `### Qué plantea\n${d.tesis}` : '',
     d.resumen,
+    d.titulo_vs_contenido ? `### El título\n${d.titulo_vs_contenido}` : '',
     d.proyectos.length ? `### Proyectos (cómo estaban entonces)\n${d.proyectos.map((x) => `- **${x.nombre}**: ${x.estado_entonces}${x.ideas.length ? `\n  Ideas: ${x.ideas.join(' · ')}` : ''}`).join('\n')}` : '',
     d.ideas.length ? `### Ideas\n${d.ideas.map((x) => `- ${x.texto}${x.proyecto ? ` (${x.proyecto})` : ''}`).join('\n')}` : '',
     d.decisiones.length ? `### Decisiones\n${d.decisiones.map((x) => `- ${x}`).join('\n')}` : '',
     d.abierto.length ? `### Quedó abierto\n${d.abierto.map((x) => `- ${x}`).join('\n')}` : '',
     d.personas.length ? `### Personas\n${d.personas.map((x) => `- ${x.nombre}${x.rol ? `: ${x.rol}` : ''}`).join('\n')}` : '',
+    d.fuentes?.length ? `### Fuentes que recomienda\n${d.fuentes.map((x) => `- ${x.nombre}${x.link ? ` (${x.link})` : ''}`).join('\n')}` : '',
     d.temas.length ? `Temas: ${d.temas.join(' · ')}` : '',
   ].filter(Boolean).join('\n\n')
   asegurarFuente(db, FUENTES.destilado)
@@ -584,7 +605,7 @@ function guardarDestilado(db: Db, fila: { pieza_id: number; lote: string }, p: a
 
   // El pulso: cada tema, con la fecha en que apareció.
   const pulso = db.prepare('INSERT OR IGNORE INTO temas_pulso (clave, tema, fecha, pieza_id, origen) VALUES (?, ?, ?, ?, ?)')
-  for (const t of d.temas) pulso.run(claveDe(t), t, p.fecha ?? null, p.id, fila.lote === REPROCESO ? p.fuente : p.meta?.carpeta ? 'carpeta' : p.meta?.chat ? (p.meta.origen ?? 'gemini') : 'notebooklm')
+  for (const t of d.temas) pulso.run(claveDe(t), t, p.fecha ?? null, p.id, fila.lote === REPROCESO ? p.fuente : p.meta?.youtube || p.meta?.recomendadoPor ? 'youtube' : p.meta?.carpeta ? 'carpeta' : p.meta?.chat ? (p.meta.origen ?? 'gemini') : 'notebooklm')
 
   // La línea temporal y el grafo: los eventos con fecha y las relaciones entre personas.
   const buscar = (n: string) => cat.buscar(n)
@@ -775,7 +796,7 @@ export async function destilarImportadoSiguiente(db: Db): Promise<boolean> {
 }
 
 /** Cómo se llama un lote para la pantalla. */
-export const nombreDeLote = (id: string) => (id.startsWith('carpeta-') ? id.slice(8).replace(/-\d{8}$/, '').replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase()) : id.startsWith('chatgpt-') ? 'ChatGPT' : 'Google Takeout (Gemini y NotebookLM)')
+export const nombreDeLote = (id: string) => (id.startsWith('youtube-') ? `YouTube · ${id.slice(8, 12)}-${id.slice(12, 14)}-${id.slice(14, 16)}` : id.startsWith('carpeta-') ? id.slice(8).replace(/-\d{8}$/, '').replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase()) : id.startsWith('chatgpt-') ? 'ChatGPT' : 'Google Takeout (Gemini y NotebookLM)')
 
 type Avance = { hechos: number; total: number; porHora: number; fallos: number }
 export type LoteEnCurso = { id: string; nombre: string; estado: string; medios: Avance; destilado: Avance }

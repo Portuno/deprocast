@@ -150,6 +150,7 @@ const AYUDA = `
     respaldo                        copia la base y las cargas a data/respaldos/
     restaurar <carpeta> [--forzar]  la pone en esta compu
     mudar <url> [--sin-cargas]      manda la base y los archivos a la instancia de la nube (clave en MASTRO_CLAVE_NUBE)
+    youtube <url de la nube> [--una-vez]   (lee desde tu compu los videos y canales de YouTube que la nube no puede leer)
     takeout <carpeta> [<url>] [--solo-preparar]   (Takeout de Google, exportación de ChatGPT o una carpeta con .mastro-importar.json)
                                     Google Takeout (Gemini y NotebookLM): arma el paquete en la compu (sin tokens) y lo
                                     sube a la nube, que transcribe, describe, destila y arma la historia de cada proyecto
@@ -179,6 +180,11 @@ async function main() {
     // La clave de la nube va en MASTRO_CLAVE_NUBE (en el .env o en la consola): no se escribe en el comando.
     const r = await mudar(pos[0] ?? '', process.env.MASTRO_CLAVE_NUBE ?? '', { sinCargas: !!flags['sin-cargas'], log: (t) => console.log(`  ${t}`) })
     return console.log(`  Listo: la nube tiene ${Object.entries(r.conteos).map(([k, v]) => `${v} ${k}`).join(' · ')}`)
+  }
+  if (cmd === 'youtube') {
+    // La nube no puede leer YouTube (la marca como bot): la compu lee lo que quedó esperando y lo sube. Acá no se gasta un token.
+    const { lectorYoutube } = await import('./youtube-compu.ts')
+    return lectorYoutube(pos[0] ?? '', process.env.MASTRO_CLAVE_NUBE ?? '', { unaVez: !!flags['una-vez'], log: (t) => console.log(`  ${t}`) })
   }
   if (cmd === 'takeout') {
     // Acá no se gasta un token: se leen los zips, se achican los medios y se sube. Lo pesado lo hace la nube.

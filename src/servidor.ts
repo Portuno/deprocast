@@ -612,6 +612,17 @@ const rutas: [string, RegExp, Ruta][] = [
     return r
   }],
   ['POST', /^\/api\/repaso\/(\d+)$/, async (b, [p]) => responderPregunta(db, id(p), b.respuesta ?? null)],
+  // YouTube: la cola (videos y canales), importar varios, y lo que lee la compu (la nube no puede leer YouTube).
+  ['GET', /^\/api\/youtube$/, async () => (await import('./youtube.ts')).estadoYoutube(db)],
+  ['POST', /^\/api\/youtube\/importar$/, async (b) => (await import('./youtube.ts')).importarYoutube(db, String(b.texto ?? ''), { max: Number(b.max) || null })],
+  ['GET', /^\/api\/youtube\/compu$/, async () => ({ items: (await import('./youtube.ts')).paraLaCompu(db) })],
+  ['POST', /^\/api\/youtube\/leido$/, async (b) => (await import('./youtube.ts')).recibirDeLaCompu(db, b)],
+  ['POST', /^\/api\/youtube\/reintentar$/, async () => {
+    const y = await import('./youtube.ts')
+    const n = Number(db.prepare(`UPDATE youtube_cola SET estado = 'pendiente', intentos = 0, motivo = NULL WHERE estado IN ('fallo', 'sin_subtitulos')`).run().changes) + Number(y.reintentarConServicio(db))
+    void y.trabajarYoutube(db).catch(() => {})
+    return { reintentados: n }
+  }],
   // Un link: se lee y se guarda en Markdown; si es un sitio con índice (o se pide), se rastrea y arma un cuaderno
   ['POST', /^\/api\/links$/, async (b) => {
     const { procesarLink } = await import('./lector/index.ts')
@@ -1293,6 +1304,11 @@ if (!enVercel()) {
   const sinLeer = retomarTakeout(db)
   void Promise.all(sinLeer.map((l) => ingerirPaquete(db, l).catch((e) => console.error('  takeout ingesta:', e instanceof Error ? e.message : e))))
     .then(() => trabajarTakeout(db)).catch(() => {})
+  // YouTube: lo que quedó en cola sigue; cada 15 minutos, lo que espera a la compu vuelve a probar con el servicio (si volvió el cupo).
+  void import('./youtube.ts').then((y) => {
+    void y.trabajarYoutube(db).catch(() => {})
+    setInterval(() => { if (y.reintentarConServicio(db)) void y.trabajarYoutube(db).catch(() => {}) }, 15 * 60_000).unref()
+  })
 }
 if (telegramActivo() && !enVercel()) {
   escucharTelegram(db)

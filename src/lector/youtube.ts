@@ -13,7 +13,52 @@ import { leerJson } from '../modelo.ts'
 type Pedir = (url: string, init?: RequestInit) => Promise<Response>
 export type Pista = { baseUrl: string; languageCode?: string; kind?: string }
 /** rastro: qué contestó cada camino (página, Android, iOS, subtítulos), para saber por qué no salió. */
-export type VideoYoutube = { titulo: string | null; canal: string | null; descripcion: string; transcripcion: string | null; idioma: string | null; automatica: boolean; motivo?: string; rastro?: string[] }
+export type VideoYoutube = { titulo: string | null; canal: string | null; canalId?: string | null; fecha?: string | null; descripcion: string; transcripcion: string | null; idioma: string | null; automatica: boolean; motivo?: string; rastro?: string[] }
+
+/** ¿Es un video o un canal de YouTube? (un canal: @handle, /channel/UC…, /c/…, /user/…). */
+export function clasificarYoutube(url: string): { tipo: 'video'; id: string } | { tipo: 'canal'; id: string } | null {
+  let u: URL
+  try { u = new URL(url.trim()) } catch { return null }
+  if (!/(^|\.)youtube\.com$|(^|\.)youtu\.be$/i.test(u.hostname)) return null
+  const v = idDeVideo(url)
+  if (v && /^[\w-]{6,20}$/.test(v)) return { tipo: 'video', id: v }
+  const m = /^\/(@[\w.-]+|channel\/UC[\w-]+|c\/[\w.-]+|user\/[\w.-]+)/i.exec(u.pathname)
+  return m ? { tipo: 'canal', id: m[1].startsWith('@') ? m[1].toLowerCase() : m[1] } : null
+}
+
+/** La dirección de un canal a partir de su id de cola (@handle, channel/UC…, c/…, user/…). */
+export const urlDeCanal = (id: string) => `https://www.youtube.com/${id}`
+
+/**
+ * Los videos de un canal (los más nuevos primero), hasta «max»: la pestaña de videos y sus continuaciones. Anda desde
+ * una conexión que YouTube no bloquea (la compu); desde la nube lo hace el servicio de transcripciones.
+ */
+export async function videosDelCanal(id: string, pedir: Pedir, max = 50): Promise<{ titulo: string | null; canalId: string | null; videos: string[] }> {
+  const r = await pedir(`${urlDeCanal(id)}/videos?hl=es`, { headers: { cookie: 'CONSENT=YES+cb; SOCS=CAI' } })
+  if (!r.ok) throw new Error(`YouTube respondió ${r.status}`)
+  const html = await r.text()
+  const clave = /"INNERTUBE_API_KEY":"([^"]+)"/.exec(html)?.[1] ?? CLAVE_WEB
+  const version = /"INNERTUBE_CLIENT_VERSION":"([^"]+)"/.exec(html)?.[1] ?? '2.20250101.00.00'
+  const titulo = /<meta property="og:title" content="([^"]+)"/.exec(html)?.[1] ?? null
+  const canalId = /"externalId":"(UC[\w-]+)"/.exec(html)?.[1] ?? null
+  const ids = new Set<string>()
+  const sumar = (t: string) => { for (const m of t.matchAll(/"videoId":"([\w-]{11})"/g)) if (ids.size < max) ids.add(m[1]) }
+  sumar(html)
+  let token = /"continuationCommand":\{"token":"([^"]+)"/.exec(html)?.[1]
+  for (let vuelta = 0; token && ids.size < max && vuelta < 200; vuelta++) {
+    const b = await pedir(`https://www.youtube.com/youtubei/v1/browse?key=${clave}&prettyPrint=false`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ context: { client: { clientName: 'WEB', clientVersion: version, hl: 'es' } }, continuation: token }),
+    })
+    if (!b.ok) break
+    const t = await b.text()
+    const antes = ids.size
+    sumar(t)
+    token = /"continuationCommand":\{"token":"([^"]+)"/.exec(t)?.[1]
+    if (ids.size === antes) break
+  }
+  return { titulo: titulo ? desentidad(titulo) : null, canalId, videos: [...ids] }
+}
 
 /** El id del video de un link (watch?v=, youtu.be/, shorts/). */
 export function idDeVideo(url: string): string | null {
@@ -85,7 +130,7 @@ export function transcripcionDeXml(xml: string, cada = 45_000): string {
 const CLAVE_WEB = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8'
 const ANDROID = '20.10.38'
 
-type Jugador = { videoDetails?: any; captions?: any; playabilityStatus?: { status?: string; reason?: string } }
+type Jugador = { videoDetails?: any; captions?: any; microformat?: any; playabilityStatus?: { status?: string; reason?: string } }
 const pistasDe = (j: Jugador | null): Pista[] => j?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? []
 const bloqueado = (j: Jugador | null) => !!j?.playabilityStatus?.status && j.playabilityStatus.status !== 'OK'
 
@@ -138,7 +183,8 @@ export async function leerVideo(url: string, pedir: Pedir): Promise<VideoYoutube
 
   const todos = [web, ...moviles.map((m) => m.j)]
   const d = todos.find((j) => j?.videoDetails?.shortDescription)?.videoDetails ?? todos.find((j) => j?.videoDetails)?.videoDetails ?? {}
-  const base = { titulo: d.title ?? null, canal: d.author ?? null, descripcion: String(d.shortDescription ?? '').trim() }
+  const publicado = todos.map((j) => j?.microformat?.playerMicroformatRenderer?.publishDate).find(Boolean)
+  const base = { titulo: d.title ?? null, canal: d.author ?? null, canalId: d.channelId ?? null, fecha: publicado ? String(publicado).slice(0, 10) : null, descripcion: String(d.shortDescription ?? '').trim() }
   const sin = (motivo: string): VideoYoutube => ({ ...base, transcripcion: null, idioma: null, automatica: false, motivo, rastro })
 
   // 3. Las pistas, en orden: las móviles (XML) y después la de la web (json3, y si no, XML).

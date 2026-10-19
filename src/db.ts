@@ -818,6 +818,21 @@ CREATE TABLE IF NOT EXISTS reproceso_fallos (
   error TEXT,
   PRIMARY KEY (pieza_id, paso)
 );
+-- YouTube: videos y canales por leer. La nube no puede (YouTube la marca como bot): los lee el servicio de
+-- transcripciones o la compu. estado: pendiente | compu (espera a la compu) | listo | sin_subtitulos | fallo.
+CREATE TABLE IF NOT EXISTS youtube_cola (
+  id TEXT PRIMARY KEY,
+  tipo TEXT NOT NULL,
+  url TEXT NOT NULL,
+  estado TEXT NOT NULL DEFAULT 'pendiente',
+  motivo TEXT,
+  intentos INTEGER NOT NULL DEFAULT 0,
+  pieza_id INTEGER,
+  de TEXT,
+  max_videos INTEGER,
+  creado_en INTEGER NOT NULL,
+  leido_en INTEGER
+);
 -- La crónica de un mes que no salió: a los 3 intentos se deja, hasta que el mes tenga material nuevo.
 CREATE TABLE IF NOT EXISTS cronica_fallos (
   mes TEXT PRIMARY KEY,

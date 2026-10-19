@@ -66,8 +66,45 @@ async function pintarCola() {
 
 const ESTADO_LOTE = { subiendo: 'subiendo desde la compu', ingiriendo: 'leyendo el paquete', procesando: 'escuchando, mirando y destilando', historia: 'armando la historia de cada proyecto', terminado: 'terminado', error: 'con error' }
 
+/** YouTube: pegar videos o canales; la cola dice qué se leyó y qué espera (al servicio o a la compu). */
+const ICONO_YT = { pendiente: '⏳', compu: '🖥', listo: '✓', sin_subtitulos: '∅', fallo: '✗' }
+async function pintarYoutube() {
+  const cont = $('#yt-estado')
+  if (!cont) return
+  let d
+  try { d = await api('/youtube') } catch (e) { cont.innerHTML = `<p class="tenue">${esc(e.message)}</p>`; return }
+  const c = d.cuenta
+  const hace = (ms) => { const m = Math.round((Date.now() - ms) / 60_000); return m < 2 ? 'recién' : m < 120 ? `hace ${m} min` : `hace ${Math.round(m / 60)} h` }
+  cont.innerHTML = `
+    <p>${[c.listo ? `✓ ${c.listo} leídos` : '', c.pendiente ? `⏳ ${c.pendiente} en cola` : '', c.compu ? `🖥 ${c.compu} esperan tu compu` : '', c.sin_subtitulos ? `∅ ${c.sin_subtitulos} sin subtítulos` : '', c.fallo ? `✗ ${c.fallo} fallaron` : '', d.canales ? `📺 ${d.canales} canales por listar` : ''].filter(Boolean).join(' · ') || 'Todavía no importaste videos.'}</p>
+    <p class="tenue chico">Servicio de transcripciones: ${d.servicio.configurado ? (d.servicio.disponible ? 'activo' : `en pausa (${esc(d.servicio.motivo ?? 'sin cupo')})`) : 'no configurado (SUPADATA_API_KEY)'} · Tu compu: ${d.compu.activa ? 'leyendo ahora' : d.compu.vista ? `la última vez ${hace(d.compu.vista)}` : 'nunca se conectó'}</p>
+    ${c.compu && !d.compu.activa ? `<p class="chico">Para que tu compu los lea, dejá corriendo en la carpeta de Deprocast:</p><pre>npm run mastro -- youtube ${esc(location.origin)}</pre>` : ''}
+    ${d.ultimos.length ? `<div class="cu-fuentes">${d.ultimos.slice(0, 25).map((u) => `<div class="cu-fuente"><span title="${esc(u.motivo ?? '')}">${ICONO_YT[u.estado] ?? '·'} ${u.tipo === 'canal' ? '📺' : '▶'} ${esc(u.titulo ?? u.id)}${u.recomendado ? ' <small class="tenue">recomendado</small>' : ''}${u.motivo && u.estado !== 'listo' ? ` <small class="tenue">${esc(u.motivo.slice(0, 90))}</small>` : ''}</span>${u.piezaId ? `<a href="#" data-pieza="${u.piezaId}">ver</a>` : ''}</div>`).join('')}</div>` : ''}
+    ${c.fallo || c.sin_subtitulos ? '<button class="btn btn-chico" id="yt-reintentar">Reintentar los que no salieron</button>' : ''}`
+  $('#yt-reintentar')?.addEventListener('click', async () => { try { const r = await api('/youtube/reintentar', {}); toast(`${r.reintentados} de vuelta a la cola`, 'suave'); pintarYoutube() } catch (e) { error(e) } })
+  $$('[data-pieza]', cont).forEach((a) => (a.onclick = (e) => { e.preventDefault(); modalPieza(Number(a.dataset.pieza)) }))
+}
+
 async function modalTakeout() {
-  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>🗂 Importaciones · Google Takeout y ChatGPT</h2><div id="tk-cuerpo"><p class="tenue">Cargando…</p></div>`)
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>🗂 Importaciones</h2>
+    <div class="yt-caja"><h3>▶ YouTube</h3>
+      <p class="tenue chico">Videos o canales enteros, uno por línea. Cada video entra con su transcripción y se analiza solo: qué plantea, si el título cumple, ideas (protoquántomos) y las fuentes que recomienda, que también se leen. También podés mandarlos por el chat.</p>
+      <textarea id="yt-links" class="campo" rows="3" placeholder="https://www.youtube.com/watch?v=…&#10;https://www.youtube.com/@canal"></textarea>
+      <div class="fila"><label class="chico">Videos por canal <input id="yt-max" class="campo-suelto" type="number" min="1" max="5000" value="50" style="width:90px"></label><button class="btn btn-primario" id="yt-importar">Importar</button></div>
+      <div id="yt-estado"><p class="tenue">Cargando…</p></div></div>
+    <h3>Google Takeout, ChatGPT y carpetas</h3><div id="tk-cuerpo"><p class="tenue">Cargando…</p></div>`)
+  $('#yt-importar').onclick = async () => {
+    const texto = $('#yt-links').value
+    if (!texto.trim()) return toast('Pegá uno o más links de YouTube')
+    try {
+      const r = await api('/youtube/importar', { texto, max: Number($('#yt-max').value) || 50 })
+      toast([r.videos ? `${r.videos} videos` : '', r.canales ? `${r.canales} canales` : '', r.yaEstaban ? `${r.yaEstaban} ya estaban` : '', r.noSonDeYoutube ? `${r.noSonDeYoutube} no son de YouTube` : ''].filter(Boolean).join(' · ') || 'Nada nuevo', 'suave')
+      $('#yt-links').value = ''
+      pintarYoutube()
+    } catch (e) { error(e) }
+  }
+  pintarYoutube()
+  const ty = setInterval(() => ($('#yt-estado') ? pintarYoutube() : clearInterval(ty)), 10_000)
   const pintar = async () => {
     if (!$('#tk-cuerpo')) return
     let d
@@ -164,11 +201,16 @@ async function modalReproceso() {
       </div>`
     }).join('')
 
+    // YouTube: las transcripciones que esperan (la nube no puede leer YouTube: las trae el servicio o la compu).
+    const yt = d.youtube
+    const ytPend = yt ? yt.cuenta.pendiente + yt.cuenta.compu : 0
+    const ytPaso = ytPend ? paso({ icono: '🎬', titulo: 'Transcripciones de YouTube', que: 'Cada video que mandaste, con su transcripción; después se destila con lo importado.', hechos: yt.cuenta.listo, total: yt.cuenta.listo + ytPend, unidad: 'videos', activo: yt.trabajando || yt.compu.activa, espera: yt.cuenta.compu > 0 && !yt.compu.activa && !yt.servicio.disponible, nota: yt.cuenta.compu && !yt.compu.activa ? `${fmt(yt.cuenta.compu)} esperan tu compu: npm run mastro -- youtube ${esc(location.origin)}` : '' }) : ''
     // La frase de arriba: qué está haciendo y qué falta.
     const QUE = { pasajes: 'cortando piezas en pasajes', recuerdos: 'preparando recuerdos y quántomos para buscarlos', destilado: 'destilando tu corpus', importado: 'destilando lo importado', takeout: mediosPend ? 'leyendo las imágenes y audios de lo importado' : 'destilando lo importado', sintesis: d.paso || 'escribiendo crónicas e historias' }
     const haciendo = [...new Set([...ahora].map((k) => QUE[k]).filter(Boolean))]
     const falta = [
       mediosPend ? `${fmt(mediosPend)} imágenes y audios importados` : '',
+      ytPend ? `${fmt(ytPend)} videos de YouTube por transcribir${yt.cuenta.compu && !yt.compu.activa ? ' (esperan tu compu)' : ''}` : '',
       ...lotes.map((l) => (l.destilado.total - l.destilado.hechos ? `${fmt(l.destilado.total - l.destilado.hechos)} piezas de ${esc(l.nombre)} por destilar` : '')),
       d.destilado.pendientes ? `${fmt(d.destilado.pendientes)} piezas de tu corpus por destilar${d.destilado.horasQueFaltan ? ` (~${d.destilado.horasQueFaltan} h)` : ''}` : '',
       d.pasajes.total - d.pasajes.piezas > 0 ? `${fmt(d.pasajes.total - d.pasajes.piezas)} piezas sin pasajes` : '',
@@ -182,7 +224,7 @@ async function modalReproceso() {
         <p><b>Ahora:</b> ${haciendo.length ? haciendo.join(' · ') : d.activo ? 'nada en este momento' : 'nada (está en pausa)'}</p>
         ${falta.length ? `<p><b>Falta:</b></p><ul class="rp-falta">${falta.map((x) => `<li>${x}</li>`).join('')}</ul>` : '<p><b>Falta:</b> nada, todo está procesado.</p>'}
       </div>
-      ${lotes.length ? `<h3 class="rp-h">Lo que importaste</h3>${importado}` : ''}
+      ${lotes.length || ytPend ? `<h3 class="rp-h">Lo que importaste</h3>${ytPaso}${importado}` : ''}
       <h3 class="rp-h">Tu corpus</h3>
       ${paso({ icono: '🔎', titulo: 'Pasajes', que: 'Corta cada pieza en pedazos con sentido, para encontrar cualquier cosa al buscar.', hechos: d.pasajes.piezas, total: d.pasajes.total, unidad: 'piezas', activo: ahora.has('pasajes'), nota: [`${fmt(d.pasajes.pasajes)} pasajes en total`, d.pasajes.fallos ? `${fmt(d.pasajes.fallos)} fallaron` : ''].filter(Boolean).join(' · ') })}
       ${paso({ icono: '🧪', titulo: 'Destilado', que: 'Lee cada pieza que no vino de una importación y saca resumen, temas, ideas, personas, lugares y eventos.', hechos: d.destilado.hechos, total: dTotal, unidad: 'piezas', activo: ahora.has('destilado'), nota: [d.destilado.pendientes ? `Faltan ${fmt(d.destilado.pendientes)}` : '', d.destilado.horasQueFaltan ? `~${d.destilado.horasQueFaltan} h` : '', d.destilado.fallos ? `${fmt(d.destilado.fallos)} fallaron` : ''].filter(Boolean).join(' · ') })}

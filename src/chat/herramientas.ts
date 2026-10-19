@@ -1162,6 +1162,19 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `guardó ${recorte(a.url, 50)}`,
   },
   {
+    nombre: 'importar_youtube', familia: 'accion',
+    descripcion: 'Importa de YouTube: uno o varios videos, o un canal entero (todos sus videos, hasta «max_por_canal»). Cada video entra con su transcripción y se analiza solo: qué plantea, si el título cumple, ideas (protoquántomos), personas y las fuentes que recomienda (que también se leen). La nube no puede leer YouTube: la transcripción la trae el servicio de transcripciones o su compu (npm run mastro -- youtube <url de la nube>). Los links de YouTube que él escribe ya entran solos: usalo para un canal con límite o para varios de una.',
+    parametros: S({ links: str('Los links (videos o canales), separados por espacios o saltos de línea'), max_por_canal: int('Cuántos videos traer de cada canal (por defecto 50; para «todos», hasta 5000)') }, ['links']),
+    ejecutar: async (a, { db }) => (await import('../youtube.ts')).importarYoutube(db, String(a.links ?? ''), { max: Number(a.max_por_canal) || null }),
+    resumen: (a) => `importó de YouTube ${recorte(String(a.links ?? ''), 50)}`,
+  },
+  {
+    nombre: 'ver_youtube', familia: 'lectura',
+    descripcion: 'Cómo va la cola de YouTube: cuántos videos se leyeron, cuántos esperan (al servicio o a su compu), cuáles no tienen subtítulos, y los últimos con su estado.',
+    parametros: S({}),
+    ejecutar: async (_a, { db }) => (await import('../youtube.ts')).estadoYoutube(db),
+  },
+  {
     nombre: 'buscar_oportunidades', familia: 'accion',
     descripcion: 'El radar sale a buscar oportunidades concretas (comunidades, eventos, convocatorias, becas, medios, contactos) para una primaria o para lo que él pida, y las deja en Radar.',
     parametros: S({ primaria: int('id de la primaria (opcional)'), pedido: str('Qué buscar, en sus palabras') }),
@@ -1320,7 +1333,7 @@ export const GRUPOS: Record<string, string[]> = {
   corpus: ['procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   vida: ['ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
-  web: ['buscar_web', 'leer_pagina', 'guardar_link', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
+  web: ['buscar_web', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   crear: ['ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
 
@@ -1332,7 +1345,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|\[confirmado\]|\[inferido\]/.test(t)) g.push('corpus')
   if (/primaria|reporte|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
   if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|bitácora|gemelo|brújula|brujula|persona|amig|famil/.test(t)) g.push('vida')
-  if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link/.test(t)) g.push('web')
+  if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal/.test(t)) g.push('web')
   if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo/.test(t)) g.push('crear')
   return g
 }

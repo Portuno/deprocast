@@ -11,6 +11,7 @@
 import { ajuste, fijarAjuste, json, type Db } from './db.ts'
 import { nanConfigurado, tokensReproceso } from './nan.ts'
 import { pasajesDe, vectorizarItems } from './semantica.ts'
+import { estadoYoutube } from './youtube.ts'
 import { destilarImportadoSiguiente, destilarUnidad, historiaDe, importadoPendiente, proyectosConHistoria, REPROCESO, takeoutTrabajando } from './takeout/nube.ts'
 import { cronicaDelMes, mesesSinCronica } from './linea.ts'
 
@@ -191,6 +192,7 @@ export function estadoReproceso(db: Db, ahora = Date.now()) {
     cronicasFallidas: n('SELECT COUNT(*) AS n FROM cronica_fallos WHERE intentos >= 3'),
     tokens: { hoy: t.hoy, total: t.total },
     importado: importadoPendiente(db, ahora),
+    youtube: estadoYoutube(db, ahora),
     ultimos: (db.prepare(`SELECT d.pieza_id AS id, c.titulo, d.salida, d.hecho_en FROM takeout_destilado d JOIN corpus c ON c.id = d.pieza_id WHERE d.lote = ? AND d.estado = 'hecho' ORDER BY d.hecho_en DESC LIMIT 6`).all(REPROCESO) as any[])
       .map((r) => ({ id: r.id, titulo: r.titulo, resumen: String(json<any>(r.salida, {})?.resumen ?? '').slice(0, 300), en: r.hecho_en })),
   }

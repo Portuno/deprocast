@@ -8,7 +8,7 @@
  */
 import { leerHtml, type Meta } from './html.ts'
 import { textoDePdf } from '../cargas/pdf.ts'
-import { leerVideo } from './youtube.ts'
+import { clasificarYoutube, leerVideo } from './youtube.ts'
 import type { Db } from '../db.ts'
 
 /** sinMateria: entró solo la cáscara (un video sin subtítulos): la pieza queda pendiente y no cuenta como materia. */
@@ -173,6 +173,18 @@ export type Guardado = { piezaId: number; nueva: boolean; lectura: Lectura | nul
 
 /** Lee y guarda el link en el corpus (fuente primaria, en Markdown). Si ya estaba, devuelve esa pieza sin volver a leer. */
 export async function guardarLink(db: Db, url: string, o: { nota?: string | null; lectura?: Lectura; ahora?: number } = {}): Promise<Guardado> {
+  // YouTube (un video o un canal) no se lee acá: va a su cola (la nube no puede leerlo; lo trae el servicio o la compu).
+  const yt = clasificarYoutube(url)
+  if (yt && !o.lectura) {
+    const { avisoDeCola, encolarYoutube, trabajarYoutube } = await import('../youtube.ts')
+    const r = await encolarYoutube(db, url, { nota: o.nota ?? null }, o.ahora)
+    if (r) {
+      void trabajarYoutube(db).catch(() => {})
+      const p = db.prepare('SELECT titulo, contenido FROM corpus WHERE id = ?').get(r.piezaId) as { titulo: string; contenido: string } | undefined
+      const aviso = avisoDeCola(db, r.tipo, r.estado)
+      return { piezaId: r.piezaId, nueva: r.nueva, lectura: lectura(url, 'youtube', p?.titulo ?? url, p?.contenido ?? '', aviso ? { aviso } : {}) }
+    }
+  }
   const { ingerir } = await import('../mastropiero.ts')
   const origen = `url:${normalizarUrl(url)}`
   const ya = db.prepare('SELECT id, meta FROM corpus WHERE origen_id = ?').get(origen) as { id: number; meta: string | null } | undefined
