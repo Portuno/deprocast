@@ -14,6 +14,8 @@ import { pasajesDe, vectorizarItems } from './semantica.ts'
 import { estadoYoutube } from './youtube.ts'
 import { destilarImportadoSiguiente, destilarUnidad, historiaDe, importadoPendiente, proyectosConHistoria, REPROCESO, takeoutTrabajando } from './takeout/nube.ts'
 import { cronicaDelMes, mesesSinCronica } from './linea.ts'
+import { cuantasFaltan, tarjetasDeLoConsumido } from './consumido.ts'
+import { juntarBucles, resumenBucles } from './bucles.ts'
 
 /** Solo en la nube (o si se fuerza para probar): todo esto gasta tokens. */
 export const enLaNube = () => process.env.MASTRO_NUBE === '1' || process.env.MASTRO_REPROCESO_LOCAL === '1'
@@ -89,6 +91,25 @@ async function hacerDestilado(db: Db): Promise<boolean> {
   return true
 }
 
+/** Lo que miró o leyó y valió la pena: sus tarjetas de recuerdo activo (una pieza por vuelta). */
+async function hacerTarjetas(db: Db): Promise<boolean> {
+  estado.paso = 'tarjetas de lo que miraste'
+  return tarjetasDeLoConsumido(db)
+}
+
+/** Lo abierto que sigue volviendo: se cuenta y se junta por sentido (de a 40 menciones). */
+let enBucles = false
+async function hacerBucles(db: Db): Promise<boolean> {
+  if (enBucles) return false
+  enBucles = true
+  try {
+    estado.paso = 'lo que sigue volviendo'
+    return (await juntarBucles(db, { limite: 40 })) > 0
+  } finally {
+    enBucles = false
+  }
+}
+
 async function hacerImportado(db: Db): Promise<boolean> {
   estado.paso = 'destilando lo importado'
   return destilarImportadoSiguiente(db)
@@ -125,7 +146,7 @@ async function hacerSintesis(db: Db): Promise<boolean> {
 
 const CARRILES = 4
 /** Qué paso de la pantalla es cada cosa que hace un carril. */
-const QUE_HACE = new Map<(db: Db) => Promise<boolean>, string>([[hacerPasajes, 'pasajes'], [hacerItems, 'recuerdos'], [hacerDestilado, 'destilado'], [hacerImportado, 'importado']])
+const QUE_HACE = new Map<(db: Db) => Promise<boolean>, string>([[hacerPasajes, 'pasajes'], [hacerItems, 'recuerdos'], [hacerDestilado, 'destilado'], [hacerImportado, 'importado'], [hacerTarjetas, 'tarjetas'], [hacerBucles, 'bucles']])
 
 /** Trabaja hasta que no quede nada o se pause. Si ya anda, no hace nada. */
 export async function trabajarReproceso(db: Db): Promise<void> {
@@ -144,6 +165,8 @@ export async function trabajarReproceso(db: Db): Promise<void> {
       const hizo = await Promise.all(Array.from({ length: CARRILES }, async (_, carril) => {
         const pasos = carril === 0 ? [hacerPasajes, hacerItems, hacerDestilado]
           : conImportado && carril <= 2 ? [hacerImportado, hacerDestilado, hacerPasajes]
+          // El último carril, antes de destilar: lo que se aprende de lo consumido y lo que sigue volviendo (no esperan a que se vacíe todo).
+          : carril === CARRILES - 1 ? [hacerTarjetas, hacerBucles, hacerDestilado, hacerPasajes]
           : [hacerDestilado, hacerPasajes]
         try {
           for (const paso of pasos) {
@@ -191,6 +214,8 @@ export function estadoReproceso(db: Db, ahora = Date.now()) {
     cronicas: n(`SELECT COUNT(*) AS n FROM corpus WHERE origen_id LIKE 'linea:mes:%'`),
     cronicasFallidas: n('SELECT COUNT(*) AS n FROM cronica_fallos WHERE intentos >= 3'),
     tokens: { hoy: t.hoy, total: t.total },
+    tarjetas: { piezas: n('SELECT COUNT(*) AS n FROM tarjetas_piezas'), faltan: cuantasFaltan(db), hechas: n(`SELECT COUNT(*) AS n FROM tarjetas WHERE mazo = 'consumido'`) },
+    bucles: resumenBucles(db),
     importado: importadoPendiente(db, ahora),
     youtube: estadoYoutube(db, ahora),
     ultimos: (db.prepare(`SELECT d.pieza_id AS id, c.titulo, d.salida, d.hecho_en FROM takeout_destilado d JOIN corpus c ON c.id = d.pieza_id WHERE d.lote = ? AND d.estado = 'hecho' ORDER BY d.hecho_en DESC LIMIT 6`).all(REPROCESO) as any[])

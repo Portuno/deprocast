@@ -205,7 +205,7 @@ async function repasarTarjetas(mazo = null) {
   try { cola = (await api(`/tarjetas?limite=100${mazo ? `&mazo=${encodeURIComponent(mazo)}` : ''}`)).paraHoy } catch (e) { return error(e) }
   let hechas = 0
   const codigoDe = (m) => { const id = m.startsWith('idioma:') ? Number(m.slice(7)) : null; const i = idiDatos?.idiomas.find((x) => x.aprendizajeId === id); return i?.conVoz ? i.codigo : null }
-  const nombreDe = (m) => { const id = m.startsWith('idioma:') ? Number(m.slice(7)) : null; return idiDatos?.idiomas.find((x) => x.aprendizajeId === id)?.nombre ?? (id ? 'Idioma' : m) }
+  const nombreDe = (m) => { const id = m.startsWith('idioma:') ? Number(m.slice(7)) : null; return idiDatos?.idiomas.find((x) => x.aprendizajeId === id)?.nombre ?? (id ? 'Idioma' : m === 'consumido' ? 'Lo que miraste' : m) }
   const pintar = () => {
     const t = cola[0]
     if (!t) {

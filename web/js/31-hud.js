@@ -127,6 +127,7 @@ function widgetQuests() {
     ${prims.length ? `<div class="hud-prims">${prims.map((m) => `<div class="hud-prim ${m.estado}"><div class="hud-fila"><span>${m.estado === 'hecha' ? '●' : m.estado === 'sugerida' ? '○' : '◐'} ${esc(corto(m.titulo, 40))}</span><span class="hud-num">${m.avance.progreso}%</span></div>${barraHud(m.avance.progreso, 100)}</div>`).join('')}</div>` : '<p class="hud-texto">Sin primarias esta semana.</p>'}
     ${tareas.length ? `<small class="hud-etq">Para hoy</small>${tareas.slice(0, 3).map((t) => `<label class="hud-check"><input type="checkbox" data-hud-tarea="${t.id}" ${t.estado === 'hecha' ? 'checked' : ''}> ${t.hito ? '◆ ' : ''}${esc(corto(t.titulo, 44))}</label>`).join('')}` : ''}
     ${lado.length ? `<small class="hud-etq">Side quests</small>${lado.map((m) => `<div class="hud-fila hud-sq"><span>⚑ ${esc(corto(m.titulo, 36))}</span><button class="btn-link" data-hud-hecha="${m.id}" title="Cumplida">✓</button></div>`).join('')}` : ''}
+    ${hudDatos?.bucles?.length ? `<small class="hud-etq">🔁 Sigue volviendo</small>${hudDatos.bucles.map((b) => filaBucle(b, true)).join('')}` : ''}
     ${pieHud('¿En qué primaria me conviene meter foco hoy?', 'misiones', 'Misiones')}`
 }
 
@@ -209,6 +210,7 @@ function engancharWidgetHud(cont) {
     const estado = m.estado === b.dataset.hudMarcar ? 'activa' : b.dataset.hudMarcar
     try { await api(`/misiones/${m.id}/marcar`, { estado }); await listo(estado === 'activa' ? null : `${MARCA[estado]} banda «${m.titulo}» ${estado === 'parcial' ? 'a medias' : estado === 'no' ? 'no salió' : 'hecha'}`) } catch (e) { error(e) }
   }))
+  if (hudDatos?.bucles?.length) engancharBucles(cont, hudDatos.bucles, () => traerHud())
   $$('[data-hud-tarea]', cont).forEach((c) => (c.onchange = async () => {
     try { const m = await api(`/cien/tarea/${c.dataset.hudTarea}`, { hecha: c.checked }); await listo(c.checked ? `✓ ${m.titulo}` : null) } catch (e) { error(e) }
   }))

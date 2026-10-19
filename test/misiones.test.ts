@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { abrir } from '../src/db.ts'
+import { abrir, fijarAjuste } from '../src/db.ts'
 import { _probarModelo } from '../src/modelo.ts'
 import { _probarCalendario } from '../src/calendario.ts'
 import { escribaDeMemoria, recordar } from '../src/memoria.ts'
@@ -96,6 +96,7 @@ test('historia e inventario: sugerencias que se aceptan, sin duplicar ítems', (
 
 test('run «Mañana oficina»: 15 bandas de 12 minutos en 3 horas; con la agenda en el medio, menos y sin pisarla', async () => {
   const db = abrir(':memory:')
+  fijarAjuste(db, 'ciclo_bandas', '0') // la forma exacta del pedido, sin descansos automáticos
   modelo({ run: bandas(20) })
   const { run, misiones } = await prepararRun(db, {}, { ahora: a(9) })
   assert.equal(run.estado, 'propuesta')
@@ -116,6 +117,7 @@ test('run «Mañana oficina»: 15 bandas de 12 minutos en 3 horas; con la agenda
 
 test('run a pedido: lo dicho en palabras pisa la plantilla, crea entidades y excluye lo que no quiere', async () => {
   const db = abrir(':memory:')
+  fijarAjuste(db, 'ciclo_bandas', '0') // la forma exacta del pedido, sin descansos automáticos
   const vistos = modelo({
     pedido: { duracion: 120, banda: [25], excluir: 'mails', energia: 'cansado', dinero: 20, incluir: [{ nombre: 'Proyecto Faro', tipo: 'proyecto' }] },
     run: { resumen: 'Corta y liviana.', misiones: [
@@ -187,6 +189,7 @@ test('agentes en la run: el que conoce el proyecto incluido aporta, y queda regi
 
 test('primarias, progreso, rehacer y reportes: de la banda a la semana', async () => {
   const db = abrir(':memory:')
+  fijarAjuste(db, 'ciclo_bandas', '0') // la forma exacta del pedido, sin descansos automáticos
   recordar(db, { texto: 'Quiere terminar su novela este año', tipo: 'meta' })
   const semana = semanaDe(a(9))
   modelo({ primarias: { primarias: [{ titulo: 'Escribir la novela', detalle: 'Dos capítulos', categoria: 'escritura', entidad: null, por_que: 'es su meta' }, { titulo: 'Ordenar finanzas', detalle: 'Presupuesto', categoria: 'vida' }] } })

@@ -628,16 +628,38 @@ Forma: {"resumen": string, "misiones": [{"titulo": string, "detalle": string, "m
 
 type Propuesta = { titulo: string; detalle: string | null; minutos: number; primaria: number | null; categoria: string | null; con: string | null; gasto: number | null }
 
-/** Pone horario a lo propuesto: en orden, sin pisar lo ocupado (agenda y lo que se conserva), dentro de la ventana. */
+/** El ciclo de foco y descanso de las runs (ajuste ciclo_bandas, «90/20»); null = sin ciclos. */
+export function cicloDeBandas(db: Db): [number, number] | null {
+  const m = /^(\d{2,3})\s*\/\s*(\d{1,2})$/.exec(String(ajuste(db, 'ciclo_bandas') ?? '90/20').trim())
+  return m && Number(m[1]) >= 30 && Number(m[2]) >= 5 ? [Number(m[1]), Number(m[2])] : null
+}
+
+const DESCANSO: Propuesta = { titulo: 'Descanso: lejos de la pantalla', detalle: 'Caminá, tomá agua, mirá lejos. Sin celular: que la cabeza se aburra un rato.', minutos: 20, primaria: null, categoria: 'pausa', con: null, gasto: null }
+
+/**
+ * Pone horario a lo propuesto: en orden, sin pisar lo ocupado (agenda y lo que se conserva), dentro de la ventana.
+ * Con ciclo [foco, descanso]: después de «foco» minutos de bandas seguidas mete un descanso (un hueco de la agenda
+ * de ese largo, o una pausa del modelo, también cuentan).
+ */
 export function programar(
-  ps: Propuesta[], o: { desde: number; hasta: number; banda: number[] | null; cantidad: number | null; ocupado: [number, number][]; dinero: number | null; excluir: string | null },
+  ps: Propuesta[], o: { desde: number; hasta: number; banda: number[] | null; cantidad: number | null; ocupado: [number, number][]; dinero: number | null; excluir: string | null; ciclo?: [number, number] | null },
 ): (Propuesta & { inicio: string; fin: string })[] {
   const out: (Propuesta & { inicio: string; fin: string })[] = []
   const prohibidas = (o.excluir ?? '').split(/[,;]/).map((x) => norm(x)).filter((x) => x.length >= 3)
   let cursor = o.desde
   let gastado = 0
+  let foco = 0
+  let finAnterior: number | null = null
+  let bandas = 0
+  const saltarOcupado = (min: number) => {
+    let choque = o.ocupado.find(([a, b]) => cursor < b && a < cursor + min)
+    while (choque) {
+      cursor = choque[1]
+      choque = o.ocupado.find(([a, b]) => cursor < b && a < cursor + min)
+    }
+  }
   for (const p of ps) {
-    if (o.cantidad != null && out.length >= o.cantidad) break
+    if (o.cantidad != null && bandas >= o.cantidad) break
     if (prohibidas.some((x) => norm(p.titulo).includes(x))) continue
     if (p.gasto != null) {
       if (o.dinero == null || gastado + p.gasto > o.dinero) continue
@@ -645,14 +667,24 @@ export function programar(
     }
     const pedido = Number(p.minutos) || o.banda?.[0] || 25
     const min = o.banda?.length ? o.banda.reduce((m, x) => (Math.abs(x - pedido) < Math.abs(m - pedido) ? x : m), o.banda[0]) : Math.max(5, Math.min(120, Math.round(pedido)))
-    let choque = o.ocupado.find(([a, b]) => cursor < b && a < cursor + min)
-    while (choque) {
-      cursor = choque[1]
-      choque = o.ocupado.find(([a, b]) => cursor < b && a < cursor + min)
+    saltarOcupado(min)
+    const esPausa = norm(p.categoria ?? '') === 'pausa'
+    if (o.ciclo) {
+      if (finAnterior != null && cursor - finAnterior >= o.ciclo[1]) foco = 0 // ya descansó en un hueco
+      if (!esPausa && foco > 0 && foco + min > o.ciclo[0]) {
+        if (cursor + o.ciclo[1] + min > o.hasta) break
+        out.push({ ...DESCANSO, minutos: o.ciclo[1], inicio: aHora(cursor), fin: aHora(cursor + o.ciclo[1]) })
+        cursor += o.ciclo[1]
+        foco = 0
+        saltarOcupado(min)
+      }
     }
     if (cursor + min > o.hasta) break
     out.push({ ...p, minutos: min, inicio: aHora(cursor), fin: aHora(cursor + min) })
     cursor += min
+    finAnterior = cursor
+    foco = esPausa ? 0 : foco + min
+    bandas++
   }
   return out
 }
@@ -683,6 +715,8 @@ function describirPedido(p: PedidoResuelto): string {
     p.texto ? `Lo que te dijo al pedirla: «${p.texto}»` : '',
   ].filter(Boolean).join(' ')
 }
+const SIN_DESCANSO = /sin (descansos?|pausas?|cortes?)|de corrido|de un tir[oó]n/i
+const avisoCiclo = (c: [number, number] | null) => c ? `Ciclos de ${c[0]} minutos de foco y ${c[1]} de descanso lejos de la pantalla: los descansos los mete el sistema solo, no propongas pausas salvo que él las pida.` : ''
 
 async function generar(
   db: Db, fecha: string, p: PedidoResuelto, o: { desde: number; ocupado: [number, number][]; conservadas: Mision[]; ajuste?: string | null; contexto: string; cantidad: number | null; ahora: number },
@@ -692,8 +726,10 @@ async function generar(
   const principal = principalDe(db, 'jugador')
   const terciarias = listarMisiones(db, { personaje: 'jugador', nivel: 'terciaria', estados: ['activa'], limite: 10 })
   const charla = charlaReciente(db, o.ahora, 12, 12)
+  // Los ciclos de foco y descanso, salvo que pida la run de corrido.
+  const ciclo = SIN_DESCANSO.test(`${p.texto ?? ''} ${p.formato ?? ''}`) ? null : cicloDeBandas(db)
   const usuario = [
-    `Fecha: ${fecha}. ${describirPedido(p)}`,
+    `Fecha: ${fecha}. ${describirPedido(p)} ${avisoCiclo(ciclo)}`.trim(),
     o.ajuste ? `\nCAMBIO QUE PIDE AHORA (manda sobre lo anterior): ${o.ajuste}` : '',
     o.conservadas.length ? `\nYa están en la run y se quedan (no las repitas):\n${o.conservadas.map((m) => `- ${m.inicio} ${m.titulo} [${m.estado}]`).join('\n')}` : '',
     principal ? `\nSu misión principal: ${principal.titulo}` : '',
@@ -713,7 +749,7 @@ async function generar(
   const gastado = o.conservadas.reduce((s, m) => s + (m.gasto ?? 0), 0)
   const misiones = programar(ps, {
     desde: o.desde, hasta: aMin(p.fin), banda: p.banda ?? null, cantidad: o.cantidad, ocupado: o.ocupado,
-    dinero: p.dinero != null ? Math.max(0, p.dinero - gastado) : null, excluir: p.excluir ?? null,
+    dinero: p.dinero != null ? Math.max(0, p.dinero - gastado) : null, excluir: p.excluir ?? null, ciclo,
   })
   const ref = primarias
   return { resumen: typeof datos.resumen === 'string' ? datos.resumen.trim() : null, misiones: misiones.map((m) => ({ ...m, primaria: m.primaria && ref[m.primaria - 1] ? ref[m.primaria - 1].id : null })), modelo }

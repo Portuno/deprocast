@@ -72,6 +72,11 @@ export function resumenTarjetas(db: Db, ahora = Date.now()): { mazo: string; hoy
   return db.prepare(`SELECT mazo, SUM(proxima <= ?) AS hoy, COUNT(*) AS total, SUM(intervalo >= 21) AS aprendidas FROM tarjetas WHERE estado = 'activa' GROUP BY mazo ORDER BY mazo`).all(fechaLocal(ahora)) as any[]
 }
 
+/** Las tarjetas que salieron de algo (una pieza, un turno de idioma), toquen hoy o no. */
+export function tarjetasDeOrigen(db: Db, tipo: string, id: number): Tarjeta[] {
+  return (db.prepare(`SELECT * FROM tarjetas WHERE origen_tipo = ? AND origen_id = ? AND estado = 'activa' ORDER BY id`).all(tipo, id) as any[]).map(deFila)
+}
+
 export function suspenderTarjeta(db: Db, id: number) {
   db.prepare(`UPDATE tarjetas SET estado = 'suspendida' WHERE id = ?`).run(id)
 }

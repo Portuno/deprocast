@@ -95,9 +95,11 @@ function montarMisionesVida() {
   $('#principal').innerHTML = `
     <div class="cabecera"><div class="cabecera-texto"><h1>Misiones</h1><p>La principal, las de la semana y lo que encargaste.</p></div>
       <div class="fila"><button class="btn btn-primario" id="mi-procesar" title="Lee tu memoria y tu material propio y propone historia, inventario, candidatas a misión principal y primarias">Procesarme</button></div></div>
+    <div id="mi-bucles"></div>
     <div id="mis"></div>`
   $('#mi-procesar').onclick = () => procesarme($('#mi-procesar'))
   traerMisiones()
+  pintarSeccionBucles($('#mi-bucles'))
 }
 
 /** «Cómo rendís», compacto: un anillo con la tasa general y lo mejor y lo peor de tus runs. */

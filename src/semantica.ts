@@ -280,6 +280,20 @@ export async function vectorizarItems(db: Db, limite = 256, ahora = Date.now()):
   return n
 }
 
+/** Vectores (512, normalizados) de textos sueltos, de a 32: para juntar por sentido lo que no es una pieza. null sin NaN. */
+export async function vectoresDeTextos(db: Db, textos: string[], agente = 'semantica'): Promise<(Float32Array | null)[] | null> {
+  if (!disponible()) return null
+  const out: (Float32Array | null)[] = []
+  for (let i = 0; i < textos.length; i += 32) {
+    const tanda = textos.slice(i, i + 32)
+    const r = await embedder(db, tanda.map((t) => t.slice(0, 1000)), agente)
+    tanda.forEach((_, k) => out.push(r.vectores[k]?.length ? normalizado(r.vectores[k], DIMS_P) : null))
+  }
+  return out
+}
+export const vecABlob = (v: Float32Array) => Buffer.from(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength))
+export const blobAVec = deBlob
+
 /** Los vectores de un tipo de ítem (para ordenar por sentido o juntar repetidos). */
 export function vectoresDe(db: Db, tipo: 'memoria' | 'quantomo'): Map<number, Float32Array> {
   return new Map((db.prepare('SELECT id, vec FROM vec_items WHERE tipo = ?').all(tipo) as { id: number; vec: Uint8Array }[]).map((r) => [r.id, deBlob(r.vec)]))

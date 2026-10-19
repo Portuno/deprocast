@@ -126,6 +126,12 @@ function datosDe(db: Db, origen: string, id: number, o: Partial<DatosEvento>): D
     if (!fecha) throw new Error('Esa misión no tiene fecha: decime qué día ponerla')
     return { titulo: o.titulo ?? x.titulo, fecha, hora: o.hora !== undefined ? o.hora : x.inicio ?? null, duracionMin: o.duracionMin ?? x.minutos ?? null, lugar: o.lugar ?? null, descripcion: x.detalle ?? null, deDeprocast: `mision:${id}` }
   }
+  if (origen === 'bucle') {
+    const x = db.prepare('SELECT * FROM bucles WHERE id = ?').get(id) as any
+    if (!x) throw new Error(`No existe el bucle ${id}`)
+    if (!o.fecha) throw new Error('¿Para qué día lo agendo?')
+    return { titulo: o.titulo ?? x.texto.slice(0, 160), fecha: o.fecha, hora: o.hora ?? null, duracionMin: o.duracionMin ?? 30, lugar: o.lugar ?? null, descripcion: `Lo que sigue volviendo: volvió ${x.veces} ${x.veces === 1 ? 'vez' : 'veces'}${x.primera ? ` desde el ${x.primera}` : ''} (Deprocast).`, deDeprocast: `bucle:${id}` }
+  }
   throw new Error(`No sé llevar «${origen}» al calendario`)
 }
 

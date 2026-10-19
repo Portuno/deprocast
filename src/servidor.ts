@@ -328,7 +328,7 @@ const rutas: [string, RegExp, Ruta][] = [
       proximas: listarRuns(db, { desde: fechaLocal(Date.now() + 86_400_000), estados: ['propuesta'] }).map((r) => ({ ...r, misiones: misionesDeRun(db, r.id) })),
       brujula: leerBrujula(db, fecha),
       tarjetasHoy: (db.prepare(`SELECT COUNT(*) AS n FROM tarjetas WHERE estado = 'activa' AND proxima <= ?`).get(fecha) as { n: number }).n,
-      ajustes: { primarias_semana: ajuste(db, 'primarias_semana'), tokens_dia_max: ajuste(db, 'tokens_dia_max'), pensar_cada_horas: ajuste(db, 'pensar_cada_horas'), meta_ingresos_mes: ajuste(db, 'meta_ingresos_mes'), directo_auto: ajuste(db, 'directo_auto'), fragua_por_noche: ajuste(db, 'fragua_por_noche'), horario_fijo: horarioComoTexto(leerHorario(db)) },
+      ajustes: { primarias_semana: ajuste(db, 'primarias_semana'), tokens_dia_max: ajuste(db, 'tokens_dia_max'), pensar_cada_horas: ajuste(db, 'pensar_cada_horas'), meta_ingresos_mes: ajuste(db, 'meta_ingresos_mes'), directo_auto: ajuste(db, 'directo_auto'), fragua_por_noche: ajuste(db, 'fragua_por_noche'), ciclo_bandas: ajuste(db, 'ciclo_bandas'), horario_fijo: horarioComoTexto(leerHorario(db)) },
     }
   }],
   // El HUD de Hoy: lo de cada modo que no viene en /api/hoy, y las líneas de registro de lo que se hace desde ahí
@@ -343,6 +343,7 @@ const rutas: [string, RegExp, Ruta][] = [
     return {
       agenda: eventos.map((e) => ({ titulo: e.titulo, inicio: e.inicio, fin: e.fin, todoElDia: e.todoElDia })),
       fijo: bloquesDelDia(db, fecha),
+      bucles: (await import('./bucles.ts')).listarBucles(db, { limite: 3 }).filter((b) => b.veces >= 2 || b.dias >= 14),
       rutinas: listarRutinas(db).filter((r) => r.activa && r.dias.includes(String(ahora.getDay())) && r.hora > hhmm).map((r) => ({ nombre: r.nombre, hora: r.hora })).slice(0, 4),
       salud: { kcal: salud.kcal, proteina: salud.proteina, comidas: salud.comidas, ejercicio: salud.ejercicio, sueno: salud.sueno, peso: salud.peso, metas: salud.metas, entrenosSemana: resumenSemana(db, fecha).entrenos },
       plan: enPlan ? { habitos: plan.habitos.filter((h) => h.toca), verbos: plan.dia.verbos, tareas: plan.tareas.map((t) => ({ id: t.id, titulo: t.titulo, estado: t.estado, hito: t.hito, obligatoria: t.obligatoria })) } : null,
@@ -357,6 +358,11 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/zona$/, (b) => recibirZona(db, b.zona)],
   ['POST', /^\/api\/uso$/, (b) => (anotarUso(db, 'vista', String(b.vista ?? '')), { ok: true })],
   ['POST', /^\/api\/ajustes$/, (b) => {
+    if (b.ciclo_bandas != null) {
+      const c = String(b.ciclo_bandas).trim()
+      if (!/^(0|\d{2,3}\s*\/\s*\d{1,2})$/.test(c)) throw new Error('El ciclo va como «90/20» (minutos de foco / de descanso), o 0 para no usar ciclos')
+      fijarAjuste(db, 'ciclo_bandas', c.replace(/\s+/g, ''))
+    }
     for (const k of ['primarias_semana', 'tokens_dia_max', 'pensar_cada_horas', 'directo_auto', 'fragua_por_noche']) if (b[k] != null && String(b[k]).trim()) fijarAjuste(db, k, String(b[k]).trim())
     if (b.meta_ingresos_mes != null) fijarAjuste(db, 'meta_ingresos_mes', String(b.meta_ingresos_mes).trim())
     if (b.horario_fijo != null) fijarHorario(db, String(b.horario_fijo).trim() ? horarioDeTexto(String(b.horario_fijo)) : [])
@@ -780,6 +786,17 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/idiomas\/(\d+)\/responder$/, async (b, [i]) => (await import('./idiomas.ts')).responderPractica(db, id(i), { texto: String(b.texto ?? '') })],
   ['POST', /^\/api\/idiomas\/(\d+)\/cerrar$/, async (_, [i]) => { (await import('./idiomas.ts')).cerrarPractica(db, id(i)); return { ok: true } }],
   ['POST', /^\/api\/idiomas\/voz$/, async (b) => ({ url: await (await import('./idiomas.ts')).audioDeFrase(String(b.texto ?? ''), String(b.codigo ?? ''), dirAdjuntos()) })],
+  // Lo que sigue volviendo (bucles abiertos) y lo que se aprende de lo consumido.
+  ['GET', /^\/api\/bucles$/, async (_, __, q) => { const m = await import('./bucles.ts'); return { bucles: m.listarBucles(db, { limite: Number(q.get('limite')) || 7, estado: q.get('estado') || 'abierto' }), resumen: m.resumenBucles(db) } }],
+  ['POST', /^\/api\/bucles\/(\d+)$/, async (b, [i]) => (await import('./bucles.ts')).cerrarBucle(db, id(i), String(b.final ?? ''), { fecha: b.fecha ?? null, hora: b.hora ?? null, motivo: b.motivo ?? null })],
+  ['GET', /^\/api\/piezas\/(\d+)\/recordar$/, async (_, [p]) => (await import('./consumido.ts')).recordarPieza(db, id(p))],
+  ['POST', /^\/api\/piezas\/(\d+)\/tarjetas$/, async (_, [p]) => {
+    if (!(await import('./reproceso.ts')).enLaNube()) throw new Error('Las tarjetas se arman en la nube (gastan tokens de NaN): pedilas desde tu Deprocast en la nube.')
+    const c = await import('./consumido.ts')
+    const x = db.prepare('SELECT c.id, c.titulo, c.contenido, c.url, d.salida FROM corpus c LEFT JOIN takeout_destilado d ON d.pieza_id = c.id WHERE c.id = ?').get(id(p)) as any
+    if (!x) throw new Error(`No existe la pieza ${p}`)
+    return { nuevas: await c.tarjetasDePieza(db, { ...x, salida: x.salida ?? '{}' }), ...c.recordarPieza(db, id(p)) }
+  }],
   ['GET', /^\/api\/tarjetas$/, async (_, __, q) => { const t = await import('./tarjetas.ts'); return { resumen: t.resumenTarjetas(db), paraHoy: t.paraRepasar(db, { mazo: q.get('mazo') || null, limite: Number(q.get('limite')) || 50 }) } }],
   ['POST', /^\/api\/tarjetas$/, async (b) => (await import('./tarjetas.ts')).crearTarjeta(db, { mazo: String(b.mazo || 'general'), frente: b.frente, dorso: b.dorso, contexto: b.contexto ?? null })],
   ['POST', /^\/api\/tarjetas\/(\d+)$/, async (b, [t]) => { const m = await import('./tarjetas.ts'); if (b.calidad === 'suspender') { m.suspenderTarjeta(db, id(t)); return { ok: true } } return m.responderTarjeta(db, id(t), b.calidad) }],

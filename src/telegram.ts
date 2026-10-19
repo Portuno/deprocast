@@ -36,6 +36,7 @@ import { cuadernoComoMd, descartarLink, piezaComoMd, procesarLink } from './lect
 import { abrirPractica, audioDeFrase, cerrarPractica, leerIdioma, listarIdiomas, marcarEnviada, marcarMensajePractica, practicaAbierta, practicasQueTocan, responderPractica } from './idiomas.ts'
 import { CALIDADES, leerTarjeta, paraRepasar, responderTarjeta, type Calidad } from './tarjetas.ts'
 import { dirAdjuntos } from './chat/adjuntos.ts'
+import { bucleMasViejos, cerrarBucle } from './bucles.ts'
 import path from 'node:path'
 
 const api = (metodo: string) => `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/${metodo}`
@@ -283,6 +284,7 @@ let ultimaBanda: number | null = null
 export async function latidoTelegram(db: Db) {
   if (!telegramConfigurado() || !suChat()) return
   await practicasProgramadas(db)
+  await avisoBucles(db).catch((e) => console.error('[telegram] bucles:', e instanceof Error ? e.message : e))
   if (ajuste(db, 'telegram_bandas') === '0') return
   const v = enCurso(db)
   const id = v?.actual?.id ?? null
@@ -346,7 +348,7 @@ async function comandoIdioma(db: Db, resto: string) {
   return decir('¿Cuál practicamos?', [xs.map((i) => ({ texto: `${i.nombre}${i.racha ? ` 🔥${i.racha}` : ''}`, dato: `id:${i.aprendizajeId}:abrir` }))])
 }
 
-const nombreDeMazo = (db: Db, mazo: string) => mazo.startsWith('idioma:') ? leerIdioma(db, Number(mazo.slice(7)))?.nombre ?? 'Idioma' : mazo
+const nombreDeMazo = (db: Db, mazo: string) => mazo.startsWith('idioma:') ? leerIdioma(db, Number(mazo.slice(7)))?.nombre ?? 'Idioma' : mazo === 'consumido' ? 'Lo que miraste' : mazo
 const NOMBRE_CALIDAD: Record<Calidad, string> = { otra: '↺ Otra vez', dificil: '😓 Difícil', bien: '🙂 Bien', facil: '😎 Fácil' }
 
 /** La próxima tarjeta que toca: primero solo el frente (recordar, no reconocer). */
@@ -373,6 +375,21 @@ async function practicasProgramadas(db: Db) {
       await abrirPracticaTelegram(db, i.aprendizajeId).catch((e) => console.error(`[telegram] práctica de ${i.nombre}:`, e instanceof Error ? e.message : e))
     }
   } finally { abriendoPracticas = false }
+}
+
+// ─── lo que sigue volviendo ─────────────────────────────────────────────
+
+/** Los domingos (desde las 11): los tres bucles abiertos más viejos, cada uno con sus tres finales. Una vez por semana. */
+async function avisoBucles(db: Db, ahora = Date.now()) {
+  const d = new Date(ahora)
+  if (d.getDay() !== 0 || d.getHours() < 11 || ajuste(db, 'telegram_bucles') === '0') return
+  const semana = semanaDe(ahora)
+  if (ajuste(db, 'bucles_aviso') === semana) return
+  fijarAjuste(db, 'bucles_aviso', semana)
+  const bs = bucleMasViejos(db, 3, ahora)
+  if (!bs.length) return
+  await decir(`🔁 **Lo que sigue volviendo**\nTres cosas abiertas hace rato. Cada una se termina de una de tres formas: hacerla ya, agendarla o soltarla.\n\n${bs.map((b, i) => `${i + 1}. ${b.texto}\n   _volvió ${b.veces} ${b.veces === 1 ? 'vez' : 'veces'}${b.primera ? `, desde el ${b.primera.slice(8, 10)}/${b.primera.slice(5, 7)}` : ''}_`).join('\n')}`,
+    bs.map((b, i) => [{ texto: `${i + 1} ✓ Hoy`, dato: `b:${b.id}:ya` }, { texto: '📅 Mañana', dato: `b:${b.id}:manana` }, { texto: '🗑 Soltar', dato: `b:${b.id}:soltar` }]))
 }
 
 // ─── conversar ──────────────────────────────────────────────────────────
@@ -602,6 +619,13 @@ async function boton(db: Db, q: any) {
       return decir('✋ Listo por hoy. Lo que practicaste ya cuenta en Aprender.')
     }
     return abrirPracticaTelegram(db, id)
+  }
+  if (k === 'b') {
+    const manana = fechaLocal(Date.now() + 86_400_000)
+    try {
+      const r = await cerrarBucle(db, Number(a), b === 'manana' ? 'agendar' : b === 'soltar' ? 'soltar' : 'ya', { fecha: manana })
+      return decir(b === 'soltar' ? `🗑 Soltado: «${r.bucle.texto}». No vuelve a molestar.` : b === 'manana' ? `📅 «${r.bucle.texto}» quedó para mañana${r.google ? ' en tu calendario' : ' (side quest)'}.` : `✓ «${r.bucle.texto}» quedó como side quest para hoy.`)
+    } catch (e) { return decir(e instanceof Error ? e.message : String(e)) }
   }
   if (k === 'tj') {
     const t = leerTarjeta(db, Number(a))

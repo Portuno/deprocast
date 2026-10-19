@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { abrir } from '../src/db.ts'
+import { abrir, fijarAjuste } from '../src/db.ts'
 import { _probarModelo } from '../src/modelo.ts'
 import { _probarCalendario } from '../src/calendario.ts'
 import { insertar } from '../src/corpus.ts'
@@ -109,6 +109,7 @@ test('entidades: corregir el nombre deja el viejo como alias; fusionar duplicada
 
 test('una run para mañana: arranca al inicio de la jornada y no pisa la propuesta de hoy', async () => {
   const db = abrir(':memory:')
+  fijarAjuste(db, 'ciclo_bandas', '0') // la forma exacta del pedido, sin descansos automáticos
   _probarModelo(async () => ({ texto: JSON.stringify({ resumen: 'ok', misiones: Array.from({ length: 30 }, (_, i) => ({ titulo: `T${i}`, minutos: 12 })) }), llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }))
   const hoy = await prepararRun(db, { inicio: '15:00', fin: '17:30' }, { ahora: new Date(2026, 9, 7, 14, 50).getTime() })
   assert.equal(hoy.misiones.length, 12)

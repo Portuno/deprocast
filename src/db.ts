@@ -865,6 +865,37 @@ CREATE TABLE IF NOT EXISTS idioma_turnos (
   en INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idioma_turnos_ap ON idioma_turnos(aprendizaje_id, en);
+-- Las piezas que ya dejaron sus tarjetas (lo que miró o leyó): una vez cada una, aunque no haya salido ninguna.
+CREATE TABLE IF NOT EXISTS tarjetas_piezas (
+  pieza_id INTEGER PRIMARY KEY,
+  tarjetas INTEGER NOT NULL DEFAULT 0,
+  en INTEGER NOT NULL
+);
+-- Lo que sigue volviendo: lo abierto que aparece una y otra vez (en los destilados, las side quests quietas), juntado por
+-- sentido, con cuántas veces volvió y desde cuándo. Termina de tres formas: cerrado ya, agendado o soltado.
+CREATE TABLE IF NOT EXISTS bucles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  texto TEXT NOT NULL,
+  clave TEXT NOT NULL,
+  veces INTEGER NOT NULL DEFAULT 1,
+  primera TEXT,                       -- YYYY-MM-DD
+  ultima TEXT,
+  fuentes TEXT,                       -- JSON [{origen, fecha, texto}] (las últimas 12)
+  vec BLOB,
+  estado TEXT NOT NULL DEFAULT 'abierto', -- abierto | cerrado | agendado | soltado
+  motivo TEXT,
+  mision_id INTEGER,
+  cerrado_en INTEGER,
+  creado_en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS bucles_estado ON bucles(estado);
+CREATE INDEX IF NOT EXISTS bucles_clave ON bucles(clave);
+-- Cada mención ya contada (abierto:<pieza>:<i>, mision:<id>): así no suma dos veces.
+CREATE TABLE IF NOT EXISTS bucles_vistos (
+  origen TEXT PRIMARY KEY,
+  bucle_id INTEGER,
+  en INTEGER NOT NULL
+);
 -- Lo que Deprocast llevó a su Google Calendar (una oportunidad, un evento de la Línea, una misión): así no se duplica y
 -- un cambio de fecha acá se edita allá.
 CREATE TABLE IF NOT EXISTS calendario_vinculos (
@@ -1209,6 +1240,7 @@ const AJUSTES_SISTEMA: Record<string, string> = {
   reproceso_activo: '0', // el reproceso (pasajes, destilado, eventos, relaciones) corre de fondo en la nube; lo prende él
   reproceso_rerank: '1', // el chat reordena con un modelo chico lo que trae del archivo; 0 = solo por puntaje
   directo_auto: '1', // del Directo, las ideas y lo que miró entran solas (tareas, personas y conexiones esperan su ok); 0 = todo espera
+  ciclo_bandas: '90/20', // runs: minutos de foco seguidos y de descanso lejos de la pantalla; 0 = sin ciclos
   fragua_por_noche: '3', // cuántas propuestas forja la rutina «fragua» por noche; 0 = ninguna
   lectura_obras: '10', // cuántas obras de la Librería expande la lectura nocturna
   ayudantes_auto: '1', // cada primaria aceptada sin ayudante recibe uno solo; 0 = los suma él

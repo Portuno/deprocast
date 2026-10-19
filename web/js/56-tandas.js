@@ -206,7 +206,7 @@ async function modalReproceso() {
     const ytPend = yt ? yt.cuenta.pendiente + yt.cuenta.compu : 0
     const ytPaso = ytPend ? paso({ icono: '🎬', titulo: 'Transcripciones de YouTube', que: 'Cada video que mandaste, con su transcripción; después se destila con lo importado.', hechos: yt.cuenta.listo, total: yt.cuenta.listo + ytPend, unidad: 'videos', activo: yt.trabajando || yt.compu.activa, espera: yt.cuenta.compu > 0 && !yt.compu.activa && !yt.servicio.disponible, nota: yt.cuenta.compu && !yt.compu.activa ? `${fmt(yt.cuenta.compu)} esperan tu compu: npm run mastro -- youtube ${esc(location.origin)}` : '' }) : ''
     // La frase de arriba: qué está haciendo y qué falta.
-    const QUE = { pasajes: 'cortando piezas en pasajes', recuerdos: 'preparando recuerdos y quántomos para buscarlos', destilado: 'destilando tu corpus', importado: 'destilando lo importado', takeout: mediosPend ? 'leyendo las imágenes y audios de lo importado' : 'destilando lo importado', sintesis: d.paso || 'escribiendo crónicas e historias' }
+    const QUE = { pasajes: 'cortando piezas en pasajes', recuerdos: 'preparando recuerdos y quántomos para buscarlos', destilado: 'destilando tu corpus', importado: 'destilando lo importado', tarjetas: 'armando tarjetas de lo que miraste', bucles: 'juntando lo que sigue volviendo', takeout: mediosPend ? 'leyendo las imágenes y audios de lo importado' : 'destilando lo importado', sintesis: d.paso || 'escribiendo crónicas e historias' }
     const haciendo = [...new Set([...ahora].map((k) => QUE[k]).filter(Boolean))]
     const falta = [
       mediosPend ? `${fmt(mediosPend)} imágenes y audios importados` : '',
@@ -215,6 +215,7 @@ async function modalReproceso() {
       d.destilado.pendientes ? `${fmt(d.destilado.pendientes)} piezas de tu corpus por destilar${d.destilado.horasQueFaltan ? ` (~${d.destilado.horasQueFaltan} h)` : ''}` : '',
       d.pasajes.total - d.pasajes.piezas > 0 ? `${fmt(d.pasajes.total - d.pasajes.piezas)} piezas sin pasajes` : '',
       d.items.faltan ? `${fmt(d.items.faltan)} recuerdos y quántomos` : '',
+      d.tarjetas?.faltan ? `${fmt(d.tarjetas.faltan)} videos o links por pasar a tarjetas` : '',
     ].filter(Boolean)
     const titulo = !d.activo ? '⏸ En pausa' : d.trabajando || ahora.size ? '▶ Trabajando' : falta.length ? 'Prendido, esperando' : '✓ Al día'
 
@@ -228,6 +229,7 @@ async function modalReproceso() {
       <h3 class="rp-h">Tu corpus</h3>
       ${paso({ icono: '🔎', titulo: 'Pasajes', que: 'Corta cada pieza en pedazos con sentido, para encontrar cualquier cosa al buscar.', hechos: d.pasajes.piezas, total: d.pasajes.total, unidad: 'piezas', activo: ahora.has('pasajes'), nota: [`${fmt(d.pasajes.pasajes)} pasajes en total`, d.pasajes.fallos ? `${fmt(d.pasajes.fallos)} fallaron` : ''].filter(Boolean).join(' · ') })}
       ${paso({ icono: '🧪', titulo: 'Destilado', que: 'Lee cada pieza que no vino de una importación y saca resumen, temas, ideas, personas, lugares y eventos.', hechos: d.destilado.hechos, total: dTotal, unidad: 'piezas', activo: ahora.has('destilado'), nota: [d.destilado.pendientes ? `Faltan ${fmt(d.destilado.pendientes)}` : '', d.destilado.horasQueFaltan ? `~${d.destilado.horasQueFaltan} h` : '', d.destilado.fallos ? `${fmt(d.destilado.fallos)} fallaron` : ''].filter(Boolean).join(' · ') })}
+      ${d.tarjetas ? paso({ icono: '🃏', titulo: 'Tarjetas de lo que miraste', que: 'De cada video, link o libro que valió la pena: 3 a 5 preguntas para recordarlo de verdad (no solo reconocerlo).', hechos: d.tarjetas.piezas, total: d.tarjetas.piezas + d.tarjetas.faltan, unidad: 'piezas', activo: ahora.has('tarjetas'), nota: d.tarjetas.hechas ? `${fmt(d.tarjetas.hechas)} tarjetas en «Lo que miraste»` : '' }) : ''}
       ${paso({ icono: '🧠', titulo: 'Recuerdos y quántomos', que: 'Los prepara para que se encuentren por significado, no solo por palabra.', hechos: d.items.hechos, total: itemsTotal, unidad: '', activo: ahora.has('recuerdos') })}
       <div class="rp-paso ${ahora.has('sintesis') ? 'ahora' : 'cola'}"><div class="rp-cab"><span class="rp-tit">📜 Crónicas e historias</span><span class="rp-estado">${ahora.has('sintesis') ? '● Ahora' : 'Al final'}</span></div>
         <p class="rp-que">${ahora.has('sintesis') ? esc(d.paso) : 'Cuando se vacía el destilado: la crónica de cada mes con material nuevo y la historia de cada proyecto.'}</p>
@@ -238,6 +240,8 @@ async function modalReproceso() {
         <div><b>${fmt(d.cronicas)}</b><span>crónicas de mes</span></div>
         <div><b>${fmt(d.relaciones)}</b><span>relaciones entre personas</span></div>
         <div><b>${fmt(d.items.hechos)}</b><span>recuerdos y quántomos buscables</span></div>
+        ${d.tarjetas?.hechas ? `<div><b>${fmt(d.tarjetas.hechas)}</b><span>tarjetas de lo que miraste</span></div>` : ''}
+        ${d.bucles?.abierto ? `<div><b>${fmt(d.bucles.abierto)}</b><span>cosas que siguen volviendo</span></div>` : ''}
         <div><b>${mill(d.tokens.hoy)}</b><span>tokens de NaN hoy · ${mill(d.tokens.total)} en total</span></div>
       </div>
       <div class="fila" style="margin-top:12px">${d.activo ? '<button class="btn" data-rp="pausar">Pausar</button>' : `<button class="btn btn-primario" data-rp="empezar" ${d.enLaNube ? '' : 'disabled title="Corre en la nube: prendelo desde tu Deprocast en la nube"'}>${d.destilado.hechos ? 'Procesar lo pendiente' : 'Procesar'}</button>`}

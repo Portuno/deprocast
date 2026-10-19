@@ -1213,6 +1213,22 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `importó de YouTube ${recorte(String(a.links ?? ''), 50)}`,
   },
   {
+    nombre: 'ver_bucles', familia: 'lectura',
+    descripcion: 'Lo que sigue volviendo: los bucles abiertos que más pesan (lo que quedó sin resolver en sus charlas y notas, side quests quietas), con cuántas veces volvió y desde cuándo. estado: abierto (por defecto), cerrado, agendado o soltado.',
+    parametros: S({ estado: str('abierto | cerrado | agendado | soltado'), limite: int('Cuántos (por defecto 7)') }),
+    ejecutar: async (a, { db }) => (await import('../bucles.ts')).listarBucles(db, { estado: a.estado ?? 'abierto', limite: a.limite ?? 7 }).map((b) => ({ id: b.id, texto: b.texto, veces: b.veces, desde: b.primera, ultima: b.ultima, dias: b.dias, estado: b.estado, de_donde: b.fuentes.slice(-3).map((f) => f.origen) })),
+  },
+  {
+    nombre: 'cerrar_bucle', familia: 'accion',
+    descripcion: 'Termina un bucle abierto de una de tres formas: «ya» (es corto: side quest para hoy), «agendar» (necesita fecha YYYY-MM-DD; va a su Google Calendar si está conectado) o «soltar» (decide no hacerlo; motivo opcional). Usalo solo cuando él lo decide.',
+    parametros: S({ id: int('id del bucle'), final: str('ya | agendar | soltar'), fecha: str('YYYY-MM-DD (para agendar)'), hora: str('HH:MM (opcional)'), motivo: str('Por qué lo suelta (opcional)') }, ['id', 'final']),
+    ejecutar: async (a, { db }) => {
+      const r = await (await import('../bucles.ts')).cerrarBucle(db, a.id, a.final, { fecha: a.fecha ?? null, hora: a.hora ?? null, motivo: a.motivo ?? null })
+      return { id: r.bucle.id, estado: r.bucle.estado, mision: r.misionId, google: r.google }
+    },
+    resumen: (a) => `cerró el bucle #${a.id} (${a.final})`,
+  },
+  {
     nombre: 'ver_idiomas', familia: 'lectura',
     descripcion: 'Los idiomas que está aprendiendo: nivel, por qué, racha, minutos de la semana contra la meta, charlas, frases (tarjetas) y las que tocan hoy, y las últimas correcciones.',
     parametros: S({}),
@@ -1396,7 +1412,7 @@ export const GRUPOS: Record<string, string[]> = {
   liga: ['ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
+  vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   web: ['buscar_web', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   crear: ['ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
@@ -1408,7 +1424,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox/.test(t)) g.push('liga')
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|\[confirmado\]|\[inferido\]/.test(t)) g.push('corpus')
   if (/primaria|reporte|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
-  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')
+  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')
   if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal/.test(t)) g.push('web')
   if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo/.test(t)) g.push('crear')
   return g

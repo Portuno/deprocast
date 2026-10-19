@@ -180,7 +180,7 @@ async function modalPieza(id) {
       <h2 style="margin-top:8px">${esc(p.titulo)}</h2>
       ${p.autor || p.fecha ? `<p class="tenue">${esc(p.autor ?? '')} ${esc(String(p.fecha ?? '').slice(0, 10))}</p>` : ''}
       ${p.url ? `<p><a href="${esc(p.url)}" target="_blank" rel="noopener" style="color:var(--oro-2)">${esc(p.url)}</a></p>` : ''}
-      <div class="fila" style="margin:6px 0"><a class="btn btn-chico" href="/api/corpus/${p.id}.md" download title="Bajar esta pieza como Markdown">📄 MD</a></div>
+      <div class="fila" style="margin:6px 0"><a class="btn btn-chico" href="/api/corpus/${p.id}.md" download title="Bajar esta pieza como Markdown">📄 MD</a>${['youtube', 'web'].includes(p.fuente) || p.meta?.youtube || p.meta?.recomendadoPor ? '<button class="btn btn-chico" id="p-recordar" title="Primero recordás, después mirás lo que plantea">🧠 ¿Qué te acordás?</button>' : ''}</div>
       ${p.tipo === 'enlace' && p.estado === 'pendiente' ? `<div class="fila" style="margin:10px 0"><button class="btn btn-primario" id="p-crawl">≋ Mandar a un crawler</button></div>` : ''}
       ${entidades.length ? `<div class="tags" style="margin:8px 0">${entidades.map((e) => `<span class="ent">${esc(e.tipo)} · ${esc(e.nombre)}</span>`).join('')}</div>` : ''}
       ${p.etiquetas.length ? `<div class="tags" style="margin:8px 0">${p.etiquetas.map((t) => `<span>${esc(t)}</span>`).join('')}</div>` : ''}
@@ -189,6 +189,7 @@ async function modalPieza(id) {
       ${quantomos.length ? `<div class="q-lista">${quantomos.map(quantomoHTML).join('')}</div>` : '<p class="tenue">Ninguno. Si pasa por la pipeline, el extractor propone proto-quántomos.</p>'}
       ${meta.length ? `<h3 class="sub">Metadatos</h3><pre class="json">${esc(JSON.stringify(Object.fromEntries(meta), null, 2))}</pre>` : ''}`)
     engancharQuantomos($('#modal'), () => modalPieza(id))
+    if ($('#p-recordar')) $('#p-recordar').onclick = () => recordarPiezaUI(p.id)
     const c = $('#p-crawl')
     if (c) c.onclick = async () => {
       try {
