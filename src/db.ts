@@ -880,9 +880,25 @@ CREATE TABLE IF NOT EXISTS mano_jugadas (
   etapa_antes TEXT,
   peso_antes INTEGER,
   deshecha INTEGER NOT NULL DEFAULT 0,
+  pesquisa_id INTEGER,
   en INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS mano_jugadas_en ON mano_jugadas(en);
+-- La Pesquisa: una pregunta, de 3 a 5 manos sobre ella, una síntesis y una decisión; cierra con elegir la próxima.
+CREATE TABLE IF NOT EXISTS pesquisas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pregunta TEXT NOT NULL,
+  origen TEXT NOT NULL DEFAULT 'libre', -- libre | bucle | pregunta | hipotesis
+  origen_id INTEGER,
+  fuentes TEXT,                       -- JSON: de qué fuentes se roba (vacío = de todas)
+  jokers TEXT,                        -- JSON: ids del consejo de modelos (hasta 3)
+  estado TEXT NOT NULL DEFAULT 'abierta', -- abierta | cerrada
+  decision TEXT,                      -- ya | agendar | soltar (si salió de un bucle)
+  sintesis TEXT,                      -- JSON: hipótesis, lo que faltó, lo que dijo cada joker, el abogado del diablo
+  siguiente TEXT,                     -- JSON: las tres preguntas para elegir la próxima
+  creada_en INTEGER NOT NULL,
+  cerrada_en INTEGER
+);
 -- Las sorpresas de La Mano (lo que no podía predecir), con lo que él hizo con cada una: puente no obvio (real | casualidad),
 -- la creencia que se cae (actualizo | sostengo | pruebo) y el combo con su hipótesis (real | casualidad).
 CREATE TABLE IF NOT EXISTS mano_eventos (
@@ -1330,6 +1346,8 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   ],
   // ¿Idea nueva o repetida? Contra los quántomos de antes, por sentido.
   quantomos: [['novedad', 'TEXT'], ['novedad_de', 'INTEGER'], ['novedad_sim', 'REAL']],
+  // La Mano: a qué Pesquisa pertenece cada jugada (si había una abierta).
+  mano_jugadas: [['pesquisa_id', 'INTEGER']],
   misiones: [
     ['armado', 'TEXT'], // bien | mal: si la banda estuvo bien armada
     ['progreso_manual', 'INTEGER'], // 1 = el % lo fijó él; si no, el avance de una primaria se infiere de lo hecho
@@ -1489,6 +1507,7 @@ const INDICES_RAPIDOS = `
 CREATE INDEX IF NOT EXISTS corpus_nivel ON corpus(nivel, fecha);
 CREATE INDEX IF NOT EXISTS corpus_estado ON corpus(estado);
 CREATE INDEX IF NOT EXISTS quantomos_etapa_novedad ON quantomos(etapa, novedad);
+CREATE INDEX IF NOT EXISTS mano_jugadas_pesquisa ON mano_jugadas(pesquisa_id);
 CREATE INDEX IF NOT EXISTS corpus_aporte ON corpus(json_extract(meta, '$.primaria')) WHERE json_extract(meta, '$.aporte') = 1;
 CREATE INDEX IF NOT EXISTS corpus_ayudante ON corpus(json_extract(meta, '$.ayudante')) WHERE json_extract(meta, '$.ayudante') IS NOT NULL;
 CREATE INDEX IF NOT EXISTS misiones_padre ON misiones(padre_id, nivel);

@@ -35,6 +35,8 @@ const normalizado = (v: ArrayLike<number>, dims: number) => {
   for (let i = 0; i < f.length; i++) f[i] /= n // normalizado: el coseno es un producto punto
   return f
 }
+/** Lleva un vector (de una consulta, 1024) al tamaño de los ítems (512), normalizado: para comparar con quántomos y recuerdos. */
+export const aDimsP = (v: ArrayLike<number>) => normalizado(v, DIMS_P)
 const aBlob = (v: number[], dims = DIMS) => Buffer.from(normalizado(v, dims).buffer)
 const deBlob = (b: Uint8Array) => new Float32Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength))
 const punto = (a: Float32Array, b: Float32Array) => {

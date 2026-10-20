@@ -183,7 +183,12 @@ export async function marcarNovedad(db: Db, limite = 100): Promise<number> {
 export async function parecidosA(db: Db, id: number, limite = 30): Promise<{ id: number; sim: number }[]> {
   const r = db.prepare(`SELECT vec FROM vec_items WHERE tipo = 'quantomo' AND id = ?`).get(id) as { vec: Uint8Array } | undefined
   if (!r) return []
-  const v = new Float32Array(r.vec.buffer.slice(r.vec.byteOffset, r.vec.byteOffset + r.vec.byteLength))
+  return cercanosAVector(db, new Float32Array(r.vec.buffer.slice(r.vec.byteOffset, r.vec.byteOffset + r.vec.byteLength)), limite, id)
+}
+
+/** Los quántomos más cercanos a un vector (ya del tamaño de los ítems y normalizado), sin contar el que se excluye. */
+export async function cercanosAVector(db: Db, v: Float32Array, limite = 30, excluir: number | null = null): Promise<{ id: number; sim: number }[]> {
+  const id = excluir
   const c = await vectoresDeQuantomos(db)
   const out: { id: number; sim: number }[] = []
   for (let k = 0; k < c.ids.length; k++) {

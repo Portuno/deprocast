@@ -69,7 +69,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') cerrarModal()
   const activo = document.activeElement
   const escribiendo = /INPUT|TEXTAREA|SELECT|BUTTON|A/.test(activo?.tagName ?? '') || activo?.isContentEditable
-  if (e.code === 'Space' && !escribiendo && $('#velo').hidden) { e.preventDefault(); hacerTick() }
+  // En la Criba y en La Mano el espacio pasa a la siguiente carta: ahí no corre la liga (gastaría tokens sin querer).
+  if (e.code === 'Space' && !escribiendo && $('#velo').hidden && vista !== 'criba' && vista !== 'mano') { e.preventDefault(); hacerTick() }
 })
 
 // ─── carta ──────────────────────────────────────────────────────────────

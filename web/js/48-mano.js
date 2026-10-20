@@ -13,6 +13,7 @@ const TECLAS_MANO = { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8
 function montarMano() {
   $('#principal').innerHTML = `
     <div class="titulo"><h1>La Mano</h1><div class="fila"><span class="tenue" id="mn-mazo"></span><button class="btn btn-chico" id="mn-robar" title="r">Robar otra mano</button></div></div>
+    <div class="mano-barra" id="mn-barra"></div>
     <div class="mano-sorpresas" id="mn-sorpresas"></div>
     <div class="mano-mesa">
       <div class="mano">
@@ -45,6 +46,7 @@ async function robarMano(otra) {
     manoJugadas = {}
     manoActiva = 0
     pintarMazo(r.mazo)
+    pintarBarra(r)
     pintarSorpresas(r.sorpresas)
     pintarMano()
   } catch (e) { error(e) }
@@ -54,6 +56,89 @@ function pintarMazo(m) {
   const el = $('#mn-mazo')
   const t = m.sorpresas
   if (el) el.textContent = `Mazo: ${m.total.toLocaleString('es-AR')} sin pesar · ${m.nuevas.toLocaleString('es-AR')} nuevas · ${m.variaciones.toLocaleString('es-AR')} variaciones${t?.unaCada ? ` · sorpresas ≈ 1 de ${t.unaCada}` : ''}${m.jugadasHoy ? ` · hoy jugaste ${m.jugadasHoy}` : ''}`
+}
+
+// ─── la Pesquisa, el dial y la ascensión ────────────────────────────────
+
+let manoPesquisa = null
+const DIAL = [['auto', 'Auto'], ['suave', 'Hoy suave'], ['pelea', 'Hoy pelea']]
+
+function pintarBarra(r) {
+  manoPesquisa = r.pesquisa
+  const el = $('#mn-barra')
+  if (!el) return
+  const p = r.pesquisa
+  const a = r.ascension
+  el.innerHTML = `<div class="mano-pesquisa">${p
+    ? `<span>🔎 <b>${esc(p.pregunta)}</b> <small class="tenue">${p.pesadas} pesada${p.pesadas === 1 ? '' : 's'} · ${p.sorpresas} sorpresa${p.sorpresas === 1 ? '' : 's'}${p.fuentes.length ? ` · de ${p.fuentes.map(esc).join(', ')}` : ''}${p.jokers.length ? ` · jokers: ${p.jokers.map((j) => esc(j.nombre)).join(', ')}` : ''}</small></span><button class="btn btn-chico" id="mn-cerrar-pq">Cerrar la Pesquisa</button>`
+    : '<span class="tenue">Sin Pesquisa: robás de todo. Con una pregunta, la mano trae lo que tiene que ver.</span><button class="btn btn-chico" id="mn-abrir-pq">🔎 Abrir una Pesquisa</button>'}</div>
+    <div class="mano-nivel"><span title="${esc(a.proximo ?? 'Llegaste a la última por ahora')}">Ascensión <b>${a.nivel}</b>${a.proximo ? ` <small class="tenue">· ${esc(a.proximo)}</small>` : ''}</span>
+      <span class="mano-dial">${DIAL.map(([k, n]) => `<button class="btn btn-chico${r.modo.dial === k ? ' on' : ''}" data-dial="${k}">${n}</button>`).join('')}<small class="tenue" title="${esc(r.modo.porque)}">→ ${r.modo.modo}</small></span></div>`
+  $('#mn-abrir-pq')?.addEventListener('click', modalAbrirPesquisa)
+  $('#mn-cerrar-pq')?.addEventListener('click', modalCerrarPesquisa)
+  $$('[data-dial]', el).forEach((b) => (b.onclick = async () => { try { await api('/mano/dial', { dial: b.dataset.dial }); robarMano(true) } catch (e) { error(e) } }))
+}
+
+async function modalAbrirPesquisa() {
+  let o
+  try { o = await api('/mano/opciones') } catch (e) { return error(e) }
+  const sugerencias = [...o.bucles.map((b) => ({ origen: 'bucle', id: b.id, texto: b.texto, nota: `vuelve hace ${b.veces} veces` })), ...o.preguntas.map((q) => ({ origen: 'pregunta', id: q.id, texto: q.texto, nota: 'pregunta pendiente' }))]
+  abrirModal(`<h2>🔎 Abrir una Pesquisa</h2>
+    <p class="tenue">Una pregunta, de 3 a 5 manos sobre ella y una síntesis. La build es tuya: de dónde robar y quién opina al cerrar.</p>
+    <label>La pregunta<input class="campo" id="pq-pregunta" placeholder="¿Qué querés entender?" autofocus></label>
+    ${sugerencias.length ? `<div class="pq-sug">${sugerencias.map((x, i) => `<button class="btn btn-chico" data-sug="${i}" title="${esc(x.nota)}">${esc(corto(x.texto, 70))}</button>`).join('')}</div>` : ''}
+    ${o.fuentes.length ? `<fieldset class="pq-grupo"><legend>Robar de (nada marcado = de todo)</legend>${o.fuentes.map((f) => `<label><input type="checkbox" value="${esc(f.id)}" data-fuente> ${esc(f.nombre)} <small class="tenue">${f.n}</small></label>`).join('')}</fieldset>` : ''}
+    ${o.jokers.length ? `<fieldset class="pq-grupo"><legend>Jokers (hasta 3, de tu consejo de modelos)</legend>${o.jokers.map((j) => `<label title="${j.conManual ? '' : 'Sin manual todavía: no opina hasta que lo armes'}"><input type="checkbox" value="${j.id}" data-joker> ${esc(j.nombre)}${j.conManual ? '' : ' <small class="tenue">(sin manual)</small>'}</label>`).join('')}</fieldset>` : '<p class="tenue">Sin jokers: sumá personas a tu consejo de modelos (Jugador → Modelos) para que opinen al cerrar.</p>'}
+    <div class="fila"><button class="btn" id="pq-abrir">Abrir</button><button class="btn" data-cerrar>Cancelar</button></div>`)
+  let elegida = { origen: 'libre', id: null }
+  $$('#modal [data-sug]').forEach((b) => (b.onclick = () => { const x = sugerencias[Number(b.dataset.sug)]; elegida = { origen: x.origen, id: x.id }; $('#pq-pregunta').value = x.texto }))
+  $('#pq-pregunta').oninput = () => { elegida = { origen: 'libre', id: null } }
+  $$('#modal [data-joker]').forEach((c) => (c.onchange = () => { if ($$('#modal [data-joker]:checked').length > 3) { c.checked = false; toast('Hasta 3 jokers', 'suave') } }))
+  $('#pq-abrir').onclick = async () => {
+    try {
+      await api('/mano/pesquisa', { pregunta: $('#pq-pregunta').value, origen: elegida.origen, origenId: elegida.id, fuentes: $$('#modal [data-fuente]:checked').map((c) => c.value), jokers: $$('#modal [data-joker]:checked').map((c) => Number(c.value)) })
+      cerrarModal()
+      manoSaltear = []
+      robarMano(false)
+    } catch (e) { error(e) }
+  }
+}
+
+function modalCerrarPesquisa() {
+  const p = manoPesquisa
+  if (!p) return
+  abrirModal(`<h2>Cerrar la Pesquisa</h2><p><b>${esc(p.pregunta)}</b></p>
+    <p class="tenue">${p.pesadas} carta${p.pesadas === 1 ? '' : 's'} pesada${p.pesadas === 1 ? '' : 's'}${p.pesadas < 3 ? ' (con menos de 3 es difícil que salga un combo: no pasa nada, queda lo que faltó)' : ''}.</p>
+    ${p.origen === 'bucle' ? `<fieldset class="pq-grupo"><legend>Y el bucle, ¿qué hacés?</legend>${[['', 'Lo dejo abierto'], ['ya', 'Ya (side quest para hoy)'], ['agendar', 'Lo agendo (mañana)'], ['soltar', 'Lo suelto']].map(([k, n]) => `<label><input type="radio" name="pq-dec" value="${k}"${k ? '' : ' checked'}> ${n}</label>`).join('')}</fieldset>` : ''}
+    <div class="fila"><button class="btn" id="pq-cerrar">Cerrar y ver la síntesis</button><button class="btn" data-cerrar>Seguir jugando</button></div>`)
+  $('#pq-cerrar').onclick = async (e) => {
+    e.target.disabled = true
+    e.target.textContent = 'Cerrando…'
+    try {
+      const c = await api(`/mano/pesquisa/${p.id}/cerrar`, { decision: $('#modal [name=pq-dec]:checked')?.value || null })
+      pintarSintesis(c)
+    } catch (err) { error(err); e.target.disabled = false; e.target.textContent = 'Cerrar y ver la síntesis' }
+  }
+}
+
+function pintarSintesis(c) {
+  const s = c.sintesis
+  abrirModal(`<h2>Síntesis</h2><p class="tenue">${esc(c.pregunta)}</p>
+    ${s.hipotesis ? `<div class="mano-sorpresa"><b>✦ Hipótesis</b><p>${esc(s.hipotesis.texto).replace(/\n/g, '<br>')}</p><small class="tenue">Quedó como carta: la pesás en una mano.</small></div>` : ''}
+    ${s.falto ? `<div class="mano-sorpresa respondida"><b>Lo que faltó</b><p>${esc(s.falto.texto)}</p><small class="tenue">No salió un combo: queda como pregunta. La próxima tiene más sentido.</small></div>` : ''}
+    ${s.contra ? `<div class="mano-sorpresa mano-s-contradiccion"><b>⚖ El abogado del diablo</b><p>${esc(s.contra)}</p></div>` : ''}
+    ${s.jokers.map((j) => `<div class="mano-sorpresa respondida"><b>🃏 ${esc(j.modelo)}</b><p>${esc(j.haria)}</p><small class="tenue">${esc(j.porQue)}</small></div>`).join('')}
+    ${s.nota ? `<p class="tenue">${esc(s.nota)}</p>` : ''}
+    <h3>¿Y ahora?</h3>
+    <div class="pq-sig">${(c.siguiente ?? []).map((o, i) => `<button class="btn" data-sig="${i}"><small class="tenue">${{ hipotesis: 'Poner a prueba', bucle: 'Lo que vuelve', pregunta: 'Pregunta pendiente' }[o.origen]}</small>${esc(corto(o.texto, 120))}</button>`).join('')}<button class="btn" data-sig="saltar">Saltar</button></div>`)
+  $$('#modal [data-sig]').forEach((b) => (b.onclick = async () => {
+    try {
+      await api(`/mano/pesquisa/${c.id}/siguiente`, { eleccion: b.dataset.sig })
+      cerrarModal()
+      manoSaltear = []
+      robarMano(false)
+    } catch (e) { error(e) }
+  }))
 }
 
 // ─── las sorpresas: puente, la creencia que se cae y el combo ───────────
@@ -142,7 +227,7 @@ function pintarMano() {
   const nov = NOVEDAD[c.novedad]
   const f = c.fuente
   const toca = c.toca
-  el.innerHTML = `<div class="p-top">${nov ? `<span class="mano-novedad mano-${c.novedad}" title="${nov[1]}">${nov[0]} ${c.novedad === 'variacion' ? 'variación' : c.novedad}</span>` : '<span class="tenue">sin vector todavía</span>'}${f ? `<span title="${esc(f.titulo)}">de «${esc(corto(f.titulo, 50))}»${f.fecha ? ` · ${esc(f.fecha)}` : ''}</span>` : ''}</div>
+  el.innerHTML = `<div class="p-top">${nov ? `<span class="mano-novedad mano-${c.novedad}" title="${nov[1]}">${nov[0]} ${c.novedad === 'variacion' ? 'variación' : c.novedad}</span>` : '<span class="tenue">sin vector todavía</span>'}${c.desafio ? '<span class="mano-desafio" title="Ascensión 1: es una variación de algo que pesaste alto">⚔ puede chocar con lo que creés</span>' : ''}${c.relevancia != null ? `<span class="tenue" title="Cuánto tiene que ver con la pregunta de la Pesquisa">↳ ${Math.round(c.relevancia * 100)} % con la pregunta</span>` : ''}${f ? `<span title="${esc(f.titulo)}">de «${esc(corto(f.titulo, 50))}»${f.fecha ? ` · ${esc(f.fecha)}` : ''}</span>` : ''}</div>
     <h2 class="mano-texto">${esc(c.texto)}</h2>
     ${c.parecidaA ? `<small class="tenue">${c.novedad === 'repetida' ? 'Casi igual a' : 'Se parece a'}: «${esc(corto(c.parecidaA.texto, 140))}»</small>` : ''}
     <div class="mano-toca">${toca.primaria ? `→ Primaria: <b>${esc(toca.primaria.titulo)}</b>` : '→ <span class="tenue">suelta: no toca ninguna primaria</span>'}${toca.principal ? ` · Principal: ${esc(toca.principal)}` : ''}${toca.entidades.length ? `<br><span class="tenue">Habla de ${toca.entidades.map((e) => esc(e.nombre)).join(', ')}</span>` : ''}</div>`

@@ -1004,8 +1004,18 @@ const rutas: [string, RegExp, Ruta][] = [
   // La Mano: robar cinco cartas sin pesar y jugarlas de a una (la respuesta vuelve enseguida, sin modelo).
   ['GET', /^\/api\/mano$/, async (_, __, q) => {
     const m = await import('./mano.ts')
-    return { mazo: m.composicion(db), cartas: m.robar(db, { saltear: (q.get('saltear') ?? '').split(',').filter(Boolean).map(Number) }), sorpresas: m.sorpresasPendientes(db) }
+    const pq = await import('./pesquisa.ts')
+    return {
+      mazo: m.composicion(db), cartas: await m.robarMano(db, { saltear: (q.get('saltear') ?? '').split(',').filter(Boolean).map(Number) }), sorpresas: m.sorpresasPendientes(db),
+      pesquisa: pq.pesquisaAbierta(db), modo: m.modoDeMano(db), ascension: m.ascension(db),
+    }
   }],
+  // La Pesquisa (pregunta → manos → síntesis → decisión → la próxima), el dial y las ascensiones.
+  ['GET', /^\/api\/mano\/opciones$/, async () => (await import('./pesquisa.ts')).opcionesDePesquisa(db)],
+  ['POST', /^\/api\/mano\/pesquisa$/, async (b) => (await import('./pesquisa.ts')).abrirPesquisa(db, { pregunta: b.pregunta ?? null, origen: b.origen, origenId: b.origenId == null ? null : Number(b.origenId), fuentes: Array.isArray(b.fuentes) ? b.fuentes : [], jokers: Array.isArray(b.jokers) ? b.jokers : [] })],
+  ['POST', /^\/api\/mano\/pesquisa\/(\d+)\/cerrar$/, async (b, [k]) => (await import('./pesquisa.ts')).cerrarPesquisa(db, id(k), { decision: b.decision ?? null, fecha: b.fecha ?? null })],
+  ['POST', /^\/api\/mano\/pesquisa\/(\d+)\/siguiente$/, async (b, [k]) => ({ pesquisa: (await import('./pesquisa.ts')).elegirSiguiente(db, id(k), b.eleccion === 'saltar' ? 'saltar' : Number(b.eleccion)) })],
+  ['POST', /^\/api\/mano\/dial$/, async (b) => (await import('./mano.ts')).fijarDial(db, String(b.dial ?? ''))],
   ['GET', /^\/api\/mano\/sorpresas$/, async () => ({ sorpresas: (await import('./mano.ts')).sorpresasPendientes(db) })],
   ['POST', /^\/api\/mano\/choque$/, async (b) => (await import('./mano.ts')).marcarChoque(db, Number(b.nueva), Number(b.vieja))],
   ['POST', /^\/api\/mano\/sorpresas\/(\d+)$/, async (b, [k]) => (await import('./mano.ts')).responderSorpresa(db, id(k), String(b.respuesta ?? ''), b.porque ?? null)],

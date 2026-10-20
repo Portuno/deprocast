@@ -7,7 +7,8 @@
  */
 import { ajuste, fechaLocal, fijarAjuste, json, type Db } from './db.ts'
 import { anotar } from './decisiones.ts'
-import { crearQuantomo, descartar, leerQuantomo, parecidosA, sellar, UMBRAL_VARIACION, type Quantomo } from './quantomos.ts'
+import { cercanosAVector, crearQuantomo, descartar, leerQuantomo, parecidosA, sellar, UMBRAL_VARIACION, type Quantomo } from './quantomos.ts'
+import { aDimsP, vectorDe } from './semantica.ts'
 import { anotarSideQuest, principalDe } from './misiones.ts'
 import { pedirJson } from './modelo.ts'
 import { enLaNube } from './reproceso.ts'
@@ -29,6 +30,10 @@ export type Carta = {
   parecidaA: { id: number; texto: string; sim: number } | null
   fuente: Fuente | null
   toca: Toca
+  /** Ascensión 1: puede chocar con algo que pesó alto (es variación de algo sellado ≥ 9). */
+  desafio?: boolean
+  /** En una Pesquisa: cuánto tiene que ver con la pregunta. */
+  relevancia?: number
 }
 export type Vecino = { id: number; texto: string; peso: number | null; sim: number; fecha: string | null }
 
@@ -38,8 +43,15 @@ export const UMBRAL_VECINO = 0.55
 export const PESO_CREENCIA = 9
 
 // Primero lo nuevo de verdad que llegó esta semana (lo más reciente arriba: es lo que anuncia el aviso de Hoy); después
-// lo nuevo de antes, las variaciones y lo repetido al final. Dentro de cada grupo, un orden mezclado pero fijo por día.
-const ORDEN = `CASE WHEN q.novedad = 'nueva' AND q.creado_en > ? THEN -q.creado_en ELSE 0 END, CASE q.novedad WHEN 'nueva' THEN 0 WHEN 'variacion' THEN 1 WHEN 'repetida' THEN 3 ELSE 2 END, (q.id * 2654435761 + ?) % 1000003`
+// lo nuevo de antes, las variaciones y lo repetido al final (en modo suave, lo familiar antes que lo nuevo; en pelea con la
+// ascensión 2, lo de afuera antes que lo propio). Dentro de cada grupo, un orden mezclado pero fijo por día.
+function orden(modo: Modo, externas: boolean) {
+  const novedad = modo === 'suave'
+    ? `CASE q.novedad WHEN 'variacion' THEN 0 WHEN 'nueva' THEN 1 WHEN 'repetida' THEN 3 ELSE 2 END`
+    : `CASE q.novedad WHEN 'nueva' THEN 0 WHEN 'variacion' THEN 1 WHEN 'repetida' THEN 3 ELSE 2 END`
+  const afuera = modo === 'pelea' && externas ? `CASE WHEN c.nivel = 'propia' THEN 1 ELSE 0 END, ` : ''
+  return `CASE WHEN q.novedad = 'nueva' AND q.creado_en > ? THEN -q.creado_en ELSE 0 END, ${afuera}${novedad}, (q.id * 2654435761 + ?) % 1000003`
+}
 const SEMANA = 7 * 86_400_000
 const semilla = (ahora: number) => Number(fechaLocal(ahora).replace(/-/g, ''))
 
@@ -91,13 +103,115 @@ export function nuevasParaJugar(db: Db, ahora = Date.now()): number {
   return (db.prepare(`SELECT COUNT(*) AS n FROM quantomos WHERE etapa = 'proto' AND novedad = 'nueva' AND creado_en > ?`).get(desde) as { n: number }).n
 }
 
-/** Una mano: hasta n cartas sin pesar, lo nuevo primero, en un orden fijo por día. */
+/** Una mano: hasta n cartas sin pesar, lo nuevo primero, en un orden fijo por día (según el modo y la ascensión). */
 export function robar(db: Db, o: { n?: number; saltear?: number[]; ahora?: number } = {}): Carta[] {
+  const ahora = o.ahora ?? Date.now()
+  const n = Math.min(Math.max(o.n ?? 5, 1), 12)
   const saltear = (o.saltear ?? []).filter(Number.isFinite).slice(-200)
-  const filas = db.prepare(`SELECT q.id FROM quantomos q WHERE q.etapa = 'proto'
+  const { modo } = modoDeMano(db)
+  const asc = ascension(db)
+  const filas = db.prepare(`SELECT q.id FROM quantomos q LEFT JOIN corpus c ON c.id = q.pieza_id WHERE q.etapa = 'proto'
       ${saltear.length ? `AND q.id NOT IN (${saltear.map(() => '?').join(',')})` : ''}
-    ORDER BY ${ORDEN} LIMIT ?`).all(...saltear, (o.ahora ?? Date.now()) - SEMANA, semilla(o.ahora ?? Date.now()), Math.min(Math.max(o.n ?? 5, 1), 12)) as { id: number }[]
-  return filas.map((f) => carta(db, leerQuantomo(db, f.id)!))
+    ORDER BY ${orden(modo, asc.externas)} LIMIT ?`).all(...saltear, ahora - SEMANA, semilla(ahora), n) as { id: number }[]
+  const cartas = filas.map((f) => carta(db, leerQuantomo(db, f.id)!))
+  return conDesafio(db, cartas, saltear, asc.desafio)
+}
+
+/**
+ * Ascensión 1: en cada mano entra una carta que puede chocar con lo que cree (una variación de algo que pesó ≥ 9), si no
+ * vino ya. Reemplaza a la última; nunca a lo recién llegado que anuncia el aviso.
+ */
+function conDesafio(db: Db, cartas: Carta[], saltear: number[], activo: boolean): Carta[] {
+  if (!activo || cartas.length < 3) return cartas
+  const fuerte = db.prepare(`SELECT id FROM quantomos WHERE etapa = 'sellado' AND peso >= ? AND id = ?`)
+  for (const c of cartas) {
+    const q = leerQuantomo(db, c.id)
+    if (q?.novedad === 'variacion' && q.novedadDe && fuerte.get(PESO_CREENCIA, q.novedadDe)) { c.desafio = true; return cartas }
+  }
+  const fuera = [...saltear, ...cartas.map((c) => c.id)]
+  const r = db.prepare(`SELECT q.id FROM quantomos q JOIN quantomos v ON v.id = q.novedad_de AND v.etapa = 'sellado' AND v.peso >= ?
+    WHERE q.etapa = 'proto' AND q.novedad = 'variacion' AND q.id NOT IN (${fuera.map(() => '?').join(',')}) ORDER BY q.id DESC LIMIT 1`).get(PESO_CREENCIA, ...fuera) as { id: number } | undefined
+  if (!r) return cartas
+  return [...cartas.slice(0, -1), { ...carta(db, leerQuantomo(db, r.id)!), desafio: true }]
+}
+
+/**
+ * La mano de verdad: si hay una Pesquisa abierta, lo que más tiene que ver con su pregunta (por sentido en la nube; en la
+ * compu o sin vectores, por palabras), de las fuentes que eligió; lo que falte se completa con la mano de siempre.
+ */
+export async function robarMano(db: Db, o: { n?: number; saltear?: number[]; ahora?: number } = {}): Promise<Carta[]> {
+  const pq = db.prepare(`SELECT id, pregunta, fuentes FROM pesquisas WHERE estado = 'abierta' ORDER BY id DESC LIMIT 1`).get() as { id: number; pregunta: string; fuentes: string | null } | undefined
+  if (!pq) return robar(db, o)
+  const n = Math.min(Math.max(o.n ?? 5, 1), 12)
+  const saltear = new Set((o.saltear ?? []).filter(Number.isFinite))
+  const fuentes: string[] = json(pq.fuentes, [])
+  const deFuente = (ids: number[]) => ids.length ? new Set((db.prepare(`SELECT q.id FROM quantomos q LEFT JOIN corpus c ON c.id = q.pieza_id
+    WHERE q.etapa = 'proto' AND q.id IN (${ids.map(() => '?').join(',')})${fuentes.length ? ` AND c.fuente IN (${fuentes.map(() => '?').join(',')})` : ''}`).all(...ids, ...fuentes) as { id: number }[]).map((r) => r.id)) : new Set<number>()
+  let elegidas: { id: number; sim: number | null }[] = []
+  let v: Float32Array | null = null
+  // El vector de la pregunta gasta tokens (embedding): solo en la nube. En la compu, por palabras.
+  if (nube()) try { v = await vectorDe(db, pq.pregunta) } catch { /* sin vectores: por palabras */ }
+  if (v) {
+    const cerca = (await cercanosAVector(db, aDimsP(v), 400)).filter((x) => !saltear.has(x.id) && x.sim >= 0.3)
+    const ok = deFuente(cerca.map((x) => x.id))
+    elegidas = cerca.filter((x) => ok.has(x.id)).slice(0, n)
+  } else {
+    const palabras = [...new Set(pq.pregunta.toLowerCase().match(/[a-záéíóúñü]{5,}/g) ?? [])].slice(0, 6)
+    if (palabras.length) {
+      const ids = (db.prepare(`SELECT id FROM quantomos WHERE etapa = 'proto' AND (${palabras.map(() => 'texto LIKE ?').join(' OR ')}) ORDER BY id DESC LIMIT 200`).all(...palabras.map((w) => `%${w}%`)) as { id: number }[]).map((r) => r.id).filter((i) => !saltear.has(i))
+      const ok = deFuente(ids)
+      elegidas = ids.filter((i) => ok.has(i)).slice(0, n).map((id) => ({ id, sim: null }))
+    }
+  }
+  const cartas: Carta[] = elegidas.map((x) => ({ ...carta(db, leerQuantomo(db, x.id)!), ...(x.sim == null ? {} : { relevancia: x.sim }) }))
+  if (cartas.length < n) cartas.push(...robar(db, { ...o, n: n - cartas.length, saltear: [...saltear, ...cartas.map((c) => c.id)] }))
+  return cartas
+}
+
+// ─── el modo (dial y flujo) y la ascensión ──────────────────────────────
+
+export type Modo = 'suave' | 'normal' | 'pelea'
+export const DIALES = ['auto', 'suave', 'pelea'] as const
+
+/**
+ * El canal de flujo: si él no eligió (dial «auto»), se lee de sus últimas 10 cartas. Si descartó más de la mitad, vienen
+ * más cercanas (suave); si viene sellando fácil (todo pesado, en promedio ≥ 8, sin choques), sube la distancia (pelea).
+ */
+export function modoDeMano(db: Db): { dial: string; modo: Modo; porque: string } {
+  const dial = ajuste(db, 'mano_dial') ?? 'auto'
+  if (dial === 'suave' || dial === 'pelea') return { dial, modo: dial, porque: 'lo elegiste vos' }
+  const ult = db.prepare(`SELECT gesto, peso FROM mano_jugadas WHERE deshecha = 0 ORDER BY id DESC LIMIT 10`).all() as { gesto: string; peso: number | null }[]
+  if (ult.length < 6) return { dial: 'auto', modo: 'normal', porque: 'todavía pocas cartas para leer cómo venís' }
+  if (ult.filter((j) => j.gesto === 'descartar').length / ult.length > 0.6) return { dial: 'auto', modo: 'suave', porque: 'descartaste más de la mitad: vienen más cercanas a lo que ya pesaste' }
+  const pesadas = ult.filter((j) => j.gesto === 'peso')
+  if (pesadas.length === ult.length && pesadas.reduce((a, j) => a + (j.peso ?? 0), 0) / pesadas.length >= 8) return { dial: 'auto', modo: 'pelea', porque: 'venís sellando fácil y alto: subo la distancia' }
+  return { dial: 'auto', modo: 'normal', porque: 'en el canal' }
+}
+
+export function fijarDial(db: Db, dial: string) {
+  if (!(DIALES as readonly string[]).includes(dial)) throw new Error(`El dial es ${DIALES.join(', ')}`)
+  fijarAjuste(db, 'mano_dial', dial)
+  return modoDeMano(db)
+}
+
+/**
+ * Las ascensiones: cuando dominás un nivel, el juego no te deja «terminado», te abre el siguiente. Se ganan con lo que
+ * hiciste, no con volumen: A1 tres Pesquisas cerradas (entran cartas que pueden chocar con lo que creés); A2 diez sorpresas
+ * respondidas con menos de la mitad «casualidad» (en pelea, se roba de afuera); A3 tres combos que dijiste que valen (un
+ * abogado del diablo contra cada hipótesis).
+ */
+export function ascension(db: Db) {
+  const cerradas = (db.prepare(`SELECT COUNT(*) AS n FROM pesquisas WHERE estado = 'cerrada'`).get() as { n: number }).n
+  const r = db.prepare(`SELECT COUNT(*) AS n, SUM(estado = 'casualidad') AS c FROM mano_eventos WHERE estado NOT IN ('pendiente', 'sin_hipotesis')`).get() as { n: number; c: number | null }
+  const combos = (db.prepare(`SELECT COUNT(*) AS n FROM mano_eventos WHERE tipo = 'combo' AND estado = 'real'`).get() as { n: number }).n
+  const a1 = cerradas >= 3
+  const a2 = a1 && r.n >= 10 && (r.c ?? 0) / r.n < 0.5
+  const a3 = a2 && combos >= 3
+  const nivel = a3 ? 3 : a2 ? 2 : a1 ? 1 : 0
+  const proximo = !a1 ? `A1: cerrá ${3 - cerradas} Pesquisa${3 - cerradas === 1 ? '' : 's'} más`
+    : !a2 ? `A2: respondé ${Math.max(0, 10 - r.n)} sorpresas más (y que menos de la mitad sean casualidad)`
+    : !a3 ? `A3: ${3 - combos} combo${3 - combos === 1 ? '' : 's'} más que valga${3 - combos === 1 ? '' : 'n'}` : null
+  return { nivel, proximo, desafio: a1, externas: a2, adversario: a3 }
 }
 
 /** Lo sellado más parecido a un quántomo, con su parecido y la fecha de su pieza. */
@@ -138,8 +252,9 @@ export async function jugar(db: Db, id: number, g: { gesto: Gesto; peso?: number
   if (g.gesto === 'peso') sellar(db, id, Number(g.peso), ahora)
   else if (g.gesto === 'descartar') descartar(db, id, ahora)
   const porque = String(g.porque ?? '').trim().slice(0, 500) || null
-  const jugadaId = Number(db.prepare(`INSERT INTO mano_jugadas (quantomo_id, gesto, peso, porque, etapa_antes, peso_antes, en) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, g.gesto, g.gesto === 'peso' ? Number(g.peso) : null, porque, q.etapa, q.peso, ahora).lastInsertRowid)
+  const pesquisa = (db.prepare(`SELECT id FROM pesquisas WHERE estado = 'abierta' ORDER BY id DESC LIMIT 1`).get() as { id: number } | undefined)?.id ?? null
+  const jugadaId = Number(db.prepare(`INSERT INTO mano_jugadas (quantomo_id, gesto, peso, porque, etapa_antes, peso_antes, pesquisa_id, en) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, g.gesto, g.gesto === 'peso' ? Number(g.peso) : null, porque, q.etapa, q.peso, pesquisa, ahora).lastInsertRowid)
   const despues = leerQuantomo(db, id)!
   const cerca = g.gesto === 'descartar' ? [] : await selladosCerca(db, id)
   const sorpresas: Sorpresa[] = []
@@ -206,7 +321,7 @@ export const COMBO_SIM = 0.7
 const SESION = 2 * 3_600_000
 
 const pendientes = new Set<Promise<unknown>>()
-function enFondo(p: Promise<unknown>) {
+export function enFondo(p: Promise<unknown>) {
   const q: Promise<unknown> = p.catch((e) => console.error('  mano:', e instanceof Error ? e.message : e)).finally(() => pendientes.delete(q))
   pendientes.add(q)
 }
@@ -217,6 +332,9 @@ export async function _esperarFondo() {
 let modelo = async (db: Db, sistema: string, usuario: string): Promise<any> =>
   (await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'mano' }, sistema, usuario, { temperatura: 0.3, maxTokens: 700 })).datos
 let nube = enLaNube
+/** Para la Pesquisa: el mismo modelo y la misma regla de la nube que La Mano (y lo mismo para probar). */
+export const preguntarModelo = (db: Db, sistema: string, usuario: string) => modelo(db, sistema, usuario)
+export const enNube = () => nube()
 export function _probarMano(o: { modelo?: typeof modelo; nube?: () => boolean }) {
   if (o.modelo) modelo = o.modelo
   if (o.nube) nube = o.nube
@@ -300,8 +418,9 @@ function parecido(vecs: Map<number, Float32Array>, a: number, b: number): number
 function buscarCombo(db: Db, q: Quantomo, jugadaId: number, ahora: number): Sorpresa | null {
   const usadas = new Set((db.prepare(`SELECT ids FROM mano_eventos WHERE tipo = 'combo' AND creado_en >= ?`).all(ahora - SESION) as { ids: string }[]).flatMap((r) => json<number[]>(r.ids, [])))
   if (usadas.has(q.id)) return null
+  const pesquisa = (db.prepare('SELECT pesquisa_id FROM mano_jugadas WHERE id = ?').get(jugadaId) as { pesquisa_id: number | null } | undefined)?.pesquisa_id ?? null
   const sesion = (db.prepare(`SELECT DISTINCT j.quantomo_id AS id FROM mano_jugadas j JOIN quantomos q ON q.id = j.quantomo_id
-    WHERE j.gesto = 'peso' AND j.deshecha = 0 AND j.en >= ? AND q.etapa = 'sellado' AND j.quantomo_id != ?`).all(ahora - SESION, q.id) as { id: number }[])
+    WHERE j.gesto = 'peso' AND j.deshecha = 0 AND ${pesquisa ? 'j.pesquisa_id = ?' : 'j.en >= ?'} AND q.etapa = 'sellado' AND j.quantomo_id != ?`).all(pesquisa ?? ahora - SESION, q.id) as { id: number }[])
     .map((r) => r.id).filter((i) => !usadas.has(i))
   if (sesion.length < 2) return null
   const ids = [q.id, ...sesion]
