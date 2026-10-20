@@ -50,7 +50,7 @@ export function espacioDeProyecto(db: Db, entidadId: number) {
   const agentes = liga ? listar(db, { proyectoId: liga.id }) : []
   const ayudantes = primarias.flatMap((m) => ayudantesDe(db, m.id).map((a) => ({ primaria: m.titulo, agente: a.agente ? `${a.agente.id} ${a.agente.nombre ?? ''}`.trim() : null })))
   const { piezas, total } = listarPiezas(db, { entidad: entidadId, limite: 15 })
-  const historia = db.prepare(`SELECT id, titulo, contenido, fecha FROM corpus WHERE fuente = 'takeout-historia' AND entidades IS NOT NULL AND EXISTS (SELECT 1 FROM json_each(corpus.entidades) j WHERE j.value = ?) ORDER BY id DESC LIMIT 1`).get(entidadId) as { id: number; titulo: string; contenido: string; fecha: string } | undefined
+  const historia = db.prepare(`SELECT id, titulo, contenido, fecha FROM corpus WHERE fuente = 'takeout-historia' AND id IN (SELECT pieza_id FROM corpus_entidades WHERE entidad_id = ?) ORDER BY id DESC LIMIT 1`).get(entidadId) as { id: number; titulo: string; contenido: string; fecha: string } | undefined
   const nombres = [e.nombre, ...e.alias].map(norm)
   const cuadernos = listarCuadernos(db).filter((c) => nombres.some((n) => n && norm(c.titulo).includes(n))).map((c) => ({ id: c.id, titulo: c.titulo, fuentes: c.fuentes.length, notas: c.notas }))
   const plata = listarMovimientos(db, { limite: 5000 }).filter((m) => m.entidadId === entidadId)

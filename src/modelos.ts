@@ -81,7 +81,7 @@ const txt = (x: unknown, n = 400) => String(x ?? '').trim().slice(0, n)
 export async function armarManual(db: Db, id: number, ahora = Date.now()): Promise<Modelo> {
   const m = leerModelo(db, id)
   if (!m) throw new Error(`#${id} no está en tu consejo de modelos`)
-  const suyas = db.prepare(`SELECT id, titulo, contenido, fecha FROM corpus WHERE EXISTS (SELECT 1 FROM json_each(corpus.entidades) WHERE value = ?) AND fuente != 'modelos' ORDER BY COALESCE(fecha, '') DESC LIMIT 12`).all(id) as any[]
+  const suyas = db.prepare(`SELECT id, titulo, contenido, fecha FROM corpus WHERE id IN (SELECT pieza_id FROM corpus_entidades WHERE entidad_id = ?) AND fuente != 'modelos' ORDER BY COALESCE(fecha, '') DESC LIMIT 12`).all(id) as any[]
   const halladas = (await buscarHibrido(db, m.nombre, 8).catch(() => [])).filter((p) => p.fuente !== 'modelos' && !suyas.some((s) => s.id === p.id))
   const deLaWeb = await web(db, `${m.nombre} principios cómo trabaja cómo decide entrevista`)
   const material = [

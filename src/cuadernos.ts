@@ -78,7 +78,7 @@ function piezasDeEntidad(db: Db, entidadId: number, limite: number) {
 
 function quantomosDeEntidad(db: Db, entidadId: number, limite: number) {
   const donde = `q.etapa NOT IN ('superado', 'descartado') AND q.pieza_id IS NOT NULL
-    AND EXISTS (SELECT 1 FROM corpus c, json_each(c.entidades) j WHERE c.id = q.pieza_id AND j.value = ?)`
+    AND q.pieza_id IN (SELECT pieza_id FROM corpus_entidades WHERE entidad_id = ?)`
   const total = (db.prepare(`SELECT COUNT(*) AS n FROM quantomos q WHERE ${donde}`).get(entidadId) as { n: number }).n
   const filas = db.prepare(
     `SELECT q.id, q.titulo, q.texto, q.etapa, q.peso, q.pieza_id AS piezaId FROM quantomos q WHERE ${donde} ORDER BY q.peso IS NULL, q.peso DESC, q.id DESC LIMIT ?`,

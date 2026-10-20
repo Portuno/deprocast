@@ -53,9 +53,9 @@ export function listarEntidades(db: Db, f: { tipo?: string; q?: string; id?: num
   if (f.q) where.push('(e.nombre LIKE ? OR e.alias LIKE ?)'), args.push(`%${f.q}%`, `%${f.q}%`)
   if (f.id) where.push('e.id = ?'), args.push(f.id)
   const w = where.length ? `WHERE ${where.join(' AND ')}` : ''
+  // Las piezas de cada una salen de corpus_entidades (con índice): antes se recorría todo el corpus con json_each.
   return db.prepare(
-    `WITH usos AS (SELECT j.value AS id, COUNT(*) AS n FROM corpus c, json_each(c.entidades) j WHERE c.entidades IS NOT NULL GROUP BY j.value)
-     SELECT e.*, COALESCE(u.n, 0) AS piezas FROM entidades e LEFT JOIN usos u ON u.id = e.id ${w} ORDER BY piezas DESC, e.nombre LIMIT ? OFFSET ?`,
+    `SELECT e.*, (SELECT COUNT(*) FROM corpus_entidades ce WHERE ce.entidad_id = e.id) AS piezas FROM entidades e ${w} ORDER BY piezas DESC, e.nombre LIMIT ? OFFSET ?`,
   ).all(...args, f.limite ?? 60, f.desde ?? 0).map(deFila)
 }
 
@@ -68,14 +68,15 @@ export function contarEntidades(db: Db, f: { tipo?: string; q?: string } = {}): 
 }
 
 export function leerEntidad(db: Db, id: number): Entidad | null {
-  return listarEntidades(db, { id, limite: 1 })[0] ?? null
+  const r = db.prepare('SELECT e.*, (SELECT COUNT(*) FROM corpus_entidades ce WHERE ce.entidad_id = e.id) AS piezas FROM entidades e WHERE e.id = ?').get(id)
+  return r ? deFila(r) : null
 }
 
 /** Con quién aparece: entidades que comparten piezas con esta, por cantidad de piezas compartidas. */
 export function coocurrencias(db: Db, id: number, limite = 12): (Entidad & { compartidas: number })[] {
   return (db.prepare(
-    `SELECT e.*, COUNT(*) AS compartidas FROM corpus c, json_each(c.entidades) a, json_each(c.entidades) b JOIN entidades e ON e.id = b.value
-     WHERE c.entidades IS NOT NULL AND a.value = ? AND b.value != ? GROUP BY e.id ORDER BY compartidas DESC, e.nombre LIMIT ?`,
+    `SELECT e.*, COUNT(*) AS compartidas FROM corpus_entidades a JOIN corpus_entidades b ON b.pieza_id = a.pieza_id JOIN entidades e ON e.id = b.entidad_id
+     WHERE a.entidad_id = ? AND b.entidad_id != ? GROUP BY e.id ORDER BY compartidas DESC, e.nombre LIMIT ?`,
   ).all(id, id, limite) as any[]).map((r) => ({ ...deFila(r), compartidas: r.compartidas }))
 }
 
@@ -121,7 +122,7 @@ export function fusionarEntidades(db: Db, destino: number, origenes: number[]): 
   if (!os.length) return d
   db.exec('BEGIN')
   try {
-    const piezas = db.prepare(`SELECT DISTINCT c.id, c.entidades FROM corpus c, json_each(c.entidades) j WHERE j.value IN (${os.map(() => '?').join(',')})`).all(...os.map((o) => o.id)) as { id: number; entidades: string }[]
+    const piezas = db.prepare(`SELECT DISTINCT c.id, c.entidades FROM corpus_entidades ce JOIN corpus c ON c.id = ce.pieza_id WHERE ce.entidad_id IN (${os.map(() => '?').join(',')})`).all(...os.map((o) => o.id)) as { id: number; entidades: string }[]
     const upd = db.prepare('UPDATE corpus SET entidades = ? WHERE id = ?')
     for (const p of piezas) {
       const ids = [...new Set(json<number[]>(p.entidades, []).map((x) => (os.some((o) => o.id === x) ? destino : x)))]

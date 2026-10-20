@@ -16,7 +16,7 @@ const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,
 export function catalogo(db: Db): Mencionable[] {
   const yo = entidadDelJugador(db)
   const ents = (db.prepare(
-    `WITH usos AS (SELECT j.value AS id, COUNT(*) AS n FROM corpus c, json_each(c.entidades) j WHERE c.entidades IS NOT NULL GROUP BY j.value)
+    `WITH usos AS (SELECT entidad_id AS id, COUNT(*) AS n FROM corpus_entidades GROUP BY entidad_id)
      SELECT e.id, e.nombre, e.tipo, e.alias, COALESCE(u.n, 0) AS piezas FROM entidades e LEFT JOIN usos u ON u.id = e.id ORDER BY piezas DESC, e.nombre`,
   ).all() as { id: number; nombre: string; tipo: string; alias: string | null; piezas: number }[])
     .map((e) => ({ clave: e.id === yo ? 'jugador' : `entidad:${e.id}`, nombre: e.nombre, tipo: e.id === yo ? 'vos' : e.tipo, alias: json<string[]>(e.alias, []), piezas: e.piezas }))

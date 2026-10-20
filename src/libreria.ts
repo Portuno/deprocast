@@ -134,11 +134,11 @@ Forma: {"obras": [{"tipo": "libro"|"pelicula"|"serie"|"videojuego"|"paper", "tit
 function textosCandidatos(db: Db, limite: number): { id: number; texto: string }[] {
   const lib = db.prepare(`SELECT id FROM entidades WHERE nombre LIKE '%ibroteca%' OR nombre LIKE '%Librería%' LIMIT 1`).get() as any
   const filas = db.prepare(`SELECT c.id, c.titulo, c.contenido FROM corpus c WHERE c.nivel != 'generada' AND (
-      ${lib ? `EXISTS (SELECT 1 FROM json_each(c.entidades) WHERE value = ${Number(lib.id)}) OR` : ''}
+      ${lib ? `c.id IN (SELECT pieza_id FROM corpus_entidades WHERE entidad_id = ${Number(lib.id)}) OR` : ''}
       c.contenido LIKE '%libro%' OR c.contenido LIKE '%novela%' OR c.contenido LIKE '%película%' OR c.contenido LIKE '%pelicula%' OR c.contenido LIKE '%serie %'
       OR c.contenido LIKE '%videojuego%' OR c.contenido LIKE '%film%' OR c.contenido LIKE '%book%' OR c.contenido LIKE '%paper%' OR c.contenido LIKE '%ensayo%')
     AND NOT EXISTS (SELECT 1 FROM libreria_leidas l WHERE l.pieza_id = c.id)
-    ORDER BY ${lib ? `EXISTS (SELECT 1 FROM json_each(c.entidades) WHERE value = ${Number(lib.id)}) DESC,` : ''} c.id DESC LIMIT ?`).all(limite) as any[]
+    ORDER BY ${lib ? `c.id IN (SELECT pieza_id FROM corpus_entidades WHERE entidad_id = ${Number(lib.id)}) DESC,` : ''} c.id DESC LIMIT ?`).all(limite) as any[]
   return filas.map((r) => ({ id: r.id, texto: `${r.titulo}\n${String(r.contenido).slice(0, 1800)}` }))
 }
 

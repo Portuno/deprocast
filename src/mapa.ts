@@ -93,7 +93,7 @@ export async function puntosDelMapa(db: Db, capas: Set<string> = new Set(CAPAS_M
 
   if (capas.has('lugar')) {
     // Cuántas veces aparece cada lugar en el corpus (una sola pasada).
-    const menciones = new Map((db.prepare(`SELECT CAST(j.value AS INTEGER) AS id, COUNT(*) AS n FROM corpus c, json_each(c.entidades) j WHERE c.entidades IS NOT NULL GROUP BY j.value`).all() as { id: number; n: number }[]).map((r) => [r.id, r.n]))
+    const menciones = new Map((db.prepare(`SELECT entidad_id AS id, COUNT(*) AS n FROM corpus_entidades GROUP BY entidad_id`).all() as { id: number; n: number }[]).map((r) => [r.id, r.n]))
     for (const l of lugares) {
       const p = posDeLugar.get(l.id)
       if (p) puntos.push({ id: `lugar:${l.id}`, capa: 'lugar', titulo: l.nombre, ...p, detalle: l.notas, fecha: null, ref: { tipo: 'entidad', id: l.id }, peso: menciones.get(l.id) ?? 0 })

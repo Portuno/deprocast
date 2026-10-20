@@ -28,9 +28,13 @@ export function resolverRuta(): string {
 export function abrir(ruta: string = resolverRuta()): Db {
   if (ruta !== ':memory:') fs.mkdirSync(path.dirname(ruta), { recursive: true })
   const db = new DatabaseSync(ruta)
-  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;')
+  // WAL + synchronous NORMAL (seguro con WAL), 64 MB de caché, el archivo mapeado en memoria, lo temporal en RAM y
+  // esperar un rato si otro proceso escribe (en vez de fallar al toque).
+  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL; PRAGMA cache_size = -65536; PRAGMA mmap_size = 268435456; PRAGMA temp_store = MEMORY; PRAGMA busy_timeout = 5000;')
   db.exec(ESQUEMA)
   migrar(db)
+  // Estadísticas para el planificador (solo donde hacen falta: es barato).
+  try { db.exec('PRAGMA optimize = 0x10002') } catch { /* SQLite viejo */ }
   return db
 }
 
@@ -1428,6 +1432,43 @@ CREATE TRIGGER IF NOT EXISTS corpus_fts_au AFTER UPDATE OF titulo, contenido, et
 END;
 `
 
+/** La tabla puente pieza ↔ entidad, mantenida por triggers desde corpus.entidades (que sigue siendo la fuente de verdad). */
+const CORPUS_ENTIDADES = `
+CREATE TABLE IF NOT EXISTS corpus_entidades (
+  pieza_id INTEGER NOT NULL,
+  entidad_id INTEGER NOT NULL,
+  PRIMARY KEY (pieza_id, entidad_id)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS corpus_entidades_ent ON corpus_entidades(entidad_id, pieza_id);
+CREATE TRIGGER IF NOT EXISTS corpus_ent_ai AFTER INSERT ON corpus WHEN new.entidades IS NOT NULL AND json_valid(new.entidades) BEGIN
+  INSERT OR IGNORE INTO corpus_entidades (pieza_id, entidad_id) SELECT new.id, CAST(value AS INTEGER) FROM json_each(new.entidades) WHERE CAST(value AS INTEGER) > 0;
+END;
+CREATE TRIGGER IF NOT EXISTS corpus_ent_au AFTER UPDATE OF entidades ON corpus BEGIN
+  DELETE FROM corpus_entidades WHERE pieza_id = old.id;
+  INSERT OR IGNORE INTO corpus_entidades (pieza_id, entidad_id) SELECT new.id, CAST(value AS INTEGER) FROM json_each(CASE WHEN json_valid(new.entidades) THEN new.entidades ELSE '[]' END) WHERE CAST(value AS INTEGER) > 0;
+END;
+CREATE TRIGGER IF NOT EXISTS corpus_ent_ad AFTER DELETE ON corpus BEGIN
+  DELETE FROM corpus_entidades WHERE pieza_id = old.id;
+END;
+`
+
+/** Los índices de las consultas que se repiten (las que se piden cada pocos segundos, o en bucles). */
+const INDICES_RAPIDOS = `
+CREATE INDEX IF NOT EXISTS corpus_nivel ON corpus(nivel, fecha);
+CREATE INDEX IF NOT EXISTS corpus_estado ON corpus(estado);
+CREATE INDEX IF NOT EXISTS corpus_aporte ON corpus(json_extract(meta, '$.primaria')) WHERE json_extract(meta, '$.aporte') = 1;
+CREATE INDEX IF NOT EXISTS corpus_ayudante ON corpus(json_extract(meta, '$.ayudante')) WHERE json_extract(meta, '$.ayudante') IS NOT NULL;
+CREATE INDEX IF NOT EXISTS misiones_padre ON misiones(padre_id, nivel);
+CREATE INDEX IF NOT EXISTS misiones_entidad ON misiones(entidad_id, estado);
+CREATE INDEX IF NOT EXISTS movimientos_entidad ON movimientos(entidad_id, fecha);
+CREATE INDEX IF NOT EXISTS preguntas_estado ON preguntas(estado, id);
+CREATE INDEX IF NOT EXISTS llamadas_cuando ON llamadas(en);
+CREATE INDEX IF NOT EXISTS cronica_tick ON cronica(tick);
+CREATE INDEX IF NOT EXISTS takeout_destilado_cola ON takeout_destilado(lote, estado, prioridad);
+CREATE INDEX IF NOT EXISTS directo_momentos_tipo ON directo_momentos(tipo, desde);
+CREATE INDEX IF NOT EXISTS encargo_logs_encargo ON encargo_logs(encargo_id);
+`
+
 export function migrar(db: Db) {
   for (const [tabla, cols] of Object.entries(COLUMNAS_NUEVAS)) {
     const hay = new Set((db.prepare(`PRAGMA table_info(${tabla})`).all() as { name: string }[]).map((c) => c.name))
@@ -1442,6 +1483,14 @@ export function migrar(db: Db) {
   const habiaFts = !!db.prepare(`SELECT 1 FROM sqlite_master WHERE name = 'corpus_fts'`).get()
   db.exec(FTS)
   if (!habiaFts) db.exec(`INSERT INTO corpus_fts(corpus_fts) VALUES ('rebuild')`)
+  // Qué entidades nombra cada pieza, con índice: «las piezas de X» deja de recorrer todo el corpus con json_each.
+  db.exec(CORPUS_ENTIDADES)
+  if (!db.prepare(`SELECT 1 FROM ajustes WHERE clave = 'corpus_entidades_v1'`).get()) {
+    db.exec(`INSERT OR IGNORE INTO corpus_entidades (pieza_id, entidad_id) SELECT c.id, CAST(j.value AS INTEGER) FROM corpus c, json_each(c.entidades) j
+      WHERE c.entidades IS NOT NULL AND json_valid(c.entidades) AND CAST(j.value AS INTEGER) > 0`)
+    db.prepare(`INSERT OR REPLACE INTO ajustes (clave, valor) VALUES ('corpus_entidades_v1', '1')`).run()
+  }
+  db.exec(INDICES_RAPIDOS)
 
   const rutina = db.prepare(`INSERT OR IGNORE INTO rutinas (id, nombre, hora, dias, accion, activa) VALUES (?, ?, ?, ?, ?, 1)`)
   for (const r of RUTINAS_SISTEMA) rutina.run(r.id, r.nombre, r.hora, r.dias, r.accion)

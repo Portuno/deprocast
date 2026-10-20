@@ -54,16 +54,32 @@ export const NIVEL_DE_CERCANIA: Record<number, number> = { 1: 2, 2: 5, 3: 7, 4: 
 
 /** Por entidad: cuántas piezas la nombran y la fecha de la última pieza propia donde aparece. Una sola pasada. */
 function delCorpus(db: Db): Map<number, { menciones: number; propia: string | null }> {
-  const filas = db.prepare(`SELECT CAST(e.value AS INTEGER) AS id, COUNT(*) AS n,
+  const filas = db.prepare(`SELECT ce.entidad_id AS id, COUNT(*) AS n,
       MAX(CASE WHEN c.nivel = 'propia' THEN COALESCE(substr(c.fecha, 1, 10), date(c.creado_en / 1000, 'unixepoch', 'localtime')) END) AS f
-    FROM corpus c, json_each(c.entidades) e WHERE c.entidades IS NOT NULL AND c.entidades != '[]' GROUP BY e.value`).all() as any[]
+    FROM corpus_entidades ce JOIN corpus c ON c.id = ce.pieza_id GROUP BY ce.entidad_id`).all() as any[]
   return new Map(filas.map((r) => [r.id, { menciones: r.n, propia: r.f }]))
 }
 
-/** Lo que él escribió en el chat (últimos 180 días), para ver cuándo nombró a cada una. */
-function delChat(db: Db, ahora: number): { fecha: string; texto: string }[] {
-  return (db.prepare(`SELECT date(en / 1000, 'unixepoch', 'localtime') AS fecha, lower(texto) AS texto FROM mensajes WHERE rol = 'operador' AND en > ? ORDER BY en DESC`)
-    .all(ahora - 180 * 86_400_000) as any[]).filter((m) => m.texto)
+const palabras = (t: string) => t.toLowerCase().split(/[^\p{L}\p{N}]+/u)
+
+/**
+ * Lo que él escribió en el chat (últimos 180 días), como índice de palabras: cuántos mensajes la nombran y el último día.
+ * Antes se buscaba el nombre de cada persona en cada mensaje (miles × miles): con el archivo grande tardaba más de un minuto.
+ */
+function delChat(db: Db, ahora: number): Map<string, { veces: number; ultima: string }> {
+  const filas = db.prepare(`SELECT date(en / 1000, 'unixepoch', 'localtime') AS fecha, texto FROM mensajes WHERE rol = 'operador' AND en > ? ORDER BY en DESC`)
+    .all(ahora - 180 * 86_400_000) as { fecha: string; texto: string | null }[]
+  const m = new Map<string, { veces: number; ultima: string }>()
+  for (const f of filas) {
+    if (!f.texto) continue
+    for (const w of new Set(palabras(f.texto))) {
+      if (w.length < 4) continue
+      const x = m.get(w)
+      if (x) x.veces++
+      else m.set(w, { veces: 1, ultima: f.fecha }) // vienen del más nuevo al más viejo: la primera vez es la última fecha
+    }
+  }
+  return m
 }
 
 /** En qué proyectos está cada persona (con rol e importancia), de una. */
@@ -90,8 +106,9 @@ export function personas(db: Db, f: FiltroPersonas = {}, ahora = Date.now()): Pe
     const c = corpus.get(r.id)
     // El chat cuenta por el primer nombre (4+ letras), que es como él la nombra.
     const pila = r.nombre.split(/\s+/)[0].toLowerCase()
-    const vecesChat = pila.length >= 4 ? chat.filter((m) => m.texto.includes(pila)) : []
-    const ultimo = [r.ultimo_contacto, c?.propia ?? null, vecesChat[0]?.fecha ?? null].filter((x): x is string => !!x).sort().at(-1) ?? null
+    const enChat = pila.length >= 4 ? chat.get(palabras(pila).find(Boolean) ?? pila) : undefined
+    const vecesChat = enChat?.veces ?? 0
+    const ultimo = [r.ultimo_contacto, c?.propia ?? null, enChat?.ultima ?? null].filter((x): x is string => !!x).sort().at(-1) ?? null
     const sin = ultimo ? dias(ultimo, hoy) : null
     const menciones = c?.menciones ?? 0
     const nivel = r.nivel ?? null
@@ -101,7 +118,7 @@ export function personas(db: Db, f: FiltroPersonas = {}, ahora = Date.now()): Pe
       estado: (r.estado ?? 'conocida') as EstadoPersona,
       nivel, importancia: r.importancia ?? null,
       // Una pista, no un dato: cuánto aparece en lo que cargó y en lo que habló.
-      nivelSugerido: nivel ? null : Math.max(1, Math.min(12, 1 + Math.round(Math.log2(1 + menciones) * 2) + (vecesChat.length >= 3 ? 2 : vecesChat.length ? 1 : 0))),
+      nivelSugerido: nivel ? null : Math.max(1, Math.min(12, 1 + Math.round(Math.log2(1 + menciones) * 2) + (vecesChat >= 3 ? 2 : vecesChat ? 1 : 0))),
       vinculo: r.vinculo, cercania: r.cercania, cadaDias: r.cada_dias, proxima: r.proxima, notas: r.notas, ultimoContacto: ultimo, diasSinContacto: sin,
       vencida: !!r.cada_dias && (sin == null || sin > r.cada_dias), menciones, definida: !!r.definida,
       proyectos: enProyectos.get(r.id) ?? [], misiones: [],
@@ -273,8 +290,8 @@ export function grafoPersonas(db: Db, o: { max?: number } = {}, ahora = Date.now
     .filter((c) => ids.has(c.a) && ids.has(c.b))
     .map((c) => ({ a: c.a, b: c.b, tipo: c.relacion ?? 'conexión', nota: c.nota, veces: 1 + ((c.nota ?? '').match(/ · /g)?.length ?? 0), definida: !String(c.origen ?? '').startsWith('destilado:') }))
   const ya = new Set(aristas.map((x) => `${Math.min(x.a, x.b)}|${Math.max(x.a, x.b)}`))
-  const juntas = db.prepare(`SELECT CAST(x.value AS INTEGER) AS a, CAST(y.value AS INTEGER) AS b, COUNT(*) AS n FROM corpus c JOIN json_each(c.entidades) x JOIN json_each(c.entidades) y ON CAST(x.value AS INTEGER) < CAST(y.value AS INTEGER)
-    WHERE c.entidades IS NOT NULL AND c.entidades != '[]' GROUP BY 1, 2 HAVING n >= 2 ORDER BY n DESC LIMIT 2000`).all() as { a: number; b: number; n: number }[]
+  const juntas = db.prepare(`SELECT x.entidad_id AS a, y.entidad_id AS b, COUNT(*) AS n FROM corpus_entidades x JOIN corpus_entidades y ON y.pieza_id = x.pieza_id AND x.entidad_id < y.entidad_id
+    GROUP BY 1, 2 HAVING n >= 2 ORDER BY n DESC LIMIT 2000`).all() as { a: number; b: number; n: number }[]
   for (const j of juntas) {
     if (!ids.has(j.a) || !ids.has(j.b) || ya.has(`${j.a}|${j.b}`)) continue
     aristas.push({ a: j.a, b: j.b, tipo: 'aparecen juntas', nota: null, veces: j.n, definida: false })

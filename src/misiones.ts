@@ -264,7 +264,7 @@ function senalesDe(db: Db, m: Mision, hijas: { estado: string }[]): Senales {
   return {
     bandas, aportes, ...(previo ? { previo } : {}),
     misiones: n(`SELECT COUNT(*) AS n FROM misiones WHERE entidad_id = ? AND id != ? AND COALESCE(padre_id, 0) != ? AND estado = 'hecha' AND cerrada_en BETWEEN ? AND ?`, m.entidadId, m.id, m.id, t0, t1),
-    piezas: n(`SELECT COUNT(*) AS n FROM corpus WHERE nivel = 'propia' AND substr(COALESCE(fecha, ''), 1, 10) BETWEEN ? AND ? AND EXISTS (SELECT 1 FROM json_each(corpus.entidades) WHERE value = ?)`, desde, hasta, m.entidadId),
+    piezas: n(`SELECT COUNT(*) AS n FROM corpus WHERE nivel = 'propia' AND substr(COALESCE(fecha, ''), 1, 10) BETWEEN ? AND ? AND id IN (SELECT pieza_id FROM corpus_entidades WHERE entidad_id = ?)`, desde, hasta, m.entidadId),
     movimientos: n('SELECT COUNT(*) AS n FROM movimientos WHERE entidad_id = ? AND fecha BETWEEN ? AND ?', m.entidadId, desde, hasta),
   }
 }
