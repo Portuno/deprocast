@@ -12,7 +12,8 @@
     "jugar": "node --disable-warning=ExperimentalWarning src/servidor.ts",
     "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json",
-    "doctor": "node --disable-warning=ExperimentalWarning src/cli.ts doctor"
+    "doctor": "node --disable-warning=ExperimentalWarning src/cli.ts doctor",
+    "medir": "node --disable-warning=ExperimentalWarning scripts/medir.ts"
   },
   "devDependencies": {
     "@types/node": "^24.19.1",

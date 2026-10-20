@@ -30,6 +30,7 @@ import { aplicarBaseEntrante, recibirArchivo, recibirBase } from './mudanza.ts'
 import { artefactoAlCorpus, ASPECTOS, borrarArtefacto, carpeta as carpetaTaller, crearCharla, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, ESTILOS, hayFfmpeg, iterarArtefacto, libreria, listarArtefactos, sugerenciasTaller, VOCES } from './taller.ts'
 import { conMatriz, desvincularDeProyecto, grafoPersonas, guardarRelacion, nuevaPersona, personas, vincularAProyecto } from './personas.ts'
 import { bandeja } from './sombra.ts'
+import { medirPedido, reiniciarVelocidad, velocidad } from './rendimiento-servidor.ts'
 import { controlarReproceso, enLaNube, estadoReproceso, trabajarReproceso } from './reproceso.ts'
 import { lineaTemporal, resolverEvento } from './linea.ts'
 import * as estudio from './estudio.ts'
@@ -649,6 +650,9 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/decisiones\/(\d+)\/deshacer$/, async (_, [d]) => (await import('./sombra.ts')).deshacerDecision(db, id(d))],
   ['GET', /^\/api\/sombra$/, async () => ({ tipos: (await import('./decisiones.ts')).estadoSombra(db) })],
   ['POST', /^\/api\/sombra$/, async (b) => { (await import('./decisiones.ts')).fijarModo(db, String(b.tipo ?? ''), b.modo); return { ok: true } }],
+  // Velocidad: cuánto tarda cada ruta y cuánto se traba el servidor (para medir antes y después de optimizar).
+  ['GET', /^\/api\/velocidad$/, () => velocidad()],
+  ['POST', /^\/api\/velocidad\/reiniciar$/, () => { reiniciarVelocidad(); return velocidad() }],
   // Sueños, consejo de modelos y apps conectadas.
   ['GET', /^\/api\/suenos$/, async () => (await import('./suenos.ts')).vistaSuenos(db)],
   ['POST', /^\/api\/suenos$/, async (b) => {
@@ -1093,6 +1097,7 @@ async function atenderApp(req: http.IncomingMessage, res: http.ServerResponse, u
 }
 
 const servidor = http.createServer(async (req, res) => {
+  medirPedido(req, res, (ruta, ms) => { try { registrarError(db, 'lento', `${ruta} tardó ${Math.round(ms)} ms`) } catch { /* medir no rompe nada */ } })
   const url = new URL(req.url ?? '/', 'http://localhost')
   if (enVercel() && url.pathname === '/api/latido' && req.method === 'GET') {
     const secreto = process.env.CRON_SECRET?.trim() ?? ''

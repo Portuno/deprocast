@@ -2186,3 +2186,7 @@ span.ej-chip { cursor: default; }
 .dsc-yo { margin-bottom: 16px; }
 .dsc-yo-proc { border-top: 1px solid var(--linea); padding: 6px 0; }
 .dsc-yo-proc summary { cursor: pointer; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.vel-ok { color: var(--ok); }
+.vel-aviso { color: var(--aviso); }
+.vel-mal { color: var(--mal); }
+.vel-tabla code { font-size: 12px; }
