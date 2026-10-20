@@ -652,6 +652,8 @@ function engancharCuenta(cont) {
   const reloj = $('#ma-cuenta', cont)
   if (!reloj?.dataset.fin) return
   const tic = () => {
+    if (document.hidden) return // con la pestaña oculta no hay nada que mostrar
+    if (!document.body.contains(reloj)) return void clearInterval(cuentaRegresiva)
     const [h, mi] = reloj.dataset.fin.split(':').map(Number)
     const fin = new Date()
     fin.setHours(h, mi, 0, 0)

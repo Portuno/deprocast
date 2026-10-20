@@ -60,6 +60,10 @@ function pintarHud(cont) {
   const run = hoyDatos.run
   const estadoRun = run?.estado === 'en_curso' ? (() => { const { actual } = bandaDeAhora(run); return actual ? `⚔ ${Math.max(0, aMinJs(actual.fin) - minutosAhora())}′ en «${corto(actual.titulo, 28)}»` : `⚔ run ${run.inicio}–${run.fin}` })() : run?.estado === 'propuesta' ? 'run propuesta' : 'sin run'
   const modo = modoHud()
+  // El esqueleto (estado, modos, chips, acciones) se arma de nuevo solo si cambió lo que muestra; si no, solo el widget.
+  const clave = JSON.stringify([hoyDatos.fecha, estadoRun, modo, hoyDatos.paraDecidir, hoyDatos.tarjetasHoy])
+  if (cont.dataset.hud === clave && $('#hud-cuerpo', cont)) return void pintarModoHud()
+  cont.dataset.hud = clave
   cont.innerHTML = `<div class="hud-hoy">
     <header class="hud-estado">
       <div><b>${esc(mayuscula(fecha.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })))}</b><small>${esc(estadoRun)}</small></div>

@@ -34,9 +34,35 @@ const VISTAS = {
   cementerio: { montar: montarCementerio, refrescar: montarCementerio },
 }
 
+/**
+ * La parte del estado que le importa a cada vista: si no cambió, la vista no vuelve a pedir ni a dibujar nada.
+ * (Antes, cualquier cambio —el gasto de tokens, un momento del Directo— rehacía la vista entera y volvía a pedir sus datos.)
+ * Las vistas que no están acá refrescan como siempre (las de «() => {}» no hacen nada).
+ */
+const FIRMA_VISTA = {
+  personas: (e) => [e.entidades, e.liga?.corpus],
+  linea: (e) => [e.liga?.corpus],
+  cuadernos: (e) => [e.liga?.corpus],
+  fragua: (e) => [e.propuestasAbiertas, e.hoy?.aviso?.id],
+  encargos: (e) => [e.tareas.map((t) => [t.id, t.estado]), e.enEspera],
+  liga: (e) => [e.roster.map((f) => [f.id, f.estado, f.nivel, f.exitos, f.fallos]), e.liga?.proyectos],
+  corpus: (e) => [e.liga?.niveles, e.liga?.corpus, e.quantomos, e.cargas.map((c) => [c.id, c.estado])],
+  quantomos: (e) => [e.quantomos],
+  entidades: (e) => [e.entidades],
+  chat: (e) => [e.roster.map((f) => [f.id, f.estado]), e.propuestasAbiertas, e.hoy?.aviso?.id],
+  matriz: (e) => [e.roster.map((f) => [f.id, f.estado, f.nivel]), e.lapidas?.length],
+  cementerio: (e) => [e.lapidas?.length],
+  hoy: (e) => [e.hoy],
+  directo: (e) => [e.hoy?.directo],
+  radar: (e) => [e.hoy?.aviso],
+}
+const firmasVista = {}
+const firmaDeVista = (v) => (FIRMA_VISTA[v] && E ? JSON.stringify(FIRMA_VISTA[v](E)) : null)
+
 function irA(v) {
   if (!VISTAS[v]) v = 'hoy'
   vista = v
+  firmasVista[v] = firmaDeVista(v) // recién montada: está al día
   if (location.hash.slice(1) !== v) history.replaceState(null, '', `#${v}`) // un link directo a cada vista
   const enMaquina = VISTAS_MAQUINA.has(v)
   document.body.classList.toggle('en-maquina', enMaquina)
@@ -183,7 +209,11 @@ async function refrescar({ forzar = true } = {}) {
   avisarSiHayNovedad()
   traerMencionables()
   pintarIndicadorDirecto()
-  VISTAS[vista].refrescar()
+  const fv = firmaDeVista(vista)
+  if (forzar || fv === null || fv !== firmasVista[vista]) {
+    firmasVista[vista] = fv
+    VISTAS[vista].refrescar()
+  }
 }
 
 let ultimoAviso = 0

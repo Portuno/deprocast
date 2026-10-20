@@ -104,7 +104,7 @@ async function modalTakeout() {
     } catch (e) { error(e) }
   }
   pintarYoutube()
-  const ty = setInterval(() => ($('#yt-estado') ? pintarYoutube() : clearInterval(ty)), 10_000)
+  const ty = setInterval(() => ($('#yt-estado') ? document.hidden || pintarYoutube() : clearInterval(ty)), 10_000)
   const pintar = async () => {
     if (!$('#tk-cuerpo')) return
     let d
@@ -149,7 +149,7 @@ async function modalTakeout() {
     }))
   }
   await pintar()
-  const t = setInterval(() => ($('#tk-cuerpo') ? pintar() : clearInterval(t)), 10_000)
+  const t = setInterval(() => ($('#tk-cuerpo') ? document.hidden || pintar() : clearInterval(t)), 10_000)
 }
 
 // ─── el reproceso ───────────────────────────────────────────────────────
@@ -252,5 +252,5 @@ async function modalReproceso() {
     $$('[data-pieza]', cont).forEach((a) => (a.onclick = (e) => { e.preventDefault(); modalPieza(Number(a.dataset.pieza)) }))
   }
   await pintar()
-  const reloj = setInterval(() => { if (!$('#rp-cuerpo')) return clearInterval(reloj); pintar() }, 8000)
+  const reloj = setInterval(() => { if (!$('#rp-cuerpo')) return clearInterval(reloj); if (!document.hidden) pintar() }, 8000)
 }

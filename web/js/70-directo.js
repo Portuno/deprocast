@@ -328,6 +328,11 @@ function aplicarEnPantalla(sesion, propuestas) {
   })
 }
 
+/** Un momento del Directo (lo que vio, dijo o escuchó). */
+const momentoDirectoHTML = (m) => `<div class="momento ${m.tipo}"><span class="mo-hora">${new Date(m.desde).toTimeString().slice(0, 5)}${m.hasta - m.desde > 90_000 ? `<small>${Math.round((m.hasta - m.desde) / 60000)}′</small>` : ''}</span><i>${ICONO_MOMENTO[m.tipo] ?? '·'}</i>
+  <div>${m.tipo === 'pantalla' ? `<b>${esc([m.app, m.actividad].filter(Boolean).join(' · '))}</b>${m.detalle ? `<small>${esc(m.detalle)}</small>` : ''}${m.nota ? `<p>${esc(m.nota)}</p>` : ''}`
+    : `<b>${m.tipo === 'voz' ? 'Dijiste' : `Escuchaste${m.detalle ? ` · ${esc(m.detalle)}` : ''}`}</b><p>${esc((m.texto ?? '').slice(0, 600))}</p>`}</div></div>`
+
 async function montarDirecto() {
   $('#principal').innerHTML = `
     <div class="titulo"><h1>Directo</h1><p>El resumen de lo que Mastropiero vio, y una bandeja para aceptar o descartar. Las tareas, entidades y conexiones no entran solas.</p>
@@ -339,9 +344,7 @@ async function montarDirecto() {
   try {
     const d = await api('/directo')
     directoFirma = JSON.stringify(E.hoy?.directo ?? null)
-    const momento = (m) => `<div class="momento ${m.tipo}"><span class="mo-hora">${new Date(m.desde).toTimeString().slice(0, 5)}${m.hasta - m.desde > 90_000 ? `<small>${Math.round((m.hasta - m.desde) / 60000)}′</small>` : ''}</span><i>${ICONO_MOMENTO[m.tipo] ?? '·'}</i>
-      <div>${m.tipo === 'pantalla' ? `<b>${esc([m.app, m.actividad].filter(Boolean).join(' · '))}</b>${m.detalle ? `<small>${esc(m.detalle)}</small>` : ''}${m.nota ? `<p>${esc(m.nota)}</p>` : ''}`
-        : `<b>${m.tipo === 'voz' ? 'Dijiste' : `Escuchaste${m.detalle ? ` · ${esc(m.detalle)}` : ''}`}</b><p>${esc((m.texto ?? '').slice(0, 600))}</p>`}</div></div>`
+    const momento = momentoDirectoHTML
     const cuerpo = (s) => Array.isArray(s.resumen?.propuestas)
       ? tableroDirecto(s)
       : `<div class="md">${md(s.informe ?? '')}</div>${s.piezaId ? `<p><a href="#" class="ref" data-pieza="${s.piezaId}">abrir en el corpus</a></p>` : ''}`
@@ -350,7 +353,7 @@ async function montarDirecto() {
         ${d.activa.resumen?.tramos?.length
           ? tableroDirecto({ ...d.activa, informe: d.activa.resumen.tramos.map((t) => `${horaDe(t.desde)}–${horaDe(t.hasta)} · ${t.texto}`).join('\n\n') })
           : '<p class="tenue chico">Cada hora te dejo acá lo que vi, con sus propuestas: las podés ir aceptando sin apagarlo.</p>'}
-        ${d.activa.momentos.length ? `<div class="momentos">${d.activa.momentos.slice().reverse().map(momento).join('')}</div>` : '<p class="tenue">Todavía nada: el primer cuadro llega en unos segundos y la voz al minuto.</p>'}</section>` : ''}
+        ${d.activa.momentos.length ? `<div class="momentos" id="dv-momentos">${d.activa.momentos.slice().reverse().map(momento).join('')}</div>` : '<p class="tenue">Todavía nada: el primer cuadro llega en unos segundos y la voz al minuto.</p>'}</section>` : ''}
       <h3 class="sub">Informes</h3>
       ${d.sesiones.length ? d.sesiones.map((s) => {
         const r = resumenSesion(s)
@@ -360,7 +363,26 @@ async function montarDirecto() {
   } catch (e) { error(e) }
 }
 
+/**
+ * Con el Directo prendido llegan momentos cada pocos segundos: si es la misma sesión y no cambiaron los tramos, solo se
+ * repinta la lista de momentos (antes se remontaba la vista entera, con todos los informes).
+ */
 function refrescarDirecto() {
   const f = JSON.stringify(E.hoy?.directo ?? null)
-  if (f !== directoFirma) montarDirecto()
+  if (f === directoFirma) return
+  const antes = directoFirma ? JSON.parse(directoFirma) : null
+  const ahora = E.hoy?.directo ?? null
+  if (antes && ahora && antes.id === ahora.id && antes.tramos === ahora.tramos && $('#dv-momentos')) {
+    directoFirma = f
+    return void actualizarMomentosDirecto()
+  }
+  montarDirecto()
+}
+
+async function actualizarMomentosDirecto() {
+  try {
+    const d = await api('/directo')
+    const cont = $('#dv-momentos')
+    if (cont && d.activa) cont.innerHTML = d.activa.momentos.slice().reverse().map(momentoDirectoHTML).join('')
+  } catch { /* la próxima vuelta */ }
 }
