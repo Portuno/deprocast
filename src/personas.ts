@@ -9,7 +9,6 @@
 import { fechaLocal, type Db } from './db.ts'
 import { asegurarEntidad, coocurrencias } from './entidades.ts'
 import { entidadDelJugador } from './personajes.ts'
-import { listarMisiones } from './misiones.ts'
 
 export const VINCULOS = ['familia', 'pareja', 'amistad', 'trabajo', 'proyecto', 'mentor', 'contacto'] as const
 export const CLASES_PERSONA = ['fisica', 'juridica', 'ficticia'] as const
@@ -66,7 +65,19 @@ const palabras = (t: string) => t.toLowerCase().split(/[^\p{L}\p{N}]+/u)
  * Lo que él escribió en el chat (últimos 180 días), como índice de palabras: cuántos mensajes la nombran y el último día.
  * Antes se buscaba el nombre de cada persona en cada mensaje (miles × miles): con el archivo grande tardaba más de un minuto.
  */
+const indiceChat = new WeakMap<Db, { clave: string; m: Map<string, { veces: number; ultima: string }> }>()
 function delChat(db: Db, ahora: number): Map<string, { veces: number; ultima: string }> {
+  // Se rearma solo si llegó un mensaje suyo nuevo (o cambió el día): Personas se pide seguido.
+  const ultimo = (db.prepare(`SELECT MAX(id) AS id FROM mensajes WHERE rol = 'operador'`).get() as { id: number | null }).id ?? 0
+  const clave = `${ultimo}|${fechaLocal(ahora)}`
+  const ya = indiceChat.get(db)
+  if (ya?.clave === clave) return ya.m
+  const m = delChatSinCache(db, ahora)
+  indiceChat.set(db, { clave, m })
+  return m
+}
+
+function delChatSinCache(db: Db, ahora: number): Map<string, { veces: number; ultima: string }> {
   const filas = db.prepare(`SELECT date(en / 1000, 'unixepoch', 'localtime') AS fecha, texto FROM mensajes WHERE rol = 'operador' AND en > ? ORDER BY en DESC`)
     .all(ahora - 180 * 86_400_000) as { fecha: string; texto: string | null }[]
   const m = new Map<string, { veces: number; ultima: string }>()
@@ -135,11 +146,22 @@ export function personas(db: Db, f: FiltroPersonas = {}, ahora = Date.now()): Pe
     proyecto: (a, b) => b.proyectos.length - a.proyectos.length || porDefecto(a, b),
   }
   ps.sort(orden[f.orden ?? ''] ?? porDefecto)
-  return ps.slice(0, f.limite ?? 300).map((p) => {
-    // Sus misiones: las que le asignó y las que son sobre ella.
-    const ms = [...listarMisiones(db, { personaje: `entidad:${p.id}`, abiertas: true }), ...listarMisiones(db, { entidadId: p.id, abiertas: true })]
-    return { ...p, misiones: [...new Map(ms.map((m) => [m.id, { id: m.id, titulo: m.titulo, vence: m.vence }])).values()] }
-  })
+  // Sus misiones abiertas (las que le asignó y las que son sobre ella), en una sola consulta para todas (antes, dos por persona).
+  const elegidas = ps.slice(0, f.limite ?? 300)
+  const porPersona = new Map<number, Map<number, { id: number; titulo: string; vence: string | null }>>()
+  if (elegidas.length) {
+    const ids = elegidas.map((p) => p.id)
+    const filasM = db.prepare(`SELECT id, titulo, vence, personaje, entidad_id FROM misiones WHERE estado IN ('sugerida', 'activa')
+      AND (personaje IN (${ids.map(() => '?').join(',')}) OR entidad_id IN (${ids.map(() => '?').join(',')})) ORDER BY id`).all(...ids.map((i) => `entidad:${i}`), ...ids) as any[]
+    for (const m of filasM) {
+      for (const pid of new Set([m.personaje?.startsWith('entidad:') ? Number(m.personaje.slice(8)) : null, m.entidad_id].filter((x) => x != null))) {
+        const xs = porPersona.get(pid) ?? new Map()
+        xs.set(m.id, { id: m.id, titulo: m.titulo, vence: m.vence })
+        porPersona.set(pid, xs)
+      }
+    }
+  }
+  return elegidas.map((p) => ({ ...p, misiones: [...(porPersona.get(p.id)?.values() ?? [])] }))
 }
 
 export function leerPersona(db: Db, id: number): Persona | null {

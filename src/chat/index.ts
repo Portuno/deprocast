@@ -123,6 +123,21 @@ export function mensajes(db: Db, id: number, desde = 0): Mensaje[] {
   return db.prepare('SELECT * FROM mensajes WHERE conversacion_id = ? AND id > ? ORDER BY id').all(id, desde).map(msj)
 }
 
+/**
+ * Para la pantalla: los últimos n mensajes (o los n anteriores a «antes»), empezando en un mensaje suyo para no cortar un
+ * turno por la mitad. hayMas: si quedan más viejos. (La conversación de Hoy junta miles: mandarlos todos pesaba megas.)
+ */
+export function ultimosMensajes(db: Db, id: number, n = 200, antes?: number | null): { mensajes: Mensaje[]; hayMas: boolean } {
+  const filas = (db.prepare(`SELECT * FROM mensajes WHERE conversacion_id = ? AND id < ? ORDER BY id DESC LIMIT ?`).all(id, antes ?? Number.MAX_SAFE_INTEGER, n + 1) as any[]).reverse()
+  const hayMas = filas.length > n
+  let xs = hayMas ? filas.slice(1) : filas
+  if (hayMas) {
+    const i = xs.findIndex((r) => r.rol === 'operador')
+    if (i > 0) xs = xs.slice(i)
+  }
+  return { mensajes: xs.map(msj), hayMas }
+}
+
 function guardar(db: Db, cid: number, m: Partial<Mensaje> & { rol: Mensaje['rol'] }) {
   const ahora = Date.now()
   db.prepare(

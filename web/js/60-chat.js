@@ -213,10 +213,29 @@ async function abrirConversacion(id) {
     const r = await api(`/chat/${id}`)
     chat.actual = r.conversacion
     chat.mensajes = r.mensajes
+    chat.hayMas = !!r.hayMas
     chat.pensando = r.pensando
     pintarLado()
     pintarChat()
     if (chat.pensando) seguirTurno()
+  } catch (e) { error(e) }
+}
+
+/** Los mensajes más viejos (de a 200), arriba, sin mover lo que se está leyendo. */
+async function verAnteriores() {
+  const id = chat.actual?.id
+  const primero = chat.mensajes.find((m) => m.id > 0)?.id
+  if (!id || !primero) return
+  try {
+    const r = await api(`/chat/${id}?antes=${primero}`)
+    if (chat.actual?.id !== id) return
+    const hilo = $('#hilo')
+    const alto = hilo?.scrollHeight ?? 0
+    chat.mensajes = [...r.mensajes, ...chat.mensajes]
+    chat.hayMas = !!r.hayMas
+    chat.pegado = false
+    pintarChat()
+    if (hilo) hilo.scrollTop = hilo.scrollHeight - alto
   } catch (e) { error(e) }
 }
 
@@ -315,7 +334,10 @@ function pintarChat() {
       <h2>${esc(q.nombre)}</h2><p>${texto}</p>
       ${sug.length ? `<div class="sugerencias">${sug.map((s) => `<button data-sug="${esc(s)}">${esc(s)}</button>`).join('')}</div>` : ''}</div>`
     $$('[data-sug]', col).forEach((b) => (b.onclick = () => { $('#chat-txt').value = b.dataset.sug; enviarChat() }))
-  } else col.innerHTML = hiloHTML(chat.mensajes, q, chat.pensando ? chat.vivo ?? {} : null)
+  } else {
+    col.innerHTML = (chat.hayMas ? '<div class="chat-mas"><button class="btn btn-chico" id="chat-anteriores">Ver mensajes anteriores</button></div>' : '') + hiloHTML(chat.mensajes, q, chat.pensando ? chat.vivo ?? {} : null)
+    if ($('#chat-anteriores')) $('#chat-anteriores').onclick = verAnteriores
+  }
   $('#chat-enviar').disabled = chat.pensando
   const hilo = $('#hilo')
   if (chat.pegado !== false) hilo.scrollTop = hilo.scrollHeight
@@ -497,9 +519,12 @@ function seguirTurno() {
   const paso = async () => {
     if (!id || chat.actual?.id !== id) return
     try {
-      const r = await api(`/chat/${id}`)
+      // Solo lo nuevo desde el último mensaje que ya tenemos (antes se traía la charla entera cada 300 ms).
+      const ultimo = chat.mensajes.reduce((m, x) => (x.id > m ? x.id : m), 0)
+      const r = await api(`/chat/${id}?desde=${ultimo}`)
       const antes = JSON.stringify([chat.mensajes.filter((m) => m.id > 0).length, chat.vivo, chat.pensando])
-      chat.mensajes = r.mensajes
+      if (r.mensajes.length) chat.mensajes = [...chat.mensajes.filter((m) => m.id > 0), ...r.mensajes]
+      r.mensajes = chat.mensajes
       chat.pensando = r.pensando
       chat.vivo = r.vivo
       const hilo = $('#hilo')

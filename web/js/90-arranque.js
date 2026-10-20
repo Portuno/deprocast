@@ -152,15 +152,26 @@ $('#btn-auto').onclick = async () => {
 
 // ─── arranque ───────────────────────────────────────────────────────────
 
-let firma = ''
+let etagEstado = null
+
+/**
+ * El estado, con ETag: si no cambió nada, el servidor contesta 304 sin cuerpo y no hay nada que leer ni comparar.
+ * null = no cambió.
+ */
+async function traerEstado() {
+  const r = await fetch('/api/estado', { cache: 'no-store', headers: etagEstado ? { 'if-none-match': etagEstado } : {} })
+  if (r.status === 304) return null
+  const j = await r.json()
+  if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`)
+  etagEstado = r.headers.get('etag')
+  return j
+}
 
 /** Trae el estado y re-dibuja solo si cambió algo (el polling no debe pisar animaciones ni hovers). */
 async function refrescar({ forzar = true } = {}) {
-  const nuevo = await api('/estado')
-  const f = JSON.stringify(nuevo)
-  if (!forzar && f === firma) return
-  firma = f
-  E = nuevo
+  const nuevo = await traerEstado()
+  if (!nuevo && !forzar) return
+  if (nuevo) E = nuevo
   renderHud()
   renderCronica()
   avisarSiHayNovedad()
@@ -204,8 +215,21 @@ async function iniciar() {
     const z = Intl.DateTimeFormat().resolvedOptions().timeZone
     if (z && pref.leer('mastro-zona', '') !== z) api('/zona', { zona: z }).then(() => pref.guardar('mastro-zona', z)).catch(() => {})
   } catch { /* sin Intl: queda la del servidor */ }
-  firma = JSON.stringify(E)
-  setInterval(() => { if (!tickEnCurso && $('#velo').hidden && vista !== 'forja') refrescar({ forzar: false }).catch(() => {}) }, 7000)
+  // El polling: cada 7 s mientras la usás; cada ~30 s si la pantalla está quieta hace más de 5 minutos; nada con la
+  // pestaña oculta (al volver, se pone al día enseguida).
+  let ultimaActividad = Date.now()
+  for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) addEventListener(ev, () => (ultimaActividad = Date.now()), { passive: true })
+  let vueltas = 0
+  setInterval(() => {
+    if (document.hidden || tickEnCurso || !$('#velo').hidden || vista === 'forja') return
+    if (Date.now() - ultimaActividad > 5 * 60_000 && vueltas++ % 4) return
+    refrescar({ forzar: false }).catch(() => {})
+  }, 7000)
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return
+    ultimaActividad = Date.now()
+    refrescar({ forzar: false }).catch(() => {})
+  })
 }
 
 iniciar().catch(error)

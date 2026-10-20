@@ -86,13 +86,13 @@ async function armarBase() {
 
 /** Un pedido crudo: el tiempo hasta el último byte y los bytes que viajaron (comprimidos, si el servidor comprime). */
 const TOPE_MS = 90_000
-function pedir(ruta: string, headers: Record<string, string> = {}): Promise<{ ms: number; bytes: number; status: number; etag?: string }> {
+function pedir(ruta: string, headers: Record<string, string> = {}): Promise<{ ms: number; bytes: number; status: number; etag?: string; inmutable?: boolean }> {
   return new Promise((ok, mal) => {
     const t0 = performance.now()
     const r = http.get({ host: '127.0.0.1', port: PUERTO, path: ruta, headers: { 'accept-encoding': 'br, gzip', ...headers }, timeout: TOPE_MS }, (res) => {
       let bytes = 0
       res.on('data', (c) => (bytes += c.length))
-      res.on('end', () => ok({ ms: performance.now() - t0, bytes, status: res.statusCode ?? 0, etag: res.headers.etag as string | undefined }))
+      res.on('end', () => ok({ ms: performance.now() - t0, bytes, status: res.statusCode ?? 0, etag: res.headers.etag as string | undefined, inmutable: /immutable/.test(String(res.headers['cache-control'] ?? '')) }))
     })
     r.on('timeout', () => { r.destroy(); ok({ ms: TOPE_MS, bytes: 0, status: 0 }) })
     r.on('error', mal)
@@ -131,6 +131,7 @@ async function main() {
       const r = await pedir(a)
       total += r.bytes
       // La segunda carga: lo que se vuelve a bajar (con caché del navegador, lo inmutable no se pide; con ETag, 304).
+      if (r.inmutable) continue
       if (r.etag) segunda += (await pedir(a, { 'if-none-match': r.etag })).bytes
       else segunda += r.bytes
     }

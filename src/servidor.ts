@@ -31,6 +31,7 @@ import { artefactoAlCorpus, ASPECTOS, borrarArtefacto, carpeta as carpetaTaller,
 import { conMatriz, desvincularDeProyecto, grafoPersonas, guardarRelacion, nuevaPersona, personas, vincularAProyecto } from './personas.ts'
 import { bandeja } from './sombra.ts'
 import { medirPedido, reiniciarVelocidad, velocidad } from './rendimiento-servidor.ts'
+import { comprimirJson, indexConVersiones, servirArchivo, servirEstatico, versionDe } from './estatico.ts'
 import { controlarReproceso, enLaNube, estadoReproceso, trabajarReproceso } from './reproceso.ts'
 import { lineaTemporal, resolverEvento } from './linea.ts'
 import * as estudio from './estudio.ts'
@@ -75,7 +76,7 @@ import { asegurarFuente, fuentes, leerPieza, listarPiezas, NIVELES, TIPOS } from
 import { deshacer, descartar, ejecutar as ejecutarCarga, IMPORTADORES, leerCarga, listarCargas, reetiquetar, subir } from './cargas/index.ts'
 import { conexionesDe, contarEntidades, coocurrencias, duplicadosProbables, editarEntidad, entidadesPorId, fusionarEntidades, noSonLoMismo, quitarAliasCruzados, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from './entidades.ts'
 import {
-  alDecirSolo, archivarConversacion, registrarEvento, conversacionHoy, crearConversacion, enviar, estadoEnVivo, estaPensando, leerConversacion, listarConversaciones, listarPropuestas, mensajeDeMastropiero, mensajes, resolverPropuesta,
+  alDecirSolo, ultimosMensajes, archivarConversacion, registrarEvento, conversacionHoy, crearConversacion, enviar, estadoEnVivo, estaPensando, leerConversacion, listarConversaciones, listarPropuestas, mensajeDeMastropiero, mensajes, resolverPropuesta,
 } from './chat/index.ts'
 import { deshacerAcciones } from './chat/deshacer.ts'
 import { celda, DOMINIOS } from './geometria72.ts'
@@ -296,7 +297,10 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/chat\/(\d+)$/, (_, [c], q) => {
     const conversacion = leerConversacion(db, id(c))
     if (!conversacion) throw new Error(`No existe la conversación ${c}`)
-    return { conversacion, mensajes: mensajes(db, conversacion.id, num(q.get('desde')) ?? 0), pensando: estaPensando(conversacion.id), vivo: estadoEnVivo(conversacion.id) }
+    // Con «desde»: solo lo nuevo (mientras piensa). Sin «desde»: los últimos 200 (o los anteriores a «antes»), con hayMas.
+    const desde = num(q.get('desde'))
+    const pagina = desde != null ? { mensajes: mensajes(db, conversacion.id, desde), hayMas: undefined } : ultimosMensajes(db, conversacion.id, Math.min(500, num(q.get('ultimos')) ?? 200), num(q.get('antes')))
+    return { conversacion, ...pagina, pensando: estaPensando(conversacion.id), vivo: estadoEnVivo(conversacion.id) }
   }],
   ['POST', /^\/api\/chat\/(\d+)\/mensajes$/, (b, [c]) => {
     const cid = id(c)
@@ -812,8 +816,12 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/personas\/nueva$/, (b) => nuevaPersona(db, b)],
   ['GET', /^\/api\/personas\/grafo$/, () => grafoPersonas(db)],
   // El reproceso (corre en la nube) y la línea temporal que arma.
-  ['GET', /^\/api\/reproceso$/, () => estadoReproceso(db)],
-  ['POST', /^\/api\/reproceso$/, (b) => controlarReproceso(db, String(b.accion ?? ''))],
+  // El estado del Procesar hace ~20 conteos sobre tablas grandes y la pantalla lo pide cada 8 s: se reusa 15 s.
+  ['GET', /^\/api\/reproceso$/, () => {
+    if (!reprocesoReciente || Date.now() - reprocesoReciente.en > 15_000) reprocesoReciente = { en: Date.now(), valor: estadoReproceso(db) }
+    return reprocesoReciente.valor
+  }],
+  ['POST', /^\/api\/reproceso$/, (b) => { reprocesoReciente = null; return controlarReproceso(db, String(b.accion ?? '')) }],
   ['GET', /^\/api\/linea$/, (_, __, q) => lineaTemporal(db, { desde: q.get('desde') || undefined, hasta: q.get('hasta') || undefined, entidad: num(q.get('entidad')) ?? undefined, tema: q.get('tema') || undefined, tipo: q.get('tipo') || undefined })],
   ['POST', /^\/api\/linea\/(\d+)$/, (b, [e]) => resolverEvento(db, id(e), b.accion === 'agendar' ? 'agendar' : 'descartar') ?? { ok: true }],
   ['POST', /^\/api\/personas\/(\d+)$/, (b, [p]) => guardarRelacion(db, id(p), b)],
@@ -1096,6 +1104,8 @@ async function atenderApp(req: http.IncomingMessage, res: http.ServerResponse, u
   }
 }
 
+let reprocesoReciente: { en: number; valor: ReturnType<typeof estadoReproceso> } | null = null
+
 const servidor = http.createServer(async (req, res) => {
   medirPedido(req, res, (ruta, ms) => { try { registrarError(db, 'lento', `${ruta} tardó ${Math.round(ms)} ms`) } catch { /* medir no rompe nada */ } })
   const url = new URL(req.url ?? '/', 'http://localhost')
@@ -1161,8 +1171,8 @@ const servidor = http.createServer(async (req, res) => {
     // Imágenes y PDF se ven en el navegador (aislados); lo demás se baja. Nunca corre nada en la página.
     const tipo = TIPOS_MIME[ext] ?? ({ '.pdf': 'application/pdf', '.txt': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.csv': 'text/plain; charset=utf-8' } as Record<string, string>)[ext] ?? 'application/octet-stream'
     const ver = /^image\/(jpeg|png|webp)$/.test(tipo) || ext === '.pdf' || tipo.startsWith('text/plain')
-    res.writeHead(200, { 'content-type': ext === '.json' ? 'text/plain; charset=utf-8' : tipo, 'cache-control': 'private, max-age=31536000', 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox', 'content-disposition': `${ver ? 'inline' : 'attachment'}; filename="${path.basename(archivo).replace(/^\d+-[0-9a-f]+\./, 'adjunto.')}"` })
-    return void fs.createReadStream(archivo).pipe(res)
+    // Con ETag y Range: un audio o un video se puede adelantar, y lo que ya bajó no se vuelve a bajar.
+    return void servirArchivo(req, res, archivo, { 'content-type': ext === '.json' ? 'text/plain; charset=utf-8' : tipo, 'cache-control': 'private, max-age=31536000', 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox', 'content-disposition': `${ver ? 'inline' : 'attachment'}; filename="${path.basename(archivo).replace(/^\d+-[0-9a-f]+\./, 'adjunto.')}"` })
   }
   if (url.pathname.startsWith('/taller/')) {
     const archivo = path.join(dirTaller(), path.normalize(decodeURIComponent(url.pathname.slice('/taller/'.length))))
@@ -1188,6 +1198,7 @@ const servidor = http.createServer(async (req, res) => {
   }
   if (url.pathname.startsWith('/api/')) {
     res.setHeader('content-type', 'application/json; charset=utf-8')
+    comprimirJson(req, res)
     try {
       // Una imagen para el chat (cruda): se guarda, se describe y vuelve la marca para el mensaje.
       // Una pieza o un cuaderno como archivo .md (para bajar)
@@ -1422,14 +1433,13 @@ const servidor = http.createServer(async (req, res) => {
   if (!archivo.startsWith(WEB) || !fs.existsSync(archivo) || fs.statSync(archivo).isDirectory()) {
     return void res.writeHead(404).end('No encontrado')
   }
-  // La página pide sus scripts y estilos con la versión (?v=…): un proxy que guarde los .js por horas (Cloudflare,
-  // delante de la nube, pisa el no-store) no puede servir los de antes de un deploy.
-  if (path.basename(archivo) === 'index.html') {
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
-    return void res.end(fs.readFileSync(archivo, 'utf8').replace(/(src|href)="(\/(?:js\/[^"?]+\.js|estilo\.css))"/g, `$1="$2?v=${VERSION_WEB}"`))
-  }
-  res.writeHead(200, { 'content-type': TIPOS_MIME[path.extname(archivo)] ?? 'application/octet-stream', 'cache-control': 'no-store' })
-  fs.createReadStream(archivo).pipe(res)
+  // La página pide cada script y la hoja de estilos con el hash de su contenido (?v=…): eso se guarda un año (inmutable)
+  // y un deploy cambia la URL de lo que cambió. El index.html se revalida siempre (ETag), y todo viaja comprimido.
+  if (path.basename(archivo) === 'index.html') return void servirEstatico(req, res, archivo, 'text/html; charset=utf-8', { contenido: indexConVersiones(WEB) })
+  const v = url.searchParams.get('v')
+  let inmutable = false
+  if (v) { try { inmutable = v === versionDe(archivo) } catch { /* sin versión */ } }
+  servirEstatico(req, res, archivo, TIPOS_MIME[path.extname(archivo)] ?? 'application/octet-stream', { inmutable })
 })
 
 // Las rutinas: cada minuto se fija si toca algo (y al arrancar se pone al día).

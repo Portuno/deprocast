@@ -99,8 +99,23 @@ function deGoogle(e: any): EventoGoogle | null {
   return { id: e.id, titulo: e.summary ?? '(sin título)', inicio, fin: Number.isFinite(fin) ? fin : inicio + 3_600_000, todoElDia, lugar: e.location ?? null, descripcion: e.description ?? null, url: e.htmlLink ?? null, deDeprocast: e.extendedProperties?.private?.deprocast ?? null }
 }
 
+/** Lo que ya se le pidió a Google (2 minutos): Hoy lo pide seguido. Se borra con cada alta, cambio o baja. */
+const recientes = new Map<string, { en: number; eventos: EventoGoogle[] }>()
+const REUSO_MS = 120_000
+export const olvidarGoogle = () => recientes.clear()
+
 /** Los eventos entre dos días (YYYY-MM-DD, ambos incluidos), con las repeticiones desplegadas. */
 export async function listarGoogle(desde: string, hasta: string): Promise<EventoGoogle[]> {
+  const k = `${desde}|${hasta}`
+  const ya = recientes.get(k)
+  if (ya && Date.now() - ya.en < REUSO_MS) return ya.eventos
+  const eventos = await listarGoogleSinCache(desde, hasta)
+  recientes.set(k, { en: Date.now(), eventos })
+  if (recientes.size > 50) recientes.delete(recientes.keys().next().value!)
+  return eventos
+}
+
+async function listarGoogleSinCache(desde: string, hasta: string): Promise<EventoGoogle[]> {
   const q = new URLSearchParams({ timeMin: new Date(medianoche(desde)).toISOString(), timeMax: new Date(medianoche(diaSiguiente(hasta))).toISOString(), singleEvents: 'true', orderBy: 'startTime', maxResults: '2500' })
   const out: EventoGoogle[] = []
   let pagina: string | undefined
@@ -140,6 +155,7 @@ function cuerpoDe(d: DatosEvento, base?: EventoGoogle | null): Record<string, un
 }
 
 export async function crearGoogle(d: DatosEvento & { titulo: string; fecha: string }): Promise<EventoGoogle> {
+  olvidarGoogle()
   return deGoogle(await api('POST', '/events', cuerpoDe(d)))!
 }
 export async function leerGoogle(id: string): Promise<EventoGoogle | null> {
@@ -147,8 +163,10 @@ export async function leerGoogle(id: string): Promise<EventoGoogle | null> {
 }
 export async function editarGoogle(id: string, d: DatosEvento): Promise<EventoGoogle> {
   const base = d.fecha || d.hora !== undefined || d.duracionMin != null ? await leerGoogle(id) : null
+  olvidarGoogle()
   return deGoogle(await api('PATCH', `/events/${encodeURIComponent(id)}`, cuerpoDe(d, base)))!
 }
 export async function borrarGoogle(id: string): Promise<void> {
+  olvidarGoogle()
   await api('DELETE', `/events/${encodeURIComponent(id)}`)
 }

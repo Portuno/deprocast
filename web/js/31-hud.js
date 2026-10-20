@@ -24,8 +24,17 @@ function modoHud() {
 }
 window.hudModoActual = () => (vista === 'hoy' ? modoHud() : null)
 
-async function traerHud() {
-  try { hudDatos = await api('/hoy/hud') } catch { /* el HUD funciona con lo de /hoy */ }
+/**
+ * Lo del HUD que no viene en /api/hoy (agenda, salud, plata…): cambia poco, así que se pide como mucho cada 60 s,
+ * salvo que algo del HUD lo haya cambiado recién (hudPendiente).
+ */
+let hudEn = 0
+let hudPendiente = false
+async function traerHud(forzar = false) {
+  if (forzar || !hudDatos || hudPendiente || Date.now() - hudEn > 60_000) {
+    hudPendiente = false
+    try { hudDatos = await api('/hoy/hud'); hudEn = Date.now() } catch { /* el HUD funciona con lo de /hoy */ }
+  }
   pintarModoHud()
 }
 
@@ -201,7 +210,7 @@ function pintarModoHud() {
 }
 
 function engancharWidgetHud(cont) {
-  const listo = async (registro) => { if (registro) await registrarHud(registro); await refrescar(); await traerHoy() }
+  const listo = async (registro) => { if (registro) await registrarHud(registro); hudPendiente = true; await refrescar(); await traerHoy() }
   $$('[data-dia]', cont).forEach((b) => (b.onclick = () => abrirDia(b.dataset.dia)))
   $$('[data-hud-ir]', cont).forEach((a) => (a.onclick = (e) => { e.preventDefault(); irA(a.dataset.hudIr) }))
   $$('[data-hud-ir-btn]', cont).forEach((b) => (b.onclick = () => irA(b.dataset.hudIrBtn)))
@@ -211,7 +220,7 @@ function engancharWidgetHud(cont) {
     const estado = m.estado === b.dataset.hudMarcar ? 'activa' : b.dataset.hudMarcar
     try { await api(`/misiones/${m.id}/marcar`, { estado }); await listo(estado === 'activa' ? null : `${MARCA[estado]} banda «${m.titulo}» ${estado === 'parcial' ? 'a medias' : estado === 'no' ? 'no salió' : 'hecha'}`) } catch (e) { error(e) }
   }))
-  if (hudDatos?.bucles?.length) engancharBucles(cont, hudDatos.bucles, () => traerHud())
+  if (hudDatos?.bucles?.length) engancharBucles(cont, hudDatos.bucles, () => traerHud(true))
   $$('[data-hud-tarea]', cont).forEach((c) => (c.onchange = async () => {
     try { const m = await api(`/cien/tarea/${c.dataset.hudTarea}`, { hecha: c.checked }); await listo(c.checked ? `✓ ${m.titulo}` : null) } catch (e) { error(e) }
   }))
@@ -219,7 +228,7 @@ function engancharWidgetHud(cont) {
     try { const m = await api(`/misiones/${b.dataset.hudHecha}`, { estado: 'hecha' }); await listo(`✓ side quest «${m.titulo ?? ''}»`) } catch (e) { error(e) }
   }))
   $$('[data-hud-habito]', cont).forEach((c) => (c.onchange = async () => {
-    try { await api('/cien/habito', { fecha: hoyDatos.fecha, id: c.dataset.hudHabito, valor: c.checked }); await registrarHud(c.checked ? `☑ ${c.closest('label').textContent.trim().replace(/\s+\d+\/\d+$/, '')}` : ''); traerHud() } catch (e) { error(e) }
+    try { await api('/cien/habito', { fecha: hoyDatos.fecha, id: c.dataset.hudHabito, valor: c.checked }); await registrarHud(c.checked ? `☑ ${c.closest('label').textContent.trim().replace(/\s+\d+\/\d+$/, '')}` : ''); traerHud(true) } catch (e) { error(e) }
   }))
   $$('[data-plantilla]', cont).forEach((b) => (b.onclick = () => trabajando(b, 'Armando…', async () => {
     const r = await api('/runs/preparar', { pedido: { plantilla: Number(b.dataset.plantilla) } })
@@ -263,7 +272,7 @@ function accionHud(cual) {
       if (!r.registrado) return toast(`No me pareció algo para anotar${r.captura?.descripcion ? `<small>${esc(r.captura.descripcion)}</small>` : ''}`, 'suave')
       cerrarPopHud()
       await registrarHud(r.registrado.resumen)
-      traerHud()
+      traerHud(true)
     }
     $('#hp-f').onsubmit = async (e) => {
       e.preventDefault()
