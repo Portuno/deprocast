@@ -35,7 +35,7 @@ function tarjetaIdioma(i) {
   const pct = i.metaSemana ? Math.min(100, Math.round((i.minutosSemana / i.metaSemana) * 100)) : 0
   const ultimos = i.ultimos.slice(0, 3)
   return `<article class="tarjeta idi-tarjeta">
-    <header class="idi-cab"><h3>${esc(i.nombre)}</h3><span class="chip">${esc(i.nivel ?? 'A1')}${i.objetivo ? ` → ${esc(i.objetivo)}` : ''}</span>${i.racha ? `<span class="idi-racha" title="Días seguidos practicando">🔥 ${i.racha}</span>` : ''}</header>
+    <header class="idi-cab"><h3>${esc(i.nombre)}</h3><span class="chip">${esc(i.nivel ?? 'A1')}${i.objetivo ? ` → ${esc(i.objetivo)}` : ''}</span>${i.diasMes ? `<span class="idi-racha" title="Días que practicaste este mes (no se pierde nada por un día sin practicar)">${i.diasMes} día${i.diasMes === 1 ? '' : 's'} este mes</span>` : ''}</header>
     ${i.porQue ? `<p class="idi-porque">«${esc(i.porQue)}»</p>` : ''}
     <div class="idi-metricas">
       <div><small>Esta semana</small><b>${i.minutosSemana} / ${i.metaSemana} min</b><i class="idi-barra"><b style="width:${pct}%"></b></i></div>

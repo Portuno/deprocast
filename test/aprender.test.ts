@@ -84,7 +84,7 @@ test('cien días: votar, hábitos por semana, intensidad, mapa y prompt', () => 
   assert.match(cienParaPrompt(db, new Date(2026, 9, 14, 9).getTime()), /día 22 de 100 \(semana 3, foco: Cerrar el primer acto\.\)[\s\S]*Obligatorias atrasadas: Pedir cita para los análisis \(vencía lun 5\/10/)
 })
 
-test('aprender: práctica, racha y repaso espaciado (1, 3, 7, 16 días; salteado vuelve mañana)', async () => {
+test('aprender: práctica, días del mes y repaso espaciado (1, 3, 7, 16 días; salteado vuelve mañana)', async () => {
   const db = abrir(':memory:')
   const T = new Date(2026, 9, 14, 9).getTime()
   const dia = 86_400_000
@@ -92,8 +92,8 @@ test('aprender: práctica, racha y repaso espaciado (1, 3, 7, 16 días; salteado
   registrarPractica(db, { tema: 'francés', minutos: 20, que: 'pasado compuesto', fecha: '2026-10-13' }, T)
   const { practica, aprendizaje } = registrarPractica(db, { tema: 'FRANCES', minutos: 30, que: 'verbos en pasado' }, T)
   const [fr] = listarAprendizajes(db, {}, T)
-  assert.deepEqual([fr.tema, fr.practicas, fr.minutos, fr.racha], ['Francés', 3, 65, 3], 'el mismo tema aunque cambie la forma de escribirlo')
-  assert.match(aprenderParaPrompt(db, T), /Francés — 65 min esta semana, racha 3/)
+  assert.deepEqual([fr.tema, fr.practicas, fr.minutos, fr.diasMes], ['Francés', 3, 65, 3], 'el mismo tema aunque cambie la forma de escribirlo')
+  assert.match(aprenderParaPrompt(db, T), /Francés — 65 min esta semana, 3 días este mes/)
 
   _probarRepaso(async () => ({ preguntas: ['¿Cómo se dice «fui» en francés?', '¿Qué auxiliar lleva «aller» en pasado compuesto?', 'una tercera que sobra'] }))
   const ids = await prepararRepaso(db, aprendizaje, practica, T)

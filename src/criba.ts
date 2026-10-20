@@ -1,6 +1,6 @@
 /**
  * Criba lúdica: pesar el corpus como un juego. Una pieza por vez (primero links compartidos y lo propio sin peso),
- * él le pone un peso de 1 a 12 o la descarta, con una tecla. Cuenta las de hoy y la racha de días seguidos. El peso
+ * él le pone un peso de 1 a 12 o la descarta, con una tecla. Cuenta las de hoy y los días del mes que cribó. El peso
  * ordena todo lo demás: lo pesado sube en las búsquedas y en lo que leen los ayudantes; lo descartado no estorba.
  */
 import { fechaLocal, json, type Db } from './db.ts'
@@ -125,16 +125,13 @@ export function deshacerUltima(db: Db, ahora = Date.now()) {
 
 export function marcador(db: Db, ahora = Date.now()) {
   const hoy = fechaLocal(ahora)
-  const dias = new Set((db.prepare('SELECT DISTINCT fecha FROM criba').all() as any[]).map((r) => r.fecha))
-  // Días seguidos con al menos una; si hoy todavía no cribó, la racha de ayer sigue viva.
-  let racha = 0
-  const d = new Date(`${hoy}T12:00:00`)
-  if (!dias.has(hoy)) d.setDate(d.getDate() - 1)
-  while (dias.has(fechaLocal(d.getTime()))) { racha++; d.setDate(d.getDate() - 1) }
+  // Días de este mes con al menos una, y el último: un conteo que no se borra. Nada de rachas que se pierden por un día
+  // malo (eso empuja a pesar cualquier cosa para no cortarla, y esos pesos ordenan todo lo demás).
   const n = (sql: string, ...a: any[]) => (db.prepare(sql).get(...a) as any).n as number
   return {
     hoy: n('SELECT COUNT(*) AS n FROM criba WHERE fecha = ?', hoy),
-    racha,
+    diasMes: n('SELECT COUNT(DISTINCT fecha) AS n FROM criba WHERE fecha >= ? AND fecha <= ?', `${hoy.slice(0, 7)}-01`, hoy),
+    ultimo: (db.prepare('SELECT MAX(fecha) AS f FROM criba').get() as { f: string | null }).f,
     cribadas: n('SELECT COUNT(*) AS n FROM corpus WHERE peso IS NOT NULL'),
     faltan: n(`SELECT COUNT(*) AS n FROM corpus WHERE peso IS NULL AND nivel != 'generada'`),
     descartadas: n('SELECT COUNT(*) AS n FROM corpus WHERE peso = 0'),

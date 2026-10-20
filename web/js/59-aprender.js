@@ -94,7 +94,7 @@ function pintarTemas(cont, d) {
     <section class="seccion"><form class="fila" id="apr-nuevo"><input name="tema" placeholder="Quiero aprender… (francés, SQL, a negociar)" required style="flex:2;min-width:12em"><input name="nivelObjetivo" placeholder="Hasta dónde (opcional)" style="flex:1;min-width:10em"><button class="btn btn-primario">＋ Sumar</button></form></section>
     ${d.aprendizajes.length ? `<div class="tarjetas">${d.aprendizajes.map((a) => `<article class="tarjeta apr-tema ${a.estado}" data-tema="${a.id}">
       <h4>${esc(a.tema)} ${a.estado !== 'activo' ? `<small class="tenue">(${esc(a.estado)})</small>` : ''}</h4>
-      <p>${a.practicas ? `${a.minutosSemana} min esta semana · ${a.minutos} en total · racha ${a.racha} · última ${esc(a.ultima)}` : 'Todavía sin práctica anotada.'}</p>
+      <p>${a.practicas ? `${a.minutosSemana} min esta semana · ${a.minutos} en total · ${a.diasMes} día${a.diasMes === 1 ? '' : 's'} este mes · última ${esc(a.ultima)}` : 'Todavía sin práctica anotada.'}</p>
       ${a.nivelObjetivo ? `<p>Objetivo: ${esc(a.nivelObjetivo)}</p>` : ''}
       <form class="fila" data-practica="${a.id}"><input name="minutos" type="number" min="1" placeholder="min" style="width:5em"><input name="que" placeholder="Qué practicaste" style="flex:1"><button class="btn btn-chico">Anotar</button></form>
       <div class="fila"><button class="btn btn-chico" data-recursos="${a.id}">Recursos</button><button class="btn btn-chico" data-estado="${a.id}" data-a="${a.estado === 'activo' ? 'pausado' : 'activo'}">${a.estado === 'activo' ? 'Pausar' : 'Reactivar'}</button></div>

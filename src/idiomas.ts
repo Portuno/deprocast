@@ -87,17 +87,13 @@ export function editarIdioma(db: Db, id: number, c: { nivel?: string; objetivo?:
   return leerIdioma(db, id)!
 }
 
-/** Los días seguidos con práctica (hasta hoy, o hasta ayer si hoy todavía no practicó). */
-function racha(db: Db, id: number, ahora: number): number {
-  const dias = new Set((db.prepare('SELECT DISTINCT fecha FROM practicas WHERE aprendizaje_id = ?').all(id) as { fecha: string }[]).map((r) => r.fecha))
-  const d = new Date(ahora)
-  if (!dias.has(fechaLocal(d.getTime()))) d.setDate(d.getDate() - 1)
-  let n = 0
-  while (dias.has(fechaLocal(d.getTime()))) { n++; d.setDate(d.getDate() - 1) }
-  return n
+/** Los días de este mes con práctica: un conteo que no se borra (un día sin practicar no le resta nada). */
+function diasDelMes(db: Db, id: number, ahora: number): number {
+  const hoy = fechaLocal(ahora)
+  return (db.prepare('SELECT COUNT(DISTINCT fecha) AS n FROM practicas WHERE aprendizaje_id = ? AND fecha >= ? AND fecha <= ?').get(id, `${hoy.slice(0, 7)}-01`, hoy) as { n: number }).n
 }
 
-/** Cada idioma con su progreso: racha, minutos de la semana, charlas, frases (tarjetas) y las que tocan hoy. */
+/** Cada idioma con su progreso: días practicados este mes, minutos de la semana, charlas, frases (tarjetas) y las que tocan hoy. */
 export function listarIdiomas(db: Db, ahora = Date.now()) {
   const hoy = fechaLocal(ahora)
   const semana = fechaLocal(ahora - 6 * 86_400_000)
@@ -106,7 +102,7 @@ export function listarIdiomas(db: Db, ahora = Date.now()) {
     const minutos = (db.prepare('SELECT COALESCE(SUM(minutos), 0) AS m FROM practicas WHERE aprendizaje_id = ? AND fecha >= ?').get(i.aprendizajeId, semana) as { m: number }).m
     const turnos = db.prepare('SELECT id, fecha, pregunta, respuesta, por_voz, devolucion FROM idioma_turnos WHERE aprendizaje_id = ? AND respuesta IS NOT NULL ORDER BY id DESC LIMIT 6').all(i.aprendizajeId) as any[]
     return {
-      ...i, racha: racha(db, i.aprendizajeId, ahora), minutosSemana: minutos, metaSemana: i.minutosDia * 7,
+      ...i, diasMes: diasDelMes(db, i.aprendizajeId, ahora), minutosSemana: minutos, metaSemana: i.minutosDia * 7,
       charlas: turnos.length ? (db.prepare('SELECT COUNT(*) AS n FROM idioma_turnos WHERE aprendizaje_id = ? AND respuesta IS NOT NULL').get(i.aprendizajeId) as { n: number }).n : 0,
       tarjetas: { total: t.total ?? 0, hoy: t.hoy ?? 0, aprendidas: t.aprendidas ?? 0 }, conVoz: !!IDIOMAS[i.codigo]?.voz,
       ultimos: turnos.map((x) => ({ ...x, devolucion: json<any>(x.devolucion, null) })),

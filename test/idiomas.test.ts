@@ -104,7 +104,7 @@ test('Idiomas: sin por qué no arranca; la práctica corrige, deja frases como t
 
   const [l] = idi.listarIdiomas(db, T + 400_000)
   assert.equal(l.charlas, 2)
-  assert.equal(l.racha, 1)
+  assert.equal(l.diasMes, 1)
   assert.ok(l.minutosSemana >= 5)
   assert.equal(l.tarjetas.total, 2)
   assert.equal(l.conVoz, true)

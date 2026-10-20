@@ -351,7 +351,7 @@ async function comandoIdioma(db: Db, resto: string) {
   const b = sinTildes(resto)
   const elegido = b ? xs.find((i) => i.codigo === b || sinTildes(i.nombre).startsWith(b)) : xs.length === 1 ? xs[0] : null
   if (elegido) return abrirPracticaTelegram(db, elegido.aprendizajeId)
-  return decir('¿Cuál practicamos?', [xs.map((i) => ({ texto: `${i.nombre}${i.racha ? ` 🔥${i.racha}` : ''}`, dato: `id:${i.aprendizajeId}:abrir` }))])
+  return decir('¿Cuál practicamos?', [xs.map((i) => ({ texto: i.nombre, dato: `id:${i.aprendizajeId}:abrir` }))])
 }
 
 const nombreDeMazo = (db: Db, mazo: string) => mazo.startsWith('idioma:') ? leerIdioma(db, Number(mazo.slice(7)))?.nombre ?? 'Idioma' : mazo === 'consumido' ? 'Lo que miraste' : mazo
@@ -481,7 +481,7 @@ function cartaCriba(db: Db): { texto: string; botones?: Botones } {
   if (!p) return { texto: `No queda nada para cribar. 🎉 (${m.cribadas} pesadas)` }
   const c = (peso: number | 's', t?: string) => ({ texto: t ?? String(peso), dato: `c:${p.id}:${peso}` })
   return {
-    texto: `**${p.titulo}**${p.url ? `\n${p.url}` : ''}\n${p.contenido.slice(0, 700)}${p.contenido.length > 700 ? '…' : ''}\n\n_Hoy ${m.hoy} · racha ${m.racha} · faltan ${m.faltan}_`,
+    texto: `**${p.titulo}**${p.url ? `\n${p.url}` : ''}\n${p.contenido.slice(0, 700)}${p.contenido.length > 700 ? '…' : ''}\n\n_Hoy ${m.hoy} · ${m.diasMes} día${m.diasMes === 1 ? '' : 's'} este mes · faltan ${m.faltan}_`,
     botones: [[c(0, '✕'), c(1), c(2), c(3), c(4), c(5), c(6)], [c(7), c(8), c(9), c(10), c(11), c(12), c('s', '⏭')]],
   }
 }

@@ -1,5 +1,5 @@
 'use strict'
-// Criba lúdica: una pieza por vez; peso 1–12 o descartar, con teclas. Marcador del día y racha.
+// Criba lúdica: una pieza por vez; peso 1–12 o descartar, con teclas. Las de hoy y los días del mes (nada que se pierda).
 // Mientras pesa, puede anotar: una nota (o algo para hacer) que entra al corpus con la pieza citada, y @ para nombrar.
 
 let cribaPieza = null
@@ -45,7 +45,7 @@ function montarCriba() {
 }
 
 function pintarMarcador(m) {
-  $('#cr-marcador').innerHTML = `<span><b>${m.hoy}</b>hoy</span><span><b>${m.racha}</b>día${m.racha === 1 ? '' : 's'} de racha${m.racha >= 3 ? ' 🔥' : ''}</span><span><b>${m.cribadas.toLocaleString('es-AR')}</b>pesadas</span><span><b>${m.faltan.toLocaleString('es-AR')}</b>faltan</span>`
+  $('#cr-marcador').innerHTML = `<span><b>${m.hoy}</b>hoy</span><span><b>${m.diasMes}</b>día${m.diasMes === 1 ? '' : 's'} este mes</span><span><b>${m.cribadas.toLocaleString('es-AR')}</b>pesadas</span><span><b>${m.faltan.toLocaleString('es-AR')}</b>faltan</span>`
 }
 
 function pintarNotas(notas) {

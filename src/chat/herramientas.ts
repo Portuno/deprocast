@@ -1164,7 +1164,7 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'ver_aprendizajes', familia: 'lectura',
-    descripcion: 'Lo que quiere aprender: cada tema con minutos, racha y última práctica; con un tema, también sus recursos (Librería y corpus).',
+    descripcion: 'Lo que quiere aprender: cada tema con minutos, días practicados este mes y última práctica; con un tema, también sus recursos (Librería y corpus).',
     parametros: S({ tema: str('Un tema, para ver sus recursos') }),
     ejecutar: (a, { db }) => ({ aprendizajes: listarAprendizajes(db), recursos: a.tema ? recursosDe(db, a.tema) : undefined }),
   },
@@ -1344,10 +1344,10 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'ver_idiomas', familia: 'lectura',
-    descripcion: 'Los idiomas que está aprendiendo: nivel, por qué, racha, minutos de la semana contra la meta, charlas, frases (tarjetas) y las que tocan hoy, y las últimas correcciones.',
+    descripcion: 'Los idiomas que está aprendiendo: nivel, por qué, días practicados este mes, minutos de la semana contra la meta, charlas, frases (tarjetas) y las que tocan hoy, y las últimas correcciones.',
     parametros: S({}),
     ejecutar: async (_a, { db }) => (await import('../idiomas.ts')).listarIdiomas(db).map((i) => ({
-      id: i.aprendizajeId, idioma: i.nombre, nivel: i.nivel, objetivo: i.objetivo, por_que: i.porQue, hora: i.hora, racha: i.racha,
+      id: i.aprendizajeId, idioma: i.nombre, nivel: i.nivel, objetivo: i.objetivo, por_que: i.porQue, hora: i.hora, dias_mes: i.diasMes,
       minutos_semana: i.minutosSemana, meta_semana: i.metaSemana, charlas: i.charlas, tarjetas: i.tarjetas,
       ultimas_correcciones: i.ultimos.flatMap((t: any) => t.devolucion?.correcciones ?? []).slice(0, 6),
     })),

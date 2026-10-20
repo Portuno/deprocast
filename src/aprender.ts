@@ -70,7 +70,7 @@ export function practicasDe(db: Db, id: number, limite = 30): Practica[] {
   return db.prepare('SELECT * FROM practicas WHERE aprendizaje_id = ? ORDER BY fecha DESC, id DESC LIMIT ?').all(id, limite).map(dePractica)
 }
 
-/** Cada tema con sus números: minutos totales y de la semana, días practicados, racha (días seguidos hasta hoy o ayer) y la última vez. */
+/** Cada tema con sus números: minutos totales y de la semana, días practicados (en total y este mes) y la última vez. Sin rachas que se pierdan. */
 export function listarAprendizajes(db: Db, f: { estado?: string } = {}, ahora = Date.now()) {
   const hoy = fechaLocal(ahora)
   const hace = (n: number) => fechaLocal(ahora - n * 86_400_000)
@@ -78,12 +78,11 @@ export function listarAprendizajes(db: Db, f: { estado?: string } = {}, ahora = 
   return filas.map((a) => {
     const ps = practicasDe(db, a.id, 400)
     const dias = new Set(ps.map((p) => p.fecha))
-    let racha = 0
-    for (let i = dias.has(hoy) ? 0 : 1; dias.has(hace(i)); i++) racha++
+    const diasMes = [...dias].filter((d) => d >= `${hoy.slice(0, 7)}-01` && d <= hoy).length
     const ultima = ps[0]?.fecha ?? null
     return {
       ...a, practicas: ps.length, minutos: ps.reduce((s, p) => s + (p.minutos ?? 0), 0), minutosSemana: ps.filter((p) => p.fecha >= hace(6)).reduce((s, p) => s + (p.minutos ?? 0), 0),
-      dias: dias.size, racha, ultima, diasSinPracticar: ultima ? Math.round((Date.parse(`${hoy}T12:00:00`) - Date.parse(`${ultima}T12:00:00`)) / 86_400_000) : null,
+      dias: dias.size, diasMes, ultima, diasSinPracticar: ultima ? Math.round((Date.parse(`${hoy}T12:00:00`) - Date.parse(`${ultima}T12:00:00`)) / 86_400_000) : null,
     }
   })
 }
@@ -103,7 +102,7 @@ export function recursosDe(db: Db, tema: string) {
 export function aprenderParaPrompt(db: Db, ahora = Date.now()): string {
   const xs = listarAprendizajes(db, { estado: 'activo' }, ahora)
   if (!xs.length) return ''
-  return `Quiere aprender: ${xs.map((a) => `${a.tema}${a.nivelObjetivo ? ` (objetivo: ${a.nivelObjetivo})` : ''} — ${a.practicas ? `${a.minutosSemana} min esta semana, racha ${a.racha}, última vez ${a.ultima}` : 'todavía sin práctica anotada'}`).join('; ')}.`
+  return `Quiere aprender: ${xs.map((a) => `${a.tema}${a.nivelObjetivo ? ` (objetivo: ${a.nivelObjetivo})` : ''} — ${a.practicas ? `${a.minutosSemana} min esta semana, ${a.diasMes} día${a.diasMes === 1 ? '' : 's'} este mes, última vez ${a.ultima}` : 'todavía sin práctica anotada'}`).join('; ')}.`
 }
 
 // ─── repaso espaciado ───────────────────────────────────────────────────

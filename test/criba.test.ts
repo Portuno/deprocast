@@ -7,7 +7,7 @@ import { crearQuantomo, descartarLote, gruposProto, leerQuantomo, sellarLote } f
 
 const dia = (d: number) => new Date(2026, 9, d, 12).getTime()
 
-test('criba: links y lo propio primero, nunca lo generado; peso, descarte, deshacer y racha', () => {
+test('criba: links y lo propio primero, nunca lo generado; peso, descarte, deshacer y días del mes (sin racha que se pierda)', () => {
   const db = abrir(':memory:')
   const gen = insertar(db, { fuente: 'operador', titulo: 'Informe de agente sobre café', contenido: 'café', nivel: 'generada', origenId: 'c:g' })!
   const prim = insertar(db, { fuente: 'operador', titulo: 'Libro sobre café', contenido: 'café de especialidad', nivel: 'primaria', origenId: 'c:p' })!
@@ -22,10 +22,10 @@ test('criba: links y lo propio primero, nunca lo generado; peso, descarte, desha
   cribar(db, link, 0, dia(5))
   cribar(db, propia, 12, dia(6))
   let m = cribar(db, prim, 3, dia(7))
-  assert.deepEqual(m, { hoy: 1, racha: 3, cribadas: 3, faltan: 0, descartadas: 1 })
+  assert.deepEqual({ ...m, ultimo: undefined }, { hoy: 1, diasMes: 3, ultimo: undefined, cribadas: 3, faltan: 0, descartadas: 1 })
   assert.equal(siguiente(db), null, 'lo generado no se criba')
-  assert.equal(marcador(db, dia(8)).racha, 3, 'hoy todavía no: la racha sigue viva')
-  assert.equal(marcador(db, dia(9)).racha, 0, 'un día sin cribar la corta')
+  assert.equal(marcador(db, dia(8)).diasMes, 3, 'hoy todavía no: los días del mes siguen ahí')
+  assert.equal(marcador(db, dia(9)).diasMes, 3, 'un día sin cribar no resta nada')
 
   // El peso ordena la búsqueda: descartado al fondo, lo pesado arriba; lo generado sigue último.
   const orden = buscar(db, 'café', 10).map((p) => p.id)
