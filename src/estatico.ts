@@ -65,7 +65,23 @@ export function servirEstatico(req: http.IncomingMessage, res: http.ServerRespon
 
 /** El index.html con cada script y la hoja de estilos apuntando a su versión (el hash de su contenido). */
 export function indexConVersiones(web: string): string {
-  const html = leer(path.join(web, 'index.html')).crudo.toString('utf8')
+  let html = leer(path.join(web, 'index.html')).crudo.toString('utf8')
+  // Las vistas perezosas no se cargan al arrancar: salen del HTML y se anuncian (versión, funciones, lo que necesitan)
+  // para que 05-comun.js las pida la primera vez que hacen falta.
+  const perezosos: Record<string, { v: string; funciones: string[]; necesita: string[] }> = {}
+  html = html.replace(/[ \t]*<script data-perezoso src="\/js\/([^"]+)"(?: data-necesita="([^"]*)")?><\/script>\r?\n?/g, (_, archivo: string, necesita?: string) => {
+    try {
+      const a = leer(path.join(web, 'js', archivo))
+      const funciones = [...a.crudo.toString('utf8').matchAll(/^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/gm)].map((m) => m[1])
+      perezosos[archivo] = { v: a.hash, funciones, necesita: (necesita ?? '').split(/\s+/).filter(Boolean) }
+    } catch { /* un archivo que falta no rompe el index */ }
+    return ''
+  })
+  if (Object.keys(perezosos).length) {
+    const i = html.indexOf('<script defer')
+    const manifiesto = `<script>window.PEREZOSOS = ${JSON.stringify(perezosos).replace(/</g, '\\u003c')}</script>\n  `
+    html = i >= 0 ? html.slice(0, i) + manifiesto + html.slice(i) : html.replace('</body>', `${manifiesto}</body>`)
+  }
   return html.replace(/(src|href)="(\/(?:js\/[^"?]+\.js|estilo\.css))"/g, (_, attr: string, ruta: string) => {
     try { return `${attr}="${ruta}?v=${versionDe(path.join(web, ruta))}"` } catch { return `${attr}="${ruta}"` }
   })

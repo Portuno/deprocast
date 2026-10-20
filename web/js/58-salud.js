@@ -3,8 +3,7 @@
 // explicación, o un texto), por el chat, o desde acá: una foto, unas palabras o a mano.
 
 let saludFecha = null
-const hoyISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
-const corrDia = (f, n) => { const [a, m, d] = f.split('-').map(Number); const x = new Date(a, m - 1, d + n, 12); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}` }
+// hoyISO y corrDia viven en 05-comun.js (las usan otras vistas).
 const ICONO_SALUD = { comida: '🍽', ejercicio: '💪', sueno: '😴', medida: '⚖', sintoma: '🩹', otro: '·' }
 const CALIDAD = ['', 'mal', 'bien', 'muy bien']
 

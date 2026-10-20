@@ -244,10 +244,7 @@ function detallePrimaria(m, recargar) {
   engancharRecortes($('#modal'))
 }
 
-const haceCuanto = (ms) => {
-  const min = Math.round((Date.now() - ms) / 60000)
-  return min < 60 ? `hace ${Math.max(1, min)} min` : min < 1440 ? `hace ${Math.round(min / 60)} h` : `hace ${Math.round(min / 1440)} d`
-}
+// haceCuanto vive en 05-comun.js (lo usa también Hoy).
 
 function ayudantesHTML(m) {
   const ays = m.ayudantes ?? []

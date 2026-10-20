@@ -100,7 +100,7 @@ function accionesDePunto(p) {
 }
 function accionDePunto(accion, p) {
   if (accion === 'pieza') modalPieza(Number(p.ref.id))
-  else if (accion === 'entidad') { filtroEnt.sel = Number(p.ref.id); irA('entidades') }
+  else if (accion === 'entidad') cargarScript('50-saber.js').then(() => { filtroEnt.sel = Number(p.ref.id); irA('entidades') })
   else if (accion === 'radar') irA('radar')
   else if (accion === 'abrir' && p.url) window.open(p.url, '_blank', 'noopener')
 }

@@ -602,10 +602,7 @@ async function traerQuantomos(mas = false) {
 
 // Entidades
 
-const TIPO_ENT = {
-  persona: { glifo: '◐', nombre: 'Personas' }, proyecto: { glifo: '◆', nombre: 'Proyectos' }, agrupacion: { glifo: '⬡', nombre: 'Agrupaciones' },
-  dominio: { glifo: '▦', nombre: 'Dominios' }, lugar: { glifo: '⌖', nombre: 'Lugares' }, concepto: { glifo: '✧', nombre: 'Conceptos' },
-}
+// TIPO_ENT vive en 05-comun.js (lo usa también Hoy).
 const filtroEnt = { tipo: '', q: '', sel: null }
 let entTab = 'corpus'
 let entLista = { total: 0, entidades: [] }

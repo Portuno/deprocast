@@ -425,7 +425,7 @@ document.addEventListener('click', (e) => {
     e.preventDefault()
     if (ref.dataset.refQ) return modalLinaje(Number(ref.dataset.refQ))
     if (ref.dataset.refCarga) return modalCarga(Number(ref.dataset.refCarga))
-    if (ref.dataset.refEnt) { cerrarModal(); filtroEnt.sel = Number(ref.dataset.refEnt); return irA('entidades') }
+    if (ref.dataset.refEnt) { cerrarModal(); return void cargarScript('50-saber.js').then(() => { filtroEnt.sel = Number(ref.dataset.refEnt); irA('entidades') }) }
     return modalPropuestas()
   }
   const pieza = e.target.closest('[data-pieza]')
