@@ -128,16 +128,21 @@ const soltar = () => new Promise<void>((ok) => setImmediate(ok))
 async function vectoresDeQuantomos(db: Db) {
   let c = vectoresQ.get(db)
   if (!c) { c = { hasta: 0, ids: [], q: [], esc: [] }; vectoresQ.set(db, c) }
-  const nuevos = db.prepare(`SELECT q.id, v.vec FROM quantomos q JOIN vec_items v ON v.tipo = 'quantomo' AND v.id = q.id WHERE q.id > ? AND q.etapa != 'descartado' ORDER BY q.id`).all(c.hasta) as { id: number; vec: Uint8Array }[]
-  for (const [n, r] of nuevos.entries()) {
-    if (n % 1000 === 999) await soltar()
-    const v = new Float32Array(r.vec.buffer.slice(r.vec.byteOffset, r.vec.byteOffset + r.vec.byteLength))
-    let max = 0
-    for (const x of v) max = Math.max(max, Math.abs(x))
-    const esc = max / 127 || 1
-    const q = new Int8Array(v.length)
-    for (let i = 0; i < v.length; i++) q[i] = Math.round(v[i] / esc)
-    c.ids.push(r.id); c.q.push(q); c.esc.push(esc); c.hasta = r.id
+  // De a mil y soltando entre tanda y tanda: leer los 15.000 de un tirón trababa el servidor más de un segundo.
+  const tanda = db.prepare(`SELECT q.id, v.vec FROM quantomos q JOIN vec_items v ON v.tipo = 'quantomo' AND v.id = q.id WHERE q.id > ? AND q.etapa != 'descartado' ORDER BY q.id LIMIT 1000`)
+  for (;;) {
+    const nuevos = tanda.all(c.hasta) as { id: number; vec: Uint8Array }[]
+    for (const r of nuevos) {
+      const v = new Float32Array(r.vec.buffer.slice(r.vec.byteOffset, r.vec.byteOffset + r.vec.byteLength))
+      let max = 0
+      for (const x of v) max = Math.max(max, Math.abs(x))
+      const esc = max / 127 || 1
+      const q = new Int8Array(v.length)
+      for (let i = 0; i < v.length; i++) q[i] = Math.round(v[i] / esc)
+      c.ids.push(r.id); c.q.push(q); c.esc.push(esc); c.hasta = r.id
+    }
+    if (nuevos.length < 1000) break
+    await soltar()
   }
   return c
 }
@@ -169,6 +174,26 @@ export async function marcarNovedad(db: Db, limite = 100): Promise<number> {
     await soltar()
   }
   return faltan.length
+}
+
+/**
+ * Los quántomos más parecidos a uno, por sentido (con el mismo caché int8), del más cercano al más lejano. Sin modelo:
+ * usa el vector que ya tiene. [] si todavía no tiene vector. Puede traer descartados viejos: filtrar por etapa al usarlos.
+ */
+export async function parecidosA(db: Db, id: number, limite = 30): Promise<{ id: number; sim: number }[]> {
+  const r = db.prepare(`SELECT vec FROM vec_items WHERE tipo = 'quantomo' AND id = ?`).get(id) as { vec: Uint8Array } | undefined
+  if (!r) return []
+  const v = new Float32Array(r.vec.buffer.slice(r.vec.byteOffset, r.vec.byteOffset + r.vec.byteLength))
+  const c = await vectoresDeQuantomos(db)
+  const out: { id: number; sim: number }[] = []
+  for (let k = 0; k < c.ids.length; k++) {
+    if (c.ids[k] === id) continue
+    const q = c.q[k]
+    let s = 0
+    for (let i = 0; i < Math.min(v.length, q.length); i++) s += v[i] * q[i]
+    out.push({ id: c.ids[k], sim: Math.round(Math.min(1, s * c.esc[k]) * 1000) / 1000 })
+  }
+  return out.sort((a, b) => b.sim - a.sim).slice(0, limite)
 }
 
 export function resumenQuantomos(db: Db) {

@@ -168,3 +168,21 @@ test('telegram: un 409 se registra una sola vez y espera cada vez más; un timeo
   assert.equal(await vueltaTelegram(db), 300)
   assert.equal(estadoTelegram().ultimoError, null)
 })
+
+test('telegram: /mano manda una carta con sus 12 pesos; jugarla dice cómo cayó y trae la siguiente en el mismo mensaje', async () => {
+  const db = abrir(':memory:')
+  const { yo, ultimo } = bot()
+  const { crearQuantomo, leerQuantomo } = await import('../src/quantomos.ts')
+  const a = crearQuantomo(db, { texto: 'Una afirmación para pesar' })!
+  crearQuantomo(db, { texto: 'Otra afirmación' })
+  await procesarActualizacion(db, yo({ text: '/mano' }))
+  assert.match(ultimo().text, /<b>(Una afirmación para pesar|Otra afirmación)<\/b>/)
+  const datos = ultimo().reply_markup.inline_keyboard.flat().map((b: any) => b.callback_data)
+  assert.equal(datos.length, 15, '12 pesos, descartar, choca y pasar')
+  const primera = Number(datos[0].split(':')[1])
+  await procesarActualizacion(db, { callback_query: { id: 'm', data: `mn:${primera}:8`, message: { chat: { id: 42 }, message_id: 78 } } })
+  assert.equal(leerQuantomo(db, primera)?.peso, 8)
+  assert.equal(ultimo().metodo, 'editMessageText')
+  assert.match(ultimo().text, /Pesada 8[\s\S]*territorio nuevo[\s\S]*— — —/)
+  assert.ok(primera === a || leerQuantomo(db, a)?.etapa === 'proto')
+})

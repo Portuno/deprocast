@@ -27,6 +27,7 @@ import { registrarSalud, resumenDia } from './salud.ts'
 import { registrarError } from './autocritica.ts'
 import { diaDelPlan, marcarHabito, VERBOS, votar } from './cien.ts'
 import { cribar, marcador, siguiente } from './criba.ts'
+import { jugar, robar, type Jugada } from './mano.ts'
 import { responderPregunta, siguientePregunta } from './preguntas.ts'
 import { descartar, ejecutar, leerCarga, subir } from './cargas/index.ts'
 import { sintetizar } from './taller.ts'
@@ -485,6 +486,32 @@ function cartaCriba(db: Db): { texto: string; botones?: Botones } {
   }
 }
 
+const salteadasMano: number[] = []
+/** Cómo cayó una carta jugada, en una línea o dos (lo que conecta, lo que refuerza o con qué choca). */
+function caidaMano(j: Jugada): string {
+  const cab = j.gesto === 'peso' ? `✓ Pesada ${j.carta.peso}` : j.gesto === 'choca' ? '⚡ Marcada: choca con lo que ya sabías' : '✕ Descartada'
+  const v = (x: Jugada['vecinos'][number]) => `«${x.texto.slice(0, 90)}${x.texto.length > 90 ? '…' : ''}» (${Math.round(x.sim * 100)} %)`
+  const lineas = [cab]
+  if (j.refuerza.length) lineas.push(`Refuerza lo que ya creías: ${v(j.refuerza[0])}`)
+  if (j.chocaCon.length) lineas.push(`¿Choca con ${v(j.chocaCon[0])}?`)
+  if (j.gesto !== 'descartar') lineas.push(j.vecinos.length ? `Cae cerca de ${v(j.vecinos[0])}` : 'No se parece a nada que hayas pesado: territorio nuevo.')
+  return lineas.join('\n')
+}
+
+/** Una carta de La Mano, con sus pesos en botones (y lo que pasó con la anterior arriba, si hubo). */
+function cartaMano(db: Db, previo = ''): { texto: string; botones?: Botones } {
+  const c = robar(db, { n: 1, saltear: salteadasMano })[0]
+  const arriba = previo ? `${previo}\n\n— — —\n` : ''
+  if (!c) return { texto: `${arriba}No quedan afirmaciones sin pesar. 🎉` }
+  const b = (g: number | string, t?: string) => ({ texto: t ?? String(g), dato: `mn:${c.id}:${g}` })
+  const nov = c.novedad === 'nueva' ? '✦ nueva' : c.novedad === 'variacion' ? '≈ variación' : c.novedad === 'repetida' ? '= casi repetida' : ''
+  const toca = c.toca.primaria ? `→ ${c.toca.primaria.titulo}` : '→ suelta'
+  return {
+    texto: `${arriba}♤ ${nov ? `_${nov}_ · ` : ''}${c.fuente ? `de «${c.fuente.titulo.slice(0, 60)}»` : ''}\n\n**${c.texto}**\n\n_${toca}_`,
+    botones: [[b(1), b(2), b(3), b(4), b(5), b(6)], [b(7), b(8), b(9), b(10), b(11), b(12)], [b('x', '✕'), b('c', '⚡ choca'), b('s', '⏭')]],
+  }
+}
+
 /** mensaje de Telegram → id de la pregunta, para que responder «a ese mensaje» la conteste. */
 const preguntasEnviadas = new Map<number, number>()
 async function mandarPregunta(db: Db) {
@@ -500,7 +527,7 @@ async function mandarPregunta(db: Db) {
 export const COMANDOS = [
   ['hoy', 'Cómo viene el día'], ['run', 'La banda que toca ahora (o arrancar la propuesta)'], ['gasto', 'Anotar un gasto: /gasto 12,5 súper'],
   ['ingreso', 'Anotar un ingreso: /ingreso 800 freelance'], ['nota', 'Guardar algo sin charlar'], ['bitacora', 'Escribir en tu bitácora (privada)'],
-  ['brujula', 'El tridente del día'], ['mentor', 'Qué leer o ver ahora'], ['buscar', 'Buscar en tu corpus'], ['criba', 'Pesar piezas con botones'], ['pregunta', 'Que Mastropiero te pregunte algo'], ['idioma', 'Practicar un idioma ahora: /idioma inglés (/idioma fin la cierra)'], ['tarjetas', 'Repasar las tarjetas que tocan hoy'], ['sueno', 'Anotar un sueño: /sueno y lo contás (o mandá un audio que empiece con «soñé…»)'], ['voz', 'Respuestas también en audio: sí / no'], ['ayuda', 'Qué sé hacer'],
+  ['brujula', 'El tridente del día'], ['mentor', 'Qué leer o ver ahora'], ['buscar', 'Buscar en tu corpus'], ['criba', 'Pesar piezas con botones'], ['mano', 'Jugar tus afirmaciones sin pesar, de a una'], ['pregunta', 'Que Mastropiero te pregunte algo'], ['idioma', 'Practicar un idioma ahora: /idioma inglés (/idioma fin la cierra)'], ['tarjetas', 'Repasar las tarjetas que tocan hoy'], ['sueno', 'Anotar un sueño: /sueno y lo contás (o mandá un audio que empiece con «soñé…»)'], ['voz', 'Respuestas también en audio: sí / no'], ['ayuda', 'Qué sé hacer'],
 ] as const
 
 function resumenHoy(db: Db): string {
@@ -554,6 +581,7 @@ async function comando(db: Db, cmd: string, resto: string) {
       return decir(ps.map((p) => `**#${p.id} ${p.titulo}**\n${p.contenido.replace(/\s+/g, ' ').slice(0, 160)}…`).join('\n\n'))
     }
     case '/criba': { const c = cartaCriba(db); return decir(c.texto, c.botones) }
+    case '/mano': { const c = cartaMano(db); return decir(c.texto, c.botones) }
     case '/brujula': return decir(textoDeBrujula(await brujulaDelDia(db, { forzar: /^(de nuevo|otra|rehacer)/i.test(resto) })))
     case '/mentor': {
       const rs = await recomendar(db)
@@ -625,6 +653,15 @@ async function boton(db: Db, q: any) {
     if (b === 's') salteadas.push(Number(a))
     else cribar(db, Number(a), Number(b))
     const c = cartaCriba(db)
+    return mensajeId ? editar(mensajeId, c.texto, c.botones) : decir(c.texto, c.botones)
+  }
+  if (k === 'mn') {
+    let previo = ''
+    if (b === 's') salteadasMano.push(Number(a))
+    else {
+      try { previo = caidaMano(await jugar(db, Number(a), b === 'x' ? { gesto: 'descartar' } : b === 'c' ? { gesto: 'choca' } : { gesto: 'peso', peso: Number(b) })) } catch (e) { previo = e instanceof Error ? e.message : String(e) }
+    }
+    const c = cartaMano(db, previo)
     return mensajeId ? editar(mensajeId, c.texto, c.botones) : decir(c.texto, c.botones)
   }
   if (k === 'p') {

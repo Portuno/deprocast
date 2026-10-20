@@ -86,6 +86,7 @@ import { cadena, nanConfigurado, nanTranscribir, tokensHoy, topeAlcanzado, topeD
 import {
   aceptarPropuesta, descartar as descartarQuantomo, descartarLote, gruposProto, leerQuantomo, linaje, listarQuantomos, pedirLote, pedirMejora, quantomosDePieza, resumenQuantomos, sellar, sellarLote,
 } from './quantomos.ts'
+import { nuevasParaJugar } from './mano.ts'
 import {
   alias, bautizar, cambiarEstado, DIAS_SIN_CORRER, forjar, lapidas, leer, listar, MOTOR_DEFECTO, nivel, retirar,
   PRUEBA_EXITOS, PRUEBA_FALLOS, RACHA_BANCA, type Ficha,
@@ -335,6 +336,7 @@ const rutas: [string, RegExp, Ruta][] = [
       brujula: leerBrujula(db, fecha),
       paraDecidir: bandeja(db).total,
       tarjetasHoy: (db.prepare(`SELECT COUNT(*) AS n FROM tarjetas WHERE estado = 'activa' AND proxima <= ?`).get(fecha) as { n: number }).n,
+      manoNuevas: nuevasParaJugar(db),
       ajustes: { primarias_semana: ajuste(db, 'primarias_semana'), tokens_dia_max: ajuste(db, 'tokens_dia_max'), pensar_cada_horas: ajuste(db, 'pensar_cada_horas'), meta_ingresos_mes: ajuste(db, 'meta_ingresos_mes'), directo_auto: ajuste(db, 'directo_auto'), fragua_por_noche: ajuste(db, 'fragua_por_noche'), ciclo_bandas: ajuste(db, 'ciclo_bandas'), horario_fijo: horarioComoTexto(leerHorario(db)) },
     }
   }],
@@ -999,6 +1001,13 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/quantomos\/(\d+)\/descartar$/, (_, [k]) => (descartarQuantomo(db, id(k)), leerQuantomo(db, id(k)))],
   ['POST', /^\/api\/quantomos\/(\d+)\/mejora$/, (b, [k]) => pedirMejora(db, id(k), String(b.instruccion ?? ''))],
   ['GET', /^\/api\/quantomos\/grupos$/, () => gruposProto(db)],
+  // La Mano: robar cinco cartas sin pesar y jugarlas de a una (la respuesta vuelve enseguida, sin modelo).
+  ['GET', /^\/api\/mano$/, async (_, __, q) => {
+    const m = await import('./mano.ts')
+    return { mazo: m.composicion(db), cartas: m.robar(db, { saltear: (q.get('saltear') ?? '').split(',').filter(Boolean).map(Number) }) }
+  }],
+  ['POST', /^\/api\/mano\/(\d+)$/, async (b, [k]) => (await import('./mano.ts')).jugar(db, id(k), { gesto: b.gesto, peso: b.peso == null ? null : Number(b.peso), porque: b.porque ?? null })],
+  ['POST', /^\/api\/mano\/deshacer$/, async () => (await import('./mano.ts')).deshacerJugada(db) ?? { quantomoId: null }],
   ['POST', /^\/api\/quantomos\/lote$/, (b) => pedirLote(db, Array.isArray(b.ids) ? b.ids.map(Number) : [])],
   ['POST', /^\/api\/quantomos\/lote\/sellar$/, (b) => sellarLote(db, Array.isArray(b.ids) ? b.ids.map(Number) : [], Number(b.peso))],
   ['POST', /^\/api\/quantomos\/lote\/descartar$/, (b) => descartarLote(db, Array.isArray(b.ids) ? b.ids.map(Number) : [], String(b.motivo ?? ''))],

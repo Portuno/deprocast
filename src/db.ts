@@ -869,6 +869,20 @@ CREATE TABLE IF NOT EXISTS idioma_turnos (
   en INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idioma_turnos_ap ON idioma_turnos(aprendizaje_id, en);
+-- La Mano: cada carta jugada (un quántomo pesado, descartado o marcado «choca con lo que ya sabía»), con su por qué
+-- y cómo estaba antes (para deshacer).
+CREATE TABLE IF NOT EXISTS mano_jugadas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  quantomo_id INTEGER NOT NULL,
+  gesto TEXT NOT NULL,                -- peso | descartar | choca
+  peso INTEGER,
+  porque TEXT,
+  etapa_antes TEXT,
+  peso_antes INTEGER,
+  deshecha INTEGER NOT NULL DEFAULT 0,
+  en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS mano_jugadas_en ON mano_jugadas(en);
 -- Las piezas que ya dejaron sus tarjetas (lo que miró o leyó): una vez cada una, aunque no haya salido ninguna.
 CREATE TABLE IF NOT EXISTS tarjetas_piezas (
   pieza_id INTEGER PRIMARY KEY,
@@ -1456,6 +1470,7 @@ END;
 const INDICES_RAPIDOS = `
 CREATE INDEX IF NOT EXISTS corpus_nivel ON corpus(nivel, fecha);
 CREATE INDEX IF NOT EXISTS corpus_estado ON corpus(estado);
+CREATE INDEX IF NOT EXISTS quantomos_etapa_novedad ON quantomos(etapa, novedad);
 CREATE INDEX IF NOT EXISTS corpus_aporte ON corpus(json_extract(meta, '$.primaria')) WHERE json_extract(meta, '$.aporte') = 1;
 CREATE INDEX IF NOT EXISTS corpus_ayudante ON corpus(json_extract(meta, '$.ayudante')) WHERE json_extract(meta, '$.ayudante') IS NOT NULL;
 CREATE INDEX IF NOT EXISTS misiones_padre ON misiones(padre_id, nivel);

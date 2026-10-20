@@ -111,7 +111,7 @@ async function main() {
       try { await pedir('/version'); break } catch { if (i > 100) throw new Error(`El servidor no arrancó:\n${log}`); await new Promise((r) => setTimeout(r, 200)) }
     }
     await pedir('/api/velocidad/reiniciar')
-    const rutas = ['/api/estado', '/api/hoy', '/api/hoy/hud', '/api/chat/1', '/api/reproceso', '/api/takeout', '/api/misiones', '/api/bandeja', '/api/personas', '/api/entidades', '/api/memoria', '/api/encargos']
+    const rutas = ['/api/estado', '/api/hoy', '/api/hoy/hud', '/api/chat/1', '/api/reproceso', '/api/takeout', '/api/misiones', '/api/bandeja', '/api/personas', '/api/entidades', '/api/memoria', '/api/encargos', '/api/mano']
     const ancho = [34, 6, 9, 9, 9]
     const linea = (xs: string[]) => xs.map((x, i) => (i ? x.padStart(ancho[i]) : x.padEnd(ancho[i]))).join(' ')
     console.log(`\n${linea(['ruta', 'status', 'ms (med)', 'ms (máx)', 'KB'])}\n${'-'.repeat(70)}`)
@@ -122,6 +122,21 @@ async function main() {
       console.log(linea([r, xs[0].status ? String(xs[0].status) : 'tope', mediana(xs.map((x) => x.ms)).toFixed(1), Math.max(...xs.map((x) => x.ms)).toFixed(1), (xs[0].bytes / 1024).toFixed(1)]))
       if (!xs[0].status) { console.log(`  (más de ${TOPE_MS / 1000} s: el servidor quedó trabado, corto acá)`); return }
     }
+    // Jugar una carta de La Mano (POST): lo que tarda en volver con lo que conecta; después se deshace.
+    const mano = JSON.parse(await new Promise<string>((ok) => http.get({ host: '127.0.0.1', port: PUERTO, path: '/api/mano' }, (r) => { let s = ''; r.on('data', (c) => (s += c)); r.on('end', () => ok(s)) })))
+    const enviar = (ruta: string, cuerpo: unknown) => new Promise<{ ms: number; json: any }>((ok, mal) => {
+      const t0 = performance.now()
+      const r = http.request({ host: '127.0.0.1', port: PUERTO, path: ruta, method: 'POST', headers: { 'content-type': 'application/json' } }, (res) => { let s = ''; res.on('data', (c) => (s += c)); res.on('end', () => ok({ ms: performance.now() - t0, json: JSON.parse(s || '{}') })) })
+      r.on('error', mal)
+      r.end(JSON.stringify(cuerpo))
+    })
+    const tiempos: number[] = []
+    for (const c of mano.cartas.slice(0, VECES)) {
+      const j = await enviar(`/api/mano/${c.id}`, { gesto: 'peso', peso: 7 })
+      tiempos.push(j.ms)
+      await enviar('/api/mano/deshacer', {})
+    }
+    if (tiempos.length) console.log(linea(['POST /api/mano/:id (jugar)', '200', mediana(tiempos).toFixed(1), Math.max(...tiempos).toFixed(1), '']))
     // La primera carga de la pantalla: index.html y todo lo que pide (JS y CSS), como viaja.
     const html = await new Promise<string>((ok) => http.get({ host: '127.0.0.1', port: PUERTO, path: '/' }, (r) => { let s = ''; r.on('data', (c) => (s += c)); r.on('end', () => ok(s)) }))
     const assets = [...html.matchAll(/(?:src|href)="(\/(?:js\/[^"]+|estilo\.css[^"]*))"/g)].map((m) => m[1])

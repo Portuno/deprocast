@@ -61,13 +61,13 @@ function pintarHud(cont) {
   const estadoRun = run?.estado === 'en_curso' ? (() => { const { actual } = bandaDeAhora(run); return actual ? `⚔ ${Math.max(0, aMinJs(actual.fin) - minutosAhora())}′ en «${corto(actual.titulo, 28)}»` : `⚔ run ${run.inicio}–${run.fin}` })() : run?.estado === 'propuesta' ? 'run propuesta' : 'sin run'
   const modo = modoHud()
   // El esqueleto (estado, modos, chips, acciones) se arma de nuevo solo si cambió lo que muestra; si no, solo el widget.
-  const clave = JSON.stringify([hoyDatos.fecha, estadoRun, modo, hoyDatos.paraDecidir, hoyDatos.tarjetasHoy])
+  const clave = JSON.stringify([hoyDatos.fecha, estadoRun, modo, hoyDatos.paraDecidir, hoyDatos.tarjetasHoy, hoyDatos.manoNuevas])
   if (cont.dataset.hud === clave && $('#hud-cuerpo', cont)) return void pintarModoHud()
   cont.dataset.hud = clave
   cont.innerHTML = `<div class="hud-hoy">
     <header class="hud-estado">
       <div><b>${esc(mayuscula(fecha.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })))}</b><small>${esc(estadoRun)}</small></div>
-      <span class="hud-estado-acc">${hoyDatos.paraDecidir ? `<button class="btn btn-chico hud-tarjetas" id="hoy-bandeja" title="Lo que te propuse y espera tu ok (y lo que hice solo)">📥 ${hoyDatos.paraDecidir}</button>` : '<button class="btn btn-chico btn-icono" id="hoy-bandeja" title="Para decidir: lo que hice solo y cuánto acierto">📥</button>'}${hoyDatos.tarjetasHoy ? `<button class="btn btn-chico hud-tarjetas" id="hoy-tarjetas" title="Las tarjetas que tocan hoy (recuerdo activo)">🃏 ${hoyDatos.tarjetasHoy} para repasar</button>` : ''}<button class="btn btn-chico btn-icono" id="hoy-ajustes" title="Rutinas, plantillas y tope de gasto">⚙</button><button class="btn btn-chico btn-icono" id="hoy-ocultar" title="Ocultar el panel (Alt+F)">⇥</button></span>
+      <span class="hud-estado-acc">${hoyDatos.paraDecidir ? `<button class="btn btn-chico hud-tarjetas" id="hoy-bandeja" title="Lo que te propuse y espera tu ok (y lo que hice solo)">📥 ${hoyDatos.paraDecidir}</button>` : '<button class="btn btn-chico btn-icono" id="hoy-bandeja" title="Para decidir: lo que hice solo y cuánto acierto">📥</button>'}${hoyDatos.tarjetasHoy ? `<button class="btn btn-chico hud-tarjetas" id="hoy-tarjetas" title="Las tarjetas que tocan hoy (recuerdo activo)">🃏 ${hoyDatos.tarjetasHoy} para repasar</button>` : ''}${hoyDatos.manoNuevas ? `<button class="btn btn-chico hud-tarjetas" id="hoy-mano" title="Afirmaciones tuyas que no se parecen a nada que tengas: jugalas en La Mano">♤ ${hoyDatos.manoNuevas} nueva${hoyDatos.manoNuevas === 1 ? '' : 's'} para jugar</button>` : ''}<button class="btn btn-chico btn-icono" id="hoy-ajustes" title="Rutinas, plantillas y tope de gasto">⚙</button><button class="btn btn-chico btn-icono" id="hoy-ocultar" title="Ocultar el panel (Alt+F)">⇥</button></span>
     </header>
     <nav class="hud-modos" role="tablist">${HUD_MODOS.map(([k, n, ic], i) => `<button role="tab" data-hud="${k}" class="${k === modo ? 'on' : ''}" title="${n} (Alt+${i + 1})"><i>${ic}</i><span>${n}</span><kbd>${i + 1}</kbd></button>`).join('')}</nav>
     <section class="hud-cuerpo" id="hud-cuerpo"></section>
@@ -76,6 +76,7 @@ function pintarHud(cont) {
   </div>`
   $('#hoy-ajustes').onclick = modalAjustesHoy
   if ($('#hoy-tarjetas')) $('#hoy-tarjetas').onclick = () => repasarTarjetas()
+  if ($('#hoy-mano')) $('#hoy-mano').onclick = () => irA('mano')
   $('#hoy-bandeja').onclick = modalBandeja
   $('#hoy-ocultar').onclick = () => window.ocultarDia?.()
   $$('[data-hud]', cont).forEach((b) => (b.onclick = () => cambiarModoHud(b.dataset.hud)))

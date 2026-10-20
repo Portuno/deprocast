@@ -24,6 +24,21 @@
         "--sin-telegram"
       ],
       "port": 7373
+    },
+    {
+      "name": "mastropiero-medir",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "--disable-warning=ExperimentalWarning",
+        "src/servidor.ts",
+        "--db",
+        "data/medir.db",
+        "--puerto",
+        "7374",
+        "--sin-rutinas",
+        "--sin-telegram"
+      ],
+      "port": 7374
     }
   ]
 }

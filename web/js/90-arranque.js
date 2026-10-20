@@ -25,6 +25,7 @@ const VISTAS = {
   forja: { montar: montarForja, refrescar: () => {} },
   encargos: { montar: montarMisiones, refrescar: refrescarTablero },
   corpus: { montar: montarCorpus, refrescar: refrescarCorpus },
+  mano: { montar: montarMano, refrescar: () => {} },
   criba: { montar: montarCriba, refrescar: () => {} },
   cuadernos: { montar: montarCuadernos, refrescar: refrescarCuadernos },
   libreria: { montar: montarLibreria, refrescar: () => {} },
