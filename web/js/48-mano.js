@@ -6,12 +6,14 @@ let manoCartas = []
 let manoActiva = 0
 let manoJugadas = {} // id de carta → respuesta del servidor
 let manoSaltear = []
+let manoEspera = null
 // Las mismas teclas que la criba; c marca «choca con lo que ya sabía» y espacio pasa a la siguiente.
 const TECLAS_MANO = { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '0': 10, q: 11, w: 12, '.': 11, ',': 11, Decimal: 11, Enter: 12 }
 
 function montarMano() {
   $('#principal').innerHTML = `
     <div class="titulo"><h1>La Mano</h1><div class="fila"><span class="tenue" id="mn-mazo"></span><button class="btn btn-chico" id="mn-robar" title="r">Robar otra mano</button></div></div>
+    <div class="mano-sorpresas" id="mn-sorpresas"></div>
     <div class="mano-mesa">
       <div class="mano">
         <div class="mano-tira" id="mn-tira"></div>
@@ -31,6 +33,7 @@ function montarMano() {
   $('#mn-pasar').onclick = pasarCarta
   $('#mn-deshacer').onclick = deshacerMano
   $('#mn-porque').addEventListener('keydown', (e) => { if (e.key === 'Escape') e.target.blur() })
+  engancharSorpresas($('#mn-caida'))
   robarMano(false)
 }
 
@@ -42,13 +45,81 @@ async function robarMano(otra) {
     manoJugadas = {}
     manoActiva = 0
     pintarMazo(r.mazo)
+    pintarSorpresas(r.sorpresas)
     pintarMano()
   } catch (e) { error(e) }
 }
 
 function pintarMazo(m) {
   const el = $('#mn-mazo')
-  if (el) el.textContent = `Mazo: ${m.total.toLocaleString('es-AR')} sin pesar · ${m.nuevas.toLocaleString('es-AR')} nuevas · ${m.variaciones.toLocaleString('es-AR')} variaciones${m.jugadasHoy ? ` · hoy jugaste ${m.jugadasHoy}` : ''}`
+  const t = m.sorpresas
+  if (el) el.textContent = `Mazo: ${m.total.toLocaleString('es-AR')} sin pesar · ${m.nuevas.toLocaleString('es-AR')} nuevas · ${m.variaciones.toLocaleString('es-AR')} variaciones${t?.unaCada ? ` · sorpresas ≈ 1 de ${t.unaCada}` : ''}${m.jugadasHoy ? ` · hoy jugaste ${m.jugadasHoy}` : ''}`
+}
+
+// ─── las sorpresas: puente, la creencia que se cae y el combo ───────────
+
+const SORPRESA = {
+  puente: { cab: '⟡ Puente no obvio', botones: [['real', 'Es real'], ['casualidad', 'Casualidad']] },
+  contradiccion: { cab: '⚡ ¿Se cae lo que creías?', botones: [['actualizo', 'Actualizo'], ['sostengo', 'Sostengo'], ['pruebo', 'Lo pruebo una semana']] },
+  combo: { cab: '✦ Combo', botones: [['real', 'Vale'], ['casualidad', 'Casualidad']] },
+}
+
+const respondidaHTML = (s) => `<div class="mano-sorpresa respondida">${esc(SORPRESA[s.tipo].cab)}: <b>${esc(SORPRESA[s.tipo].botones.find(([k]) => k === s.estado)?.[1] ?? s.estado)}</b>${s.estado === 'pruebo' ? ' · quedó como side quest para dentro de una semana' : ''}</div>`
+
+function sorpresaHTML(s) {
+  const def = SORPRESA[s.tipo]
+  if (s.estado !== 'pendiente' && s.estado !== 'sin_hipotesis') return respondidaHTML(s)
+  const etiqueta = (c, i) => s.tipo === 'contradiccion' ? (i ? `Creías${c.peso ? ` (peso ${c.peso})` : ''}` : 'Lo nuevo') : ''
+  const cartas = s.cartas.map((c, i) => `<li>${etiqueta(c, i) ? `<b>${etiqueta(c, i)}:</b> ` : ''}«${esc(corto(c.texto, 180))}»<small class="tenue">${[c.fuente, c.pieza && corto(c.pieza, 50), c.fecha].filter(Boolean).map(esc).join(' · ')}</small></li>`).join('')
+  const esperando = s.tipo === 'combo' && !s.texto
+  const cab = s.tipo === 'combo' && s.mundos.length ? `${def.cab} · cruza ${s.mundos.map(esc).join(' × ')}` : def.cab
+  return `<div class="mano-sorpresa mano-s-${s.tipo}" data-sorpresa="${s.id}">
+    <b>${cab}</b>
+    ${s.texto ? `<p>${esc(s.texto).replace(/\n/g, '<br>')}</p>` : esperando ? '<p class="tenue">La hipótesis se está armando (en la nube)…</p>' : ''}
+    <ul>${cartas}</ul>
+    ${esperando ? '' : `<div class="fila">${def.botones.map(([k, n]) => `<button class="btn btn-chico" data-responder="${k}">${n}</button>`).join('')}</div>`}
+  </div>`
+}
+
+/** Engancha los botones de las sorpresas que haya dentro de un contenedor (un solo listener por contenedor). */
+function engancharSorpresas(cont) {
+  if (!cont || cont.dataset.enganchado) return
+  cont.dataset.enganchado = '1'
+  cont.addEventListener('click', async (e) => {
+    const choca = e.target.closest('[data-choca-con]')
+    if (choca) {
+      try {
+        const s = await api('/mano/choque', { nueva: Number(choca.dataset.nueva), vieja: Number(choca.dataset.chocaCon) })
+        choca.closest('.mano-choca').outerHTML = sorpresaHTML(s)
+      } catch (err) { error(err) }
+      return
+    }
+    const b = e.target.closest('[data-responder]')
+    if (!b) return
+    const caja = b.closest('[data-sorpresa]')
+    try {
+      const porque = $('#mn-porque')?.value.trim() || null
+      const s = await api(`/mano/sorpresas/${caja.dataset.sorpresa}`, { respuesta: b.dataset.responder, porque })
+      if ($('#mn-porque')) $('#mn-porque').value = ''
+      caja.outerHTML = respondidaHTML(s)
+      // Lo guardado de la mano también se entera (si vuelve a esa carta, no le ofrece responder de nuevo).
+      for (const j of Object.values(manoJugadas)) for (const x of j.sorpresas ?? []) if (x.id === s.id) x.estado = s.estado
+    } catch (err) { error(err) }
+  })
+}
+
+function pintarSorpresas(xs) {
+  const el = $('#mn-sorpresas')
+  if (!el) return
+  // Lo que ya está a la vista en la caída no se repite arriba.
+  const ys = (xs ?? []).filter((x) => !$(`#mn-caida [data-sorpresa="${x.id}"]`))
+  el.innerHTML = ys.length ? `<small class="tenue">Para responder</small>${ys.map(sorpresaHTML).join('')}` : ''
+  engancharSorpresas(el)
+}
+
+async function refrescarSorpresas() {
+  if (vista !== 'mano') return
+  try { pintarSorpresas((await api('/mano/sorpresas')).sorpresas) } catch { /* la próxima mano las trae */ }
 }
 
 const NOVEDAD = { nueva: ['✦', 'Nueva: no se parece a nada que tengas'], variacion: ['≈', 'Variación de algo que ya tenías'], repetida: ['=', 'Casi igual a algo que ya tenías'] }
@@ -87,8 +158,9 @@ function pintarCaida(j) {
   if (!el) return
   const titulo = j.gesto === 'peso' ? `Pesada ${j.carta.peso}` : j.gesto === 'choca' ? '⚡ Marcada: choca con lo que ya sabías' : '✕ Descartada'
   el.innerHTML = `<h3>${titulo}</h3>
+    ${(j.sorpresas ?? []).map(sorpresaHTML).join('')}
     ${j.refuerza.length ? `<div class="mano-refuerza"><b>Refuerza lo que ya creías</b><ul>${j.refuerza.map(lineaVecino).join('')}</ul></div>` : ''}
-    ${j.chocaCon.length ? `<div class="mano-choca"><b>¿Choca con esto?</b><ul>${j.chocaCon.map(lineaVecino).join('')}</ul></div>` : j.gesto === 'choca' ? '<p class="tenue">No encontré nada pesado alto que se le parezca: puede que choque con algo que todavía no anotaste.</p>' : ''}
+    ${j.chocaCon.length ? `<div class="mano-choca"><b>¿Con cuál choca?</b><ul>${j.chocaCon.map((v) => lineaVecino(v).replace('</li>', `<button class="btn btn-chico" data-choca-con="${v.id}" data-nueva="${j.carta.id}">Con esta</button></li>`)).join('')}</ul></div>` : j.gesto === 'choca' ? '<p class="tenue">No encontré nada pesado alto que se le parezca: puede que choque con algo que todavía no anotaste.</p>' : ''}
     ${j.gesto !== 'descartar' ? (j.vecinos.length ? `<b>Cae cerca de</b><ul class="mano-vecinos">${j.vecinos.map(lineaVecino).join('')}</ul>` : '<p class="tenue">No se parece a nada que hayas pesado: es territorio nuevo.</p>') : ''}
     <small class="tenue">${j.ms} ms</small>`
   el.classList.remove('cae')
@@ -108,6 +180,8 @@ async function jugarCarta(g) {
     if ($('#mn-porque')) $('#mn-porque').value = ''
     manoJugadas[c.id] = j
     pintarCaida(j)
+    // Lo que se arma en la nube (la hipótesis de un combo, una contradicción que encontró el modelo) llega unos segundos después.
+    if (g.gesto === 'peso') { clearTimeout(manoEspera); manoEspera = setTimeout(refrescarSorpresas, 7000) }
     const siguiente = manoCartas.findIndex((x, i) => i > manoActiva && !manoJugadas[x.id])
     if (siguiente >= 0) manoActiva = siguiente
     pintarMano()

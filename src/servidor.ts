@@ -1004,8 +1004,11 @@ const rutas: [string, RegExp, Ruta][] = [
   // La Mano: robar cinco cartas sin pesar y jugarlas de a una (la respuesta vuelve enseguida, sin modelo).
   ['GET', /^\/api\/mano$/, async (_, __, q) => {
     const m = await import('./mano.ts')
-    return { mazo: m.composicion(db), cartas: m.robar(db, { saltear: (q.get('saltear') ?? '').split(',').filter(Boolean).map(Number) }) }
+    return { mazo: m.composicion(db), cartas: m.robar(db, { saltear: (q.get('saltear') ?? '').split(',').filter(Boolean).map(Number) }), sorpresas: m.sorpresasPendientes(db) }
   }],
+  ['GET', /^\/api\/mano\/sorpresas$/, async () => ({ sorpresas: (await import('./mano.ts')).sorpresasPendientes(db) })],
+  ['POST', /^\/api\/mano\/choque$/, async (b) => (await import('./mano.ts')).marcarChoque(db, Number(b.nueva), Number(b.vieja))],
+  ['POST', /^\/api\/mano\/sorpresas\/(\d+)$/, async (b, [k]) => (await import('./mano.ts')).responderSorpresa(db, id(k), String(b.respuesta ?? ''), b.porque ?? null)],
   ['POST', /^\/api\/mano\/(\d+)$/, async (b, [k]) => (await import('./mano.ts')).jugar(db, id(k), { gesto: b.gesto, peso: b.peso == null ? null : Number(b.peso), porque: b.porque ?? null })],
   ['POST', /^\/api\/mano\/deshacer$/, async () => (await import('./mano.ts')).deshacerJugada(db) ?? { quantomoId: null }],
   ['POST', /^\/api\/quantomos\/lote$/, (b) => pedirLote(db, Array.isArray(b.ids) ? b.ids.map(Number) : [])],

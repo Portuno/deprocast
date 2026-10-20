@@ -1267,6 +1267,16 @@ details.puentes > summary { cursor: pointer; padding: 6px 0; }
 .mano-caida li { display: grid; gap: 2px; font-size: 13px; }
 .mano-refuerza b { color: var(--bueno, #6fbf8a); }
 .mano-choca b { color: var(--malo, #d27272); }
+.mano-sorpresas { max-width: 1118px; margin: 0 auto 12px; display: grid; gap: 8px; }
+.mano-sorpresas:empty { display: none; }
+.mano-sorpresa { border: 1px solid var(--acento); border-radius: 12px; padding: 10px 12px; display: grid; gap: 6px; background: color-mix(in srgb, var(--acento) 7%, transparent); }
+.mano-sorpresa p { margin: 0; font-size: 13px; }
+.mano-sorpresa ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.mano-sorpresa li { display: grid; gap: 2px; font-size: 13px; }
+.mano-sorpresa .fila { gap: 6px; flex-wrap: wrap; }
+.mano-s-contradiccion { border-color: var(--malo, #d27272); background: color-mix(in srgb, var(--malo, #d27272) 7%, transparent); }
+.mano-sorpresa.respondida { border-style: dashed; background: none; font-size: 13px; }
+.mano-choca li button { justify-self: start; }
 .mano-caida.cae { animation: mano-cae .28s ease-out; }
 @keyframes mano-cae { from { transform: translateY(-8px); opacity: .3; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .mano-caida.cae { animation: none; } }

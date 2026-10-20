@@ -494,6 +494,10 @@ function caidaMano(j: Jugada): string {
   const lineas = [cab]
   if (j.refuerza.length) lineas.push(`Refuerza lo que ya creías: ${v(j.refuerza[0])}`)
   if (j.chocaCon.length) lineas.push(`¿Choca con ${v(j.chocaCon[0])}?`)
+  for (const x of j.sorpresas) {
+    if (x.tipo === 'puente') lineas.push(`⟡ Puente: se parece a «${x.cartas[1]?.texto.slice(0, 90) ?? ''}» (${x.cartas[1]?.fuente ?? 'otro mundo'}) y nunca aparecieron juntos. Respondelo en La Mano.`)
+    if (x.tipo === 'combo') lineas.push(`✦ Combo: ${x.cartas.length} cartas que cruzan ${x.mundos.join(' × ')}. La hipótesis llega a La Mano.`)
+  }
   if (j.gesto !== 'descartar') lineas.push(j.vecinos.length ? `Cae cerca de ${v(j.vecinos[0])}` : 'No se parece a nada que hayas pesado: territorio nuevo.')
   return lineas.join('\n')
 }

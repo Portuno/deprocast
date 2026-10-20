@@ -883,6 +883,24 @@ CREATE TABLE IF NOT EXISTS mano_jugadas (
   en INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS mano_jugadas_en ON mano_jugadas(en);
+-- Las sorpresas de La Mano (lo que no podía predecir), con lo que él hizo con cada una: puente no obvio (real | casualidad),
+-- la creencia que se cae (actualizo | sostengo | pruebo) y el combo con su hipótesis (real | casualidad).
+CREATE TABLE IF NOT EXISTS mano_eventos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tipo TEXT NOT NULL,                 -- puente | contradiccion | combo
+  jugada_id INTEGER,
+  quantomo_id INTEGER NOT NULL,       -- la carta que lo destapó
+  otro_id INTEGER,                    -- puente/contradicción: el otro; combo: la hipótesis (cuando llega)
+  ids TEXT NOT NULL,                  -- JSON: todas las cartas que entran
+  sim REAL,
+  texto TEXT,
+  estado TEXT NOT NULL DEFAULT 'pendiente',
+  datos TEXT,                         -- JSON: su por qué, cómo estaba antes, la side quest
+  creado_en INTEGER NOT NULL,
+  respondido_en INTEGER
+);
+CREATE INDEX IF NOT EXISTS mano_eventos_estado ON mano_eventos(estado, id);
+CREATE INDEX IF NOT EXISTS mano_eventos_tipo ON mano_eventos(tipo, creado_en);
 -- Las piezas que ya dejaron sus tarjetas (lo que miró o leyó): una vez cada una, aunque no haya salido ninguna.
 CREATE TABLE IF NOT EXISTS tarjetas_piezas (
   pieza_id INTEGER PRIMARY KEY,
