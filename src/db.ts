@@ -954,6 +954,20 @@ CREATE TABLE IF NOT EXISTS apps_conectadas (
   usos INTEGER NOT NULL DEFAULT 0,
   revocada_en INTEGER
 );
+-- El libro de decisiones: lo que Mastropiero propuso y qué se decidió (o si lo hizo solo). La base del modo sombra.
+CREATE TABLE IF NOT EXISTS decisiones (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tipo TEXT NOT NULL,                 -- captura | monto | inventario | recuerdo | directo:<tipo> | side_quest | primaria | nombre | quantomo | propuesta
+  ref TEXT NOT NULL,                  -- qué cosa (id o clave)
+  accion TEXT NOT NULL,               -- aceptada | editada | rechazada | deshecha | auto
+  cambios TEXT,                       -- JSON: qué cambió él, o qué hizo solo (texto)
+  deshacer TEXT,                      -- JSON: cómo deshacer lo que hizo solo
+  confianza REAL,
+  en INTEGER NOT NULL,
+  deshecha_en INTEGER
+);
+CREATE INDEX IF NOT EXISTS decisiones_tipo ON decisiones(tipo, id);
+CREATE INDEX IF NOT EXISTS decisiones_auto ON decisiones(accion, en);
 -- Cada mención ya contada (abierto:<pieza>:<i>, mision:<id>): así no suma dos veces.
 CREATE TABLE IF NOT EXISTS bucles_vistos (
   origen TEXT PRIMARY KEY,
@@ -1276,6 +1290,7 @@ const RUTINAS_SISTEMA = [
   { id: 'reporte_semanal', nombre: 'Reporte de la semana', hora: '21:00', dias: '0', accion: 'reporte_semanal' },
   { id: 'evidencia', nombre: 'Tu evidencia de la semana contra tu historia vieja', hora: '19:30', dias: '0', accion: 'evidencia' },
   { id: 'modelos', nombre: 'Tu vara contra la de tus modelos', hora: '19:40', dias: '0', accion: 'modelos' },
+  { id: 'bandeja', nombre: 'Para decidir: lo que espera tu ok y lo que hice solo', hora: '21:30', dias: '0123456', accion: 'bandeja' },
   { id: 'creencias', nombre: 'Creencias: ¿descubiertas o heredadas? (una vez por mes)', hora: '17:00', dias: '0', accion: 'creencias' },
   { id: 'brujula', nombre: 'La brújula del día', hora: '08:10', dias: '0123456', accion: 'brujula' },
   { id: 'mentor', nombre: 'El Mentor recomienda qué leer o ver', hora: '08:05', dias: '1', accion: 'mentor' },

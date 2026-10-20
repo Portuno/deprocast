@@ -3,6 +3,7 @@
  * Nace de lo que el operador dice (nunca de terceros). Nada se pisa: corregir crea una versión nueva.
  */
 import { fechaLocal, type Db } from './db.ts'
+import { anotar, haceSolo } from './decisiones.ts'
 import { pedirJson } from './modelo.ts'
 import { agregarItem, entidadDelJugador, personaje } from './personajes.ts'
 import { anotarSideQuest } from './misiones.ts'
@@ -69,9 +70,12 @@ export function recordar(
 }
 
 /** Corregir no borra: la versión vieja queda como corregida y la nueva la reemplaza. */
+const DE_LA_MAQUINA = new Set(['escriba', 'directo', 'takeout', 'preguntas'])
+
 export function corregir(db: Db, id: number, cambios: { texto?: string; tipo?: string; horizonte?: string | null }, por = 'operador', ahora = Date.now()): Recuerdo {
   const viejo = leerRecuerdo(db, id)
   if (!viejo || viejo.estado !== 'vigente') throw new Error(`No hay un recuerdo vigente #${id}`)
+  if (por === 'operador' && DE_LA_MAQUINA.has(viejo.creadaPor)) anotar(db, 'recuerdo', id, 'editada', { cambios: { texto: cambios.texto ?? null }, ahora })
   const soloOrden = cambios.texto == null || cambios.texto.trim() === viejo.texto
   if (soloOrden) {
     // Cambiar tipo u horizonte no es corregir el contenido: se actualiza en el lugar.
@@ -88,6 +92,8 @@ export function corregir(db: Db, id: number, cambios: { texto?: string; tipo?: s
 }
 
 export function archivar(db: Db, id: number) {
+  const r = leerRecuerdo(db, id)
+  if (r && r.estado === 'vigente' && DE_LA_MAQUINA.has(r.creadaPor)) anotar(db, 'recuerdo', id, 'rechazada')
   db.prepare(`UPDATE memoria SET estado = 'archivada' WHERE id = ?`).run(id)
 }
 
@@ -144,6 +150,8 @@ export function deduplicarMemoria(db: Db, umbral = 0.75, umbralSentido = 0.93): 
 }
 
 export function revisar(db: Db, id: number) {
+  const r = leerRecuerdo(db, id)
+  if (r && !r.revisada && DE_LA_MAQUINA.has(r.creadaPor)) anotar(db, 'recuerdo', id, 'aceptada')
   db.prepare('UPDATE memoria SET revisada = 1 WHERE id = ?').run(id)
 }
 
@@ -290,13 +298,26 @@ export async function escribaDeMemoria(
       if (typeof r?.texto !== 'string' || !r.texto.trim()) continue
       const antes = (db.prepare('SELECT MAX(id) AS n FROM memoria').get() as { n: number | null }).n ?? 0
       const x = recordar(db, { texto: r.texto, tipo: r.tipo, horizonte: r.horizonte ?? null, origen, piezaId: o.pieza ?? null, creadaPor: 'escriba' })
-      if (x.id > antes) nuevos.push(x)
+      if (x.id > antes) {
+        nuevos.push(x)
+        // Si lo que anota el escriba acierta casi siempre y él lo pasó a «auto», queda revisado solo (deshacible).
+        if (haceSolo(db, 'recuerdo')) {
+          db.prepare('UPDATE memoria SET revisada = 1 WHERE id = ?').run(x.id)
+          anotar(db, 'recuerdo', x.id, 'auto', { cambios: { texto: x.texto }, deshacer: { que: 'recuerdo', id: x.id } })
+        }
+      }
     }
     // Lo que dice que tiene entra como sugerencia (lo acepta en su ficha); los encargos de pasada, como side quests activas:
     // él las quiere dando vueltas aunque no las anote.
     for (const i of (datos.inventario ?? []).slice(0, 2)) {
       if (typeof i?.nombre !== 'string' || !i.nombre.trim()) continue
-      try { agregarItem(db, 'jugador', i, { fuente: 'escriba', sugerido: true }) } catch { /* un ítem raro no frena nada */ }
+      try {
+        const it = agregarItem(db, 'jugador', i, { fuente: 'escriba', sugerido: true })
+        if (it.estado === 'sugerido' && haceSolo(db, 'inventario')) {
+          db.prepare(`UPDATE inventario SET estado = 'vigente' WHERE id = ?`).run(it.id)
+          anotar(db, 'inventario', it.id, 'auto', { cambios: { texto: it.nombre }, deshacer: { que: 'inventario', id: it.id } })
+        }
+      } catch { /* un ítem raro no frena nada */ }
     }
     for (const q of (o.grabacion ? [] : datos.side_quests ?? []).slice(0, 2)) {
       if (typeof q?.titulo !== 'string' || !q.titulo.trim()) continue

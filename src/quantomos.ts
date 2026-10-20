@@ -6,6 +6,7 @@
  * la propuesta queda sellada y la anterior pasa a superado. Nada se pisa: las versiones quedan.
  */
 import { json, type Db } from './db.ts'
+import { anotar } from './decisiones.ts'
 import { publicar, type Tarea } from './bus.ts'
 
 export type Etapa = 'proto' | 'sellado' | 'propuesta' | 'superado' | 'descartado'
@@ -162,10 +163,12 @@ export function sellar(db: Db, id: number, peso: number, ahora = Date.now()) {
   if (!q) throw new Error(`No existe el quántomo ${id}`)
   if (q.etapa === 'propuesta') return aceptarPropuesta(db, id, peso, ahora)
   if (q.etapa !== 'proto' && q.etapa !== 'sellado') throw new Error(`Un quántomo ${q.etapa} no se sella`)
+  if (q.etapa === 'proto') anotar(db, 'quantomo', id, 'aceptada', { ahora })
   db.prepare(`UPDATE quantomos SET etapa = 'sellado', peso = ?, actualizado_en = ? WHERE id = ?`).run(peso, ahora, id)
 }
 
 export function descartar(db: Db, id: number, ahora = Date.now()) {
+  if (leerQuantomo(db, id)?.etapa === 'proto') anotar(db, 'quantomo', id, 'rechazada', { ahora })
   db.prepare(`UPDATE quantomos SET etapa = 'descartado', actualizado_en = ? WHERE id = ?`).run(ahora, id)
 }
 
@@ -279,6 +282,7 @@ export function sellarLote(db: Db, ids: number[], peso: number, ahora = Date.now
   validarPeso(peso)
   if (!ids.length) throw new Error('Lote vacío')
   const placeholders = ids.map(() => '?').join(',')
+  for (const x of db.prepare(`SELECT id FROM quantomos WHERE id IN (${placeholders}) AND etapa = 'proto'`).all(...ids) as { id: number }[]) anotar(db, 'quantomo', x.id, 'aceptada', { ahora })
   const r = db.prepare(`UPDATE quantomos SET etapa = 'sellado', peso = ?, actualizado_en = ? WHERE id IN (${placeholders}) AND etapa = 'proto'`).run(peso, ahora, ...ids)
   return { sellados: r.changes }
 }
@@ -287,6 +291,7 @@ export function sellarLote(db: Db, ids: number[], peso: number, ahora = Date.now
 export function descartarLote(db: Db, ids: number[], motivo: string, ahora = Date.now()) {
   if (!ids.length) throw new Error('Lote vacío')
   const placeholders = ids.map(() => '?').join(',')
+  for (const x of db.prepare(`SELECT id FROM quantomos WHERE id IN (${placeholders}) AND etapa = 'proto'`).all(...ids) as { id: number }[]) anotar(db, 'quantomo', x.id, 'rechazada', { ahora })
   const r = db.prepare(`UPDATE quantomos SET etapa = 'descartado', procedencia = ?, actualizado_en = ? WHERE id IN (${placeholders}) AND etapa = 'proto'`).run(`descartado por lote: ${motivo}`, ahora, ...ids)
   return { descartados: r.changes }
 }

@@ -8,6 +8,7 @@
 import { diaSemana } from './zona.ts'
 import { bloquesDelDia } from './horario.ts'
 import { ajuste, fechaLocal, json, type Db } from './db.ts'
+import { anotar } from './decisiones.ts'
 import { CLASES } from './clases.ts'
 import { agendaDelDia, type Evento } from './calendario.ts'
 import { insertar, listarPiezas } from './corpus.ts'
@@ -163,6 +164,15 @@ export function actualizarMision(db: Db, id: number, c: CambiosMision, o: { por?
     if (m.personaje === 'jugador' && por !== 'operador') throw new Error('La misión principal del jugador solo la cambia él')
   }
   if (c.estado && !ESTADOS_MISION.includes(c.estado)) throw new Error(`Estado inválido: ${c.estado}`)
+  // Lo que propuso la máquina y él resuelve: primarias sugeridas y side quests del escriba.
+  if (por === 'operador' && m.personaje === 'jugador' && c.estado && c.estado !== m.estado) {
+    if (m.estado === 'sugerida' && (m.nivel === 'primaria' || m.nivel === 'principal')) {
+      const edito = (c.titulo != null && c.titulo !== m.titulo) || (c.detalle !== undefined && c.detalle !== m.detalle)
+      anotar(db, 'primaria', id, c.estado === 'descartada' ? 'rechazada' : edito ? 'editada' : 'aceptada', { ahora })
+    } else if (m.nivel === 'terciaria' && m.creadaPor === 'escriba' && (c.estado === 'hecha' || c.estado === 'descartada')) {
+      anotar(db, 'side_quest', id, c.estado === 'hecha' ? 'aceptada' : 'rechazada', { ahora })
+    }
+  }
   if (m.nivel === 'principal' && c.estado === 'activa' && m.estado !== 'activa') {
     db.prepare(`UPDATE misiones SET estado = 'descartada', feedback = COALESCE(feedback, 'reemplazada'), cerrada_en = ? WHERE personaje = ? AND nivel = 'principal' AND estado = 'activa' AND id != ?`)
       .run(ahora, m.personaje, id)

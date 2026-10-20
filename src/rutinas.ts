@@ -15,7 +15,7 @@ import { forjarPendientes } from './fragua.ts'
 import { expandirTanda, paraExpandir } from './libreria.ts'
 import { guionMatinal } from './matinal.ts'
 import { sintetizar } from './taller.ts'
-import { mandarAudio, mandarVotoNoche, preguntarSueno, telegramActivo } from './telegram.ts'
+import { decir, mandarAudio, mandarVotoNoche, preguntarSueno, telegramActivo } from './telegram.ts'
 import { diaDelPlan } from './cien.ts'
 import { listarAprendizajes } from './aprender.ts'
 import { escribirCronica, sintesisSemanal } from './gnosis.ts'
@@ -236,6 +236,13 @@ export const ACCIONES: Acciones = {
   async evidencia(db, _fecha, ahora) {
     const n = (await import('./evidencia.ts')).preguntasDeEvidencia(db, ahora)
     return n ? `🗳 Te dejé ${n === 1 ? 'una pregunta' : `${n} preguntas`} sobre tu evidencia de la semana (/pregunta en Telegram, o en Hoy).` : null
+  },
+  /** A la noche: lo que espera tu ok, lo que hice solo y, si algo acierta casi siempre, la oferta de hacerlo solo (con botones). */
+  async bandeja(db, _fecha, ahora) {
+    const a = (await import('./sombra.ts')).avisoBandeja(db, ahora)
+    if (!a) return null
+    if (telegramActivo()) await decir(a.texto, a.botones.length ? a.botones : undefined).catch(() => null)
+    return a.texto
   },
   /** El domingo: tu vara contra la de cada modelo de tu consejo (una pregunta por modelo, sin modelo de lenguaje). */
   async modelos(db, _fecha, ahora) {

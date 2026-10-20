@@ -2123,3 +2123,17 @@ span.ej-chip { cursor: default; }
 .app-fila.revocada { opacity: .5; }
 .app-token { border: 1px solid var(--acento); border-radius: 10px; padding: 10px 12px; margin-top: 12px; background: var(--acento-suave); }
 .app-token code { word-break: break-all; flex: 1; font-size: 12.5px; }
+
+/* ─── Para decidir (modo sombra) ─────────────────────────────────────── */
+.bj-oferta { display: flex; gap: 10px; align-items: center; justify-content: space-between; border: 1px solid var(--acento); background: var(--acento-suave); border-radius: 10px; padding: 8px 12px; margin: 8px 0; }
+.bj-grupo { margin-top: 14px; }
+.bj-grupo h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--tenue); margin: 0 0 4px; }
+.bj-item { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 7px 0; border-top: 1px solid var(--linea); }
+.bj-item > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bj-acc { display: flex; gap: 4px; flex-shrink: 0; }
+.bj-acierto { margin-top: 16px; }
+.bj-acierto summary { cursor: pointer; color: var(--tenue); }
+.bj-acierto table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+.bj-acierto td, .bj-acierto th { text-align: left; padding: 5px 6px; border-top: 1px solid var(--linea); }
+.bj-acierto select { margin: 0; padding: 3px 6px; }
+@media (max-width: 640px) { .bj-item { flex-wrap: wrap; } .bj-acierto td:nth-child(3), .bj-acierto th:nth-child(3) { display: none; } }

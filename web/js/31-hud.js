@@ -54,7 +54,7 @@ function pintarHud(cont) {
   cont.innerHTML = `<div class="hud-hoy">
     <header class="hud-estado">
       <div><b>${esc(mayuscula(fecha.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })))}</b><small>${esc(estadoRun)}</small></div>
-      <span class="hud-estado-acc">${hoyDatos.tarjetasHoy ? `<button class="btn btn-chico hud-tarjetas" id="hoy-tarjetas" title="Las tarjetas que tocan hoy (recuerdo activo)">🃏 ${hoyDatos.tarjetasHoy} para repasar</button>` : ''}<button class="btn btn-chico btn-icono" id="hoy-ajustes" title="Rutinas, plantillas y tope de gasto">⚙</button><button class="btn btn-chico btn-icono" id="hoy-ocultar" title="Ocultar el panel (Alt+F)">⇥</button></span>
+      <span class="hud-estado-acc">${hoyDatos.paraDecidir ? `<button class="btn btn-chico hud-tarjetas" id="hoy-bandeja" title="Lo que te propuse y espera tu ok (y lo que hice solo)">📥 ${hoyDatos.paraDecidir}</button>` : '<button class="btn btn-chico btn-icono" id="hoy-bandeja" title="Para decidir: lo que hice solo y cuánto acierto">📥</button>'}${hoyDatos.tarjetasHoy ? `<button class="btn btn-chico hud-tarjetas" id="hoy-tarjetas" title="Las tarjetas que tocan hoy (recuerdo activo)">🃏 ${hoyDatos.tarjetasHoy} para repasar</button>` : ''}<button class="btn btn-chico btn-icono" id="hoy-ajustes" title="Rutinas, plantillas y tope de gasto">⚙</button><button class="btn btn-chico btn-icono" id="hoy-ocultar" title="Ocultar el panel (Alt+F)">⇥</button></span>
     </header>
     <nav class="hud-modos" role="tablist">${HUD_MODOS.map(([k, n, ic], i) => `<button role="tab" data-hud="${k}" class="${k === modo ? 'on' : ''}" title="${n} (Alt+${i + 1})"><i>${ic}</i><span>${n}</span><kbd>${i + 1}</kbd></button>`).join('')}</nav>
     <section class="hud-cuerpo" id="hud-cuerpo"></section>
@@ -63,6 +63,7 @@ function pintarHud(cont) {
   </div>`
   $('#hoy-ajustes').onclick = modalAjustesHoy
   if ($('#hoy-tarjetas')) $('#hoy-tarjetas').onclick = () => repasarTarjetas()
+  $('#hoy-bandeja').onclick = modalBandeja
   $('#hoy-ocultar').onclick = () => window.ocultarDia?.()
   $$('[data-hud]', cont).forEach((b) => (b.onclick = () => cambiarModoHud(b.dataset.hud)))
   $$('[data-hud-acc]', cont).forEach((b) => (b.onclick = () => accionHud(b.dataset.hudAcc)))

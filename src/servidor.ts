@@ -29,6 +29,7 @@ import { guardarFoto } from './chat/adjuntos.ts'
 import { aplicarBaseEntrante, recibirArchivo, recibirBase } from './mudanza.ts'
 import { artefactoAlCorpus, ASPECTOS, borrarArtefacto, carpeta as carpetaTaller, crearCharla, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, ESTILOS, hayFfmpeg, iterarArtefacto, libreria, listarArtefactos, sugerenciasTaller, VOCES } from './taller.ts'
 import { conMatriz, desvincularDeProyecto, grafoPersonas, guardarRelacion, nuevaPersona, personas, vincularAProyecto } from './personas.ts'
+import { bandeja } from './sombra.ts'
 import { controlarReproceso, enLaNube, estadoReproceso, trabajarReproceso } from './reproceso.ts'
 import { lineaTemporal, resolverEvento } from './linea.ts'
 import * as estudio from './estudio.ts'
@@ -327,6 +328,7 @@ const rutas: [string, RegExp, Ruta][] = [
       aportes: aportes(db, { desde: Date.now() - 2 * 86_400_000, limite: 4 }),
       proximas: listarRuns(db, { desde: fechaLocal(Date.now() + 86_400_000), estados: ['propuesta'] }).map((r) => ({ ...r, misiones: misionesDeRun(db, r.id) })),
       brujula: leerBrujula(db, fecha),
+      paraDecidir: bandeja(db).total,
       tarjetasHoy: (db.prepare(`SELECT COUNT(*) AS n FROM tarjetas WHERE estado = 'activa' AND proxima <= ?`).get(fecha) as { n: number }).n,
       ajustes: { primarias_semana: ajuste(db, 'primarias_semana'), tokens_dia_max: ajuste(db, 'tokens_dia_max'), pensar_cada_horas: ajuste(db, 'pensar_cada_horas'), meta_ingresos_mes: ajuste(db, 'meta_ingresos_mes'), directo_auto: ajuste(db, 'directo_auto'), fragua_por_noche: ajuste(db, 'fragua_por_noche'), ciclo_bandas: ajuste(db, 'ciclo_bandas'), horario_fijo: horarioComoTexto(leerHorario(db)) },
     }
@@ -623,6 +625,12 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/identidades$/, async (b) => (await import('./evidencia.ts')).crearIdentidad(db, { frase: b.frase, historiaVieja: b.historiaVieja ?? null, ataduras: b.ataduras ?? {} })],
   ['POST', /^\/api\/identidades\/(\d+)$/, async (b, [i]) => (await import('./evidencia.ts')).editarIdentidad(db, id(i), b)],
   ['POST', /^\/api\/identidades\/(\d+)\/evidencia$/, async (b, [i]) => { (await import('./evidencia.ts')).anotarEvidencia(db, id(i), b.texto, b.fecha ?? null); return { ok: true } }],
+  // El modo sombra: la bandeja de lo que espera tu ok, deshacer lo que hizo solo, y cuánto acierta cada cosa.
+  ['GET', /^\/api\/bandeja$/, async () => (await import('./sombra.ts')).bandeja(db)],
+  ['POST', /^\/api\/bandeja\/(\w+)\/(\d+)$/, async (b, [t, i]) => { (await import('./sombra.ts')).resolverBandeja(db, t, id(i), b.accion); return { ok: true } }],
+  ['POST', /^\/api\/decisiones\/(\d+)\/deshacer$/, async (_, [d]) => (await import('./sombra.ts')).deshacerDecision(db, id(d))],
+  ['GET', /^\/api\/sombra$/, async () => ({ tipos: (await import('./decisiones.ts')).estadoSombra(db) })],
+  ['POST', /^\/api\/sombra$/, async (b) => { (await import('./decisiones.ts')).fijarModo(db, String(b.tipo ?? ''), b.modo); return { ok: true } }],
   // Sueños, consejo de modelos y apps conectadas.
   ['GET', /^\/api\/suenos$/, async () => (await import('./suenos.ts')).vistaSuenos(db)],
   ['POST', /^\/api\/suenos$/, async (b) => {

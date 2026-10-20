@@ -7,6 +7,7 @@
  */
 import crypto from 'node:crypto'
 import { ajuste, fechaLocal, json, type Db } from './db.ts'
+import { anotar, haceSolo } from './decisiones.ts'
 
 export const CATEGORIAS = ['ingresos', 'vivienda', 'comida', 'transporte', 'salud', 'ocio', 'suscripciones', 'trabajo', 'proyectos', 'deudas', 'ahorro', 'otros'] as const
 export type Movimiento = {
@@ -95,7 +96,14 @@ export function sugerirMovimiento(db: Db, m: { monto: number; descripcion: strin
   const descripcion = String(m.descripcion ?? '').trim().slice(0, 200) || (monto > 0 ? 'Ingreso' : 'Gasto')
   const r = db.prepare('INSERT INTO movimientos_sugeridos (fecha, monto, moneda, descripcion, dicho, creado_en) VALUES (?, ?, ?, ?, ?, ?)')
     .run(fecha, monto, (m.moneda || 'EUR').toUpperCase().slice(0, 3), descripcion, m.dicho?.trim().slice(0, 300) || null, ahora)
-  return sugeridos(db).find((x) => x.id === Number(r.lastInsertRowid)) ?? null
+  const id = Number(r.lastInsertRowid)
+  const s = sugeridos(db).find((x) => x.id === id) ?? null
+  // Si los montos que cuenta aciertan casi siempre y él lo pasó a «auto», entra solo (deshacible).
+  if (s && haceSolo(db, 'monto')) {
+    const mov = resolverSugerido(db, id, 'aceptar', {}, ahora, { auto: true })
+    anotar(db, 'monto', id, 'auto', { cambios: { texto: `${descripcion}: ${monto} ${s.moneda}` }, deshacer: { que: 'monto', sugerido: id, movimiento: mov?.id ?? null }, ahora })
+  }
+  return s
 }
 
 export function sugeridos(db: Db): Sugerido[] {
@@ -104,9 +112,13 @@ export function sugeridos(db: Db): Sugerido[] {
 }
 
 /** Aceptar lo pasa a Finanzas (con lo que él corrija del monto o la descripción); descartar lo olvida. */
-export function resolverSugerido(db: Db, id: number, accion: 'aceptar' | 'descartar', c: { monto?: number; descripcion?: string } = {}, ahora = Date.now()): Movimiento | null {
+export function resolverSugerido(db: Db, id: number, accion: 'aceptar' | 'descartar', c: { monto?: number; descripcion?: string } = {}, ahora = Date.now(), o: { auto?: boolean } = {}): Movimiento | null {
   const s = db.prepare(`SELECT * FROM movimientos_sugeridos WHERE id = ? AND estado = 'pendiente'`).get(id) as any
   if (!s) throw new Error(`No hay un movimiento sugerido ${id} pendiente`)
+  if (!o.auto) {
+    const edito = (c.monto != null && Math.abs(Number(c.monto) - s.monto) >= 0.01) || (!!c.descripcion?.trim() && c.descripcion.trim() !== s.descripcion)
+    anotar(db, 'monto', id, accion === 'descartar' ? 'rechazada' : edito ? 'editada' : 'aceptada', { ahora })
+  }
   if (accion === 'descartar') {
     db.prepare(`UPDATE movimientos_sugeridos SET estado = 'descartado' WHERE id = ?`).run(id)
     return null

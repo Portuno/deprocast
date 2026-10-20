@@ -17,6 +17,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { fechaLocal, json, resolverRuta, type Db } from '../db.ts'
+import { anotar } from '../decisiones.ts'
 import { asegurarFuente, insertar, slug } from '../corpus.ts'
 import { asegurarEntidad, buscadorDeEntidades, editarEntidad } from '../entidades.ts'
 import { crearQuantomo } from '../quantomos.ts'
@@ -877,6 +878,7 @@ export function estadoTakeout(db: Db) {
 export function resolverNombre(db: Db, clave: string, accion: 'aceptar' | 'descartar', o: { entidadId?: number | null; tipo?: string; nombre?: string } = {}, ahora = Date.now()) {
   const n = db.prepare('SELECT * FROM takeout_nombres WHERE clave = ?').get(clave) as any
   if (!n) throw new Error('No conozco ese nombre')
+  if (n.estado === 'propuesta') anotar(db, 'nombre', clave, accion === 'descartar' ? 'rechazada' : o.entidadId || (o.nombre?.trim() && o.nombre.trim() !== n.nombre) || (o.tipo && o.tipo !== n.tipo) ? 'editada' : 'aceptada', { ahora })
   if (accion === 'descartar') {
     db.prepare(`UPDATE takeout_nombres SET estado = 'descartada' WHERE clave = ?`).run(clave)
     return { ok: true }

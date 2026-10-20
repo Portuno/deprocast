@@ -11,6 +11,7 @@ import { afirmaAccion, correccionesParaPrompt, pareceCorreccion, registrarCorrec
 import { armarHistorial } from './historial.ts'
 import { comoTexto } from './adjuntos.ts'
 import { fechaLocal, type Db } from '../db.ts'
+import { anotar } from '../decisiones.ts'
 import { CLASES } from '../clases.ts'
 import { asientos, especializacion } from '../auditor.ts'
 import { ingerir } from '../mastropiero.ts'
@@ -482,7 +483,9 @@ export function listarPropuestas(db: Db) {
  */
 export function resolverPropuesta(db: Db, id: number, estado: 'aceptada' | 'descartada' | 'abierta' | 'hecha') {
   if (!['aceptada', 'descartada', 'abierta', 'hecha'].includes(estado)) throw new Error('Estado inválido')
-  if (!db.prepare('SELECT 1 FROM propuestas WHERE id = ?').get(id)) throw new Error(`No existe la propuesta ${id}`)
+  const previa = db.prepare('SELECT estado FROM propuestas WHERE id = ?').get(id) as { estado: string } | undefined
+  if (!previa) throw new Error(`No existe la propuesta ${id}`)
+  if (previa.estado === 'abierta' && estado !== 'abierta') anotar(db, 'propuesta', id, estado === 'descartada' ? 'rechazada' : 'aceptada')
   if (estado === 'aceptada') return void db.prepare(`UPDATE propuestas SET estado = 'abierta', prioridad = 'alta', resuelta_en = NULL WHERE id = ?`).run(id)
   if (estado === 'hecha') return void db.prepare(`UPDATE propuestas SET estado = 'aceptada', resuelta_en = ? WHERE id = ?`).run(Date.now(), id)
   db.prepare('UPDATE propuestas SET estado = ?, resuelta_en = ? WHERE id = ?').run(estado, estado === 'abierta' ? null : Date.now(), id)

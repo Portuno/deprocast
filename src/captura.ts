@@ -5,6 +5,7 @@
  * conversación. Una sola llamada: visión si hay foto, texto si no.
  */
 import { fechaLocal, type Db } from './db.ts'
+import { anotar } from './decisiones.ts'
 import { nanVision } from './nan.ts'
 import { leerJson, pedirJson } from './modelo.ts'
 import { borrarSalud, metasSalud, registrarSalud, resumenDia } from './salud.ts'
@@ -87,8 +88,17 @@ export type Registrado = { tipo: Captura['tipo']; tabla: 'salud' | 'movimientos'
 
 const n0 = (v: unknown) => Math.round(Number(v) || 0)
 
-/** Registra lo clasificado. null si no es algo que se registre (otro, aprendizaje todavía no, o datos que no alcanzan). */
+/**
+ * Registra lo clasificado. null si no es algo que se registre (otro, aprendizaje todavía no, o datos que no alcanzan).
+ * Lo que registra solo queda en el libro de decisiones (con cómo deshacerlo): si después lo deshace o lo corrige, cuenta.
+ */
 export function registrarCaptura(db: Db, c: Captura, o: { foto?: string | null; fuente?: string; ahora?: number } = {}): Registrado | null {
+  const r = registrarCapturaSola(db, c, o)
+  if (r) anotar(db, 'captura', `${r.tabla}:${r.id}`, 'auto', { cambios: { texto: r.resumen.slice(0, 200) }, deshacer: { que: 'captura', tabla: r.tabla, id: r.id }, confianza: c.confianza, ahora: o.ahora })
+  return r
+}
+
+function registrarCapturaSola(db: Db, c: Captura, o: { foto?: string | null; fuente?: string; ahora?: number } = {}): Registrado | null {
   const ahora = o.ahora ?? Date.now()
   const fuente = o.fuente ?? 'captura'
   if (c.tipo === 'comida' || c.tipo === 'ejercicio' || c.tipo === 'sueno' || c.tipo === 'medida') {
@@ -140,7 +150,8 @@ export function registrarCaptura(db: Db, c: Captura, o: { foto?: string | null; 
 }
 
 /** Deshace un registro de la captura (el botón ↩ de Telegram, o una corrección que lo reemplaza). */
-export function deshacerCaptura(db: Db, tabla: string, id: number | string) {
+export function deshacerCaptura(db: Db, tabla: string, id: number | string, accion: 'deshecha' | 'editada' = 'deshecha') {
+  anotar(db, 'captura', `${tabla}:${id}`, accion)
   if (tabla === 'salud') borrarSalud(db, Number(id))
   else if (tabla === 'movimientos') db.prepare('DELETE FROM movimientos WHERE id = ?').run(Number(id))
   else if (tabla === 'practicas') db.prepare('DELETE FROM practicas WHERE id = ?').run(Number(id))

@@ -37,6 +37,8 @@ import { abrirPractica, audioDeFrase, cerrarPractica, leerIdioma, listarIdiomas,
 import { CALIDADES, leerTarjeta, paraRepasar, responderTarjeta, type Calidad } from './tarjetas.ts'
 import { dirAdjuntos } from './chat/adjuntos.ts'
 import { bucleMasViejos, cerrarBucle } from './bucles.ts'
+import { responderOferta, tipoDeIndice, umbralCaptura } from './sombra.ts'
+import { TIPOS } from './decisiones.ts'
 import { PARECE_SUENO, destilarSueno, registrarSueno } from './suenos.ts'
 import { enLaNube } from './reproceso.ts'
 import path from 'node:path'
@@ -190,7 +192,8 @@ const TABLA: Record<string, string> = { s: 'salud', m: 'movimientos', p: 'practi
 
 /** Si lo clasificado es un registro, lo anota y contesta con una línea (y ↩ para deshacer). false = no era un registro. */
 async function registrarYContar(db: Db, c: Captura | null, o: { foto?: string | null; texto: string; umbral?: number }): Promise<boolean> {
-  if (!c || c.tipo === 'otro' || c.confianza < (o.umbral ?? 0.7)) return false
+  // El umbral sigue a cuánto acierta la captura (modo sombra): si viene errando, pide más confianza.
+  if (!c || c.tipo === 'otro' || c.confianza < (o.umbral ?? umbralCaptura(db))) return false
   const r = registrarCaptura(db, c, { foto: o.foto, fuente: 'telegram' })
   if (!r) return false
   const id = await decir(`${r.resumen}\n_Respondé a este mensaje para corregir._`, [[{ texto: '↩ Deshacer', dato: `x:${LETRA[r.tabla]}:${r.id}` }]])
@@ -200,7 +203,7 @@ async function registrarYContar(db: Db, c: Captura | null, o: { foto?: string | 
 
 /** Su corrección a un registro: se borra el anterior y se vuelve a clasificar con lo que dijo (y la foto, si había). */
 async function corregirCaptura(db: Db, previa: { tabla: string; id: number | string; texto: string; foto: string | null }, correccion: string) {
-  deshacerCaptura(db, previa.tabla, previa.id)
+  deshacerCaptura(db, previa.tabla, previa.id, 'editada')
   const imagen = previa.foto ? leerFoto(previa.foto) ?? undefined : undefined
   const texto = `${previa.texto}\nCorrección del jugador (manda sobre lo anterior): ${correccion}`.trim()
   const c = await clasificar(db, { imagen, texto }).catch(() => null)
@@ -639,6 +642,13 @@ async function boton(db: Db, q: any) {
       return decir('✋ Listo por hoy. Lo que practicaste ya cuenta en Aprender.')
     }
     return abrirPracticaTelegram(db, id)
+  }
+  if (k === 'sm') {
+    const tipo = tipoDeIndice(Number(a))
+    if (!tipo) return
+    const r = responderOferta(db, tipo, b === 'auto')
+    const t = r.modo === 'auto' ? `🤖 Listo: «${TIPOS[tipo].nombre}» lo hago solo. Todo queda deshacible en Hoy → 📥.` : `👌 Sigo proponiendo «${TIPOS[tipo].nombre}» y espero tu ok.`
+    return mensajeId ? editar(mensajeId, t) : decir(t)
   }
   if (k === 'b') {
     const manana = fechaLocal(Date.now() + 86_400_000)

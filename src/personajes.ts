@@ -5,6 +5,7 @@
  * Lo que propone Mastropiero entra como sugerencia y solo vale cuando el operador lo acepta.
  */
 import { json, type Db } from './db.ts'
+import { anotar } from './decisiones.ts'
 import { CLASES } from './clases.ts'
 import { especializacion } from './auditor.ts'
 import { leerEntidad } from './entidades.ts'
@@ -223,6 +224,11 @@ export function editarItem(db: Db, id: number, c: Partial<NuevoItem> & { estado?
   const i = leerItem(db, id)
   if (!i) throw new Error(`No existe el ítem ${id}`)
   if (c.estado && !['sugerido', 'vigente', 'archivado'].includes(c.estado)) throw new Error('Estado de ítem inválido')
+  // Un sugerido que él resuelve: cuenta para cuánto acierta el escriba con el inventario.
+  if (i.estado === 'sugerido' && c.estado && c.estado !== 'sugerido') {
+    const edito = (c.nombre != null && String(c.nombre).trim() !== i.nombre) || (c.detalle !== undefined && (c.detalle ?? null) !== i.detalle)
+    anotar(db, 'inventario', id, c.estado === 'archivado' ? 'rechazada' : edito ? 'editada' : 'aceptada', { ahora })
+  }
   const v = (k: keyof NuevoItem, actual: unknown) => (k in c ? (c as any)[k] ?? null : actual)
   db.prepare('UPDATE inventario SET tipo = ?, nombre = ?, detalle = ?, valor = ?, unidad = ?, url = ?, estado = ?, actualizado_en = ? WHERE id = ?').run(
     esTipoInventario(c.tipo) ? c.tipo : i.tipo, String(v('nombre', i.nombre) || i.nombre).trim(), v('detalle', i.detalle), v('valor', i.valor) === '' ? null : v('valor', i.valor),

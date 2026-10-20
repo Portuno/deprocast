@@ -7,6 +7,7 @@
  * Los cuadros no se guardan: solo lo que se vio. Lo que dijo en voz alta sí entra, porque es suyo.
  */
 import { ajuste, fechaLocal, json, type Db } from './db.ts'
+import { anotar, haceSolo } from './decisiones.ts'
 import { asegurarFuente, insertar } from './corpus.ts'
 import { leerEntidad, buscadorDeEntidades, anotarConexion, asegurarPorNombre, editarEntidad, TIPOS_ENTIDAD, type TipoEntidad } from './entidades.ts'
 import { escribaDeMemoria, memoriaParaPrompt, recordar } from './memoria.ts'
@@ -230,11 +231,11 @@ export function avisoDeCierre(s: Sesion): string {
 }
 
 /** Lo de bajo riesgo entra solo (ajuste directo_auto): las ideas a la memoria (sin revisar) y lo que miró al corpus. */
-const SOLAS = new Set<TipoPropuesta>(['idea', 'medio'])
+const SOLAS = new Set<TipoPropuesta>(['idea', 'medio', 'tarea', 'cumplida', 'banda'])
 function aceptarSolas(db: Db, sesionId: number, ahora: number) {
-  if (ajuste(db, 'directo_auto') === '0') return
+  // Las que van solas: las de siempre (ideas y medios, salvo directo_auto = 0) y los tipos que él pasó a «auto» porque aciertan.
   const s = leerSesion(db, sesionId)
-  const ids = s ? propuestasDe(s).filter((p) => p.estado === 'pendiente' && SOLAS.has(p.tipo)).map((p) => p.id) : []
+  const ids = s ? propuestasDe(s).filter((p) => p.estado === 'pendiente' && SOLAS.has(p.tipo) && haceSolo(db, `directo:${p.tipo}`)).map((p) => p.id) : []
   if (ids.length) resolverPropuestas(db, sesionId, ids, 'aceptar', ahora, { sola: true })
 }
 
@@ -345,16 +346,20 @@ function armarPropuestas(db: Db, informe: Record<string, unknown>, met: ReturnTy
   return ps
 }
 
-function aplicarPropuesta(db: Db, p: Propuesta, s: Sesion, ahora: number, sola = false) {
+/** Aplica una propuesta aceptada. Devuelve cómo deshacerla, si se puede (para lo que hace solo). */
+function aplicarPropuesta(db: Db, p: Propuesta, s: Sesion, ahora: number, sola = false): Record<string, unknown> | null {
   const fecha = fechaLocal(s.inicio)
   if (p.tipo === 'tarea') {
-    anotarSideQuest(db, { titulo: p.titulo, detalle: `Lo dijiste en el Directo del ${fecha}.`, creadaPor: 'directo' }, ahora)
-    return
+    const m = anotarSideQuest(db, { titulo: p.titulo, detalle: `Lo dijiste en el Directo del ${fecha}.`, creadaPor: 'directo' }, ahora)
+    return { que: 'mision', id: m.id, estado: 'descartada' }
   }
   if (p.tipo === 'cumplida' || p.tipo === 'banda') {
     const m = p.misionId ? leerMision(db, p.misionId) : null
-    if (m && (m.estado === 'activa' || m.estado === 'sugerida')) actualizarMision(db, m.id, { estado: 'hecha' }, { por: 'operador', ahora })
-    return
+    if (m && (m.estado === 'activa' || m.estado === 'sugerida')) {
+      actualizarMision(db, m.id, { estado: 'hecha' }, { por: 'operador', ahora })
+      return { que: 'mision', id: m.id, estado: m.estado }
+    }
+    return null
   }
   if (p.tipo === 'entidad') {
     // «Es esa»: el nombre que se oyó queda como alias de la que ya existía (y su nota, si no tenía).
@@ -364,7 +369,7 @@ function aplicarPropuesta(db: Db, p: Propuesta, s: Sesion, ahora: number, sola =
         const notas = (db.prepare('SELECT notas FROM entidades WHERE id = ?').get(p.vincular) as { notas: string | null } | undefined)?.notas
         if (!notas?.trim()) editarEntidad(db, p.vincular, { notas: p.detalle })
       }
-      return
+      return null
     }
     const id = asegurarPorNombre(db, p.titulo, tipoEnt(p.tipoEntidad), ahora)
     if (p.alias.length) editarEntidad(db, id, { sumarAlias: p.alias })
@@ -372,17 +377,17 @@ function aplicarPropuesta(db: Db, p: Propuesta, s: Sesion, ahora: number, sola =
       const notas = (db.prepare('SELECT notas FROM entidades WHERE id = ?').get(id) as { notas: string | null }).notas
       if (!notas?.trim()) editarEntidad(db, id, { notas: p.detalle })
     }
-    return
+    return null
   }
   if (p.tipo === 'conexion' && p.de && p.con) {
     const a = asegurarPorNombre(db, p.de, tipoEnt(p.tipoEntidad), ahora)
     const b = asegurarPorNombre(db, p.con, tipoEnt(p.tipoCon), ahora)
     if (a !== b) anotarConexion(db, { a, b, relacion: p.detalle, origen: `directo:${s.id}`, nota: `Directo del ${fecha}` }, ahora)
-    return
+    return null
   }
   if (p.tipo === 'idea') {
-    recordar(db, { texto: p.titulo, tipo: 'hecho', creadaPor: 'directo', revisada: !sola }, ahora)
-    return
+    const r = recordar(db, { texto: p.titulo, tipo: 'hecho', creadaPor: 'directo', revisada: !sola }, ahora)
+    return { que: 'archivar_recuerdo', id: r.id }
   }
   if (p.tipo === 'medio') {
     asegurarFuente(db, { id: 'directo', nombre: 'Directo', nivel: 'primaria', descripcion: 'Lo que vio, escuchó y leyó con el Directo prendido, y él aceptó guardar.' })
@@ -393,6 +398,7 @@ function aplicarPropuesta(db: Db, p: Propuesta, s: Sesion, ahora: number, sola =
       origenId: `directo:${s.id}:${p.id}`, meta: { sesion: s.id },
     }, ahora)
   }
+  return null
 }
 
 /** Aceptar guarda (side quest, entidad, conexión, memoria, corpus). Rechazar no guarda nada. */
@@ -415,7 +421,8 @@ export function resolverPropuestas(db: Db, sesionId: number, ids: string[], acci
         if (c.tipoEntidad && p.tipo === 'entidad') p.tipoEntidad = tipoEnt(c.tipoEntidad)
         if (c.vincular !== undefined) p.vincular = c.vincular && leerEntidad(db, Number(c.vincular)) ? Number(c.vincular) : null
       }
-      if (accion === 'aceptar') aplicarPropuesta(db, p, s, ahora, o.sola)
+      const deshacer = accion === 'aceptar' ? aplicarPropuesta(db, p, s, ahora, o.sola) : null
+      anotar(db, `directo:${p.tipo}`, `${sesionId}:${p.id}`, o.sola ? 'auto' : accion === 'rechazar' ? 'rechazada' : c ? 'editada' : 'aceptada', { cambios: { texto: p.titulo }, deshacer: o.sola ? deshacer : null, ahora })
       p.estado = accion === 'aceptar' ? 'aceptada' : 'rechazada'
       if (o.sola) p.sola = true
       tocadas.push(p)
