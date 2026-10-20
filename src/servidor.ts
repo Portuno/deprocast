@@ -625,6 +625,21 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/identidades$/, async (b) => (await import('./evidencia.ts')).crearIdentidad(db, { frase: b.frase, historiaVieja: b.historiaVieja ?? null, ataduras: b.ataduras ?? {} })],
   ['POST', /^\/api\/identidades\/(\d+)$/, async (b, [i]) => (await import('./evidencia.ts')).editarIdentidad(db, id(i), b)],
   ['POST', /^\/api\/identidades\/(\d+)\/evidencia$/, async (b, [i]) => { (await import('./evidencia.ts')).anotarEvidencia(db, id(i), b.texto, b.fecha ?? null); return { ok: true } }],
+  // Discovery para clientes: encargos, áreas, entrevistas, logs, as-is, to-be, hoja de valor y sombra.
+  ['GET', /^\/api\/encargos$/, async () => ({ encargos: (await import('./discovery.ts')).listarEncargos(db) })],
+  ['POST', /^\/api\/encargos$/, async (b) => (await import('./discovery.ts')).crearEncargo(db, { cliente: b.cliente, nombre: b.nombre ?? null, departamento: b.departamento ?? null, notas: b.notas ?? null })],
+  ['GET', /^\/api\/encargos\/(\d+)$/, async (_, [e]) => ({ ...(await import('./discovery.ts')).fichaEncargo(db, id(e)), enLaNube: enLaNube() })],
+  ['POST', /^\/api\/encargos\/(\d+)$/, async (b, [e]) => (await import('./discovery.ts')).editarEncargo(db, id(e), b)],
+  ['POST', /^\/api\/encargos\/(\d+)\/areas$/, async (b, [e]) => (await import('./discovery.ts')).guardarArea(db, id(e), b)],
+  ['POST', /^\/api\/encargos\/(\d+)\/entrevistas$/, async (b, [e]) => (await import('./discovery.ts')).agregarEntrevista(db, id(e), { quien: b.quien ?? null, rol: b.rol ?? null, area: b.area ?? null, texto: b.texto ?? null })],
+  ['POST', /^\/api\/encargos\/(\d+)\/personas$/, async (b, [e]) => ({ champions: (await import('./discovery.ts')).sumarPersona(db, id(e), b) })],
+  ['POST', /^\/api\/encargos\/(\d+)\/guia$/, async (b, [e]) => { soloNube('La guía'); return (await import('./discovery.ts')).guiaDeEntrevista(db, id(e), String(b.area ?? '')) }],
+  ['POST', /^\/api\/encargos\/(\d+)\/asis$/, async (b, [e]) => { soloNube('El as-is'); return (await import('./discovery.ts')).armarAsis(db, id(e), String(b.area ?? '')) }],
+  ['GET', /^\/api\/encargos\/(\d+)\/valor$/, async (_, [e]) => ({ md: (await import('./discovery.ts')).hojaDeValor(db, id(e)) })],
+  ['POST', /^\/api\/procesos\/(\d+)\/tobe$/, async (_, [p]) => { soloNube('El to-be'); return (await import('./discovery.ts')).armarTobe(db, id(p)) }],
+  ['POST', /^\/api\/procesos\/(\d+)\/paso\/(\d+)$/, async (b, [p, n]) => (await import('./discovery.ts')).editarPaso(db, id(p), Number(n), b)],
+  ['POST', /^\/api\/procesos\/(\d+)\/kpis$/, async (b, [p]) => (await import('./discovery.ts')).guardarKpis(db, id(p), b.kpis)],
+  ['POST', /^\/api\/procesos\/(\d+)\/kpis\/proponer$/, async (_, [p]) => { soloNube('Los KPIs'); return (await import('./discovery.ts')).proponerKpis(db, id(p)) }],
   // El modo sombra: la bandeja de lo que espera tu ok, deshacer lo que hizo solo, y cuánto acierta cada cosa.
   ['GET', /^\/api\/bandeja$/, async () => (await import('./sombra.ts')).bandeja(db)],
   ['POST', /^\/api\/bandeja\/(\w+)\/(\d+)$/, async (b, [t, i]) => { (await import('./sombra.ts')).resolverBandeja(db, t, id(i), b.accion); return { ok: true } }],
@@ -1022,6 +1037,11 @@ async function leerCuerpo(req: http.IncomingMessage): Promise<any> {
   }
 }
 
+/** Lo que gasta tokens se pide desde la nube. */
+function soloNube(que: string) {
+  if (!enLaNube()) throw new Error(`${que}: lo arma Mastropiero en la nube (gasta tokens de NaN). Pedilo desde tu Deprocast en la nube.`)
+}
+
 /**
  * Las apps conectadas (Morpheon y las que vengan): con su token (Authorization: Bearer), sin la clave de la pantalla.
  * Solo estas rutas: GET /api/apps/yo, POST /api/apps/suenos (JSON, multipart con «audio», o el audio crudo) y POST
@@ -1335,6 +1355,19 @@ const servidor = http.createServer(async (req, res) => {
           ? registrarCuadro(db, sesion, cuerpo, String(req.headers['content-type'] || 'image/jpeg'))
           : registrarAudio(db, sesion, cuerpo, url.searchParams.get('tipo') === 'medio' ? 'medio' : 'voz', url.searchParams.get('nombre') || 'tramo.webm', { desde }))
         return void res.end(JSON.stringify({ ok: true }))
+      }
+      // Discovery: lo que llega crudo (el audio de una entrevista, un documento, el CSV de un log o de casos en sombra).
+      const crudoEncargo = req.method === 'POST' ? /^\/api\/encargos\/(\d+)\/(entrevista-audio|documento|log|sombra)$/.exec(url.pathname) : null
+      if (crudoEncargo) {
+        const dsc = await import('./discovery.ts')
+        const eid = Number(crudoEncargo[1])
+        const q = url.searchParams
+        const datos = await leerCrudo(req, 40 * 1024 * 1024)
+        const r = crudoEncargo[2] === 'entrevista-audio' ? await dsc.agregarEntrevista(db, eid, { quien: q.get('quien'), rol: q.get('rol'), area: q.get('area'), audio: datos, nombreAudio: q.get('nombre') || 'entrevista.m4a' })
+          : crudoEncargo[2] === 'documento' ? await dsc.agregarDocumento(db, eid, q.get('nombre') || 'documento.pdf', datos, q.get('area'))
+          : crudoEncargo[2] === 'log' ? dsc.subirLog(db, eid, q.get('nombre') || 'log.csv', datos.toString('utf8'), { area: q.get('area'), mapeo: q.get('mapeo') ? JSON.parse(q.get('mapeo')!) : null })
+          : dsc.cargarSombra(db, eid, datos.toString('utf8'), q.get('proceso') ? Number(q.get('proceso')) : null)
+        return void res.end(JSON.stringify(r))
       }
       // La respuesta de una práctica de idioma, grabada: se transcribe en ese idioma y vuelve la devolución.
       const audioIdioma = req.method === 'POST' ? /^\/api\/idiomas\/(\d+)\/audio$/.exec(url.pathname) : null

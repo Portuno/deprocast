@@ -1219,6 +1219,55 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `importó de YouTube ${recorte(String(a.links ?? ''), 50)}`,
   },
   {
+    nombre: 'ver_encargos', familia: 'lectura',
+    descripcion: 'Sus encargos de transformación con IA para clientes (discovery): cliente, área por la que se empieza, estado, entrevistas, logs y procesos. Con id: la ficha entera (áreas puntuadas, as-is, to-be con su resumen, KPIs, sombra por regla, champions).',
+    parametros: S({ id: int('id del encargo (opcional)') }),
+    ejecutar: async (a, { db }) => {
+      const d = await import('../discovery.ts')
+      if (!a.id) return d.listarEncargos(db)
+      const f = d.fichaEncargo(db, a.id)
+      const { logComoTexto } = await import('../discovery-logs.ts')
+      return { ...f, logs: f.logs.map((l) => ({ id: l.id, nombre: l.nombre, resumen: l.analisis ? logComoTexto(l.analisis, l.nombre) : null })) }
+    },
+  },
+  {
+    nombre: 'crear_encargo', familia: 'accion',
+    descripcion: 'Abre un encargo de transformación con IA para un cliente (crea la entidad del cliente si no existe). Después se suman áreas, entrevistas, logs y documentos.',
+    parametros: S({ cliente: str('Nombre del cliente (empresa o estudio)'), nombre: str('Nombre del encargo (opcional)'), departamento: str('Por dónde se empieza (opcional)'), notas: str('Contexto (opcional)') }, ['cliente']),
+    ejecutar: async (a, { db }) => { const e = (await import('../discovery.ts')).crearEncargo(db, a); return { id: e.id, nombre: e.nombre, cliente: e.cliente } },
+    resumen: (a) => `abrió un encargo para ${a.cliente}`,
+  },
+  {
+    nombre: 'puntuar_area', familia: 'accion',
+    descripcion: 'Carga o actualiza un área del cliente con sus números (volumen de procesos por mes, costo del área por mes, cuántas áreas tocan sus procesos) para decidir por dónde empezar.',
+    parametros: S({ encargo: int('id del encargo'), area: str('Nombre del área'), volumen_mes: int('Veces por mes'), costo_mes: int('Costo por mes'), alcance: int('Cuántas áreas toca') }, ['encargo', 'area']),
+    ejecutar: async (a, { db }) => (await import('../discovery.ts')).guardarArea(db, a.encargo, { nombre: a.area, volumenMes: a.volumen_mes, costoMes: a.costo_mes, alcance: a.alcance }),
+  },
+  {
+    nombre: 'guia_de_entrevista', familia: 'accion',
+    descripcion: 'Arma la guía de entrevista de un área del cliente: lo que hay que preguntar (volumen y costo, sistemas, traspasos, excepciones, lo no escrito, aprobaciones, dependencias, champions) y lo que el log contradice.',
+    parametros: S({ encargo: int('id del encargo'), area: str('El área') }, ['encargo', 'area']),
+    ejecutar: async (a, { db }) => { const g = await (await import('../discovery.ts')).guiaDeEntrevista(db, a.encargo, a.area); return { piezaId: g.piezaId, guia: g.md } },
+  },
+  {
+    nombre: 'armar_asis', familia: 'accion',
+    descripcion: 'Arma el as-is de un área cruzando los logs, las entrevistas y la documentación del encargo: los pasos reales y lo que no estaba documentado.',
+    parametros: S({ encargo: int('id del encargo'), area: str('El área') }, ['encargo', 'area']),
+    ejecutar: async (a, { db }) => { const r = await (await import('../discovery.ts')).armarAsis(db, a.encargo, a.area); return { proceso: r.proceso.id, resumen: r.proceso.resumen, hallazgos: r.hallazgos } },
+  },
+  {
+    nombre: 'armar_tobe', familia: 'accion',
+    descripcion: 'Arma el to-be de un proceso: cada paso se borra, pasa a código, a un agente o queda en una persona, con su porqué.',
+    parametros: S({ proceso: int('id del proceso') }, ['proceso']),
+    ejecutar: async (a, { db }) => { const p = await (await import('../discovery.ts')).armarTobe(db, a.proceso); return { resumen: p.resumen, pasos: p.pasosTobe } },
+  },
+  {
+    nombre: 'hoja_de_valor', familia: 'lectura',
+    descripcion: 'La hoja de valor de un encargo en Markdown (áreas, resumen del rediseño, KPIs con línea de base y objetivo, y el camino sombra → vivo): lo que el cliente lleva a su directorio.',
+    parametros: S({ encargo: int('id del encargo') }, ['encargo']),
+    ejecutar: async (a, { db }) => ({ md: (await import('../discovery.ts')).hojaDeValor(db, a.encargo) }),
+  },
+  {
     nombre: 'ver_suenos', familia: 'lectura',
     descripcion: 'Sus sueños: los últimos (con lo que se leyó de cada uno: escenas, personas, símbolos, emociones, fuente y cruce con el día anterior), los símbolos que vuelven, quién aparece y las emociones por semana.',
     parametros: S({}),
@@ -1477,7 +1526,7 @@ export const GRUPOS: Record<string, string[]> = {
   liga: ['ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
+  vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   web: ['buscar_web', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   crear: ['ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
@@ -1489,7 +1538,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox/.test(t)) g.push('liga')
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|\[confirmado\]|\[inferido\]/.test(t)) g.push('corpus')
   if (/primaria|reporte|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
-  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')
+  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')
   if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal/.test(t)) g.push('web')
   if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo/.test(t)) g.push('crear')
   return g

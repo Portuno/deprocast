@@ -954,6 +954,63 @@ CREATE TABLE IF NOT EXISTS apps_conectadas (
   usos INTEGER NOT NULL DEFAULT 0,
   revocada_en INTEGER
 );
+-- Discovery para clientes (transformación con IA): un encargo por cliente y área, sus áreas puntuadas, los logs
+-- analizados (solo el análisis: el CSV no se guarda), los procesos (as-is, to-be, KPIs) y los casos en sombra.
+CREATE TABLE IF NOT EXISTS encargos_ia (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL,
+  cliente_id INTEGER NOT NULL,        -- la entidad (agrupación) del cliente
+  proyecto_id INTEGER,                -- la entidad proyecto del encargo
+  departamento TEXT,                  -- por dónde se empieza
+  estado TEXT NOT NULL DEFAULT 'discovery', -- discovery | diseño | sombra | vivo | cerrado
+  notas TEXT,
+  creado_en INTEGER NOT NULL,
+  actualizado_en INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS encargo_areas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  encargo_id INTEGER NOT NULL,
+  nombre TEXT NOT NULL,
+  volumen_mes REAL,                   -- cuántas veces corren sus procesos por mes
+  costo_mes REAL,                     -- lo que cuesta el área por mes (lo tiene el CFO)
+  alcance INTEGER,                    -- cuántas áreas tocan sus procesos
+  notas TEXT,
+  UNIQUE (encargo_id, nombre)
+);
+CREATE TABLE IF NOT EXISTS encargo_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  encargo_id INTEGER NOT NULL,
+  nombre TEXT NOT NULL,
+  area TEXT,
+  analisis TEXT NOT NULL,             -- JSON (discovery-logs.ts)
+  en INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS procesos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ambito TEXT NOT NULL,               -- yo | encargo:<id>
+  nombre TEXT NOT NULL,
+  area TEXT,
+  pasos_asis TEXT,                    -- JSON [{n, paso, area, sistema, quien, minutos, frecuencia, excepciones, fuente, en_la_doc}]
+  pasos_tobe TEXT,                    -- JSON [{n, destino: borrar|codigo|agente|persona, por_que, regla}]
+  kpis TEXT,                          -- JSON [{categoria: tiempo_costo|ingresos|riesgo, nombre, linea_base, objetivo, unidad, medido_en}]
+  documentados INTEGER,               -- cuántos pasos decía la documentación
+  creado_en INTEGER NOT NULL,
+  actualizado_en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS procesos_ambito ON procesos(ambito);
+CREATE TABLE IF NOT EXISTS sombra_casos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  encargo_id INTEGER NOT NULL,
+  proceso_id INTEGER,
+  caso TEXT,
+  regla TEXT NOT NULL,                -- la regla o el tipo de caso del agente
+  propuesta TEXT,                     -- lo que propuso el agente
+  real TEXT,                          -- lo que hizo la persona
+  coincide INTEGER NOT NULL,
+  fecha TEXT NOT NULL,
+  en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sombra_casos_encargo ON sombra_casos(encargo_id, regla, fecha);
 -- El libro de decisiones: lo que Mastropiero propuso y qué se decidió (o si lo hizo solo). La base del modo sombra.
 CREATE TABLE IF NOT EXISTS decisiones (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

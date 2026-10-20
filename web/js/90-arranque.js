@@ -15,6 +15,7 @@ const VISTAS = {
   idiomas: { montar: montarIdiomas, refrescar: () => {} },
   suenos: { montar: montarSuenos, refrescar: () => {} },
   radar: { montar: montarRadar, refrescar: refrescarRadar },
+  discovery: { montar: montarDiscovery, refrescar: () => {} },
   taller: { montar: montarTaller, refrescar: refrescarTaller },
   estudio: { montar: montarEstudio, refrescar: refrescarEstudio },
   cuentas: { montar: montarCuentas, refrescar: refrescarCuentas },
