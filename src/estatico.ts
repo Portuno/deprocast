@@ -7,6 +7,7 @@
  * - El JSON de la API: gzip si pesa, y ETag/304 en los GET (si no cambió, no viaja ni se vuelve a leer).
  */
 import crypto from 'node:crypto'
+import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import type http from 'node:http'
 import path from 'node:path'
@@ -106,6 +107,30 @@ export function servirArchivo(req: http.IncomingMessage, res: http.ServerRespons
   res.writeHead(200, { ...comunes, 'content-length': st.size })
   if (req.method === 'HEAD') return void res.end()
   fs.createReadStream(archivo).pipe(res)
+}
+
+/** Los anchos de miniatura que se aceptan (para no generar uno por cada número que alguien pida). */
+export const ANCHOS_MINIATURA = [240, 480, 960]
+const haciendoMiniatura = new Map<string, Promise<string | null>>()
+
+/**
+ * La miniatura de una imagen adjunta (JPEG de ese ancho, con ffmpeg), generada la primera vez y guardada al lado.
+ * null si no se puede (sin ffmpeg o un formato raro): se sirve la original.
+ */
+export function miniaturaDe(archivo: string, ancho: number): Promise<string | null> {
+  if (!ANCHOS_MINIATURA.includes(ancho)) return Promise.resolve(null)
+  const destino = `${archivo}.w${ancho}.jpg`
+  if (fs.existsSync(destino)) return Promise.resolve(destino)
+  const ya = haciendoMiniatura.get(destino)
+  if (ya) return ya
+  const p = new Promise<string | null>((ok) => {
+    execFile('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-i', archivo, '-vf', `scale='min(${ancho},iw)':-2`, '-frames:v', '1', '-q:v', '5', destino], { timeout: 20_000 }, (e) => {
+      haciendoMiniatura.delete(destino)
+      ok(!e && fs.existsSync(destino) ? destino : null)
+    })
+  })
+  haciendoMiniatura.set(destino, p)
+  return p
 }
 
 /**

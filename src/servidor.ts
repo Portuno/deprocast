@@ -31,7 +31,7 @@ import { artefactoAlCorpus, ASPECTOS, borrarArtefacto, carpeta as carpetaTaller,
 import { conMatriz, desvincularDeProyecto, grafoPersonas, guardarRelacion, nuevaPersona, personas, vincularAProyecto } from './personas.ts'
 import { bandeja } from './sombra.ts'
 import { medirPedido, reiniciarVelocidad, velocidad } from './rendimiento-servidor.ts'
-import { comprimirJson, indexConVersiones, servirArchivo, servirEstatico, versionDe } from './estatico.ts'
+import { comprimirJson, indexConVersiones, miniaturaDe, servirArchivo, servirEstatico, versionDe } from './estatico.ts'
 import { controlarReproceso, enLaNube, estadoReproceso, trabajarReproceso } from './reproceso.ts'
 import { lineaTemporal, resolverEvento } from './linea.ts'
 import * as estudio from './estudio.ts'
@@ -1171,6 +1171,12 @@ const servidor = http.createServer(async (req, res) => {
     // Imágenes y PDF se ven en el navegador (aislados); lo demás se baja. Nunca corre nada en la página.
     const tipo = TIPOS_MIME[ext] ?? ({ '.pdf': 'application/pdf', '.txt': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.csv': 'text/plain; charset=utf-8' } as Record<string, string>)[ext] ?? 'application/octet-stream'
     const ver = /^image\/(jpeg|png|webp)$/.test(tipo) || ext === '.pdf' || tipo.startsWith('text/plain')
+    // Una foto en una lista va como miniatura (?ancho=480): se genera una vez y queda guardada al lado.
+    const ancho = Number(url.searchParams.get('ancho'))
+    if (ancho && /^image\/(jpeg|png|webp)$/.test(tipo)) {
+      const mini = await miniaturaDe(archivo, ancho)
+      if (mini) return void servirArchivo(req, res, mini, { 'content-type': 'image/jpeg', 'cache-control': 'private, max-age=31536000', 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox' })
+    }
     // Con ETag y Range: un audio o un video se puede adelantar, y lo que ya bajó no se vuelve a bajar.
     return void servirArchivo(req, res, archivo, { 'content-type': ext === '.json' ? 'text/plain; charset=utf-8' : tipo, 'cache-control': 'private, max-age=31536000', 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox', 'content-disposition': `${ver ? 'inline' : 'attachment'}; filename="${path.basename(archivo).replace(/^\d+-[0-9a-f]+\./, 'adjunto.')}"` })
   }

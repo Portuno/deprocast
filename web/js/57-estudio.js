@@ -100,7 +100,7 @@ async function abrirEstudio(id) {
           <div class="es-plant"><select class="campo-suelto" id="es-aplicar"><option value="">Aplicar plantilla…</option>${(es.base.plantillas ?? []).map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</select><button class="btn btn-chico" id="es-guardar-pl">Guardar como plantilla</button></div></aside>
         <div class="es-centro">
           <div class="es-escena"><div class="es-lienzo ${es.p.encuadre}" id="es-lienzo" style="aspect-ratio:${W}/${H}">
-            <video class="es-fondo" src="${es.d.fuente}" muted playsinline preload="auto"></video>
+            <video class="es-fondo" src="${es.d.fuente}" muted playsinline preload="metadata"></video>
             <video class="es-video" id="es-video" src="${es.d.fuente}" playsinline preload="auto"></video>
             <div class="es-capas-vivas" id="es-vivas"></div>
           </div></div>

@@ -127,3 +127,19 @@ test('Carga perezosa: las vistas marcadas salen del HTML y se anuncian con su ve
   assert.equal(p['otra.js'].v, versionDe(path.join(d, 'js', 'otra.js')))
   assert.ok(html.indexOf('PEREZOSOS') < html.indexOf('nucleo.js'), 'el manifiesto va antes del núcleo')
 })
+
+test('Miniaturas: una foto adjunta a 480 px, generada una vez y guardada; un ancho no permitido no genera nada', async (t) => {
+  const { spawnSync } = await import('node:child_process')
+  const { miniaturaDe } = await import('../src/estatico.ts')
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'mastro-mini-'))
+  const foto = path.join(d, 'foto.jpg')
+  if (spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=1600x1200', '-frames:v', '1', foto]).status !== 0) return t.skip('sin ffmpeg')
+  assert.equal(await miniaturaDe(foto, 333), null)
+  const [a, b] = await Promise.all([miniaturaDe(foto, 480), miniaturaDe(foto, 480)])
+  assert.equal(a, `${foto}.w480.jpg`)
+  assert.equal(a, b, 'dos pedidos juntos generan una sola')
+  assert.ok(fs.statSync(a!).size < fs.statSync(foto).size)
+  const mtime = fs.statSync(a!).mtimeMs
+  await miniaturaDe(foto, 480)
+  assert.equal(fs.statSync(a!).mtimeMs, mtime, 'la segunda vez se reusa')
+})

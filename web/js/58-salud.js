@@ -72,7 +72,7 @@ async function pintarSalud() {
   const esHoy = saludFecha === hoyISO()
   const fechaTxt = new Date(`${saludFecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })
   const fila = (r) => `<div class="sal-reg" data-reg="${r.id}">
-      ${r.foto ? `<img src="${esc(r.foto)}" alt="" loading="lazy">` : `<span class="sal-ico">${ICONO_SALUD[r.tipo] ?? '·'}</span>`}
+      ${r.foto ? `<img src="${esc(r.foto)}${String(r.foto).startsWith('/adjuntos/') ? '?ancho=240' : ''}" alt="" loading="lazy" decoding="async">` : `<span class="sal-ico">${ICONO_SALUD[r.tipo] ?? '·'}</span>`}
       <div><b>${esc(r.titulo)}</b><small class="tenue">${[r.hora,
         r.tipo === 'comida' ? `${Math.round(r.datos.kcal ?? 0)} kcal · P ${Math.round(r.datos.proteina ?? 0)} · C ${Math.round(r.datos.carbos ?? 0)} · G ${Math.round(r.datos.grasa ?? 0)}` : '',
         r.tipo === 'ejercicio' ? [r.datos.minutos ? `${r.datos.minutos} min` : '', r.datos.distancia_km ? `${r.datos.distancia_km} km` : '', r.datos.intensidad_texto ?? ''].filter(Boolean).join(' · ') : '',
