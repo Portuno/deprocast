@@ -153,6 +153,8 @@ $('#btn-auto').onclick = async () => {
 // ─── arranque ───────────────────────────────────────────────────────────
 
 let etagEstado = null
+let firmaHud = ''
+let firmaCronica = ''
 
 /**
  * El estado, con ETag: si no cambió nada, el servidor contesta 304 sin cuerpo y no hay nada que leer ni comparar.
@@ -172,8 +174,12 @@ async function refrescar({ forzar = true } = {}) {
   const nuevo = await traerEstado()
   if (!nuevo && !forzar) return
   if (nuevo) E = nuevo
-  renderHud()
-  renderCronica()
+  // Cada parte se redibuja solo si cambió lo suyo (antes, cualquier cambio del estado rehacía el HUD y la crónica entera).
+  const fHud = JSON.stringify([vista, E.roster.map((f) => f.estado), E.liga.tareas, E.uso, E.hoy.total, E.hoy.hechos, E.hoy.run?.estado, E.memoriaSinRevisar, E.enEspera, E.nTick, E.gasto])
+  if (forzar || fHud !== firmaHud) { firmaHud = fHud; renderHud() }
+  const ult = E.cronica.at(-1)
+  const fCron = `${E.cronica.length}|${ult?.id ?? ''}|${ult?.texto ?? ''}`
+  if (forzar || fCron !== firmaCronica) { firmaCronica = fCron; renderCronica() }
   avisarSiHayNovedad()
   traerMencionables()
   pintarIndicadorDirecto()
