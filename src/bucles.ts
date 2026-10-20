@@ -66,7 +66,8 @@ export async function juntarBucles(db: Db, o: { limite?: number; ahora?: number 
     .map((b) => ({ id: b.id, clave: b.clave, vec: b.vec ? blobAVec(b.vec) : null }))
   const marcar = db.prepare('INSERT OR IGNORE INTO bucles_vistos (origen, bucle_id, en) VALUES (?, ?, ?)')
   let n = 0
-  for (const m of ms) {
+  for (const [i, m] of ms.entries()) {
+    if (i % 10 === 9) await new Promise<void>((ok) => setImmediate(ok)) // con miles de bucles, que no trabe el servidor
     if (!m.texto) { marcar.run(m.origen, null, ahora); continue }
     const k = clave(m.texto)
     const v = vecs?.[conTexto.indexOf(m)] ?? null

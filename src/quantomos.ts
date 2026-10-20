@@ -121,29 +121,52 @@ export function listarQuantomos(db: Db, f: { etapa?: string; q?: string; pesoMin
 export const UMBRAL_REPETIDA = 0.92
 export const UMBRAL_VARIACION = 0.8
 
+/** Los vectores de los quántomos, cuantizados a int8 y en memoria (4 veces menos que float), por base; se completa con lo nuevo. */
+const vectoresQ = new WeakMap<Db, { hasta: number; ids: number[]; q: Int8Array[]; esc: number[] }>()
+const soltar = () => new Promise<void>((ok) => setImmediate(ok))
+
+async function vectoresDeQuantomos(db: Db) {
+  let c = vectoresQ.get(db)
+  if (!c) { c = { hasta: 0, ids: [], q: [], esc: [] }; vectoresQ.set(db, c) }
+  const nuevos = db.prepare(`SELECT q.id, v.vec FROM quantomos q JOIN vec_items v ON v.tipo = 'quantomo' AND v.id = q.id WHERE q.id > ? AND q.etapa != 'descartado' ORDER BY q.id`).all(c.hasta) as { id: number; vec: Uint8Array }[]
+  for (const [n, r] of nuevos.entries()) {
+    if (n % 1000 === 999) await soltar()
+    const v = new Float32Array(r.vec.buffer.slice(r.vec.byteOffset, r.vec.byteOffset + r.vec.byteLength))
+    let max = 0
+    for (const x of v) max = Math.max(max, Math.abs(x))
+    const esc = max / 127 || 1
+    const q = new Int8Array(v.length)
+    for (let i = 0; i < v.length; i++) q[i] = Math.round(v[i] / esc)
+    c.ids.push(r.id); c.q.push(q); c.esc.push(esc); c.hasta = r.id
+  }
+  return c
+}
+
 /**
  * Marca cada quántomo con vector contra los de antes (por sentido): ≥ 0,92 «repetida de #…», de 0,80 a 0,92
  * «variación de #…», si no «nueva». Sin modelo: usa los vectores que ya hizo el Procesar. Devuelve cuántos marcó.
+ * Suelta el procesador después de cada uno: con decenas de miles de quántomos, compararlos todos de un tirón trababa el
+ * servidor entero (Hoy, el chat y el Directo no contestaban).
  */
-export function marcarNovedad(db: Db, limite = 500): number {
+export async function marcarNovedad(db: Db, limite = 100): Promise<number> {
   const faltan = db.prepare(`SELECT q.id, v.vec FROM quantomos q JOIN vec_items v ON v.tipo = 'quantomo' AND v.id = q.id WHERE q.novedad IS NULL ORDER BY q.id LIMIT ?`).all(limite) as { id: number; vec: Uint8Array }[]
   if (!faltan.length) return 0
-  const deBlob = (b: Uint8Array) => new Float32Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength))
-  const todos = (db.prepare(`SELECT q.id, v.vec FROM quantomos q JOIN vec_items v ON v.tipo = 'quantomo' AND v.id = q.id WHERE q.etapa != 'descartado' ORDER BY q.id`).all() as { id: number; vec: Uint8Array }[])
-    .map((r) => ({ id: r.id, v: deBlob(r.vec) }))
+  const c = await vectoresDeQuantomos(db)
   const marcar = db.prepare('UPDATE quantomos SET novedad = ?, novedad_de = ?, novedad_sim = ? WHERE id = ?')
   for (const f of faltan) {
-    const v = deBlob(f.vec)
+    const v = new Float32Array(f.vec.buffer.slice(f.vec.byteOffset, f.vec.byteOffset + f.vec.byteLength))
     let mejor = { id: null as number | null, sim: 0 }
-    for (const o of todos) {
-      if (o.id >= f.id) break // solo contra los de antes
+    for (let k = 0; k < c.ids.length && c.ids[k] < f.id; k++) {
+      const q = c.q[k]
       let s = 0
-      for (let i = 0; i < Math.min(v.length, o.v.length); i++) s += v[i] * o.v[i]
-      if (s > mejor.sim) mejor = { id: o.id, sim: s }
+      for (let i = 0; i < Math.min(v.length, q.length); i++) s += v[i] * q[i]
+      s *= c.esc[k]
+      if (s > mejor.sim) mejor = { id: c.ids[k], sim: s }
     }
-    const sim = Math.round(mejor.sim * 1000) / 1000
+    const sim = Math.round(Math.min(1, mejor.sim) * 1000) / 1000
     const novedad = sim >= UMBRAL_REPETIDA ? 'repetida' : sim >= UMBRAL_VARIACION ? 'variacion' : 'nueva'
     marcar.run(novedad, novedad === 'nueva' ? null : mejor.id, mejor.id ? sim : null, f.id)
+    await soltar()
   }
   return faltan.length
 }

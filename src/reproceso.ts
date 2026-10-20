@@ -75,7 +75,7 @@ async function hacerItems(db: Db): Promise<boolean> {
     estado.paso = 'recuerdos y quántomos'
     const hechos = await vectorizarItems(db, 128)
     // Con los vectores hechos: ¿idea nueva o repetida? (sin modelo).
-    return marcarNovedad(db) > 0 || hechos > 0
+    return (await marcarNovedad(db)) > 0 || hechos > 0
   } finally {
     enItems = false
   }

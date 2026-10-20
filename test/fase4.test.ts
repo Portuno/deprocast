@@ -18,7 +18,7 @@ _probarEmbed(null)
 
 const T = new Date(2026, 9, 20, 8).getTime()
 
-test('¿Idea nueva o repetida?: cada quántomo contra los de antes, por sentido; filtro «solo nuevas»', () => {
+test('¿Idea nueva o repetida?: cada quántomo contra los de antes, por sentido; filtro «solo nuevas»', async () => {
   const db = abrir(':memory:')
   const vec = (v: number[]) => { const n = Math.hypot(...v); return Buffer.from(new Float32Array(v.map((x) => x / n)).buffer) }
   const q = (texto: string, v: number[]) => {
@@ -31,8 +31,8 @@ test('¿Idea nueva o repetida?: cada quántomo contra los de antes, por sentido;
   const c = q('Aprender es jugar con reglas', [0.85, 0.5, 0, 0])
   const d = q('La plata viene de vender', [0, 0, 1, 0])
   const sinVector = crearQuantomo(db, { texto: 'Sin vector todavía', origenId: 't:sv' }, T)!
-  assert.equal(marcarNovedad(db), 4)
-  assert.equal(marcarNovedad(db), 0, 'una vez')
+  assert.equal(await marcarNovedad(db), 4)
+  assert.equal(await marcarNovedad(db), 0, 'una vez')
   assert.equal(leerQuantomo(db, a)!.novedad, 'nueva')
   assert.deepEqual([leerQuantomo(db, b)!.novedad, leerQuantomo(db, b)!.novedadDe], ['repetida', a])
   assert.deepEqual([leerQuantomo(db, c)!.novedad, leerQuantomo(db, c)!.novedadDe], ['variacion', b])
