@@ -2183,3 +2183,6 @@ span.ej-chip { cursor: default; }
 .dsc-semanas i { width: 70%; background: var(--acento); border-radius: 3px 3px 0 0; }
 .dsc-semanas small { font-size: 10px; color: var(--tenue); }
 @media (max-width: 640px) { .dsc-paso { grid-template-columns: 22px 1fr; } .dsc-destinos { grid-column: 2; } .dsc-kpis { display: block; overflow-x: auto; } }
+.dsc-yo { margin-bottom: 16px; }
+.dsc-yo-proc { border-top: 1px solid var(--linea); padding: 6px 0; }
+.dsc-yo-proc summary { cursor: pointer; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }

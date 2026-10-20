@@ -636,6 +636,9 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/encargos\/(\d+)\/guia$/, async (b, [e]) => { soloNube('La guía'); return (await import('./discovery.ts')).guiaDeEntrevista(db, id(e), String(b.area ?? '')) }],
   ['POST', /^\/api\/encargos\/(\d+)\/asis$/, async (b, [e]) => { soloNube('El as-is'); return (await import('./discovery.ts')).armarAsis(db, id(e), String(b.area ?? '')) }],
   ['GET', /^\/api\/encargos\/(\d+)\/valor$/, async (_, [e]) => ({ md: (await import('./discovery.ts')).hojaDeValor(db, id(e)) })],
+  ['GET', /^\/api\/procesos\/yo$/, async () => ({ procesos: (await import('./procesos.ts')).misProcesos(db), enLaNube: enLaNube() })],
+  ['POST', /^\/api\/procesos\/yo\/descubrir$/, async () => { soloNube('El discovery de tu semana'); return (await import('./procesos.ts')).descubrirMisProcesos(db) }],
+  ['POST', /^\/api\/encargos\/(\d+)\/ahorros$/, async (b, [e]) => ({ tablero: (await import('./procesos.ts')).anotarAhorro(db, id(e), { personaId: Number(b.personaId), minutos: Number(b.minutos), que: b.que ?? null, semana: b.semana ?? null }) })],
   ['POST', /^\/api\/procesos\/(\d+)\/tobe$/, async (_, [p]) => { soloNube('El to-be'); return (await import('./discovery.ts')).armarTobe(db, id(p)) }],
   ['POST', /^\/api\/procesos\/(\d+)\/paso\/(\d+)$/, async (b, [p, n]) => (await import('./discovery.ts')).editarPaso(db, id(p), Number(n), b)],
   ['POST', /^\/api\/procesos\/(\d+)\/kpis$/, async (b, [p]) => (await import('./discovery.ts')).guardarKpis(db, id(p), b.kpis)],
@@ -1366,7 +1369,14 @@ const servidor = http.createServer(async (req, res) => {
         const r = crudoEncargo[2] === 'entrevista-audio' ? await dsc.agregarEntrevista(db, eid, { quien: q.get('quien'), rol: q.get('rol'), area: q.get('area'), audio: datos, nombreAudio: q.get('nombre') || 'entrevista.m4a' })
           : crudoEncargo[2] === 'documento' ? await dsc.agregarDocumento(db, eid, q.get('nombre') || 'documento.pdf', datos, q.get('area'))
           : crudoEncargo[2] === 'log' ? dsc.subirLog(db, eid, q.get('nombre') || 'log.csv', datos.toString('utf8'), { area: q.get('area'), mapeo: q.get('mapeo') ? JSON.parse(q.get('mapeo')!) : null })
-          : dsc.cargarSombra(db, eid, datos.toString('utf8'), q.get('proceso') ? Number(q.get('proceso')) : null)
+          : await (async () => {
+            // La sombra en vivo: las reglas que recién quedan listas, y si ya toma la mitad, el encargo pasa a vivo (aviso en Hoy).
+            const antes = new Set(dsc.sombraDe(db, eid).reglas.filter((x) => x.lista).map((x) => x.regla))
+            const s = dsc.cargarSombra(db, eid, datos.toString('utf8'), q.get('proceso') ? Number(q.get('proceso')) : null)
+            const v = (await import('./procesos.ts')).revisarSombra(db, eid, antes, s)
+            if (v.aviso) mensajeDeMastropiero(db, conversacionHoy(db).id, v.aviso)
+            return { ...s, nuevasListas: v.nuevas.map((x) => x.regla), paso: v.paso }
+          })()
         return void res.end(JSON.stringify(r))
       }
       // La respuesta de una práctica de idioma, grabada: se transcribe en ese idioma y vuelve la devolución.

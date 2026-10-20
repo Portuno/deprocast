@@ -1011,6 +1011,16 @@ CREATE TABLE IF NOT EXISTS sombra_casos (
   en INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS sombra_casos_encargo ON sombra_casos(encargo_id, regla, fecha);
+-- Los minutos que cada champion del cliente dice que ahorró con IA (el tablero: minutos, no tokens).
+CREATE TABLE IF NOT EXISTS champion_ahorros (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  encargo_id INTEGER NOT NULL,
+  persona_id INTEGER NOT NULL,
+  fecha TEXT NOT NULL,
+  minutos INTEGER NOT NULL,
+  que TEXT,
+  en INTEGER NOT NULL
+);
 -- El libro de decisiones: lo que Mastropiero propuso y qué se decidió (o si lo hizo solo). La base del modo sombra.
 CREATE TABLE IF NOT EXISTS decisiones (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1347,6 +1357,7 @@ const RUTINAS_SISTEMA = [
   { id: 'reporte_semanal', nombre: 'Reporte de la semana', hora: '21:00', dias: '0', accion: 'reporte_semanal' },
   { id: 'evidencia', nombre: 'Tu evidencia de la semana contra tu historia vieja', hora: '19:30', dias: '0', accion: 'evidencia' },
   { id: 'modelos', nombre: 'Tu vara contra la de tus modelos', hora: '19:40', dias: '0', accion: 'modelos' },
+  { id: 'mis_procesos', nombre: 'El discovery de tu semana: tus procesos más caros y qué borrar o automatizar', hora: '18:00', dias: '6', accion: 'mis_procesos' },
   { id: 'bandeja', nombre: 'Para decidir: lo que espera tu ok y lo que hice solo', hora: '21:30', dias: '0123456', accion: 'bandeja' },
   { id: 'creencias', nombre: 'Creencias: ¿descubiertas o heredadas? (una vez por mes)', hora: '17:00', dias: '0', accion: 'creencias' },
   { id: 'brujula', nombre: 'La brújula del día', hora: '08:10', dias: '0123456', accion: 'brujula' },

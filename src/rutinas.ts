@@ -237,6 +237,12 @@ export const ACCIONES: Acciones = {
     const n = (await import('./evidencia.ts')).preguntasDeEvidencia(db, ahora)
     return n ? `🗳 Te dejé ${n === 1 ? 'una pregunta' : `${n} preguntas`} sobre tu evidencia de la semana (/pregunta en Telegram, o en Hoy).` : null
   },
+  /** El sábado (en la nube): tus 3 procesos más caros de la semana con su to-be; lo de construir va como propuesta. */
+  async mis_procesos(db, _fecha, ahora) {
+    if (topeAlcanzado(db, ahora) || !(await import('./reproceso.ts')).enLaNube()) return null
+    const r = await (await import('./procesos.ts')).descubrirMisProcesos(db, ahora)
+    return r.procesos ? `🔍 **El discovery de tu semana**: miré tus logs y encontré ${r.procesos === 1 ? 'un proceso' : `${r.procesos} procesos`} que te cuestan tiempo, con qué borrar, automatizar o dejar en vos (Discovery → Vos).${r.propuestas ? ` Dejé ${r.propuestas === 1 ? 'una propuesta' : `${r.propuestas} propuestas`} para La Fragua.` : ''}` : null
+  },
   /** A la noche: lo que espera tu ok, lo que hice solo y, si algo acierta casi siempre, la oferta de hacerlo solo (con botones). */
   async bandeja(db, _fecha, ahora) {
     const a = (await import('./sombra.ts')).avisoBandeja(db, ahora)

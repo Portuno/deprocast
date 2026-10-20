@@ -404,6 +404,8 @@ export function sumarPersona(db: Db, encargoId: number, x: { nombre: string; rol
   return fichaEncargo(db, encargoId).champions
 }
 
+const tableroDeChampions = (db: Db, id: number) => (db.prepare(`SELECT e.id, e.nombre, SUM(CASE WHEN a.fecha >= ? THEN a.minutos ELSE 0 END) AS minutos4, SUM(a.minutos) AS total FROM champion_ahorros a JOIN entidades e ON e.id = a.persona_id WHERE a.encargo_id = ? GROUP BY a.persona_id ORDER BY minutos4 DESC`).all(fechaLocal(Date.now() - 28 * 86_400_000), id) as any[])
+
 /** Todo lo de un encargo para su pantalla. */
 export function fichaEncargo(db: Db, id: number) {
   const e = encargoOError(db, id)
@@ -412,6 +414,7 @@ export function fichaEncargo(db: Db, id: number) {
     encargo: e, areas: areasDe(db, id), entrevistas: piezasDe(db, id, 'entrevista').map(desc), documentos: piezasDe(db, id, 'documento').map(desc),
     guias: piezasDe(db, id, 'guia').map((p) => ({ id: p.id, titulo: p.titulo, md: p.contenido, area: json<any>(p.meta, {})?.area ?? null })),
     logs: logsDe(db, id), procesos: procesosDe(db, `encargo:${id}`), sombra: sombraDe(db, id),
+    tablero: tableroDeChampions(db, id),
     champions: db.prepare(`SELECT e.id, e.nombre, pp.rol FROM persona_proyecto pp JOIN entidades e ON e.id = pp.persona_id WHERE pp.proyecto_id = ? AND pp.rol IN ('champion', 'sponsor')`).all(e.proyectoId ?? -1),
   }
 }
