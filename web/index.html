@@ -24,57 +24,29 @@
   <!-- iconos -->
   <header class="hud">
     <div class="marca"><span class="mercurio">☿</span><div><b>Mastropiero</b><small>Deprocast 1.0</small></div></div>
-    <div class="hud-stats" id="hud"></div>
+    <button class="buscar" id="btn-buscar" title="Buscar o hacer cualquier cosa (Ctrl K)"><svg class="ico" aria-hidden="true"><use href="#i-search"></use></svg><span>Buscar o hacer…</span><kbd>Ctrl K</kbd></button>
+    <div class="hud-stats solo-maquina" id="hud"></div>
     <div class="hud-acciones">
+      <button class="btn btn-icono btn-validar" id="btn-validar" title="Para validar: lo que espera tu ok"><svg class="ico" aria-hidden="true"><use href="#i-inbox"></use></svg><b id="n-validar"></b></button>
       <button class="btn btn-directo" id="btn-directo" title="Prender el Directo: Mastropiero ve tu pantalla y te escucha">● Directo</button>
       <button class="btn btn-tick solo-maquina" id="btn-tick" title="Purga → reparte → corre (barra espaciadora)">▶ Tick</button>
       <button class="btn btn-auto solo-maquina" id="btn-auto" title="Ticks automáticos">Auto</button>
-      <button class="btn btn-icono" id="btn-cronica" title="Mostrar u ocultar la crónica (los eventos de la liga)">☰</button>
-      <button class="btn btn-icono" id="btn-estado" title="Exportar o importar todo el estado (para llevarlo a otra compu)">⇅</button>
-      <button class="btn btn-icono" id="btn-tema" title="Tema claro u oscuro">◐</button>
+      <button class="btn btn-icono solo-maquina" id="btn-cronica" title="Mostrar u ocultar la crónica (los eventos de la liga)"><svg class="ico" aria-hidden="true"><use href="#i-list"></use></svg></button>
+      <button class="btn btn-icono solo-maquina" id="btn-estado" title="Exportar o importar todo el estado (para llevarlo a otra compu)"><svg class="ico" aria-hidden="true"><use href="#i-arrow-up-down"></use></svg></button>
+      <button class="btn btn-icono" id="btn-tema" title="Tema: oscuro, claro o el del sistema"><svg class="ico" aria-hidden="true"><use href="#i-sun-moon"></use></svg></button>
     </div>
   </header>
 
-  <nav class="nav" id="nav">
+  <!-- Los 7 espacios (y La máquina): los arma 90-arranque.js desde ESPACIOS. -->
+  <nav class="nav" id="nav" aria-label="Espacios">
     <button class="nav-plegar" id="nav-plegar" title="Plegar el menú">‹</button>
-    <small>Mastropiero</small>
-    <button data-vista="hoy" class="activo"><i>☀</i><span>Hoy</span></button>
-    <button data-vista="chat"><i>☿</i><span>Chat</span></button>
-    <button data-vista="misiones"><i>⚔</i><span>Misiones</span></button>
-    <button data-vista="directo"><i>◎</i><span>Directo</span></button>
-    <button data-vista="salud"><i>♥</i><span>Salud</span></button>
-    <button data-vista="suenos"><i>☾</i><span>Sueños</span></button>
-    <button data-vista="aprender"><i>◷</i><span>Aprender</span></button>
-    <button data-vista="idiomas"><i>⁂</i><span>Idiomas</span></button>
-    <button data-vista="jugador"><i>◉</i><span>Jugador</span></button>
-    <button data-vista="personas"><i>☍</i><span>Personas</span></button>
-    <button data-vista="linea"><i>⟿</i><span>Línea</span></button>
-    <button data-vista="calendario"><i>▦</i><span>Calendario</span></button>
-    <button data-vista="mapa"><i>⌖</i><span>Mapa</span></button>
-    <small>Afuera</small>
-    <button data-vista="radar"><i>◍</i><span>Radar</span></button>
-    <button data-vista="discovery"><i>◇</i><span>Discovery</span></button>
-    <button data-vista="cuentas"><i>◈</i><span>Cuentas</span></button>
-    <button data-vista="taller"><i>✎</i><span>Taller</span></button>
-    <small>Saber</small>
-    <button data-vista="corpus"><i>❦</i><span>Corpus</span></button>
-    <button data-vista="mano"><i>♤</i><span>La Mano</span></button>
-    <button data-vista="criba"><i>⚖</i><span>Criba</span></button>
-    <button data-vista="cuadernos"><i>❒</i><span>Cuadernos</span></button>
-    <button data-vista="libreria"><i>❡</i><span>Librería</span></button>
-    <button data-vista="entidades"><i>⚇</i><span>Entidades</span></button>
-    <button data-vista="fragua"><i>⚒</i><span>La Fragua</span></button>
-    <button class="nav-grupo" id="nav-maquina" title="La liga de agentes por dentro"><i>⚙</i><span>La máquina</span><em>▸</em></button>
-    <div class="nav-sub" id="nav-sub-maquina">
-      <button data-vista="liga"><i>♛</i><span>Roster</span></button>
-      <button data-vista="forja"><i>⚒</i><span>Forja</span></button>
-      <button data-vista="encargos"><i>⇄</i><span>Encargos</span></button>
-      <button data-vista="matriz"><i>⬡</i><span>Matriz 72</span></button>
-      <button data-vista="cementerio"><i>✝</i><span>Cementerio</span></button>
-    </div>
+    <div class="nav-espacios" id="nav-espacios"></div>
   </nav>
 
-  <main class="principal" id="principal"></main>
+  <div class="lienzo">
+    <div class="pestanas-espacio" id="pestanas" role="tablist" aria-label="Secciones del espacio" hidden></div>
+    <main class="principal" id="principal"></main>
+  </div>
 
   <aside class="cronica" id="cronica">
     <h2>Crónica <button class="btn btn-chico btn-icono" id="cronica-cerrar" title="Ocultar la crónica (☰ arriba la vuelve a mostrar)">✕</button></h2>
@@ -89,6 +61,7 @@
   <script defer src="/js/00-base.js"></script>
   <script defer src="/js/05-comun.js"></script>
   <script defer src="/js/10-menciones.js"></script>
+  <script defer src="/js/15-paleta.js"></script>
   <script defer src="/js/20-liga.js"></script>
   <script defer src="/js/30-hoy.js"></script>
   <script defer src="/js/31-hud.js"></script>

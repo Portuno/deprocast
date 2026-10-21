@@ -60,36 +60,82 @@ const FIRMA_VISTA = {
 const firmasVista = {}
 const firmaDeVista = (v) => (FIRMA_VISTA[v] && E ? JSON.stringify(FIRMA_VISTA[v](E)) : null)
 
+/**
+ * Los espacios (plan v22): 29 secciones agrupadas en 7 lugares (y La máquina), cada uno con sus secciones como pestañas.
+ * El orden es fijo a propósito (la memoria de dónde está cada cosa vale más que reordenar); el uso real decide a qué
+ * pestaña se entra la primera vez. Los links de siempre (#salud, #mano…) siguen andando. tecla: «g» + esa letra.
+ */
+const ESPACIOS = [
+  { id: 'hoy', nombre: 'Hoy', ico: 'sun', tecla: 'h', vistas: [['hoy', 'Hoy'], ['directo', 'Directo']] },
+  { id: 'chat', nombre: 'Chat', ico: 'message-circle', tecla: 'c', vistas: [['chat', 'Chat']] },
+  { id: 'plan', nombre: 'Plan', ico: 'target', tecla: 'p', vistas: [['misiones', 'Misiones'], ['calendario', 'Calendario'], ['linea', 'Línea'], ['mapa', 'Mapa']] },
+  { id: 'vida', nombre: 'Vida', ico: 'heart-pulse', tecla: 'v', vistas: [['salud', 'Salud'], ['personas', 'Personas'], ['jugador', 'Jugador'], ['suenos', 'Sueños']] },
+  { id: 'aprender', nombre: 'Aprender', ico: 'graduation-cap', tecla: 'a', vistas: [['mano', 'La Mano'], ['idiomas', 'Idiomas'], ['aprender', 'Aprender'], ['criba', 'Criba']] },
+  { id: 'saber', nombre: 'Saber', ico: 'library', tecla: 's', vistas: [['corpus', 'Corpus'], ['cuadernos', 'Cuadernos'], ['libreria', 'Librería'], ['entidades', 'Entidades']] },
+  { id: 'afuera', nombre: 'Afuera', ico: 'globe', tecla: 'f', vistas: [['taller', 'Taller'], ['radar', 'Radar'], ['cuentas', 'Cuentas'], ['discovery', 'Discovery']] },
+  { id: 'maquina', nombre: 'La máquina', ico: 'cog', tecla: 'm', vistas: [['fragua', 'La Fragua'], ['liga', 'Roster'], ['forja', 'Forja'], ['encargos', 'Encargos'], ['matriz', 'Matriz 72'], ['cementerio', 'Cementerio']] },
+]
+/** Las vistas que viven adentro de otra (se marcan como esa pestaña). */
+const VISTA_PADRE = { quantomos: 'corpus', estudio: 'taller' }
+const espacioDe = (v) => ESPACIOS.find((e) => e.vistas.some(([x]) => x === (VISTA_PADRE[v] ?? v))) ?? ESPACIOS[0]
+const nombreDeVista = (v) => ESPACIOS.flatMap((e) => e.vistas).find(([x]) => x === v)?.[1] ?? v
+/** Cuántas veces abrió cada vista (30 días): decide la pestaña de entrada de un espacio la primera vez. */
+let usoVistas = {}
+api('/uso/vistas').then((u) => (usoVistas = u ?? {})).catch(() => {})
+
+function pintarNav() {
+  $('#nav-espacios').innerHTML = ESPACIOS.map((e) => `<button data-espacio="${e.id}" class="${e.id === 'maquina' ? 'nav-maquina' : ''}" title="${esc(e.nombre)}${e.vistas.length > 1 ? ` · ${e.vistas.map(([, n]) => n).join(', ')}` : ''} (g ${e.tecla})">${ico(e.ico)}<span>${esc(e.nombre)}</span></button>`).join('')
+}
+
+/** Entrar a un espacio: a la última pestaña que abrió ahí; si nunca, a la que más usa (o la primera). */
+function irAEspacio(id) {
+  const e = ESPACIOS.find((x) => x.id === id)
+  if (!e) return
+  const ultima = pref.leer(`mastro-espacio-${id}`, '')
+  const masUsada = [...e.vistas].sort((a, b) => (usoVistas[b[0]] ?? 0) - (usoVistas[a[0]] ?? 0))[0][0]
+  irA(e.vistas.some(([v]) => v === ultima) ? ultima : masUsada)
+}
+
+/** El menú y las pestañas del espacio de la vista abierta. */
+function pintarEspacio(v) {
+  const e = espacioDe(v)
+  const activa = VISTA_PADRE[v] ?? v
+  $$('#nav-espacios button').forEach((b) => {
+    b.classList.toggle('activo', b.dataset.espacio === e.id)
+    if (b.dataset.espacio === e.id) b.setAttribute('aria-current', 'page')
+    else b.removeAttribute('aria-current')
+  })
+  const tabs = $('#pestanas')
+  tabs.hidden = e.vistas.length < 2
+  tabs.innerHTML = e.vistas.length < 2 ? '' : e.vistas.map(([x, n]) => `<button role="tab" data-vista="${x}" aria-selected="${x === activa}" tabindex="${x === activa ? 0 : -1}">${esc(n)}</button>`).join('')
+  pref.guardar(`mastro-espacio-${e.id}`, activa)
+}
+
+$('#nav-espacios').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-espacio]')
+  if (b) irAEspacio(b.dataset.espacio)
+})
+$('#pestanas').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-vista]')
+  if (b && b.dataset.vista !== (VISTA_PADRE[vista] ?? vista)) irA(b.dataset.vista)
+})
+pintarNav()
+
 function irA(v) {
   if (!VISTAS[v]) v = 'hoy'
   vista = v
   firmasVista[v] = firmaDeVista(v) // recién montada: está al día
   if (location.hash.slice(1) !== v) history.replaceState(null, '', `#${v}`) // un link directo a cada vista
-  const enMaquina = VISTAS_MAQUINA.has(v)
-  document.body.classList.toggle('en-maquina', enMaquina)
-  if (enMaquina) abrirMaquina(true)
+  document.body.classList.toggle('en-maquina', VISTAS_MAQUINA.has(v))
   if (E) renderHud()
   $('#principal').classList.toggle('lleno', v === 'chat' || v === 'hoy')
   aplicarCronica()
-  $$('#nav button').forEach((b) => b.classList.toggle('activo', b.dataset.vista === (v === 'quantomos' ? 'corpus' : v === 'estudio' ? 'taller' : v)))
+  pintarEspacio(v)
+  document.title = `${nombreDeVista(VISTA_PADRE[v] ?? v)} · Mastropiero`
   VISTAS[v].montar()
   $('#principal').scrollTop = 0
   api('/uso', { vista: v }).catch(() => {}) // qué usa de verdad (para rankear con datos)
 }
-/** El grupo «La máquina»: plegado por defecto; se abre solo si entrás a una de sus vistas. */
-function abrirMaquina(abierta) {
-  $('#nav-sub-maquina').classList.toggle('abierta', abierta)
-  $('#nav-maquina em').textContent = abierta ? '▾' : '▸'
-}
-$('#nav-maquina').onclick = () => {
-  const abierta = !$('#nav-sub-maquina').classList.contains('abierta')
-  abrirMaquina(abierta)
-  pref.guardar('mastro-maquina', abierta ? 'si' : 'no')
-}
-$('#nav').addEventListener('click', (e) => {
-  const b = e.target.closest('button[data-vista]')
-  if (b) irA(b.dataset.vista)
-})
 
 
 // ─── tick ───────────────────────────────────────────────────────────────
@@ -148,7 +194,6 @@ function aplicarNav() {
 $('#nav-plegar').onclick = () => { navMini = !navMini; pref.guardar('mastro-nav-mini', navMini ? 'si' : 'no'); aplicarNav() }
 $('#cronica-cerrar').onclick = () => { cronicaVisible = false; pref.guardar('mastro-cronica', 'no'); aplicarCronica() }
 aplicarNav()
-abrirMaquina(pref.leer('mastro-maquina', 'no') === 'si')
 function aplicarCronica() {
   // La crónica es de la liga: se ve en la máquina (si la querés), no en tus vistas.
   const ver = cronicaVisible && VISTAS_MAQUINA.has(vista)
@@ -173,6 +218,8 @@ $('#btn-tema').onclick = () => {
   toast(`Tema: ${t === 'sistema' ? 'el del sistema' : t}`, 'suave')
 }
 
+$('#btn-validar').onclick = () => modalBandeja()
+$('#btn-buscar').onclick = () => abrirPaleta()
 $('#btn-tick').onclick = hacerTick
 $('#btn-auto').onclick = async () => {
   auto = !auto

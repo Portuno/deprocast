@@ -122,6 +122,8 @@ function cartaHTML(f) {
 // ─── HUD y crónica ──────────────────────────────────────────────────────
 
 function renderHud() {
+  const nv = $('#n-validar')
+  if (nv) nv.textContent = E.paraValidar ? (E.paraValidar > 99 ? '99+' : E.paraValidar) : ''
   const r = E.roster
   const cuenta = (e) => r.filter((f) => f.estado === e).length
   const t = Object.fromEntries(E.liga.tareas.map((x) => [x.estado, x.n]))

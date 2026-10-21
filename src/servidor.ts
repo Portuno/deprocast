@@ -187,6 +187,8 @@ function estado() {
     cronica: cronica(db),
     corriendo: tickEnCurso(),
     propuestasAbiertas: (db.prepare(`SELECT COUNT(*) AS n FROM propuestas WHERE estado = 'abierta'`).get() as { n: number }).n,
+    // El número de 📥 arriba: lo que espera su ok, desde cualquier pantalla.
+    paraValidar: bandeja(db).total,
     hoy: {
       fecha: fechaLocal(), ...progreso(db, fechaLocal()), conversacion: conversacionHoy(db).id,
       pregunta: siguientePregunta(db)?.id ?? null,
@@ -838,6 +840,8 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/bitacora\/(\d+)$/, (b, [e]) => (cambiarEntrada(db, id(e), b), { ok: true })],
 
   // Búsqueda híbrida (palabras + significado)
+  // La paleta (Ctrl+K): las misiones que dicen eso; las personas y entidades ya las tiene la pantalla (/api/menciones).
+  ['GET', /^\/api\/paleta$/, async (_, __, q) => ({ misiones: (await import('./misiones.ts')).buscarMisiones(db, String(q.get('q') ?? '').slice(0, 120)) })],
   ['GET', /^\/api\/buscar$/, async (_, __, q) => ({ piezas: await buscarHibrido(db, q.get('q') ?? '', num(q.get('limite')) ?? 20, nivelesDe(q.get('nivel'))), vectores: estadoVectores(db) })],
   ['GET', /^\/api\/vectores$/, () => estadoVectores(db)],
   ['POST', /^\/api\/vectores$/, async (b) => vectorizarPendientes(db, { limite: Math.min(Number(b.limite) || 64, 512) })],

@@ -41,6 +41,8 @@ function engancharFuente(select, nivelPorDefecto) {
 }
 
 function montarCorpus() {
+  // Desde la paleta: «Buscar … en el corpus» llega con la búsqueda puesta.
+  if (window.buscarEnCorpus) { filtroCorpus.q = window.buscarEnCorpus; filtroCorpus.desde = 0; window.buscarEnCorpus = null }
   $('#principal').innerHTML = `
     <div class="titulo"><h1>Corpus</h1>
       <p>Todo lo que Mastropiero sabe, por la voz que habla en cada pieza. Lo estructurado entra listo; lo crudo pasa por extractor → clasificador → vectorizador.</p>

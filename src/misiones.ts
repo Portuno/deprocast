@@ -149,6 +149,17 @@ export function listarMisiones(db: Db, f: FiltroMisiones = {}): Mision[] {
     .all(...args, f.limite ?? 300).map(deFila)
 }
 
+/** Para la paleta (Ctrl+K): las misiones suyas que dicen eso (todas las palabras, sin importar tildes), las abiertas primero. */
+export function buscarMisiones(db: Db, q: string, limite = 6): Mision[] {
+  const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  const palabras = norm(q).split(/\s+/).filter((w) => w.length >= 2)
+  if (!palabras.length) return []
+  return (db.prepare(`SELECT * FROM misiones WHERE personaje = 'jugador' AND estado != 'descartada' ORDER BY CASE WHEN estado IN ('activa', 'sugerida') THEN 0 ELSE 1 END, id DESC LIMIT 3000`).all() as any[])
+    .map(deFila)
+    .filter((m) => { const t = norm(`${m.titulo} ${m.detalle ?? ''}`); return palabras.every((w) => t.includes(w)) })
+    .slice(0, limite)
+}
+
 export type CambiosMision = Partial<Pick<Mision, 'titulo' | 'detalle' | 'categoria' | 'estado' | 'progreso' | 'feedback' | 'armado' | 'vence' | 'padreId' | 'entidadId' | 'con' | 'fijada' | 'semana'>> & { disparador?: Disparador | null; progresoAuto?: boolean }
 
 /**
