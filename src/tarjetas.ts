@@ -98,6 +98,13 @@ export function borrarTarjeta(db: Db, id: number) {
   db.prepare('DELETE FROM tarjetas WHERE id = ?').run(id)
 }
 
+/** Borrar varias de una (de un mismo mazo, para no llevarse otra cosa por error). Devuelve cuántas se fueron. */
+export function borrarTarjetas(db: Db, mazo: string, ids: number[]): number {
+  const xs = [...new Set(ids.map(Number).filter(Number.isInteger))]
+  if (!xs.length) return 0
+  return Number(db.prepare(`DELETE FROM tarjetas WHERE mazo = ? AND id IN (${xs.map(() => '?').join(',')})`).run(mazo, ...xs).changes)
+}
+
 /** Las tarjetas de un mazo (para verlas y limpiarlas), las más nuevas primero. */
 export function tarjetasDeMazo(db: Db, mazo: string): Tarjeta[] {
   return (db.prepare(`SELECT * FROM tarjetas WHERE mazo = ? AND estado = 'activa' ORDER BY id DESC`).all(mazo) as any[]).map(deFila)

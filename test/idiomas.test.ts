@@ -85,6 +85,12 @@ test('Tarjetas: el repaso espaciado (SM-2) aleja lo que sabe y vuelve a hoy lo q
   assert.throws(() => t.editarTarjeta(db, b.id, { frente: '¿Cómo dirías «hola»?' }), /Ya hay una tarjeta/)
   t.borrarTarjeta(db, b.id)
   assert.equal(t.leerTarjeta(db, b.id), null)
+  // Varias de una, pero solo del mazo que se está mirando.
+  const v1 = t.crearTarjeta(db, { mazo: 'idioma:1', frente: '¿Cómo dirías: «Corruptopolis»?', dorso: 'x' }, T).id
+  const v2 = t.crearTarjeta(db, { mazo: 'idioma:1', frente: '¿Cómo dirías: «mi proyecto»?', dorso: 'y' }, T).id
+  const otra = t.paraRepasar(db, { mazo: 'video:9' }, T)[0].id
+  assert.equal(t.borrarTarjetas(db, 'idioma:1', [v1, v2, otra]), 2)
+  assert.ok(t.leerTarjeta(db, otra), 'la de otro mazo no se toca')
   assert.deepEqual(t.tarjetasDeMazo(db, 'idioma:1').map((x) => x.id), [a.id])
 })
 

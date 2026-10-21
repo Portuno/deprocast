@@ -330,16 +330,59 @@ function modalTarjetasAMano(i) {
   $('#tjm-mano').onclick = () => { filas.push({ texto: '', pron: '', suena: '', es: $('#tjm-lineas').value.split('\n')[0]?.trim() ?? '', ok: true }); pintar() }
 }
 
-/** El mazo de un idioma: todas sus tarjetas para verlas, corregirlas o borrarlas (dos toques para borrar). */
+/** Las de antes de las sesiones (de las charlas viejas, frases largas que a veces ni eran del idioma). */
+const tarjetaVieja = (t) => t.origenTipo === 'idioma_turno' || /^¿Cómo dirías/.test(t.frente)
+
+/**
+ * El mazo de un idioma: todas sus tarjetas para verlas, corregirlas o borrarlas. Una por una (dos toques) o varias de una:
+ * marcás (todas, las viejas o a mano) y «Borrar marcadas».
+ */
 async function modalMazo(i) {
   if (!i) return
   let xs
   try { xs = (await api(`/idiomas/${i.aprendizajeId}/tarjetas`)).tarjetas } catch (e) { return error(e) }
-  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>🗂 Mazo de ${esc(i.nombre.toLowerCase())} <small class="tenue">${xs.length}</small></h2>
-    ${xs.length ? `<div class="mazo-lista">${xs.map((t) => `<div class="mazo-fila" data-t="${t.id}">
+  const viejas = xs.filter(tarjetaVieja).length
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>🗂 Mazo de ${esc(i.nombre.toLowerCase())} <small class="tenue" id="mazo-n">${xs.length}</small></h2>
+    ${xs.length ? `<div class="fila mazo-marcar">
+      <button class="btn btn-chico" data-marcar="todas">Marcar todas</button>
+      ${viejas ? `<button class="btn btn-chico" data-marcar="viejas" title="Las de las charlas de antes (frases largas)">Marcar las viejas (${viejas})</button>` : ''}
+      <button class="btn btn-chico" data-marcar="ninguna">Desmarcar</button>
+      <button class="btn btn-chico mazo-borrar" id="mazo-borrar" disabled>🗑 Borrar marcadas</button>
+    </div>
+    <div class="mazo-lista">${xs.map((t) => `<div class="mazo-fila" data-t="${t.id}">
+      <label class="mazo-check"><input type="checkbox" data-sel="${t.id}"></label>
       <div class="mazo-txt"><b>${esc(t.frente)}</b><span>${esc(t.dorso).replace(/\n/g, '<br>')}</span><small class="tenue">${t.intervalo >= 21 ? 'firme' : t.repeticiones ? `vuelve el ${esc(t.proxima)}` : 'nueva'}</small></div>
       <div class="mazo-acc"><button class="btn btn-chico btn-icono" data-editar title="Corregir">✎</button><button class="btn btn-chico btn-icono" data-borrar title="Borrar">🗑</button></div>
     </div>`).join('')}</div>` : '<p class="tenue">Todavía no hay tarjetas: salen de cada sesión, o hacelas a mano con «＋ Tarjetas».</p>'}`)
+  // Varias de una: marcar y borrar (con un segundo toque para confirmar).
+  const borrar = $('#mazo-borrar')
+  const marcadas = () => $$('#modal [data-sel]:checked').map((c) => Number(c.dataset.sel))
+  const contar = () => {
+    if (!borrar) return
+    const n = marcadas().length
+    borrar.disabled = !n
+    borrar.classList.remove('seguro')
+    borrar.textContent = n ? `🗑 Borrar marcadas (${n})` : '🗑 Borrar marcadas'
+  }
+  $$('#modal [data-sel]').forEach((c) => (c.onchange = contar))
+  $$('#modal [data-marcar]').forEach((b) => (b.onclick = () => {
+    const modo = b.dataset.marcar
+    $$('#modal [data-sel]').forEach((c) => { c.checked = modo === 'todas' || (modo === 'viejas' && tarjetaVieja(xs.find((t) => t.id === Number(c.dataset.sel)))) })
+    contar()
+  }))
+  borrar?.addEventListener('click', async () => {
+    const ids = marcadas()
+    if (!ids.length) return
+    if (!borrar.classList.contains('seguro')) { borrar.classList.add('seguro'); borrar.textContent = `¿Borrar ${ids.length}? Tocá de nuevo`; return }
+    try {
+      const { borradas } = await api(`/idiomas/${i.aprendizajeId}/tarjetas/borrar`, { ids })
+      ids.forEach((id) => $(`#modal .mazo-fila[data-t="${id}"]`)?.remove())
+      xs = xs.filter((t) => !ids.includes(t.id))
+      $('#mazo-n').textContent = xs.length
+      toast(`${borradas} tarjeta${borradas === 1 ? '' : 's'} borrada${borradas === 1 ? '' : 's'}`, 'suave')
+      contar()
+    } catch (e) { error(e) }
+  })
   $$('#modal .mazo-fila').forEach((f) => {
     const t = xs.find((x) => x.id === Number(f.dataset.t))
     $('[data-borrar]', f).onclick = async (e) => {

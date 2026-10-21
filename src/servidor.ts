@@ -886,6 +886,7 @@ const rutas: [string, RegExp, Ruta][] = [
   // Tarjetas a mano: completar varias de una (borradores para revisar), guardarlas, y el mazo para verlo y limpiarlo.
   ['POST', /^\/api\/idiomas\/(\d+)\/completar$/, async (b, [i]) => ({ borradores: await (await import('./idiomas.ts')).completarTarjetas(db, id(i), Array.isArray(b.lineas) ? b.lineas : String(b.lineas ?? '').split('\n')) })],
   ['POST', /^\/api\/idiomas\/(\d+)\/tarjetas$/, async (b, [i]) => ({ nuevas: (await import('./idiomas.ts')).guardarTarjetas(db, id(i), Array.isArray(b.items) ? b.items : []) })],
+  ['POST', /^\/api\/idiomas\/(\d+)\/tarjetas\/borrar$/, async (b, [i]) => ({ borradas: (await import('./tarjetas.ts')).borrarTarjetas(db, `idioma:${id(i)}`, Array.isArray(b.ids) ? b.ids : []) })],
   ['GET', /^\/api\/idiomas\/(\d+)\/tarjetas$/, async (_, [i]) => ({ tarjetas: (await import('./tarjetas.ts')).tarjetasDeMazo(db, `idioma:${id(i)}`) })],
   ['POST', /^\/api\/tarjetas\/(\d+)\/editar$/, async (b, [t]) => (await import('./tarjetas.ts')).editarTarjeta(db, id(t), { frente: b.frente ?? null, dorso: b.dorso ?? null })],
   ['POST', /^\/api\/tarjetas\/(\d+)\/borrar$/, async (_, [t]) => { (await import('./tarjetas.ts')).borrarTarjeta(db, id(t)); return { ok: true } }],

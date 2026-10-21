@@ -2161,7 +2161,10 @@ span.ej-chip { cursor: default; }
 .mazo-fila { display: flex; gap: 10px; align-items: flex-start; border-bottom: 1px solid var(--linea); padding: 6px 0; }
 .mazo-txt { flex: 1; display: grid; gap: 3px; font-size: 13.5px; }
 .mazo-acc { display: flex; gap: 4px; }
-.mazo-acc .seguro { color: var(--mal); border-color: var(--mal); }
+.mazo-acc .seguro, .mazo-borrar.seguro { color: var(--mal); border-color: var(--mal); }
+.mazo-marcar { gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.mazo-borrar { margin-left: auto; }
+.mazo-check { padding-top: 2px; }
 @media (max-width: 900px) { .idi-ses-cuerpo { grid-template-columns: 1fr; } .idi-palabras { position: static; max-height: none; } }
 @media (max-width: 640px) { .idi-metricas { grid-template-columns: 1fr 1fr; } .idi-msj { max-width: 95%; } .idi-lista { grid-template-columns: 1fr; } }
 
