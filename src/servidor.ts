@@ -44,7 +44,7 @@ import { anotar as anotarEnCriba, anotarSolo, cribar, deshacerUltima, marcador, 
 import { tabla as tablaEconomia, TARIFAS } from './economia.ts'
 import { exportarEstado, importarEstado, importarEstadoArchivo } from './exportacion.ts'
 import { aplicarZona, recibirZona } from './zona.ts'
-import { anotarUso } from './uso.ts'
+import { anotarUso, verUso } from './uso.ts'
 import { armarSandbox, espacioDeProyecto } from './proyectos.ts'
 import { bloquesDelDia, fijarHorario, horarioComoTexto, horarioDeTexto, leerHorario } from './horario.ts'
 import { cerrarLote, estadoTakeout, faltan, huellaValida, ingerirPaquete, loteValido, paqueteListo, recibirMedio, recibirParte, reintentarTakeout, resolverNombre, retomarTakeout, trabajarTakeout } from './takeout/nube.ts'
@@ -376,6 +376,8 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/hoy\/evento$/, (b) => (registrarEvento(db, conversacionHoy(db).id, String(b.texto ?? '')), { ok: true })],
   ['POST', /^\/api\/zona$/, (b) => recibirZona(db, b.zona)],
   ['POST', /^\/api\/uso$/, (b) => (anotarUso(db, 'vista', String(b.vista ?? '')), { ok: true })],
+  // Cuántas veces abrió cada vista en 30 días: la pantalla ordena las pestañas de cada espacio por su uso real.
+  ['GET', /^\/api\/uso\/vistas$/, () => Object.fromEntries(verUso(db, 30).vistas.map((v) => [v.nombre, v.veces]))],
   ['POST', /^\/api\/ajustes$/, (b) => {
     if (b.ciclo_bandas != null) {
       const c = String(b.ciclo_bandas).trim()
