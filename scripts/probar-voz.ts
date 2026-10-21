@@ -38,6 +38,9 @@ function controles(s: (typeof SITUACIONES)[number], texto: string): string[] {
   if (voseo) fallas.push(`voseo: «${voseo[0]}»`)
   if (s.corta && texto.length > 40) fallas.push(`la respuesta corta tiene ${texto.length} caracteres`)
   if (/jaja|😂|🤣/i.test(texto)) fallas.push('risa o emoji')
+  // La regla del Gem: prohibido hablar en contraposición («esto no es X, sino Y»).
+  const contra = /\bno (?:es|son|se trata de|hace falta)\b[^.;:\n]{1,80}?,?\s*(?:sino|hace falta)\b/i.exec(texto)
+  if (contra) fallas.push(`contraposición: «${contra[0]}»`)
   return fallas
 }
 

@@ -17,6 +17,7 @@ test('Personalidad: sale del documento, trata de usted y pone lo útil primero',
   assert.match(p, /Cero personaje en lo íntimo o lo urgente/)
   assert.doesNotMatch(p, /Mundstock|O'Connor/, 'sin quienes lo presentaban en escena')
   assert.doesNotMatch(p, /\bvos\b|\btenés\b|\bquerés\b/, 'nada de voseo en su boca')
+  assert.match(p, /Prohibido hablar en contraposición/, 'la regla del Gem')
 })
 
 test('Personalidad: cada superficie con su dosis; lo íntimo y lo técnico, sin personaje', () => {
