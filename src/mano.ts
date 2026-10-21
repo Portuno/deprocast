@@ -11,6 +11,8 @@ import { cercanosAVector, crearQuantomo, descartar, leerQuantomo, parecidosA, se
 import { aDimsP, vectorDe } from './semantica.ts'
 import { anotarSideQuest, principalDe } from './misiones.ts'
 import { pedirJson } from './modelo.ts'
+import { crearTarjeta } from './tarjetas.ts'
+import { brier, conocimiento } from './gemelo.ts'
 import { enLaNube } from './reproceso.ts'
 
 export type Gesto = 'peso' | 'descartar' | 'choca'
@@ -198,7 +200,8 @@ export function fijarDial(db: Db, dial: string) {
  * Las ascensiones: cuando dominás un nivel, el juego no te deja «terminado», te abre el siguiente. Se ganan con lo que
  * hiciste, no con volumen: A1 tres Pesquisas cerradas (entran cartas que pueden chocar con lo que creés); A2 diez sorpresas
  * respondidas con menos de la mitad «casualidad» (en pelea, se roba de afuera); A3 tres combos que dijiste que valen (un
- * abogado del diablo contra cada hipótesis).
+ * abogado del diablo contra cada hipótesis); A4 treinta predicciones con calibración de 50 % o más (el modelo busca
+ * choques con lo que creés también en lo que se parece menos).
  */
 export function ascension(db: Db) {
   const cerradas = (db.prepare(`SELECT COUNT(*) AS n FROM pesquisas WHERE estado = 'cerrada'`).get() as { n: number }).n
@@ -207,11 +210,14 @@ export function ascension(db: Db) {
   const a1 = cerradas >= 3
   const a2 = a1 && r.n >= 10 && (r.c ?? 0) / r.n < 0.5
   const a3 = a2 && combos >= 3
-  const nivel = a3 ? 3 : a2 ? 2 : a1 ? 1 : 0
+  const cal = calibracion(db)
+  const a4 = a3 && cal.predicciones >= 30 && (cal.conocimiento ?? 0) >= 50
+  const nivel = a4 ? 4 : a3 ? 3 : a2 ? 2 : a1 ? 1 : 0
   const proximo = !a1 ? `A1: cerrá ${3 - cerradas} Pesquisa${3 - cerradas === 1 ? '' : 's'} más`
     : !a2 ? `A2: respondé ${Math.max(0, 10 - r.n)} sorpresas más (y que menos de la mitad sean casualidad)`
-    : !a3 ? `A3: ${3 - combos} combo${3 - combos === 1 ? '' : 's'} más que valga${3 - combos === 1 ? '' : 'n'}` : null
-  return { nivel, proximo, desafio: a1, externas: a2, adversario: a3 }
+    : !a3 ? `A3: ${3 - combos} combo${3 - combos === 1 ? '' : 's'} más que valga${3 - combos === 1 ? '' : 'n'}`
+    : !a4 ? `A4: ${Math.max(0, 30 - cal.predicciones)} predicciones más y calibración de 50 % o más (vas ${cal.conocimiento ?? 0} %)` : null
+  return { nivel, proximo, desafio: a1, externas: a2, adversario: a3, choquesLejos: a4 }
 }
 
 /** Lo sellado más parecido a un quántomo, con su parecido y la fecha de su pieza. */
@@ -239,16 +245,22 @@ export type Jugada = {
   toca: Toca
   /** Lo que no podía predecir: un puente no obvio o un combo (la hipótesis llega después, por la nube). */
   sorpresas: Sorpresa[]
+  /** Si predijo antes de ver: con qué probabilidad dijo que conectaba y si conectó. */
+  prediccion: { probabilidad: number; conecto: boolean } | null
+  /** Si la pesó 9 o más: la tarjeta de repaso que quedó (para recordarla). */
+  tarjetaId: number | null
   ms: number
 }
 
 /** Juega una carta: la pesa, la descarta o la marca como choque, y devuelve enseguida con qué conecta. */
-export async function jugar(db: Db, id: number, g: { gesto: Gesto; peso?: number | null; porque?: string | null }, ahora = Date.now()): Promise<Jugada> {
+export async function jugar(db: Db, id: number, g: { gesto: Gesto; peso?: number | null; porque?: string | null; prediccion?: number | null }, ahora = Date.now()): Promise<Jugada> {
   const t0 = performance.now()
   const q = leerQuantomo(db, id)
   if (!q) throw new Error(`No existe la carta ${id}`)
   if (q.etapa !== 'proto' && q.etapa !== 'sellado') throw new Error(`Esa carta ya está ${q.etapa}`)
   if (!['peso', 'descartar', 'choca'].includes(g.gesto)) throw new Error('El gesto es peso, descartar o choca')
+  const prediccion = g.prediccion == null || g.gesto === 'descartar' ? null : Number(g.prediccion)
+  if (prediccion != null && !(prediccion >= 0 && prediccion <= 1)) throw new Error('La predicción es una probabilidad entre 0 y 1')
   if (g.gesto === 'peso') sellar(db, id, Number(g.peso), ahora)
   else if (g.gesto === 'descartar') descartar(db, id, ahora)
   const porque = String(g.porque ?? '').trim().slice(0, 500) || null
@@ -257,6 +269,11 @@ export async function jugar(db: Db, id: number, g: { gesto: Gesto; peso?: number
     .run(id, g.gesto, g.gesto === 'peso' ? Number(g.peso) : null, porque, q.etapa, q.peso, pesquisa, ahora).lastInsertRowid)
   const despues = leerQuantomo(db, id)!
   const cerca = g.gesto === 'descartar' ? [] : await selladosCerca(db, id)
+  // Predecir antes de ver: ¿conecta con algo que ya pesó? Se califica enseguida (Brier), contra lo que encontró.
+  if (prediccion != null) db.prepare('UPDATE mano_jugadas SET prediccion = ?, resultado = ? WHERE id = ?').run(prediccion, cerca.length ? 1 : 0, jugadaId)
+  // Lo que pesó 9 o más queda como tarjeta de repaso: lo que importa también se recuerda.
+  let tarjetaId: number | null = null
+  if (g.gesto === 'peso' && Number(g.peso) >= PESO_CREENCIA) tarjetaId = tarjetaDe(db, despues, ahora)
   const sorpresas: Sorpresa[] = []
   if (g.gesto === 'peso') {
     const puente = buscarPuente(db, q, cerca, jugadaId, ahora)
@@ -265,7 +282,7 @@ export async function jugar(db: Db, id: number, g: { gesto: Gesto; peso?: number
     if (combo) sorpresas.push(combo)
     recalibrarPuente(db, ahora)
     // Lo que pesó alto y habla de lo mismo puede reforzarlo o contradecirlo: eso lo decide un modelo, en la nube y sin esperar.
-    const dudosos = cerca.filter((v) => (v.peso ?? 0) >= PESO_CREENCIA && v.sim >= 0.7).slice(0, 2)
+    const dudosos = cerca.filter((v) => (v.peso ?? 0) >= PESO_CREENCIA && v.sim >= (ascension(db).choquesLejos ? 0.6 : 0.7)).slice(0, 2)
     if (dudosos.length && nube()) enFondo(revisarChoque(db, id, dudosos, jugadaId, ahora))
   }
   return {
@@ -276,8 +293,45 @@ export async function jugar(db: Db, id: number, g: { gesto: Gesto; peso?: number
     chocaCon: g.gesto === 'choca' ? cerca.filter((v) => (v.peso ?? 0) >= PESO_CREENCIA - 1).slice(0, 3) : [],
     toca: tocaDe(db, q.piezaId),
     sorpresas,
+    prediccion: prediccion == null ? null : { probabilidad: prediccion, conecto: cerca.length > 0 },
+    tarjetaId,
     ms: Math.round(performance.now() - t0),
   }
+}
+
+/** La tarjeta de repaso de una afirmación pesada alto: el principio a la vista, el final para recordarlo. */
+function tarjetaDe(db: Db, q: Quantomo, ahora: number): number {
+  const palabras = q.texto.trim().split(/\s+/)
+  const corte = Math.max(2, Math.ceil(palabras.length * 0.6))
+  const frente = palabras.length >= 6
+    ? `«${palabras.slice(0, corte).join(' ')} …»\n¿Cómo seguía? (lo pesaste ${q.peso})`
+    : `¿Qué sostenías que empieza con «${palabras.slice(0, 2).join(' ')}…»? (lo pesaste ${q.peso})`
+  return crearTarjeta(db, { mazo: 'mano', frente, dorso: q.texto, origenTipo: 'quantomo', origenId: q.id }, ahora).id
+}
+
+/** Calibración: de lo que predijo antes de ver, cuánto acierta (Brier → «acertás X %»: 0 = una moneda, 100 = todo). */
+export function calibracion(db: Db) {
+  const ps = db.prepare('SELECT prediccion AS probabilidad, resultado FROM mano_jugadas WHERE deshecha = 0 AND prediccion IS NOT NULL ORDER BY id DESC LIMIT 200').all() as { probabilidad: number; resultado: number }[]
+  const b = brier(ps)
+  return { predicciones: ps.length, brier: b == null ? null : Math.round(b * 1000) / 1000, conocimiento: conocimiento(b) }
+}
+
+/** Retención: de las tarjetas de lo que pesó alto, qué parte recordó cuando le tocaron. */
+export function retencion(db: Db) {
+  const r = db.prepare(`SELECT COUNT(*) AS tarjetas, SUM(aciertos + fallos > 0) AS repasadas, SUM(aciertos) AS a, SUM(fallos) AS f FROM tarjetas WHERE mazo = 'mano' AND estado = 'activa'`).get() as { tarjetas: number; repasadas: number | null; a: number | null; f: number | null }
+  const intentos = (r.a ?? 0) + (r.f ?? 0)
+  return { tarjetas: r.tarjetas, repasadas: r.repasadas ?? 0, porcentaje: intentos ? Math.round(((r.a ?? 0) / intentos) * 100) : null }
+}
+
+/**
+ * El aviso del día (Telegram): solo si llegaron al menos 3 afirmaciones nuevas de verdad desde la última vez que jugó, y
+ * nunca más de una vez por día (lo corre una rutina). Se apaga con el ajuste mano_aviso = 0.
+ */
+export function avisoMano(db: Db, ahora = Date.now()): string | null {
+  if (ajuste(db, 'mano_aviso') === '0') return null
+  const n = nuevasParaJugar(db, ahora)
+  if (n < 3) return null
+  return `♤ Llegaron ${n} afirmaciones tuyas que no se parecen a nada que tengas. /mano para jugarlas (o en La Mano).`
 }
 
 /** Deshace la última carta jugada: vuelve a como estaba (sin pesar, o con el peso de antes). */
@@ -289,6 +343,7 @@ export function deshacerJugada(db: Db, ahora = Date.now()): { quantomoId: number
     if (j.etapa_antes === 'proto') anotar(db, 'quantomo', j.quantomo_id, 'deshecha', { ahora })
   }
   db.prepare('UPDATE mano_jugadas SET deshecha = 1 WHERE id = ?').run(j.id)
+  db.prepare(`DELETE FROM tarjetas WHERE mazo = 'mano' AND origen_tipo = 'quantomo' AND origen_id = ? AND aciertos + fallos = 0`).run(j.quantomo_id)
   // Lo que esa jugada destapó y él todavía no respondió se va con ella.
   db.prepare(`DELETE FROM mano_eventos WHERE jugada_id = ? AND estado = 'pendiente'`).run(j.id)
   return { quantomoId: j.quantomo_id }

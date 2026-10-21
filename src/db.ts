@@ -881,6 +881,8 @@ CREATE TABLE IF NOT EXISTS mano_jugadas (
   peso_antes INTEGER,
   deshecha INTEGER NOT NULL DEFAULT 0,
   pesquisa_id INTEGER,
+  prediccion REAL,                    -- si predijo antes de ver: la probabilidad de que conectara
+  resultado INTEGER,                  -- 1 si conectó con algo que ya sabía
   en INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS mano_jugadas_en ON mano_jugadas(en);
@@ -1347,7 +1349,7 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   // ¿Idea nueva o repetida? Contra los quántomos de antes, por sentido.
   quantomos: [['novedad', 'TEXT'], ['novedad_de', 'INTEGER'], ['novedad_sim', 'REAL']],
   // La Mano: a qué Pesquisa pertenece cada jugada (si había una abierta).
-  mano_jugadas: [['pesquisa_id', 'INTEGER']],
+  mano_jugadas: [['pesquisa_id', 'INTEGER'], ['prediccion', 'REAL'], ['resultado', 'INTEGER']],
   misiones: [
     ['armado', 'TEXT'], // bien | mal: si la banda estuvo bien armada
     ['progreso_manual', 'INTEGER'], // 1 = el % lo fijó él; si no, el avance de una primaria se infiere de lo hecho
@@ -1413,6 +1415,7 @@ const RUTINAS_SISTEMA = [
   { id: 'modelos', nombre: 'Tu vara contra la de tus modelos', hora: '19:40', dias: '0', accion: 'modelos' },
   { id: 'mis_procesos', nombre: 'El discovery de tu semana: tus procesos más caros y qué borrar o automatizar', hora: '18:00', dias: '6', accion: 'mis_procesos' },
   { id: 'bandeja', nombre: 'Para decidir: lo que espera tu ok y lo que hice solo', hora: '21:30', dias: '0123456', accion: 'bandeja' },
+  { id: 'mano', nombre: 'La Mano: aviso solo si llegó algo nuevo de verdad', hora: '19:00', dias: '0123456', accion: 'mano' },
   { id: 'creencias', nombre: 'Creencias: ¿descubiertas o heredadas? (una vez por mes)', hora: '17:00', dias: '0', accion: 'creencias' },
   { id: 'brujula', nombre: 'La brújula del día', hora: '08:10', dias: '0123456', accion: 'brujula' },
   { id: 'mentor', nombre: 'El Mentor recomienda qué leer o ver', hora: '08:05', dias: '1', accion: 'mentor' },

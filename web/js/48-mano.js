@@ -7,6 +7,10 @@ let manoActiva = 0
 let manoJugadas = {} // id de carta → respuesta del servidor
 let manoSaltear = []
 let manoEspera = null
+// Predecir antes de ver: ¿esta carta conecta con algo que ya pesaste? Se califica al jugarla (calibración).
+let manoPredecir = false
+let manoPrediccion = {} // id de carta → probabilidad elegida
+const PREDICCIONES = [['j', 0.9, 'Seguro que conecta'], ['k', 0.5, 'Puede'], ['l', 0.1, 'Seguro que no']]
 // Las mismas teclas que la criba; c marca «choca con lo que ya sabía» y espacio pasa a la siguiente.
 const TECLAS_MANO = { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '0': 10, q: 11, w: 12, '.': 11, ',': 11, Decimal: 11, Enter: 12 }
 
@@ -23,7 +27,8 @@ function montarMano() {
           <button class="btn" data-gesto="descartar" title="Descartar (x)">✕</button>
           ${Array.from({ length: 12 }, (_, i) => `<button class="btn" data-peso="${i + 1}" title="Tecla ${i + 1 === 10 ? '0' : i + 1 === 11 ? 'q' : i + 1 === 12 ? 'w' : i + 1}">${i + 1}</button>`).join('')}
         </div>
-        <div class="fila" style="justify-content:center"><button class="btn btn-chico" data-gesto="choca" title="c">⚡ Choca con lo que ya sabía</button><button class="btn btn-chico" id="mn-pasar" title="Espacio">Pasar</button><button class="btn btn-chico" id="mn-deshacer" title="z">Deshacer</button></div>
+        <div class="mano-prediccion" id="mn-pred" hidden><span>🎯 ¿Conecta con algo que ya pesaste?</span>${PREDICCIONES.map(([k, p, n]) => `<button class="btn btn-chico" data-pred="${p}" title="${k}">${n} <small class="tenue">${Math.round(p * 100)} %</small></button>`).join('')}</div>
+        <div class="fila" style="justify-content:center"><button class="btn btn-chico" id="mn-predecir" title="a">🎯 Predecir antes de ver</button><button class="btn btn-chico" data-gesto="choca" title="c">⚡ Choca con lo que ya sabía</button><button class="btn btn-chico" id="mn-pasar" title="Espacio">Pasar</button><button class="btn btn-chico" id="mn-deshacer" title="z">Deshacer</button></div>
         <input class="campo-suelto" id="mn-porque" placeholder="¿Por qué? (opcional: una línea, viaja con la carta)">
       </div>
       <aside class="mano-caida" id="mn-caida"><p class="tenue">Jugá una carta: acá aparece con qué conecta de lo que ya sabías.</p></aside>
@@ -32,6 +37,9 @@ function montarMano() {
   $$('[data-gesto]').forEach((b) => (b.onclick = () => jugarCarta({ gesto: b.dataset.gesto })))
   $('#mn-robar').onclick = () => robarMano(true)
   $('#mn-pasar').onclick = pasarCarta
+  manoPredecir = pref.leer('mastro-mano-predecir', 'no') === 'si'
+  $('#mn-predecir').onclick = alternarPredecir
+  $$('#mn-pred [data-pred]').forEach((b) => (b.onclick = () => predecir(Number(b.dataset.pred))))
   $('#mn-deshacer').onclick = deshacerMano
   $('#mn-porque').addEventListener('keydown', (e) => { if (e.key === 'Escape') e.target.blur() })
   engancharSorpresas($('#mn-caida'))
@@ -44,6 +52,7 @@ async function robarMano(otra) {
     const r = await api(`/mano?${new URLSearchParams({ saltear: manoSaltear.slice(-200).join(',') })}`)
     manoCartas = r.cartas
     manoJugadas = {}
+    manoPrediccion = {}
     manoActiva = 0
     pintarMazo(r.mazo)
     pintarBarra(r)
@@ -73,9 +82,10 @@ function pintarBarra(r) {
     ? `<span>🔎 <b>${esc(p.pregunta)}</b> <small class="tenue">${p.pesadas} pesada${p.pesadas === 1 ? '' : 's'} · ${p.sorpresas} sorpresa${p.sorpresas === 1 ? '' : 's'}${p.fuentes.length ? ` · de ${p.fuentes.map(esc).join(', ')}` : ''}${p.jokers.length ? ` · jokers: ${p.jokers.map((j) => esc(j.nombre)).join(', ')}` : ''}</small></span><button class="btn btn-chico" id="mn-cerrar-pq">Cerrar la Pesquisa</button>`
     : '<span class="tenue">Sin Pesquisa: robás de todo. Con una pregunta, la mano trae lo que tiene que ver.</span><button class="btn btn-chico" id="mn-abrir-pq">🔎 Abrir una Pesquisa</button>'}</div>
     <div class="mano-nivel"><span title="${esc(a.proximo ?? 'Llegaste a la última por ahora')}">Ascensión <b>${a.nivel}</b>${a.proximo ? ` <small class="tenue">· ${esc(a.proximo)}</small>` : ''}</span>
-      <span class="mano-dial">${DIAL.map(([k, n]) => `<button class="btn btn-chico${r.modo.dial === k ? ' on' : ''}" data-dial="${k}">${n}</button>`).join('')}<small class="tenue" title="${esc(r.modo.porque)}">→ ${r.modo.modo}</small></span></div>`
+      <button class="btn btn-chico" id="mn-progreso">📈 Cómo venís</button><span class="mano-dial">${DIAL.map(([k, n]) => `<button class="btn btn-chico${r.modo.dial === k ? ' on' : ''}" data-dial="${k}">${n}</button>`).join('')}<small class="tenue" title="${esc(r.modo.porque)}">→ ${r.modo.modo}</small></span></div>`
   $('#mn-abrir-pq')?.addEventListener('click', modalAbrirPesquisa)
   $('#mn-cerrar-pq')?.addEventListener('click', modalCerrarPesquisa)
+  $('#mn-progreso')?.addEventListener('click', modalProgresoMano)
   $$('[data-dial]', el).forEach((b) => (b.onclick = async () => { try { await api('/mano/dial', { dial: b.dataset.dial }); robarMano(true) } catch (e) { error(e) } }))
 }
 
@@ -139,6 +149,26 @@ function pintarSintesis(c) {
       robarMano(false)
     } catch (e) { error(e) }
   }))
+}
+
+/** Cómo venís: si te estás volviendo mejor (calibración y retención), tu territorio y la honestidad de las sorpresas. Sin puntos. */
+async function modalProgresoMano() {
+  let p
+  try { p = await api('/mano/progreso') } catch (e) { return error(e) }
+  const c = p.calibracion
+  const r = p.retencion
+  const h = p.honestidad
+  const NOMBRE = { puente: '⟡ Puentes', contradiccion: '⚡ Creencias que se caen', combo: '✦ Combos' }
+  abrirModal(`<h2>📈 Cómo venís</h2>
+    <div class="mano-progreso">
+      <section><h3>🎯 Calibración</h3>${c.predicciones ? `<p><b>Acertás el ${c.conocimiento} %</b> de lo que predecís <small class="tenue">(${c.predicciones} predicci${c.predicciones === 1 ? 'ón' : 'ones'} · 0 % es tirar una moneda, 100 % es acertar todo)</small></p>` : '<p class="tenue">Todavía sin predicciones: prendé «🎯 Predecir antes de ver» (tecla A) en La Mano.</p>'}</section>
+      <section><h3>🃏 Retención</h3>${r.porcentaje != null ? `<p><b>Recordás el ${r.porcentaje} %</b> de lo que pesaste 9 o más <small class="tenue">(${r.repasadas} de ${r.tarjetas} tarjetas repasadas)</small></p>` : r.tarjetas ? `<p>${r.tarjetas} tarjeta${r.tarjetas === 1 ? '' : 's'} de lo que pesaste alto, esperando su primer repaso (🃏 en Hoy).</p>` : '<p class="tenue">Lo que pesés 9 o más va quedando como tarjeta de repaso.</p>'}</section>
+      <section><h3>Ascensión ${p.ascension.nivel}</h3><p class="tenue">${esc(p.ascension.proximo ?? 'Llegaste a la última por ahora.')}</p></section>
+      <section><h3>🗺 Tu territorio</h3>${p.territorio.length ? `<table class="mano-territorio"><tr><th>Fuente</th><th>Sellado</th><th>Fronteras movidas</th><th>Niebla</th></tr>${p.territorio.map((t) => `<tr><td>${esc(t.nombre)}</td><td>${t.selladas}</td><td>${t.fronteras || ''}</td><td><span class="mano-niebla"><i style="width:${t.niebla}%"></i></span> ${t.niebla} %</td></tr>`).join('')}</table>` : '<p class="tenue">Todavía no hay afirmaciones con su fuente.</p>'}</section>
+      <section><h3>⚖ Honestidad de las sorpresas</h3>${h.porTipo.length ? `<table class="mano-territorio"><tr><th></th><th>Salieron</th><th>Valieron</th><th>No</th><th>Sin responder</th></tr>${h.porTipo.map((t) => `<tr><td>${NOMBRE[t.tipo] ?? esc(t.tipo)}</td><td>${t.mostradas}</td><td>${t.valieron}</td><td>${t.no_valieron}</td><td>${t.pendientes}</td></tr>`).join('')}</table>` : '<p class="tenue">Todavía no salió ninguna.</p>'}
+        <p class="tenue">${h.unaCada ? `Una sorpresa cada ${h.unaCada} cartas pesadas · ` : ''}umbral del puente: ${Math.round(h.umbralPuente * 100)} % de parecido (sube solo si salen demasiadas o si las marcás casualidad).</p></section>
+    </div>
+    <div class="fila"><button class="btn" data-cerrar>Listo</button></div>`)
 }
 
 // ─── las sorpresas: puente, la creencia que se cae y el combo ───────────
@@ -229,8 +259,9 @@ function pintarMano() {
   const toca = c.toca
   el.innerHTML = `<div class="p-top">${nov ? `<span class="mano-novedad mano-${c.novedad}" title="${nov[1]}">${nov[0]} ${c.novedad === 'variacion' ? 'variación' : c.novedad}</span>` : '<span class="tenue">sin vector todavía</span>'}${c.desafio ? '<span class="mano-desafio" title="Ascensión 1: es una variación de algo que pesaste alto">⚔ puede chocar con lo que creés</span>' : ''}${c.relevancia != null ? `<span class="tenue" title="Cuánto tiene que ver con la pregunta de la Pesquisa">↳ ${Math.round(c.relevancia * 100)} % con la pregunta</span>` : ''}${f ? `<span title="${esc(f.titulo)}">de «${esc(corto(f.titulo, 50))}»${f.fecha ? ` · ${esc(f.fecha)}` : ''}</span>` : ''}</div>
     <h2 class="mano-texto">${esc(c.texto)}</h2>
-    ${c.parecidaA ? `<small class="tenue">${c.novedad === 'repetida' ? 'Casi igual a' : 'Se parece a'}: «${esc(corto(c.parecidaA.texto, 140))}»</small>` : ''}
+    ${c.parecidaA && !(manoPredecir && manoPrediccion[c.id] == null && !manoJugadas[c.id]) ? `<small class="tenue">${c.novedad === 'repetida' ? 'Casi igual a' : 'Se parece a'}: «${esc(corto(c.parecidaA.texto, 140))}»</small>` : ''}
     <div class="mano-toca">${toca.primaria ? `→ Primaria: <b>${esc(toca.primaria.titulo)}</b>` : '→ <span class="tenue">suelta: no toca ninguna primaria</span>'}${toca.principal ? ` · Principal: ${esc(toca.principal)}` : ''}${toca.entidades.length ? `<br><span class="tenue">Habla de ${toca.entidades.map((e) => esc(e.nombre)).join(', ')}</span>` : ''}</div>`
+  pintarPrediccion()
   if (manoJugadas[c.id]) pintarCaida(manoJugadas[c.id])
 }
 
@@ -242,7 +273,11 @@ function pintarCaida(j) {
   const el = $('#mn-caida')
   if (!el) return
   const titulo = j.gesto === 'peso' ? `Pesada ${j.carta.peso}` : j.gesto === 'choca' ? '⚡ Marcada: choca con lo que ya sabías' : '✕ Descartada'
+  const pr = j.prediccion
+  const acierto = pr && pr.probabilidad !== 0.5 ? (pr.probabilidad > 0.5) === pr.conecto : null
   el.innerHTML = `<h3>${titulo}</h3>
+    ${pr ? `<p class="mano-pred-res">🎯 Dijiste ${Math.round(pr.probabilidad * 100)} % · ${pr.conecto ? 'conectó' : 'no conectó'}${acierto == null ? '' : acierto ? ' · bien leído' : ' · a calibrar'}</p>` : ''}
+    ${j.tarjetaId ? '<p class="tenue">🃏 Quedó como tarjeta para repasar: lo que importa también se recuerda.</p>' : ''}
     ${(j.sorpresas ?? []).map(sorpresaHTML).join('')}
     ${j.refuerza.length ? `<div class="mano-refuerza"><b>Refuerza lo que ya creías</b><ul>${j.refuerza.map(lineaVecino).join('')}</ul></div>` : ''}
     ${j.chocaCon.length ? `<div class="mano-choca"><b>¿Con cuál choca?</b><ul>${j.chocaCon.map((v) => lineaVecino(v).replace('</li>', `<button class="btn btn-chico" data-choca-con="${v.id}" data-nueva="${j.carta.id}">Con esta</button></li>`)).join('')}</ul></div>` : j.gesto === 'choca' ? '<p class="tenue">No encontré nada pesado alto que se le parezca: puede que choque con algo que todavía no anotaste.</p>' : ''}
@@ -258,10 +293,11 @@ async function jugarCarta(g) {
   if (!c) return
   // Una carta jugada no se vuelve a jugar con otra tecla (sería pisar sin querer): se deshace con z.
   if (manoJugadas[c.id]) return toast(manoCartas.every((x) => manoJugadas[x.id]) ? 'Mano jugada<small>R roba otra · Z deshace la última.</small>' : 'Ya la jugaste<small>Z deshace la última · espacio pasa a otra.</small>', 'suave')
+  if (manoPredecir && g.gesto !== 'descartar' && manoPrediccion[c.id] == null) return toast('Primero predecí<small>J seguro que conecta · K puede · L seguro que no</small>', 'suave')
   document.activeElement?.blur?.()
   const porque = $('#mn-porque')?.value.trim() || null
   try {
-    const j = await api(`/mano/${c.id}`, { ...g, porque })
+    const j = await api(`/mano/${c.id}`, { ...g, porque, prediccion: g.gesto === 'descartar' ? null : manoPrediccion[c.id] ?? null })
     if ($('#mn-porque')) $('#mn-porque').value = ''
     manoJugadas[c.id] = j
     pintarCaida(j)
@@ -272,6 +308,28 @@ async function jugarCarta(g) {
     pintarMano()
     if (manoCartas.every((x) => manoJugadas[x.id])) toast('Mano jugada<small>R roba otra; lo que pesaste ya ordena lo que viene.</small>', 'suave')
   } catch (e) { error(e) }
+}
+
+function alternarPredecir() {
+  manoPredecir = !manoPredecir
+  pref.guardar('mastro-mano-predecir', manoPredecir ? 'si' : 'no')
+  pintarMano()
+}
+
+function predecir(p) {
+  const c = manoCartas[manoActiva]
+  if (!c || manoJugadas[c.id] || !manoPredecir) return
+  manoPrediccion[c.id] = p
+  pintarMano()
+}
+
+function pintarPrediccion() {
+  const fila = $('#mn-pred')
+  const c = manoCartas[manoActiva]
+  $('#mn-predecir')?.classList.toggle('on', manoPredecir)
+  if (!fila) return
+  fila.hidden = !manoPredecir || !c || !!manoJugadas[c.id]
+  $$('[data-pred]', fila).forEach((b) => b.classList.toggle('on', c && manoPrediccion[c.id] === Number(b.dataset.pred)))
 }
 
 function pasarCarta() {
@@ -297,6 +355,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key in TECLAS_MANO) { e.preventDefault(); jugarCarta({ gesto: 'peso', peso: TECLAS_MANO[e.key] }) }
   else if (e.key === 'x' || e.key === 'Backspace') { e.preventDefault(); jugarCarta({ gesto: 'descartar' }) }
   else if (e.key === 'c') { e.preventDefault(); jugarCarta({ gesto: 'choca' }) }
+  else if (e.key === 'a') { e.preventDefault(); alternarPredecir() }
+  else if (PREDICCIONES.some(([k]) => k === e.key)) { e.preventDefault(); predecir(PREDICCIONES.find(([k]) => k === e.key)[1]) }
   else if (e.key === ' ' || e.key === 'ArrowRight') { e.preventDefault(); pasarCarta() }
   else if (e.key === 'ArrowLeft') { e.preventDefault(); manoActiva = (manoActiva + manoCartas.length - 1) % Math.max(1, manoCartas.length); pintarMano() }
   else if (e.key === 'z') { e.preventDefault(); deshacerMano() }

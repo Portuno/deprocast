@@ -250,6 +250,12 @@ export const ACCIONES: Acciones = {
     if (telegramActivo()) await decir(a.texto, a.botones.length ? a.botones : undefined).catch(() => null)
     return a.texto
   },
+  /** A la tarde, por Telegram y solo si llegó algo nuevo de verdad (3 o más desde la última jugada): La Mano. En Hoy ya está el chip. */
+  async mano(db, _fecha, ahora) {
+    const t = (await import('./mano.ts')).avisoMano(db, ahora)
+    if (t && telegramActivo()) await decir(t).catch(() => null)
+    return null
+  },
   /** El domingo: tu vara contra la de cada modelo de tu consejo (una pregunta por modelo, sin modelo de lenguaje). */
   async modelos(db, _fecha, ahora) {
     const n = (await import('./modelos.ts')).preguntasDeCalibracion(db, ahora)

@@ -1267,6 +1267,17 @@ details.puentes > summary { cursor: pointer; padding: 6px 0; }
 .mano-caida li { display: grid; gap: 2px; font-size: 13px; }
 .mano-refuerza b { color: var(--bueno, #6fbf8a); }
 .mano-choca b { color: var(--malo, #d27272); }
+.mano-prediccion { display: flex; gap: 6px; align-items: center; justify-content: center; flex-wrap: wrap; font-size: 13px; }
+.mano-prediccion .btn.on, #mn-predecir.on { border-color: var(--acento); color: var(--acento); }
+.mano-prediccion[hidden] { display: none; }
+.mano-pred-res { margin: 0; font-size: 13px; }
+.mano-progreso { display: grid; gap: 12px; }
+.mano-progreso section { display: grid; gap: 4px; }
+.mano-progreso h3, .mano-progreso p { margin: 0; }
+.mano-territorio { width: 100%; border-collapse: collapse; font-size: 13px; }
+.mano-territorio th, .mano-territorio td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--linea); }
+.mano-niebla { display: inline-block; width: 60px; height: 6px; border-radius: 3px; background: var(--linea); vertical-align: middle; overflow: hidden; }
+.mano-niebla i { display: block; height: 100%; background: var(--tenue); }
 .mano-barra { max-width: 1118px; margin: 0 auto 12px; display: grid; gap: 6px; }
 .mano-pesquisa, .mano-nivel { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; font-size: 13px; }
 .mano-pesquisa { border: 1px solid var(--linea); border-radius: 12px; padding: 8px 12px; }
