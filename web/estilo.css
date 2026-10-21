@@ -2104,7 +2104,66 @@ span.ej-chip { cursor: default; }
 .tj-botones { gap: 8px; margin-top: 14px; flex-wrap: wrap; }
 .tj-botones .btn { flex: 1 1 110px; }
 .hud-tarjetas { white-space: nowrap; }
-@media (max-width: 640px) { .idi-metricas { grid-template-columns: 1fr 1fr; } .idi-msj { max-width: 95%; } }
+/* La lista: cada idioma con su próxima sesión, el temario y lo que hizo. */
+.idi-lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 14px; }
+.idi-tarjeta { display: flex; flex-direction: column; gap: 10px; }
+.idi-empezar { align-self: stretch; font-size: 15px; padding: 10px 14px; }
+.idi-temario { display: flex; flex-wrap: wrap; gap: 5px; }
+.idi-tema { font: inherit; font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--linea); background: none; color: var(--tenue); cursor: pointer; }
+.idi-tema.visto { color: var(--texto); border-color: var(--linea-2); }
+.idi-tema.visto::before { content: '✓ '; color: var(--ok); }
+.idi-tema.proximo { border-color: var(--acento); color: var(--acento-texto); }
+.idi-tema:hover { border-color: var(--acento); }
+.idi-preparando { padding: 40px 0; text-align: center; color: var(--tenue); }
+/* Una frase con sus capas: el texto grande, cómo se lee, cómo suena y la traducción. */
+.capa { display: grid; gap: 1px; }
+.capa-texto { font-size: 17px; font-weight: 600; line-height: 1.35; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.capa.grande .capa-texto { font-size: 21px; }
+.capa-pron { font-size: 14px; color: var(--acento-texto); }
+.capa-suena { font-size: 13px; color: var(--tenue); font-style: italic; }
+.capa-es { font-size: 13.5px; color: var(--texto); opacity: .85; }
+.capa-nota { font-size: 12px; color: var(--tenue); }
+.oculta-texto [data-capa="texto"] { visibility: hidden; height: 0; }
+.oculta-pron [data-capa="pron"], .oculta-suena [data-capa="suena"], .oculta-es [data-capa="es"] { display: none; }
+/* La sesión: charla a la izquierda, palabras de hoy a la derecha. */
+.idi-sesion { display: grid; gap: 12px; }
+.idi-ses-cab { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.idi-ses-cab h2 { margin: 0; font-size: 18px; }
+.idi-ses-cab > div:nth-child(2) { flex: 1; min-width: 200px; }
+.idi-capas { display: flex; gap: 4px; flex-wrap: wrap; }
+.idi-capas .btn { opacity: .55; }
+.idi-capas .btn.on { opacity: 1; border-color: var(--acento); }
+.idi-ses-cuerpo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 340px); gap: 14px; align-items: start; }
+.idi-sesion .idi-charla { max-height: 58vh; min-height: 220px; border: 1px solid var(--linea); border-radius: 12px; padding: 12px; }
+.idi-sesion .idi-msj { max-width: 90%; }
+.idi-msj.mastro { display: grid; gap: 10px; }
+.idi-palabras { border: 1px solid var(--linea); border-radius: 12px; padding: 12px; display: grid; gap: 10px; max-height: 58vh; overflow-y: auto; position: sticky; top: 8px; }
+.idi-palabras h3 { margin: 0; font-size: 12px; color: var(--tenue); text-transform: uppercase; letter-spacing: .05em; }
+.idi-palabras .capa { border-bottom: 1px dashed var(--linea); padding-bottom: 8px; }
+.idi-palabras .capa-texto { font-size: 15.5px; }
+.idi-estrella { margin-left: auto; padding: 0 6px; min-height: 0; }
+.idi-sugeridas { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+.idi-sugeridas > small { flex-basis: 100%; }
+.idi-sugerida { border: 1px dashed var(--linea-2); border-radius: 10px; padding: 7px 10px; cursor: pointer; flex: 1 1 200px; }
+.idi-sugerida:hover { border-color: var(--acento); }
+.idi-sugerida .capa-texto { font-size: 14.5px; }
+.idi-retomar { margin: 0; font-size: 12.5px; }
+.idi-corr > small { color: var(--tenue); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; }
+.idi-corr > div { display: grid; gap: 3px; margin-top: 6px; }
+.idi-resumen { max-width: 640px; margin: 20px auto; display: grid; gap: 14px; }
+.idi-resumen h2 { margin: 0; }
+.idi-resumen .idi-metricas { grid-template-columns: repeat(4, 1fr); }
+/* Tarjetas a mano y el mazo. */
+.tjm-lista { display: grid; gap: 6px; margin: 10px 0; }
+.tjm-fila { display: grid; grid-template-columns: auto repeat(auto-fit, minmax(110px, 1fr)) auto; gap: 6px; align-items: center; }
+.tjm-fila .campo-suelto { margin: 0; }
+.mazo-lista { display: grid; gap: 6px; max-height: 62vh; overflow-y: auto; }
+.mazo-fila { display: flex; gap: 10px; align-items: flex-start; border-bottom: 1px solid var(--linea); padding: 6px 0; }
+.mazo-txt { flex: 1; display: grid; gap: 3px; font-size: 13.5px; }
+.mazo-acc { display: flex; gap: 4px; }
+.mazo-acc .seguro { color: var(--mal); border-color: var(--mal); }
+@media (max-width: 900px) { .idi-ses-cuerpo { grid-template-columns: 1fr; } .idi-palabras { position: static; max-height: none; } }
+@media (max-width: 640px) { .idi-metricas { grid-template-columns: 1fr 1fr; } .idi-msj { max-width: 95%; } .idi-lista { grid-template-columns: 1fr; } }
 
 /* ─── Lo que sigue volviendo ─────────────────────────────────────────── */
 .bucle { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--linea); }

@@ -34,7 +34,7 @@ import { sintetizar } from './taller.ts'
 import { brujulaDelDia, textoDeBrujula } from './brujula.ts'
 import { recomendar } from './mentor.ts'
 import { cuadernoComoMd, descartarLink, piezaComoMd, procesarLink } from './lector/index.ts'
-import { abrirPractica, audioDeFrase, cerrarPractica, leerIdioma, listarIdiomas, marcarEnviada, marcarMensajePractica, practicaAbierta, practicasQueTocan, responderPractica } from './idiomas.ts'
+import { abrirPractica, audioDeFrase, capaComoTexto, cerrarPractica, leerIdioma, listarIdiomas, marcarEnviada, marcarMensajePractica, practicaAbierta, practicasQueTocan, responderPractica, type Capa } from './idiomas.ts'
 import { CALIDADES, leerTarjeta, paraRepasar, responderTarjeta, type Calidad } from './tarjetas.ts'
 import { dirAdjuntos } from './chat/adjuntos.ts'
 import { bucleMasViejos, cerrarBucle } from './bucles.ts'
@@ -310,31 +310,41 @@ async function mandarFrasesEnAudio(codigo: string, titulo: string, texto: string
   } catch { /* sin voz: queda el texto */ }
 }
 
-/** Abre una práctica: el mensaje en el idioma (con la ayuda en castellano) y, si hay voz, en audio. */
+/** Abre una práctica: el tema, las palabras de hoy y la pregunta, todo con cómo se lee, cómo suena y qué quiere decir; y en audio. */
 async function abrirPracticaTelegram(db: Db, id: number) {
   const i = leerIdioma(db, id)
   if (!i) return decir('No encontré ese idioma.')
-  const p = await abrirPractica(db, id)
-  const mensajeId = await decir(`🗣 **${i.nombre}** · práctica\n\n${p.mensaje}${p.ayuda ? `\n\n_(${p.ayuda})_` : ''}\n\n_Contestá por audio (mejor: hablar desde el día uno) o escribiendo._`, botonTerminar(id))
+  const { sesion } = await abrirPractica(db, id)
+  const p = sesion.paquete
+  const mensajeId = await decir([
+    `🗣 **${i.nombre}** · práctica · ${p.tema}`,
+    p.palabras.length ? `**Palabras de hoy**\n${p.palabras.map((c) => `• ${capaComoTexto(c).replace(/\n/g, ' — ')}`).join('\n')}` : '',
+    capaComoTexto(p.pregunta, { negrita: true }),
+    p.sugeridas.length ? `_Podés contestar, por ejemplo:_\n${p.sugeridas.map((c) => `• ${capaComoTexto(c).replace(/\n/g, ' — ')}`).join('\n')}` : '',
+    '_Contestá por audio (mejor: hablar desde el día uno) o escribiendo._',
+  ].filter(Boolean).join('\n\n'), botonTerminar(id))
   marcarMensajePractica(db, id, mensajeId)
-  await mandarFrasesEnAudio(i.codigo, `${i.nombre} · escuchá`, p.mensaje)
+  await mandarFrasesEnAudio(i.codigo, `${i.nombre} · escuchá`, p.pregunta.texto)
 }
 
-/** Lo que contestó en la práctica: la devolución (correcciones, frases nuevas, la charla sigue). */
+/** Lo que contestó en la práctica: la devolución (correcciones, lo que le faltó, la charla sigue), con sus capas. */
 async function responderPracticaTelegram(db: Db, id: number, r: { texto?: string; audio?: Buffer; nombreAudio?: string; segundos?: number | null }) {
   const i = leerIdioma(db, id)!
   let d
   try { d = await responderPractica(db, id, r) } catch (e) { return decir(e instanceof Error ? e.message : String(e)) }
+  const linea = (c: Capa) => capaComoTexto(c).replace(/\n/g, ' — ')
   const texto = [
     d.transcripcion ? `🎙 _${d.transcripcion}_` : '',
-    d.correcciones.length ? d.correcciones.map((c: any) => `✗ ${c.dijo}\n✓ **${c.natural}**${c.por_que ? `\n   _${c.por_que}_` : ''}`).join('\n') : '',
-    d.frases.length ? `🃏 **Frases nuevas**${d.tarjetasNuevas ? ` (${d.tarjetasNuevas} a tus tarjetas)` : ''}\n${d.frases.map((f: any) => `• **${f.frase}** — ${f.traduccion}${f.patron ? `\n   _${f.patron}_` : ''}`).join('\n')}` : '',
+    d.correcciones.length ? d.correcciones.map((c: any) => `✗ ${c.dijo}\n✓ **${linea(c.natural)}**${c.por_que ? `\n   _${c.por_que}_` : ''}`).join('\n') : '',
+    d.nuevas.length ? `🃏 **Te faltó**${d.tarjetasNuevas ? ` (${d.tarjetasNuevas} a tus tarjetas)` : ''}\n${d.nuevas.map((c) => `• ${linea(c)}`).join('\n')}` : '',
     d.animo ? `💪 ${d.animo}` : '',
-    [d.respuesta, d.pregunta].filter(Boolean).join(' '),
+    d.respuesta ? capaComoTexto(d.respuesta) : '',
+    d.pregunta ? capaComoTexto(d.pregunta, { negrita: true }) : '',
   ].filter(Boolean).join('\n\n')
   const mensajeId = await decir(texto, botonTerminar(id))
   marcarMensajePractica(db, id, mensajeId)
-  if (d.frases.length) await mandarFrasesEnAudio(i.codigo, `${i.nombre} · repetí en voz alta`, d.frases.map((f: any) => f.frase).join('. '))
+  const oir = [d.respuesta?.texto, d.pregunta?.texto, ...d.nuevas.map((c) => c.texto)].filter(Boolean).join('. ')
+  if (oir) await mandarFrasesEnAudio(i.codigo, `${i.nombre} · repetí en voz alta`, oir)
 }
 
 const sinTildes = (t: string) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()

@@ -855,8 +855,26 @@ CREATE TABLE IF NOT EXISTS idiomas (
   hora TEXT,
   charla TEXT,
   ultimo_envio TEXT,
+  temario TEXT,                       -- JSON: los temas en orden (se arma una vez, con su para qué y su nivel)
+  tema_idx INTEGER NOT NULL DEFAULT 0, -- por dónde va
+  sobre_mi TEXT,                      -- una línea para personalizar (nombre, ciudad); nunca sus proyectos
+  intereses TEXT,                     -- temas que le interesan para practicar
   creado_en INTEGER NOT NULL
 );
+-- Las sesiones de práctica, preparadas antes de abrirlas: el paquete entero (tema, palabras, frases, la pregunta,
+-- respuestas sugeridas, cada cosa con texto, romanización, cómo suena, traducción y su audio).
+CREATE TABLE IF NOT EXISTS idioma_sesiones (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  aprendizaje_id INTEGER NOT NULL,
+  tema TEXT NOT NULL,
+  paquete TEXT NOT NULL,
+  estado TEXT NOT NULL DEFAULT 'lista', -- lista | en_curso | hecha
+  pieza_id INTEGER,
+  creada_en INTEGER NOT NULL,
+  empezada_en INTEGER,
+  cerrada_en INTEGER
+);
+CREATE INDEX IF NOT EXISTS idioma_sesiones_ap ON idioma_sesiones(aprendizaje_id, estado);
 -- Cada vuelta de la práctica de un idioma: lo que preguntó Mastropiero, lo que contestó él y la corrección.
 CREATE TABLE IF NOT EXISTS idioma_turnos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1350,6 +1368,9 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   quantomos: [['novedad', 'TEXT'], ['novedad_de', 'INTEGER'], ['novedad_sim', 'REAL']],
   // La Mano: a qué Pesquisa pertenece cada jugada (si había una abierta).
   mano_jugadas: [['pesquisa_id', 'INTEGER'], ['prediccion', 'REAL'], ['resultado', 'INTEGER']],
+  // Idiomas por sesiones: el temario, lo personal mínimo y a qué sesión pertenece cada vuelta.
+  idiomas: [['temario', 'TEXT'], ['tema_idx', 'INTEGER NOT NULL DEFAULT 0'], ['sobre_mi', 'TEXT'], ['intereses', 'TEXT']],
+  idioma_turnos: [['sesion_id', 'INTEGER']],
   misiones: [
     ['armado', 'TEXT'], // bien | mal: si la banda estuvo bien armada
     ['progreso_manual', 'INTEGER'], // 1 = el % lo fijó él; si no, el avance de una primaria se infiere de lo hecho

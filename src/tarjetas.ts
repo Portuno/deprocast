@@ -80,3 +80,25 @@ export function tarjetasDeOrigen(db: Db, tipo: string, id: number): Tarjeta[] {
 export function suspenderTarjeta(db: Db, id: number) {
   db.prepare(`UPDATE tarjetas SET estado = 'suspendida' WHERE id = ?`).run(id)
 }
+
+/** Corregir una tarjeta a mano (lo que pregunta y lo que responde); el repaso sigue donde estaba. */
+export function editarTarjeta(db: Db, id: number, c: { frente?: string | null; dorso?: string | null }): Tarjeta {
+  const t = leerTarjeta(db, id)
+  if (!t) throw new Error(`No existe la tarjeta ${id}`)
+  const frente = String(c.frente ?? t.frente).trim().slice(0, 400)
+  const dorso = String(c.dorso ?? t.dorso).trim().slice(0, 1200)
+  if (!frente || !dorso) throw new Error('Una tarjeta necesita frente y dorso')
+  if (frente !== t.frente && db.prepare('SELECT 1 FROM tarjetas WHERE mazo = ? AND frente = ? AND id != ?').get(t.mazo, frente, id)) throw new Error('Ya hay una tarjeta con esa pregunta en este mazo')
+  db.prepare('UPDATE tarjetas SET frente = ?, dorso = ? WHERE id = ?').run(frente, dorso, id)
+  return leerTarjeta(db, id)!
+}
+
+/** Borrarla del todo (la que no sirve no se suspende: se va). */
+export function borrarTarjeta(db: Db, id: number) {
+  db.prepare('DELETE FROM tarjetas WHERE id = ?').run(id)
+}
+
+/** Las tarjetas de un mazo (para verlas y limpiarlas), las más nuevas primero. */
+export function tarjetasDeMazo(db: Db, mazo: string): Tarjeta[] {
+  return (db.prepare(`SELECT * FROM tarjetas WHERE mazo = ? AND estado = 'activa' ORDER BY id DESC`).all(mazo) as any[]).map(deFila)
+}

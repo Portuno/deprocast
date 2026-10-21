@@ -872,11 +872,23 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/mapa\/buscar$/, async (_, __, q) => ({ lugar: await (await import('./mapa.ts')).ubicar(db, String(q.get('q') ?? '').slice(0, 200)) })],
   // Idiomas (la pista de aprendizaje) y las tarjetas de recuerdo activo.
   ['GET', /^\/api\/idiomas$/, async () => { const m = await import('./idiomas.ts'); return { idiomas: m.listarIdiomas(db), disponibles: m.IDIOMAS, niveles: m.NIVELES, abierta: m.practicaAbierta(db)?.aprendizajeId ?? null } }],
-  ['POST', /^\/api\/idiomas$/, async (b) => (await import('./idiomas.ts')).crearIdioma(db, b)],
+  ['POST', /^\/api\/idiomas$/, async (b) => {
+    const m = await import('./idiomas.ts')
+    const i = m.crearIdioma(db, b)
+    m.prepararEnFondo(db, i.aprendizajeId) // el kit inicial (temario, básicas y la primera sesión), en la nube
+    return i
+  }],
   ['POST', /^\/api\/idiomas\/(\d+)$/, async (b, [i]) => (await import('./idiomas.ts')).editarIdioma(db, id(i), b)],
-  ['POST', /^\/api\/idiomas\/(\d+)\/abrir$/, async (_, [i]) => (await import('./idiomas.ts')).abrirPractica(db, id(i))],
+  ['POST', /^\/api\/idiomas\/(\d+)\/abrir$/, async (b, [i]) => (await import('./idiomas.ts')).abrirPractica(db, id(i), Date.now(), { tema: b.tema ? String(b.tema) : null })],
+  ['POST', /^\/api\/idiomas\/(\d+)\/preparar$/, async (_, [i]) => (await import('./idiomas.ts')).prepararSesion(db, id(i))],
   ['POST', /^\/api\/idiomas\/(\d+)\/responder$/, async (b, [i]) => (await import('./idiomas.ts')).responderPractica(db, id(i), { texto: String(b.texto ?? '') })],
-  ['POST', /^\/api\/idiomas\/(\d+)\/cerrar$/, async (_, [i]) => { (await import('./idiomas.ts')).cerrarPractica(db, id(i)); return { ok: true } }],
+  ['POST', /^\/api\/idiomas\/(\d+)\/cerrar$/, async (_, [i]) => ({ resumen: (await import('./idiomas.ts')).cerrarPractica(db, id(i)) })],
+  // Tarjetas a mano: completar varias de una (borradores para revisar), guardarlas, y el mazo para verlo y limpiarlo.
+  ['POST', /^\/api\/idiomas\/(\d+)\/completar$/, async (b, [i]) => ({ borradores: await (await import('./idiomas.ts')).completarTarjetas(db, id(i), Array.isArray(b.lineas) ? b.lineas : String(b.lineas ?? '').split('\n')) })],
+  ['POST', /^\/api\/idiomas\/(\d+)\/tarjetas$/, async (b, [i]) => ({ nuevas: (await import('./idiomas.ts')).guardarTarjetas(db, id(i), Array.isArray(b.items) ? b.items : []) })],
+  ['GET', /^\/api\/idiomas\/(\d+)\/tarjetas$/, async (_, [i]) => ({ tarjetas: (await import('./tarjetas.ts')).tarjetasDeMazo(db, `idioma:${id(i)}`) })],
+  ['POST', /^\/api\/tarjetas\/(\d+)\/editar$/, async (b, [t]) => (await import('./tarjetas.ts')).editarTarjeta(db, id(t), { frente: b.frente ?? null, dorso: b.dorso ?? null })],
+  ['POST', /^\/api\/tarjetas\/(\d+)\/borrar$/, async (_, [t]) => { (await import('./tarjetas.ts')).borrarTarjeta(db, id(t)); return { ok: true } }],
   ['POST', /^\/api\/idiomas\/voz$/, async (b) => ({ url: await (await import('./idiomas.ts')).audioDeFrase(String(b.texto ?? ''), String(b.codigo ?? ''), dirAdjuntos()) })],
   // Lo que sigue volviendo (bucles abiertos) y lo que se aprende de lo consumido.
   ['GET', /^\/api\/bucles$/, async (_, __, q) => { const m = await import('./bucles.ts'); return { bucles: m.listarBucles(db, { limite: Number(q.get('limite')) || 7, estado: q.get('estado') || 'abierto' }), resumen: m.resumenBucles(db) } }],
