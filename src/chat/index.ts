@@ -53,13 +53,15 @@ export type Mensaje = {
   texto: string | null; llamadas: LlamadaHerramienta[] | null; llamadaId: string | null; herramienta: string | null
   resumen: string | null; razonamiento: string | null; modelo: string | null; tokens: number | null; en: number
   deshacer?: unknown; deshacible?: boolean; deshecho?: boolean
+  /** Cómo llegó o salió: 'voz' (dicho o escuchado), 'copiloto' (un consejo pedido), o null (escrito). */
+  via?: string | null
 }
 
 const conv = (r: any): Conversacion => ({ id: r.id, con: r.con, modo: r.modo ?? 'chat', titulo: r.titulo, archivada: r.archivada === 1, creadaEn: r.creada_en, actualizadaEn: r.actualizada_en, mensajes: r.mensajes })
 const msj = (r: any): Mensaje => ({
   id: r.id, conversacionId: r.conversacion_id, rol: r.rol, texto: r.texto, llamadas: r.llamadas ? JSON.parse(r.llamadas) : null,
   llamadaId: r.llamada_id, herramienta: r.herramienta, resumen: r.resumen, razonamiento: r.razonamiento, modelo: r.modelo, tokens: r.tokens, en: r.en,
-  deshacible: !!r.deshacer && !r.deshecho_en, deshecho: !!r.deshecho_en,
+  deshacible: !!r.deshacer && !r.deshecho_en, deshecho: !!r.deshecho_en, via: r.via ?? null,
 })
 
 export function crearConversacion(db: Db, con: string = MASTROPIERO, modo: Modo = 'chat', ahora = Date.now()): Conversacion {
@@ -142,9 +144,9 @@ export function ultimosMensajes(db: Db, id: number, n = 200, antes?: number | nu
 function guardar(db: Db, cid: number, m: Partial<Mensaje> & { rol: Mensaje['rol'] }) {
   const ahora = Date.now()
   db.prepare(
-    `INSERT INTO mensajes (conversacion_id, rol, texto, llamadas, llamada_id, herramienta, resumen, razonamiento, modelo, tokens, deshacer, en) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO mensajes (conversacion_id, rol, texto, llamadas, llamada_id, herramienta, resumen, razonamiento, modelo, tokens, deshacer, via, en) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(cid, m.rol, m.texto ?? null, m.llamadas?.length ? JSON.stringify(m.llamadas) : null, m.llamadaId ?? null, m.herramienta ?? null,
-    m.resumen ?? null, m.razonamiento ?? null, m.modelo ?? null, m.tokens ?? null, m.deshacer ? JSON.stringify(m.deshacer) : null, ahora)
+    m.resumen ?? null, m.razonamiento ?? null, m.modelo ?? null, m.tokens ?? null, m.deshacer ? JSON.stringify(m.deshacer) : null, m.via ?? null, ahora)
   db.prepare('UPDATE conversaciones SET actualizada_en = ? WHERE id = ?').run(ahora, cid)
 }
 
@@ -418,7 +420,7 @@ const pensando = new Set<number>()
 export const estaPensando = (id: number) => pensando.has(id)
 
 /** Manda un mensaje y corre el turno completo. La pantalla lo llama sin esperar y sigue el avance leyendo los mensajes. */
-export async function enviar(db: Db, cid: number, texto: string, o: { hud?: string | null } = {}): Promise<void> {
+export async function enviar(db: Db, cid: number, texto: string, o: { hud?: string | null; via?: 'voz' | null; extra?: string | null } = {}): Promise<void> {
   const c = leerConversacion(db, cid)
   if (!c) throw new Error(`No existe la conversación ${cid}`)
   if (!texto.trim()) throw new Error('Mensaje vacío')
@@ -430,7 +432,7 @@ export async function enviar(db: Db, cid: number, texto: string, o: { hud?: stri
   const vivo: EnVivo = { borrador: '', herramienta: null, argumentos: null }
   enVivo.set(cid, vivo)
   try {
-    guardar(db, cid, { rol: 'operador', texto: texto.trim() })
+    guardar(db, cid, { rol: 'operador', texto: texto.trim(), via: o.via ?? null })
     // Un link en lo que escribe: se lee y se guarda en Markdown de fondo (una vez por URL); si es un sitio, se rastrea.
     for (const link of [...new Set(texto.match(/https?:\/\/[^\s<>)"']+/g) ?? [])].slice(0, 3)) {
       void import('../lector/index.ts').then(({ procesarLink }) => procesarLink(db, link, {
@@ -458,7 +460,9 @@ export async function enviar(db: Db, cid: number, texto: string, o: { hud?: stri
       // Lo de su archivo que tiene que ver con lo que dijo (pasajes, quántomos y recuerdos por sentido): sin esperar a que lo pida.
       const archivo = await archivoRelevante(db, comoTexto(texto)).catch(() => ({ texto: '', vec: null }))
       final = await bucle({
-        db, sistema: promptMastropiero(db, texto, o.hud, cid, archivo), hs, previos, clase: 'mastropiero', agenteId: MASTROPIERO, grupos,
+        db, sistema: `${promptMastropiero(db, texto, o.hud, cid, archivo)}${o.extra ? `
+
+${o.extra}` : ''}`, hs, previos, clase: 'mastropiero', agenteId: MASTROPIERO, grupos,
         ctx: {
           db, conversacionId: cid, hablarConAgente: (id, m) => hablarConAgente(db, id, m),
           activar: (gs) => { for (const g of gs) if (GRUPOS[g]) grupos.add(g); return activas(hs, grupos).map((h) => h.nombre) },
@@ -482,6 +486,10 @@ export async function enviar(db: Db, cid: number, texto: string, o: { hud?: stri
   } finally {
     pensando.delete(cid)
     enVivo.delete(cid)
+  }
+  // Si habló por voz, lo que contestó Mastropiero en ese turno también queda marcado (se escuchó).
+  if (o.via === 'voz') {
+    try { db.prepare(`UPDATE mensajes SET via = 'voz' WHERE conversacion_id = ? AND rol = 'asistente' AND id > (SELECT MAX(id) FROM mensajes WHERE conversacion_id = ? AND rol = 'operador')`).run(cid, cid) } catch { /* es solo una marca */ }
   }
   // Lo que vale recordar de lo que dijo (solo con Mastropiero; nunca de lo que dicen otros). No frena la respuesta.
   const guardados = c.con === MASTROPIERO ? await escriba(db, comoTexto(texto), cid).catch(() => null) : null

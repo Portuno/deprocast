@@ -2310,3 +2310,11 @@ span.ej-chip { cursor: default; }
 .vel-aviso { color: var(--aviso); }
 .vel-mal { color: var(--mal); }
 .vel-tabla code { font-size: 12px; }
+
+/* ─── La voz con Mastropiero ─────────────────────────────────────────── */
+#chat-dictar.grabando, #chat-vivo.on { border-color: var(--mal); color: var(--mal); }
+#chat-vivo.on.oyendo { box-shadow: 0 0 0 3px color-mix(in srgb, var(--mal) 35%, transparent); }
+#chat-leer.on { border-color: var(--acento); color: var(--acento-texto); }
+.m-via { font-size: 12px; margin-right: 6px; opacity: .7; }
+.voz-globo { position: fixed; right: 18px; bottom: 18px; max-width: min(420px, calc(100vw - 36px)); z-index: 60; background: var(--panel-2); border: 1px solid var(--acento); border-radius: 14px; padding: 12px 14px; display: grid; gap: 4px; font-size: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.35); cursor: pointer; }
+.voz-globo small { color: var(--tenue); font-size: 12px; }

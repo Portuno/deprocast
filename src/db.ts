@@ -1380,6 +1380,7 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
     ['deshecho_en', 'INTEGER'],
     ['numero', 'INTEGER'], // el número de mensaje dentro de su conversación (1, 2, 3…)
     ['lugar', 'TEXT'], // dónde ocurrió: hoy | diario | chat | agente:<id>
+    ['via', 'TEXT'], // cómo llegó: voz (dicho o escuchado) | copiloto | null (escrito)
   ],
   runs: [
     ['comentario', 'TEXT'], // lo que dijo de la run entera

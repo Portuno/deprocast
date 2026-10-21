@@ -106,7 +106,11 @@ const hiloHTMLBase = () => `
       <div class="chat-adjuntos" id="chat-adjuntos" hidden></div>
       <label class="btn btn-icono" id="chat-adjuntar" title="Adjuntar imágenes o archivos (PDF, Word, Excel, PowerPoint, texto). También podés pegarlos o arrastrarlos">📎<input type="file" accept="image/*,.pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json" multiple hidden id="chat-img-in"></label>
       <label class="btn btn-icono" id="chat-audio" title="Subir un audio: se transcribe y entra como lo que contás" hidden>🎙<input type="file" accept="audio/*" hidden id="chat-audio-in"></label>
-      <textarea id="chat-txt" rows="1" placeholder="Escribile a Mastropiero…" title="Enter envía. Shift+Enter, nueva línea."></textarea><button class="btn btn-primario" id="chat-enviar">Enviar</button>
+      <textarea id="chat-txt" rows="1" placeholder="Escribile a Mastropiero…" title="Enter envía. Shift+Enter, nueva línea."></textarea>
+      <button type="button" class="btn btn-icono" id="chat-dictar" title="Dictar: un toque graba, otro manda (o mantené Alt en cualquier pantalla)">🎙</button>
+      <button type="button" class="btn btn-icono" id="chat-vivo" title="Charla en vivo: le hablás y te contesta en voz alta">🎧</button>
+      <button type="button" class="btn btn-icono" id="chat-leer" title="Leer las respuestas en voz alta">🔊</button>
+      <button class="btn btn-primario" id="chat-enviar">Enviar</button>
     </form>
   </div>`
 
@@ -131,6 +135,7 @@ function engancharCompositor() {
     if (fs.length) { e.preventDefault(); adjuntar(fs) }
   }
   pintarAdjuntos()
+  window.engancharVoz?.()
   $('#chat-audio-in').onchange = async (e) => {
     const f = e.target.files[0]
     if (!f || !chat.actual) return
@@ -383,6 +388,7 @@ function hiloHTML(ms, q, vivo) {
     else if (m.rol === 'error') t.errores.push(m)
     else if (m.rol === 'asistente') {
       if (m.texto) t.textos.push(m.texto)
+      if (m.via === 'voz') t.oido = true
       t.tokens += m.tokens ?? 0
       t.modelo = m.modelo ?? t.modelo
     }
@@ -391,7 +397,7 @@ function hiloHTML(ms, q, vivo) {
 }
 
 function turnoHTML(t, q, vivo) {
-  let h = t.yo ? `<div class="m m-yo">${textoConImagenes(t.yo.texto)}</div>` : ''
+  let h = t.yo ? `<div class="m m-yo">${t.yo.via === 'voz' ? '<span class="m-via" title="Lo dijo en voz alta">🎙</span>' : ''}${textoConImagenes(t.yo.texto)}</div>` : ''
   // Lo que escribió y todavía se puede volver atrás (la comida, el gasto, la misión): un botón al lado de la línea.
   const deshacibles = t.herr.filter((m) => m.deshacible).map((m) => m.id)
   const deshecho = !deshacibles.length && t.herr.some((m) => m.deshecho)
@@ -405,7 +411,7 @@ function turnoHTML(t, q, vivo) {
   const texto = [...t.textos.map((x) => partirSeguir(x).texto), borrador].filter(Boolean).join('\n\n')
   const haciendo = vivo && !borrador
     ? `<div class="pensando"><span><i></i><i></i><i></i></span>${esc(vivo.herramienta ? (VIVO[vivo.herramienta]?.(vivo.argumentos) ?? 'trabajando') : t.herr.length ? 'pensando qué decirte' : 'pensando')}…</div>` : ''
-  const meta = !vivo && t.modelo ? `<div class="m-meta">${t.rutina ? `rutina${t.en ? ` · ${new Date(t.en).toTimeString().slice(0, 5)}` : ''}` : `${esc(t.modelo)}${t.tokens ? ` · ${t.tokens.toLocaleString('es-AR')} tokens` : ''}`}</div>` : ''
+  const meta = !vivo && t.modelo ? `<div class="m-meta">${t.rutina ? `rutina${t.en ? ` · ${new Date(t.en).toTimeString().slice(0, 5)}` : ''}` : `${esc(t.modelo)}${t.tokens ? ` · ${t.tokens.toLocaleString('es-AR')} tokens` : ''}${t.oido ? ' · 🔊' : ''}`}</div>` : ''
   if (actividad || texto || haciendo) {
     h += `<div class="m m-el"><span class="avatar" style="--c:${q.color}">${q.glifo}</span><div>${actividad}
       ${texto ? `<div class="md">${md(texto)}${borrador ? '<span class="cursor"></span>' : ''}</div>` : ''}${haciendo}${meta}</div></div>`
@@ -531,6 +537,7 @@ function seguirTurno() {
       // Si el operador subió a leer, no se lo arrastra para abajo.
       chat.pegado = !hilo || hilo.scrollHeight - hilo.scrollTop - hilo.clientHeight < 80
       if ((vista === 'chat' || vista === 'hoy') && JSON.stringify([r.mensajes.length, r.vivo, r.pensando]) !== antes) pintarChat()
+      window.vozAvance?.() // en voz: lo nuevo que escribió se encola para decir, frase por frase
       if (r.pensando) chat.sondeo = setTimeout(paso, 300)
       else { chat.pegado = true; await refrescar(); await traerConversaciones(); if (vista === 'hoy') traerHoy() }
     } catch (e) { error(e) }

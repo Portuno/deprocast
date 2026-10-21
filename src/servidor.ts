@@ -364,6 +364,9 @@ const rutas: [string, RegExp, Ruta][] = [
       directo: propuestasPendientes(db),
     }
   }],
+  // La voz de Mastropiero: una frase en audio (con caché) y las voces que hay.
+  ['POST', /^\/api\/voz\/decir$/, async (b) => ({ url: await (await import('./voz.ts')).decir(db, String(b.texto ?? ''), dirAdjuntos()) })],
+  ['GET', /^\/api\/voz$/, async () => { const v = await import('./voz.ts'); return { voces: v.VOCES_MASTROPIERO, voz: v.vozDeMastropiero(db) } }],
   ['POST', /^\/api\/hoy\/evento$/, (b) => (registrarEvento(db, conversacionHoy(db).id, String(b.texto ?? '')), { ok: true })],
   ['POST', /^\/api\/zona$/, (b) => recibirZona(db, b.zona)],
   ['POST', /^\/api\/uso$/, (b) => (anotarUso(db, 'vista', String(b.vista ?? '')), { ok: true })],
@@ -374,7 +377,8 @@ const rutas: [string, RegExp, Ruta][] = [
       fijarAjuste(db, 'ciclo_bandas', c.replace(/\s+/g, ''))
     }
     if (b.apps_estimulo != null) fijarAjuste(db, 'apps_estimulo', String(b.apps_estimulo).slice(0, 500))
-    for (const k of ['primarias_semana', 'tokens_dia_max', 'pensar_cada_horas', 'directo_auto', 'fragua_por_noche']) if (b[k] != null && String(b[k]).trim()) fijarAjuste(db, k, String(b[k]).trim())
+    for (const k of ['primarias_semana', 'tokens_dia_max', 'pensar_cada_horas', 'directo_auto', 'fragua_por_noche', 'voz_mastropiero', 'directo_tramo_min', 'copiloto_cada_min']) if (b[k] != null && String(b[k]).trim()) fijarAjuste(db, k, String(b[k]).trim())
+    if (b.directo_privado != null) fijarAjuste(db, 'directo_privado', String(b.directo_privado).slice(0, 1000))
     if (b.meta_ingresos_mes != null) fijarAjuste(db, 'meta_ingresos_mes', String(b.meta_ingresos_mes).trim())
     if (b.horario_fijo != null) fijarHorario(db, String(b.horario_fijo).trim() ? horarioDeTexto(String(b.horario_fijo)) : [])
     return { ok: true }
@@ -1436,6 +1440,15 @@ const servidor = http.createServer(async (req, res) => {
             return { ...s, nuevasListas: v.nuevas.map((x) => x.regla), paso: v.paso }
           })()
         return void res.end(JSON.stringify(r))
+      }
+      // Lo que dice en una conversación (dictado, charla en vivo o la tecla para hablar): se transcribe y entra como suyo.
+      const vozChat = req.method === 'POST' ? /^\/api\/chat\/(\d+)\/voz$/.exec(url.pathname) : null
+      if (vozChat) {
+        const cid = Number(vozChat[1])
+        if (estaPensando(cid)) throw new Error('Esperá: todavía está contestando')
+        const audio = await leerCrudo(req, 25 * 1024 * 1024)
+        const q = url.searchParams
+        return void res.end(JSON.stringify(await (await import('./voz.ts')).escucharTurno(db, cid, audio, { nombre: q.get('nombre') || 'voz.webm', segundos: Number(q.get('segundos')) || null, hud: q.get('hud') || null })))
       }
       // La respuesta de una práctica de idioma, grabada: se transcribe en ese idioma y vuelve la devolución.
       const audioIdioma = req.method === 'POST' ? /^\/api\/idiomas\/(\d+)\/audio$/.exec(url.pathname) : null
