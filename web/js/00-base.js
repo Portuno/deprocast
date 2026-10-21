@@ -41,6 +41,22 @@ function fmtTokens(n) {
   return String(n)
 }
 
+/** Un ícono del sprite (web/iconos.svg, Lucide). Toma el color y el tamaño del texto que lo rodea. */
+const ico = (nombre, clase = '') => `<svg class="ico ${clase}" aria-hidden="true"><use href="#i-${nombre}"></use></svg>`
+
+// Toda lista de pestañas (role=tablist) se recorre con las flechas, Inicio y Fin, como en cualquier app de escritorio.
+document.addEventListener('keydown', (e) => {
+  const tab = e.target.closest?.('[role=tab]')
+  const lista = tab?.closest('[role=tablist]')
+  if (!lista || !['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return
+  const ts = [...lista.querySelectorAll('[role=tab]')]
+  const i = ts.indexOf(tab)
+  const n = e.key === 'Home' ? 0 : e.key === 'End' ? ts.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + ts.length) % ts.length
+  e.preventDefault()
+  ts[n].focus()
+  ts[n].click()
+})
+
 // ─── toasts y modal ─────────────────────────────────────────────────────
 
 function toast(html, tipo = '') {

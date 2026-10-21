@@ -16,10 +16,12 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <link rel="apple-touch-icon" href="/icono.svg">
   <script>
-    try { const t = localStorage.getItem('mastro-tema'); if (t) document.documentElement.dataset.tema = t } catch {}
+    // El tema: el que eligió (oscuro o claro) o, si no eligió, el del sistema.
+    try { const t = localStorage.getItem('mastro-tema') || 'sistema'; if (t === 'claro' || (t === 'sistema' && matchMedia('(prefers-color-scheme: light)').matches)) document.documentElement.dataset.tema = 'claro' } catch {}
   </script>
 </head>
 <body>
+  <!-- iconos -->
   <header class="hud">
     <div class="marca"><span class="mercurio">☿</span><div><b>Mastropiero</b><small>Deprocast 1.0</small></div></div>
     <div class="hud-stats" id="hud"></div>

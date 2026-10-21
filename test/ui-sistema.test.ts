@@ -17,7 +17,7 @@ const TOPES = {
   prompt: 20,
   coloresFijos: 50,
   styleEnJs: 253,
-  letraSinToken: 433,
+  letraSinToken: 3, // los glifos gigantes decorativos (84 px, 140 px, el clamp de la portada)
 }
 
 test('Sin diálogos del navegador: confirm() y prompt() solo bajan (se reemplazan por los de la app)', () => {
@@ -39,4 +39,30 @@ test('El layout no se escribe a mano en el JS: los style="" solo bajan', () => {
 test('La letra sale de la escala: los font-size sin token solo bajan', () => {
   const n = (css.match(/font-size:\s*[^;}]+/g) ?? []).filter((x) => !/var\(--t-\d\)/.test(x)).length
   assert.ok(n <= TOPES.letraSinToken, `font-size sin token: ${n} > ${TOPES.letraSinToken}`)
+})
+
+/** Los tokens de color de un bloque (`:root {…}` o `:root[data-tema='claro'] {…}`). */
+function tokens(selector: string): Record<string, string> {
+  const i = css.indexOf(`${selector} {`)
+  const bloque = css.slice(i, css.indexOf('}', i))
+  return Object.fromEntries([...bloque.matchAll(/--([\w-]+):\s*(#[0-9a-fA-F]{6})/g)].map((m) => [m[1], m[2]]))
+}
+const luz = (hex: string) => {
+  const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4))
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+}
+const contraste = (a: string, b: string) => { const [x, y] = [luz(a), luz(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05) }
+
+test('Contraste WCAG: todo texto se lee (≥ 4,5:1) sobre el fondo, el panel y el panel 2, en los dos temas', () => {
+  const oscuro = tokens(':root')
+  const claro = { ...oscuro, ...tokens(":root[data-tema='claro']") }
+  for (const [nombre, t] of [['oscuro', oscuro], ['claro', claro]] as const) {
+    for (const texto of ['texto', 'tenue', 'debil', 'acento-texto', 'ok', 'mal', 'aviso']) {
+      for (const fondo of ['fondo', 'panel', 'panel-2']) {
+        const r = contraste(t[texto], t[fondo])
+        assert.ok(r >= 4.5, `${nombre}: --${texto} sobre --${fondo} da ${r.toFixed(2)}:1`)
+      }
+    }
+    assert.ok(contraste(t['sobre-acento'], t.acento) >= 4.5, `${nombre}: el texto del botón primario`)
+  }
 })

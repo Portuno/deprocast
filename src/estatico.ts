@@ -78,6 +78,8 @@ export function indexConVersiones(web: string): string {
     } catch { /* un archivo que falta no rompe el index */ }
     return ''
   })
+  // Los íconos (un sprite SVG) van adentro del HTML: sin otro pedido y siempre de la misma versión que la pantalla.
+  try { html = html.replace('<!-- iconos -->', leer(path.join(web, 'iconos.svg')).crudo.toString('utf8')) } catch { /* sin sprite, sin íconos */ }
   if (Object.keys(perezosos).length) {
     const i = html.indexOf('<script defer')
     const manifiesto = `<script>window.PEREZOSOS = ${JSON.stringify(perezosos).replace(/</g, '\\u003c')}</script>\n  `

@@ -157,11 +157,20 @@ function aplicarCronica() {
   $('#btn-cronica').classList.toggle('on', cronicaVisible)
 }
 $('#btn-cronica').onclick = () => { cronicaVisible = !cronicaVisible; pref.guardar('mastro-cronica', cronicaVisible ? 'si' : 'no'); aplicarCronica() }
-$('#btn-tema').onclick = () => {
-  const claro = document.documentElement.dataset.tema !== 'claro'
+// El tema: oscuro → claro → el del sistema (y vuelta). Con «sistema», sigue al sistema si cambia mientras está abierto.
+const sistemaClaro = matchMedia('(prefers-color-scheme: light)')
+function aplicarTema(t = pref.leer('mastro-tema', 'sistema')) {
+  const claro = t === 'claro' || (t === 'sistema' && sistemaClaro.matches)
   if (claro) document.documentElement.dataset.tema = 'claro'
   else delete document.documentElement.dataset.tema
-  pref.guardar('mastro-tema', claro ? 'claro' : 'oscuro')
+}
+sistemaClaro.addEventListener('change', () => aplicarTema())
+$('#btn-tema').onclick = () => {
+  const orden = ['oscuro', 'claro', 'sistema']
+  const t = orden[(orden.indexOf(pref.leer('mastro-tema', 'sistema')) + 1) % orden.length]
+  pref.guardar('mastro-tema', t)
+  aplicarTema(t)
+  toast(`Tema: ${t === 'sistema' ? 'el del sistema' : t}`, 'suave')
 }
 
 $('#btn-tick').onclick = hacerTick
