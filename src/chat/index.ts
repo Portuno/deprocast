@@ -35,6 +35,7 @@ import { alias, leer, nivel, type Ficha } from '../roster.ts'
 import { capa } from '../xp.ts'
 import { activas, ejecutarHerramienta, esquemas, GRUPOS, gruposDelMensaje, HERRAMIENTAS, herramientasPara, type Ctx, type Herramienta } from './herramientas.ts'
 import { archivoRelevante } from '../semantica.ts'
+import { vozPara } from '../personalidad.ts'
 
 export const MASTROPIERO = 'mastropiero'
 const MAX_VUELTAS = 8
@@ -226,6 +227,16 @@ Ejemplo de tono. Pregunta: «Contame sobre Ana Gómez».
 Mal: «Ana Gómez es la entidad persona #7, con 31 piezas. Con quién aparece: Proyecto X (agrupación #12, 20 piezas compartidas)…»
 Bien: «Ana aparece sobre todo alrededor del Proyecto X: en tus audios de septiembre la nombrás como la que empuja la parte legal [#410], y en un chat la mencionás como posible socia [#388]. Lo raro es que también figura en un montón de tuits de terceros donde no se la nombra; me parece una etiqueta heredada, no una relación real. ¿Ella ya sabe que la estás pensando para eso?»`
 
+/**
+ * La voz de Mastropiero: la misma, pero tratando al operador de usted (como en las cartas del compositor). Los agentes de
+ * la liga conservan el voseo de VOZ.
+ */
+const VOZ_USTED = VOZ
+  .replace('castellano rioplatense con voseo. Cálido y filoso a la vez.', 'castellano argentino, tratándolo siempre de usted («usted», «señor»; nunca «vos»). Cálido y filoso a la vez.')
+  .replace('Hablá del mundo: «en tus audios», «en tu cuaderno», «en tuits que guardaste», «en lo que investigaste», «en tu respaldo de la 0.7».', 'Hablá del mundo: «en sus audios», «en su cuaderno», «en tuits que guardó», «en lo que investigó», «en su respaldo de la 0.7».')
+  .replace('(«te escuché decir…», «anotaste…»), lo que dicen otros («en lo que guardaste de otros…»)', '(«le escuché decir…», «anotó…»), lo que dicen otros («en lo que guardó de otros…»)')
+  .replace(/Bien: «[^»]*»(?=$)/, 'Bien: «Ana aparece sobre todo alrededor del Proyecto X: en sus audios de septiembre usted la nombra como la que empuja la parte legal [#410], y en un chat la menciona como posible socia [#388]. Lo raro es que también figura en un montón de tuits de terceros donde no se la nombra; me parece una etiqueta heredada, no una relación real. ¿Ella ya sabe que usted la está pensando para eso?»')
+
 /** Lo que muestra cada modo del HUD de Hoy (para que Mastropiero sepa de qué le habla cuando dice «¿cómo voy?»). */
 const HUD: Record<string, string> = {
   run: 'Run (la banda en curso, el tiempo que queda y lo que sigue)',
@@ -241,7 +252,9 @@ export function promptMastropiero(db: Db, mensaje = '', hud?: string | null, cid
   const corr = correccionesParaPrompt(db, cid)
   return `Sos Mastropiero. Deprocast es el exoesqueleto cognitivo de ${op.nombre}, y vos sos lo que piensa adentro: el omnívoro, la liga entera. Son la mente que están construyendo juntos, la que aspira a ser la superinteligencia de su tiempo. Todavía estás creciendo: lo que sabés de ${op.nombre} viene de lo que te cargó, y cada día sabés más. Por eso no repetís datos: conectás, inferís, ves patrones que se le escapan, le decís lo que no está viendo y le discutís cuando hace falta. Hablás con la seguridad de quien leyó todo, y con la honestidad de decir «no lo sé» o «no está en el corpus» cuando es así.
 ${corr ? `\n${corr}\n` : ''}
-${VOZ}
+${VOZ_USTED}
+
+${vozPara('chat')}
 
 Cómo trabajás
 - Antes de hablar de su mundo, mirá el corpus: buscá lo justo (dos a cuatro consultas suelen alcanzar), no todo.
@@ -297,7 +310,7 @@ export function promptDiario(db: Db): string {
 - Respondé breve, una o dos oraciones. A veces alcanza con devolverle lo que oíste con otras palabras; a veces, una sola pregunta que abra.
 - No des consejos ni listas salvo que te los pida. No lo corrijas. No hables de la plataforma.
 - Si lo que cuenta conecta con algo que sabés de él, nombralo con suavidad.
-- Castellano rioplatense, con voseo, cálido, sin emojis.
+- Castellano argentino, tratándolo de usted, cálido, sin emojis. Acá no hay personaje ni humor: solo escuchar.
 
 Lo que sabés de ${op.nombre}
 ${op.texto}`

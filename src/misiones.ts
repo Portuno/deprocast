@@ -26,6 +26,7 @@ import { perfilDeRendimiento, textoDeRendimiento } from './rendimiento.ts'
 import { finanzasParaPrompt } from './finanzas.ts'
 import { aprenderParaPrompt } from './aprender.ts'
 import { focoParaRun } from './foco.ts'
+import { vozPara } from './personalidad.ts'
 
 export const NIVELES_MISION = ['principal', 'primaria', 'secundaria', 'terciaria'] as const
 export type NivelMision = (typeof NIVELES_MISION)[number]
@@ -1047,7 +1048,7 @@ export async function latidoRuns(db: Db, ahora = Date.now(), o: { cerrarConModel
 const listaY = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} y ${xs.at(-1)}`)
 
 const SISTEMA_REPORTE_RUN = `Sos Mastropiero y escribís el reporte de una run que el jugador acaba de terminar.
-- Dos o tres párrafos cortos, en castellano rioplatense, como si le hablaras: qué salió, qué no y qué te dicen sus notas.
+- Dos o tres párrafos cortos, tratándolo de usted, como si le hablaras: qué salió, qué no y qué te dicen sus notas.
 - Si marcó tareas bien o mal armadas, o dejó un comentario de la run, decí qué forma repetir y cuál no.
 - Cerrá con uno a tres ajustes concretos para la próxima run (largo de bandas, tipo de tareas, orden, horario). Sin sermones.
 - No inventes: usá solo las misiones, sus marcas, si estuvieron bien o mal armadas y sus notas.
@@ -1071,7 +1072,9 @@ export async function cerrarRun(db: Db, id: number, o: { ahora?: number; conMode
   let texto = base
   if (o.conModelo !== false) {
     try {
-      const { datos } = await pedirJson<{ texto?: string; ajustes?: string[] }>({ db, clase: 'mastropiero', agenteId: 'reporte' }, SISTEMA_REPORTE_RUN, [
+      const { datos } = await pedirJson<{ texto?: string; ajustes?: string[] }>({ db, clase: 'mastropiero', agenteId: 'reporte' }, `${SISTEMA_REPORTE_RUN}
+
+${vozPara('ceremonia')}`, [
         base, run.pedido.texto ? `Lo que pidió: «${run.pedido.texto}»` : '',
         `Misiones:\n${ms.map((m) => `- ${m.inicio} ${m.titulo} [${m.estado}]${m.armado ? ` [armada: ${m.armado}]` : ''}${m.feedback ? ` — nota: ${m.feedback}` : ''}`).join('\n')}`,
         run.comentario ? `Comentario del jugador sobre la run: «${run.comentario}»` : '',
@@ -1108,7 +1111,7 @@ export function metricasSemana(db: Db, semana: string) {
 }
 
 const SISTEMA_REPORTE_SEMANA = `Sos Mastropiero y escribís el reporte semanal del jugador: todo lo hecho, el avance de sus primarias, sus runs y lo que quedó.
-- Tres a cinco párrafos cortos, en castellano rioplatense, cálido y honesto: qué avanzó de verdad, qué quedó quieto, patrones que ves (horarios, tipos de tarea, energía).
+- Tres a cinco párrafos cortos, tratándolo de usted, cálido y honesto: qué avanzó de verdad, qué quedó quieto, patrones que ves (horarios, tipos de tarea, energía).
 - Nombrá las primarias por su título y su progreso. Mencioná lo que otros le deben si hay.
 - Cerrá con una sugerencia para la semana que viene. Solo con los datos que tenés.
 Forma: {"texto": string}`
@@ -1120,7 +1123,9 @@ export async function reporteSemana(db: Db, semana = semanaDe(), o: { ahora?: nu
   let texto = [base, ...met.primarias.map((p) => `- ${p.titulo}: ${p.progreso}% · ${p.bandas} bandas · ${p.minutos} min`)].join('\n')
   if (o.conModelo !== false) {
     try {
-      const { datos } = await pedirJson<{ texto?: string }>({ db, clase: 'mastropiero', agenteId: 'reporte' }, SISTEMA_REPORTE_SEMANA, JSON.stringify(met), { temperatura: 0.4, maxTokens: 2500 })
+      const { datos } = await pedirJson<{ texto?: string }>({ db, clase: 'mastropiero', agenteId: 'reporte' }, `${SISTEMA_REPORTE_SEMANA}
+
+${vozPara('ceremonia')}`, JSON.stringify(met), { temperatura: 0.4, maxTokens: 2500 })
       if (typeof datos.texto === 'string' && datos.texto.trim()) texto = datos.texto.trim()
     } catch {
       // queda el de números

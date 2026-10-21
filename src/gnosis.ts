@@ -17,6 +17,7 @@ import { resumenDia, listarSalud } from './salud.ts'
 import { listarMovimientos } from './finanzas.ts'
 import { diaDelPlan, VERBOS } from './cien.ts'
 import { progreso } from './jornada.ts'
+import { vozPara } from './personalidad.ts'
 
 const FUENTE = { id: 'vida', nombre: 'Mi vida (registros)', nivel: 'propia', descripcion: 'La crónica de cada día: cuerpo, plata, plan, aprendizaje y trabajo, armada con lo que registró.' }
 const FUENTE_SINTESIS = { id: 'gnosis', nombre: 'Gnosis (síntesis)', nivel: 'investigacion', descripcion: 'Lo que Mastropiero destila de sus semanas: patrones que cruzan dominios.' }
@@ -98,11 +99,13 @@ export function escribirCronica(db: Db, fecha: string, ahora = Date.now()): numb
 
 const SISTEMA = `Sos Mastropiero y destilás la semana del jugador: leés sus crónicas diarias (cuerpo, plata, plan, aprendizaje, trabajo) y lo que ya sabés de él, y encontrás lo que él no ve día a día.
 - «patrones»: de 2 a 5 afirmaciones atómicas y verificables que CRUZAN dominios o se repiten en la semana («Los tres días que entrenó votó al menos tres verbos», «El gasto en comida fuera sube los días de oficina», «Practica francés cuando camina»). Cada una con su evidencia (días o números). Nada genérico ni de autoayuda. Si no hay patrón real, menos o ninguno.
-- «texto»: la carta de la semana en dos o tres párrafos cortos, rioplatense, directa: qué se movió, qué se trabó, qué conviene la semana que viene.
+- «texto»: la carta de la semana en dos o tres párrafos cortos, tratándolo de usted, directa: qué se movió, qué se trabó, qué conviene la semana que viene.
 - «preguntas»: 1 o 2 preguntas concretas cuya respuesta te haría entenderlo mejor (lo que los datos no dicen).
 Forma: {"patrones": [{"texto": string, "evidencia": string}], "texto": string, "preguntas": [string]}`
 
-let modelo = async (db: Db, usuario: string) => (await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'gnosis' }, SISTEMA, usuario, { temperatura: 0.4, maxTokens: 3000, largo: true })).datos
+let modelo = async (db: Db, usuario: string) => (await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'gnosis' }, `${SISTEMA}
+
+${vozPara('ceremonia')}`, usuario, { temperatura: 0.4, maxTokens: 3000, largo: true })).datos
 export function _probarGnosis(f: typeof modelo) {
   modelo = f
 }

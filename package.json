@@ -13,7 +13,8 @@
     "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json",
     "doctor": "node --disable-warning=ExperimentalWarning src/cli.ts doctor",
-    "medir": "node --disable-warning=ExperimentalWarning scripts/medir.ts"
+    "medir": "node --disable-warning=ExperimentalWarning scripts/medir.ts",
+    "probar-voz": "node --disable-warning=ExperimentalWarning scripts/probar-voz.ts"
   },
   "devDependencies": {
     "@types/node": "^24.19.1",

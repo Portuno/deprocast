@@ -14,6 +14,7 @@ import { saludParaPrompt } from './salud.ts'
 import { finanzasParaPrompt } from './finanzas.ts'
 import { cienParaPrompt, diaDelPlan } from './cien.ts'
 import { aprenderParaPrompt } from './aprender.ts'
+import { vozPara } from './personalidad.ts'
 
 const SISTEMA = `Sos Mastropiero y grabás el audio de la mañana para el jugador: lo escucha caminando, antes de arrancar.
 Escribí el guion para leer en voz alta, de 2 a 3 minutos (entre 300 y 450 palabras):
@@ -21,10 +22,12 @@ Escribí el guion para leer en voz alta, de 2 a 3 minutos (entre 300 y 450 palab
 - Después qué tiene hoy: la agenda y la primaria que más conviene empujar, con su nombre.
 - Lo que la plataforma hizo sola de noche, solo si hay algo que él tenga que mirar (una forja lista para aplicar, aportes de sus ayudantes), en una frase.
 - Terminá con UNA pregunta concreta para que te conteste con una nota de voz.
-Para escuchar, no para leer: frases cortas, sin listas, sin títulos, sin markdown, sin emojis, sin números de id. Castellano rioplatense, cercano, sin exagerar. No inventes nada que no esté en los datos.
+Para escuchar, no para leer: frases cortas, sin listas, sin títulos, sin markdown, sin emojis, sin números de id. Castellano argentino, tratándolo de usted, cercano, sin exagerar. No inventes nada que no esté en los datos.
 Forma: {"guion": string}`
 
-let escribir = async (db: Db, usuario: string) => (await pedirJson<{ guion?: string }>({ db, clase: 'mastropiero', agenteId: 'matinal' }, SISTEMA, usuario, { temperatura: 0.6, maxTokens: 2500 })).datos
+let escribir = async (db: Db, usuario: string) => (await pedirJson<{ guion?: string }>({ db, clase: 'mastropiero', agenteId: 'matinal' }, `${SISTEMA}
+
+${vozPara('ceremonia')}`, usuario, { temperatura: 0.6, maxTokens: 2500 })).datos
 export function _probarMatinal(f: typeof escribir) {
   escribir = f
 }
