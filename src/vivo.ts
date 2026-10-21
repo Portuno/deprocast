@@ -23,6 +23,16 @@ export type EstadoVivo = {
   banda: { titulo: string; restan: number | null; siguiente: string | null } | null
   momentos: { id: number; tipo: string; desde: number; app: string | null; actividad: string | null; tema: string | null; texto: string | null }[]
   pendientes: number
+  /** Lo que cuesta: tokens por hora del Directo (mirar y escribir los tramos) y lo del copiloto hoy. */
+  costo: { directoPorHora: number; copilotoHoy: number }
+}
+
+function costo(db: Db, inicio: number, ahora: number): EstadoVivo['costo'] {
+  const t = (sql: string, ...xs: number[]) => (db.prepare(`SELECT COALESCE(SUM(tokens_in), 0) + COALESCE(SUM(tokens_out), 0) AS t FROM llamadas WHERE ${sql}`).get(...xs) as { t: number }).t
+  const d = new Date(ahora)
+  const hoy = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const horas = Math.max(0.25, (ahora - inicio) / 3_600_000)
+  return { directoPorHora: Math.round(t(`agente_id = 'directo' AND en >= ?`, inicio) / horas), copilotoHoy: t(`agente_id = 'copiloto' AND en >= ?`, hoy) }
 }
 
 export function estadoVivo(db: Db, ahora = Date.now()): EstadoVivo | null {
@@ -53,6 +63,7 @@ export function estadoVivo(db: Db, ahora = Date.now()): EstadoVivo | null {
     banda: vivo?.actual ? { titulo: vivo.actual.titulo, restan: vivo.restan, siguiente: vivo.siguientes[0]?.titulo ?? null } : vivo ? { titulo: 'Entre bandas', restan: null, siguiente: vivo.siguientes[0]?.titulo ?? null } : null,
     momentos: ms.slice(-40).map((m: Momento & any) => ({ id: m.id, tipo: m.tipo, desde: m.desde, app: m.app, actividad: m.actividad, tema: m.tema, texto: m.texto ? String(m.texto).slice(0, 200) : null })),
     pendientes: propuestasDe(s).filter((p) => p.estado === 'pendiente').length,
+    costo: costo(db, s.inicio, ahora),
   }
 }
 

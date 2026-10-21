@@ -32,6 +32,8 @@ function seguirVivo() {
   traerVivo()
 }
 
+const miles = (n) => (n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n))
+
 const reloj = (desde) => {
   const s = Math.max(0, Math.floor((Date.now() - desde) / 1000))
   return `${Math.floor(s / 3600) ? `${Math.floor(s / 3600)}:` : ''}${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
@@ -96,6 +98,7 @@ function pintarVivo() {
       ${a ? `<span title="Lo que lleva en lo mismo, contra su meta de bloque">▣ ${d.bloque}′${d.meta ? ` de ${d.meta}′` : ''}<i class="vivo-barra"><b style="width:${pct}%"></b></i></span>` : ''}
       ${d.enEstimulo ? '<span class="vivo-alerta">alto estímulo</span>' : ''}
       ${d.estimuloHoy ? `<span class="tenue">estímulo hoy ${d.estimuloHoy}′</span>` : ''}
+      ${d.costo?.directoPorHora || d.costo?.copilotoHoy ? `<span class="tenue" title="Lo que gasta el Directo por hora (mirar y escribir los tramos) y el copiloto hoy">≈ ${miles(d.costo.directoPorHora)} tok/h${d.costo.copilotoHoy ? ` · 💡 ${miles(d.costo.copilotoHoy)}` : ''}</span>` : ''}
       ${d.banda ? `<span>⚔ ${esc(d.banda.titulo)}${d.banda.restan != null ? ` · quedan ${d.banda.restan}′` : ''}${d.banda.siguiente ? ` <span class="tenue">→ ${esc(d.banda.siguiente)}</span>` : ''}</span>` : '<span class="tenue">sin run</span>'}
     </div>`
   const en = (id, f) => { const b = $(id); if (b) b.onclick = f }

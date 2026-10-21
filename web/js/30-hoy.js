@@ -908,12 +908,22 @@ function modalAjustesHoy() {
       <label class="fila" style="gap:6px"><input type="checkbox" id="aj-directo" ${hoyDatos.ajustes.directo_auto !== '0' ? 'checked' : ''}> Del Directo, las ideas y lo que miraste entran solas (tareas, personas y conexiones esperan tu ok)</label>
       <label class="campo">Mastropiero piensa solo cada (horas, 0 = nunca)<input id="aj-pensar" type="number" min="0" max="24" value="${esc(hoyDatos.ajustes.pensar_cada_horas ?? 3)}"></label>
       <label class="campo">Tu horario fijo (las runs no ponen nada encima; vacío = sin horario)<input id="aj-horario" placeholder="L-J 08:30-17:30 Trabajo; V 08:30-14:30 Trabajo" value="${esc(hoyDatos.ajustes.horario_fijo ?? '')}"></label></div>
+    <h3 class="sub">Directo y voz</h3>
+    <div class="form-ing">
+      <label class="campo">El Directo escribe lo que vio cada (minutos, mínimo 10)<input id="aj-tramo" type="number" min="10" max="120" value="${esc(hoyDatos.ajustes.directo_tramo_min ?? 20)}"></label>
+      <label class="campo">Lo que el Directo no mira (apps o sitios, separados por coma: queda «Privado», sin detalle)<input id="aj-privado" placeholder="banco, whatsapp" value="${esc(hoyDatos.ajustes.directo_privado ?? '')}"></label>
+      <label class="campo">La voz de Mastropiero<select id="aj-voz"><option>…</option></select></label>
+      <label class="campo">Tecla para hablarle desde cualquier pantalla (mantener)<select id="aj-tecla">${['Alt', 'Control', 'F8', 'F9', 'ninguna'].map((t) => `<option ${teclaVoz() === t ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+    </div>
     <h3 class="sub">Rutinas</h3>
     ${r.map((x) => `<div class="fila" style="margin:6px 0"><label class="fila" style="gap:6px;min-width:260px"><input type="checkbox" data-rut-activa="${x.id}" ${x.activa ? 'checked' : ''}> ${esc(x.nombre)}</label>
       <input class="campo-suelto" type="time" data-rut-hora="${x.id}" value="${esc(x.hora)}" style="width:120px;margin:0"><small class="tenue">${x.dias === '0123456' ? 'todos los días' : x.dias.split('').map((d) => ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'][d]).join(', ')}</small></div>`).join('')}
     <h3 class="sub">Plantillas de run</h3>
     ${ps.map((p) => `<div class="fila" style="margin:4px 0"><span style="min-width:200px">${esc(p.nombre)}</span><small class="tenue">${esc(JSON.stringify(p.pedido))}</small>${p.sistema ? '' : `<button class="btn btn-chico btn-peligro" data-borrar-p="${p.id}">Borrar</button>`}</div>`).join('')}
     <div class="fila" style="margin-top:16px"><button class="btn btn-primario" id="aj-guardar">Guardar</button><button class="btn" id="aj-apps" title="Morpheon y otras apps tuyas que le hablan a Deprocast">🔌 Apps conectadas</button><button class="btn" id="aj-velocidad" title="Cuánto tarda cada ruta y cuánto se traba el servidor">⏱ Velocidad</button></div>`)
+  api('/voz').then((v) => {
+    $('#aj-voz').innerHTML = Object.entries(v.voces).map(([k, n]) => `<option value="${esc(k)}" ${v.voz === k ? 'selected' : ''}>${esc(n)}</option>`).join('')
+  }).catch(() => {})
   $('#aj-apps').onclick = modalApps
   $('#aj-velocidad').onclick = modalVelocidad
   $$('[data-borrar-p]').forEach((b) => (b.onclick = async () => {
@@ -921,7 +931,8 @@ function modalAjustesHoy() {
   }))
   $('#aj-guardar').onclick = async () => {
     try {
-      await api('/ajustes', { primarias_semana: $('#aj-prim').value, tokens_dia_max: $('#aj-tope').value, pensar_cada_horas: $('#aj-pensar').value, fragua_por_noche: $('#aj-fragua').value, ciclo_bandas: $('#aj-ciclo').value, directo_auto: $('#aj-directo').checked ? '1' : '0', horario_fijo: $('#aj-horario').value })
+      await api('/ajustes', { primarias_semana: $('#aj-prim').value, tokens_dia_max: $('#aj-tope').value, pensar_cada_horas: $('#aj-pensar').value, fragua_por_noche: $('#aj-fragua').value, ciclo_bandas: $('#aj-ciclo').value, directo_auto: $('#aj-directo').checked ? '1' : '0', horario_fijo: $('#aj-horario').value, directo_tramo_min: $('#aj-tramo').value, directo_privado: $('#aj-privado').value, ...($('#aj-voz').value !== '…' ? { voz_mastropiero: $('#aj-voz').value } : {}) })
+      pref.guardar('mastro-voz-tecla', $('#aj-tecla').value)
       for (const x of r) await api(`/rutinas/${x.id}`, { hora: $(`[data-rut-hora="${x.id}"]`).value, activa: $(`[data-rut-activa="${x.id}"]`).checked })
       cerrarModal()
       toast('Guardado', 'suave')

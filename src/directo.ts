@@ -84,6 +84,14 @@ let vision = async (db: Db, imagen: string) => {
   return j ?? {}
 }
 let transcribir = (db: Db, audio: Buffer, nombre: string) => nanTranscribir(db, audio, nombre)
+
+/** Las apps y sitios que no se miran (ajuste directo_privado, separados por coma; vacío de entrada). */
+export const PRIVADO = 'Privado'
+export const appsPrivadas = (db: Db): string[] => String(ajuste(db, 'directo_privado') ?? '').split(',').map((x) => norm(x)).filter(Boolean)
+export const esPrivado = (db: Db, app: string | null, detalle: string | null) => {
+  const xs = appsPrivadas(db)
+  return xs.length > 0 && xs.some((x) => `${norm(app)} ${norm(detalle)}`.includes(x))
+}
 export function _probarDirecto(o: { vision?: typeof vision; transcribir?: typeof transcribir }) {
   if (o.vision) vision = o.vision
   if (o.transcribir) transcribir = o.transcribir
@@ -97,7 +105,9 @@ export async function registrarCuadro(db: Db, id: number, imagen: Buffer, mime =
   sesionViva(db, id)
   db.prepare('UPDATE directo_sesiones SET ultimo = ? WHERE id = ?').run(ahora, id)
   const v = await vision(db, `data:${mime};base64,${imagen.toString('base64')}`)
-  const m = { app: corto(v.app, 60), actividad: corto(v.actividad, 40), tema: corto(v.tema, 120), detalle: corto(v.detalle, 200), nota: corto(v.nota, 300) }
+  let m = { app: corto(v.app, 60), actividad: corto(v.actividad, 40), tema: corto(v.tema, 120), detalle: corto(v.detalle, 200), nota: corto(v.nota, 300) }
+  // Lo que no se mira (el banco, un chat personal): queda que estuvo ahí, sin nada de lo que había.
+  if (esPrivado(db, m.app, m.detalle)) m = { app: PRIVADO, actividad: null, tema: null, detalle: null, nota: null }
   const ultimo = db.prepare(`SELECT * FROM directo_momentos WHERE sesion_id = ? AND tipo = 'pantalla' ORDER BY id DESC LIMIT 1`).get(id) as any
   if (ultimo && norm(ultimo.app) === norm(m.app) && norm(ultimo.detalle) === norm(m.detalle) && ahora - ultimo.hasta < 10 * 60_000) {
     const nota = [ultimo.nota, m.nota].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).join(' ').slice(0, 600) || null
@@ -131,6 +141,8 @@ export async function registrarAudio(db: Db, id: number, audio: Buffer, tipo: 'v
   const visto = tipo === 'medio'
     ? db.prepare(`SELECT app, detalle, tema FROM directo_momentos WHERE sesion_id = ? AND tipo = 'pantalla' ORDER BY id DESC LIMIT 1`).get(id) as any
     : null
+  // Lo que suena en una pantalla privada tampoco se guarda (su propia voz sí: es suya).
+  if (visto?.app === PRIVADO) return null
   const r = db.prepare(`INSERT INTO directo_momentos (sesion_id, tipo, desde, hasta, app, detalle, tema, texto) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(id, tipo, o.desde ?? ahora - 60_000, ahora, visto?.app ?? null, visto?.detalle ?? null, visto?.tema ?? null, texto.slice(0, 8000))
   return deMomento(db.prepare('SELECT * FROM directo_momentos WHERE id = ?').get(Number(r.lastInsertRowid)))

@@ -476,7 +476,7 @@ export async function enviar(db: Db, cid: number, texto: string, o: { hud?: stri
 ${o.extra}` : ''}${enCierre && o.via === 'voz' ? `
 
 ${REGLAS_DE_CIERRE}
-${vozPara('ceremonia')}` : ''}`, hs, previos, clase: 'mastropiero', agenteId: MASTROPIERO, grupos,
+${vozPara('ceremonia')}` : ''}`, hs, previos, clase: 'mastropiero', agenteId: o.via === 'copiloto' ? 'copiloto' : MASTROPIERO, grupos,
         ctx: {
           db, conversacionId: cid, hablarConAgente: (id, m) => hablarConAgente(db, id, m),
           activar: (gs) => { for (const g of gs) if (GRUPOS[g]) grupos.add(g); return activas(hs, grupos).map((h) => h.nombre) },

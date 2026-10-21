@@ -343,7 +343,7 @@ const rutas: [string, RegExp, Ruta][] = [
       paraDecidir: bandeja(db).total,
       tarjetasHoy: (db.prepare(`SELECT COUNT(*) AS n FROM tarjetas WHERE estado = 'activa' AND proxima <= ?`).get(fecha) as { n: number }).n,
       manoNuevas: nuevasParaJugar(db),
-      ajustes: { primarias_semana: ajuste(db, 'primarias_semana'), tokens_dia_max: ajuste(db, 'tokens_dia_max'), pensar_cada_horas: ajuste(db, 'pensar_cada_horas'), meta_ingresos_mes: ajuste(db, 'meta_ingresos_mes'), directo_auto: ajuste(db, 'directo_auto'), fragua_por_noche: ajuste(db, 'fragua_por_noche'), ciclo_bandas: ajuste(db, 'ciclo_bandas'), horario_fijo: horarioComoTexto(leerHorario(db)) },
+      ajustes: { primarias_semana: ajuste(db, 'primarias_semana'), tokens_dia_max: ajuste(db, 'tokens_dia_max'), pensar_cada_horas: ajuste(db, 'pensar_cada_horas'), meta_ingresos_mes: ajuste(db, 'meta_ingresos_mes'), directo_auto: ajuste(db, 'directo_auto'), fragua_por_noche: ajuste(db, 'fragua_por_noche'), ciclo_bandas: ajuste(db, 'ciclo_bandas'), horario_fijo: horarioComoTexto(leerHorario(db)), directo_tramo_min: ajuste(db, 'directo_tramo_min'), directo_privado: ajuste(db, 'directo_privado') },
     }
   }],
   // El HUD de Hoy: lo de cada modo que no viene en /api/hoy, y las líneas de registro de lo que se hace desde ahí
@@ -383,7 +383,7 @@ const rutas: [string, RegExp, Ruta][] = [
       fijarAjuste(db, 'ciclo_bandas', c.replace(/\s+/g, ''))
     }
     if (b.apps_estimulo != null) fijarAjuste(db, 'apps_estimulo', String(b.apps_estimulo).slice(0, 500))
-    for (const k of ['primarias_semana', 'tokens_dia_max', 'pensar_cada_horas', 'directo_auto', 'fragua_por_noche', 'voz_mastropiero', 'directo_tramo_min', 'copiloto_cada_min']) if (b[k] != null && String(b[k]).trim()) fijarAjuste(db, k, String(b[k]).trim())
+    for (const k of ['primarias_semana', 'tokens_dia_max', 'pensar_cada_horas', 'directo_auto', 'fragua_por_noche', 'voz_mastropiero', 'directo_tramo_min']) if (b[k] != null && String(b[k]).trim()) fijarAjuste(db, k, String(b[k]).trim())
     if (b.directo_privado != null) fijarAjuste(db, 'directo_privado', String(b.directo_privado).slice(0, 1000))
     if (b.meta_ingresos_mes != null) fijarAjuste(db, 'meta_ingresos_mes', String(b.meta_ingresos_mes).trim())
     if (b.horario_fijo != null) fijarHorario(db, String(b.horario_fijo).trim() ? horarioDeTexto(String(b.horario_fijo)) : [])
