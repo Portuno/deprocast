@@ -463,7 +463,8 @@ export async function cerrarDirecto(db: Db, id: number, o: { ahora?: number; con
 /** El informe de una hora de un Directo que sigue prendido. */
 export type Tramo = { desde: number; hasta: number; texto: string }
 export const tramosDe = (s: { resumen: Record<string, unknown> | null }): Tramo[] => (Array.isArray(s.resumen?.tramos) ? s.resumen!.tramos as Tramo[] : [])
-const minutosDeTramo = (db: Db) => Math.max(15, Number(ajuste(db, 'directo_tramo_min')) || 60)
+// Cada 20 minutos por defecto: las propuestas llegan mientras trabaja y se validan en Hoy sin apagar nada.
+const minutosDeTramo = (db: Db) => Math.max(10, Number(ajuste(db, 'directo_tramo_min')) || 20)
 const hora = (t: number) => new Date(t).toTimeString().slice(0, 5)
 
 /** Suma propuestas nuevas a las que ya había (sin repetir y sin tocar las que él ya aceptó o descartó). */

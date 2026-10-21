@@ -11,7 +11,7 @@ const aMinJs = (h) => Number(h.slice(0, 2)) * 60 + Number(h.slice(3, 5))
 async function montarHoy() {
   $('#principal').classList.add('lleno')
   $('#principal').innerHTML = `<div class="hoy ${pref.leer('mastro-hoy-foco', 'no') === 'si' ? 'foco' : ''}" id="hoy" style="--hoy-dia:${Number(pref.leer('mastro-hoy-ancho', '')) || Math.max(340, Math.round(window.innerWidth * 0.3))}px">
-    <section class="chat-main hoy-chat">${hiloHTMLBase()}<button class="hoy-mostrar" id="hoy-mostrar" title="Mostrar las tareas del día">⇤ ☀ <span id="hoy-mini"></span></button></section>
+    <section class="chat-main hoy-chat"><div class="hoy-vivo apagado" id="hoy-vivo"></div>${hiloHTMLBase()}<button class="hoy-mostrar" id="hoy-mostrar" title="Mostrar las tareas del día">⇤ ☀ <span id="hoy-mini"></span></button></section>
     <div class="hoy-divisor" id="hoy-divisor" title="Arrastrá para repartir el espacio entre el chat y las tareas (doble clic: ocultar las tareas)"></div>
     <section class="hoy-dia" id="hoy-dia"></section></div>`
   engancharSplitHoy()
@@ -20,6 +20,7 @@ async function montarHoy() {
   await traerHoy()
   await traerConversaciones()
   if (hoyDatos) await abrirConversacion(hoyDatos.conversacion)
+  seguirVivo() // el Directo en vivo, arriba del chat
 }
 
 /** El día y el chat comparten la pantalla: el divisor se arrastra (y se recuerda); el día se puede ocultar entero. */

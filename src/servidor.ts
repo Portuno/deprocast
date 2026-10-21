@@ -311,6 +311,12 @@ const rutas: [string, RegExp, Ruta][] = [
     void enviar(db, cid, String(b.texto), { hud: typeof b.hud === 'string' ? b.hud : null })
     return { ok: true }
   }],
+  // 💡 Un consejo para este momento (solo cuando lo pide): entra como su pedido y contesta con lo que ve en vivo.
+  ['POST', /^\/api\/chat\/(\d+)\/consejo$/, async (b, [c]) => {
+    if (estaPensando(id(c))) throw new Error('Esperá: todavía está contestando')
+    ;(await import('./copiloto.ts')).pedirConsejo(db, id(c), { hud: typeof b.hud === 'string' ? b.hud : null })
+    return { ok: true }
+  }],
   ['POST', /^\/api\/chat\/(\d+)\/archivar$/, (_, [c]) => (archivarConversacion(db, id(c)), { ok: true })],
   // Deshacer lo que escribió Mastropiero en un turno (la comida, el gasto, la misión…): borra lo creado.
   ['POST', /^\/api\/chat\/(\d+)\/deshacer$/, (b, [c]) => {
@@ -656,7 +662,20 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/procesos\/(\d+)\/kpis\/proponer$/, async (_, [p]) => { soloNube('Los KPIs'); return (await import('./discovery.ts')).proponerKpis(db, id(p)) }],
   // El modo sombra: la bandeja de lo que espera tu ok, deshacer lo que hizo solo, y cuánto acierta cada cosa.
   ['GET', /^\/api\/bandeja$/, async () => (await import('./sombra.ts')).bandeja(db)],
-  ['POST', /^\/api\/bandeja\/(\w+)\/(\d+)$/, async (b, [t, i]) => { (await import('./sombra.ts')).resolverBandeja(db, t, id(i), b.accion); return { ok: true } }],
+  ['POST', /^\/api\/bandeja\/(\w+)\/(\d+)$/, async (b, [t, i]) => { await (await import('./sombra.ts')).resolverBandeja(db, t, id(i), b.accion); return { ok: true } }],
+  // Varias de una («aceptar todas las tareas», «todo»): cada una por su camino; lo que falle se informa sin frenar el resto.
+  ['POST', /^\/api\/bandeja\/lote$/, async (b) => {
+    const { resolverBandeja } = await import('./sombra.ts')
+    const items = Array.isArray(b.items) ? b.items.slice(0, 200) : []
+    const errores: string[] = []
+    let hechas = 0
+    for (const x of items) {
+      try { await resolverBandeja(db, String(x.tipo), x.id, String(x.accion)); hechas++ } catch (e) { errores.push(e instanceof Error ? e.message : String(e)) }
+    }
+    return { hechas, errores }
+  }],
+  // El Directo en vivo, para Hoy: qué está haciendo, el bloque, la run, los últimos momentos y lo pendiente.
+  ['GET', /^\/api\/directo\/vivo$/, async () => ({ vivo: (await import('./vivo.ts')).estadoVivo(db) })],
   ['POST', /^\/api\/decisiones\/(\d+)\/deshacer$/, async (_, [d]) => (await import('./sombra.ts')).deshacerDecision(db, id(d))],
   ['GET', /^\/api\/sombra$/, async () => ({ tipos: (await import('./decisiones.ts')).estadoSombra(db) })],
   ['POST', /^\/api\/sombra$/, async (b) => { (await import('./decisiones.ts')).fijarModo(db, String(b.tipo ?? ''), b.modo); return { ok: true } }],

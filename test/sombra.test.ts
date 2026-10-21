@@ -120,7 +120,7 @@ test('Modo sombra: ofrece «auto» cuando la cota llega a 0,95 (unos 80 aciertos
   assert.equal(ultima(db, 'monto').accion, 'deshecha')
 })
 
-test('Directo: lo que va solo queda anotado con cómo deshacerlo; la bandeja junta lo pendiente y resuelve por el camino de siempre', () => {
+test('Directo: lo que va solo queda anotado con cómo deshacerlo; la bandeja junta lo pendiente y resuelve por el camino de siempre', async () => {
   const db = abrir(':memory:')
   const prop = (id: string, tipo: string, titulo: string) => ({ id, tipo, estado: 'pendiente', titulo, detalle: null, misionId: null, tipoEntidad: null, tipoCon: null, alias: [], de: null, con: null, oido: null })
   const sid = Number(db.prepare(`INSERT INTO directo_sesiones (inicio, fin, estado, resumen) VALUES (?, ?, 'cerrada', ?)`)
@@ -141,9 +141,15 @@ test('Directo: lo que va solo queda anotado con cómo deshacerlo; la bandeja jun
   assert.deepEqual(b.grupos.map((g) => g.tipo), ['monto', 'primaria', 'directo', 'recuerdo'])
   assert.equal(b.grupos.find((g) => g.tipo === 'directo')!.n, 1)
   assert.equal(b.total, 4)
-  sombra.resolverBandeja(db, 'recuerdo', r.id, 'aceptar', T)
+  await sombra.resolverBandeja(db, 'recuerdo', r.id, 'aceptar', T)
   assert.equal(ultima(db, 'recuerdo').accion, 'aceptada')
-  assert.throws(() => sombra.resolverBandeja(db, 'directo', 1, 'aceptar'), /se resuelve en su sección/)
+  // Lo del Directo ahora se resuelve en la misma bandeja: «sesión:propuesta».
+  const item = b.grupos.find((g) => g.tipo === 'directo')!.items[0]
+  assert.equal(item.id, `${sid}:b`)
+  assert.equal(item.texto, 'Tarea: Mandar el presupuesto')
+  await sombra.resolverBandeja(db, 'directo', item.id, 'aceptar', T)
+  assert.ok(db.prepare(`SELECT 1 FROM misiones WHERE titulo = 'Mandar el presupuesto'`).get())
+  await assert.rejects(sombra.resolverBandeja(db, 'nombre', 1, 'aceptar'), /se resuelve en su sección/)
 })
 
 test('Captura: el umbral sigue al acierto', () => {

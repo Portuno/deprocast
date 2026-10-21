@@ -196,8 +196,9 @@ const frasesDe = (texto, terminado) => frasesDesde(texto, 0, terminado).frases
 window.vozAvance = function vozAvance() {
   const l = voz.lectura
   if (!l || chat.actual?.id !== l.cid) return
-  const textos = chat.mensajes.filter((m) => m.id > l.desdeId && m.rol === 'asistente' && m.texto).map((m) => m.texto)
-  const borrador = chat.pensando ? chat.vivo?.borrador ?? '' : ''
+  // Sin el bloque de acciones rápidas ([[seguir]]): eso son botones, no se dice.
+  const textos = chat.mensajes.filter((m) => m.id > l.desdeId && m.rol === 'asistente' && m.texto).map((m) => partirSeguir(m.texto).texto)
+  const borrador = chat.pensando ? partirSeguir(chat.vivo?.borrador ?? '', true).texto : ''
   const todo = [...textos, borrador].filter(Boolean).join('\n\n')
   if (l.dichas === Infinity) { if (!chat.pensando) voz.lectura = null; return } // le habló encima: este turno ya no se lee
   // l.dichas: hasta qué posición del texto ya se encoló (por posición, así nada se pierde ni se repite).
@@ -316,7 +317,7 @@ async function seguirGlobo(cid) {
     await new Promise((r) => setTimeout(r, 700))
     const r = await api(`/chat/${cid}?desde=${base}`).catch(() => null)
     if (!r) continue
-    const texto = r.mensajes.filter((m) => m.rol === 'asistente' && m.texto).map((m) => m.texto).join('\n\n') || r.vivo?.borrador || ''
+    const texto = r.mensajes.filter((m) => m.rol === 'asistente' && m.texto).map((m) => partirSeguir(m.texto).texto).join('\n\n') || partirSeguir(r.vivo?.borrador ?? '', true).texto
     if (texto) globo(`<b>Mastropiero:</b> ${esc(texto.slice(0, 600))}${texto.length > 600 ? '…' : ''}<small>${r.pensando ? 'escribiendo…' : 'Toque para abrir Hoy'}</small>`, r.pensando ? 0 : 20000)
     if (!r.pensando) {
       if (voz.leer && texto) frasesDe(texto, true).forEach(encolar)

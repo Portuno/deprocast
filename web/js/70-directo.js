@@ -1,7 +1,7 @@
 'use strict'
 // ─── Directo: Mastropiero ve tu pantalla y te escucha (solo cuando lo prendés) ──
 
-const directo = { sesion: null, pantalla: null, mic: null, video: null, timer: null, reloj: null, grabadores: [], subidas: new Set(), huella: null, ultimoEnvio: 0, inicio: 0 }
+const directo = { sesion: null, pantalla: null, mic: null, video: null, timer: null, reloj: null, grabadores: [], subidas: new Set(), huella: null, ultimoEnvio: 0, inicio: 0, pausado: false, sinMic: false }
 
 function subirDirecto(ruta, blob, tipo) {
   const p = fetch(ruta, { method: 'POST', headers: { 'content-type': tipo }, body: blob }).catch(() => {})
@@ -66,6 +66,7 @@ async function prenderDirecto(op) {
     directo.reloj = setInterval(pintarIndicadorDirecto, 1000)
     pintarIndicadorDirecto()
     toast(`● En directo<small>${[pantalla && 'pantalla', mic && 'tu voz', conAudio && 'el audio de la pantalla'].filter(Boolean).join(', ')}. Apagalo desde el botón de arriba.</small>`)
+    setTimeout(() => window.traerVivo?.(), 2500) // la franja de Hoy, al toque
     if (op.audio && pantalla && !conAudio) toast('El navegador no compartió audio de la pantalla<small>Para videos y música, compartí la pantalla completa o una pestaña con «compartir audio».</small>', 'suave')
   } catch (e) {
     pantalla?.getTracks().forEach((t) => t.stop())
@@ -86,7 +87,8 @@ function grabarTramos(stream, tipo) {
     rec.ondataavailable = (e) => { if (e.data.size) partes.push(e.data) }
     rec.onstop = () => {
       const blob = new Blob(partes, { type: 'audio/webm' })
-      if (blob.size > 4000) subirDirecto(`/api/directo/${sesion}/audio?tipo=${tipo}&desde=${desde}&nombre=${tipo}.webm`, blob, 'audio/webm')
+      const callado = directo.pausado || (tipo === 'voz' && (directo.sinMic || !!voz?.vivo))
+      if (blob.size > 4000 && !callado) subirDirecto(`/api/directo/${sesion}/audio?tipo=${tipo}&desde=${desde}&nombre=${tipo}.webm`, blob, 'audio/webm')
       directo.grabadores = directo.grabadores.filter((r) => r !== rec)
       if (directo.sesion === sesion) tramo()
     }
@@ -100,7 +102,7 @@ function grabarTramos(stream, tipo) {
 /** Un cuadro solo si la pantalla cambió (o cada 5 minutos igual): ahorra modelo sin perder nada. */
 function capturarCuadro() {
   const v = directo.video
-  if (!directo.sesion || !v?.videoWidth) return
+  if (!directo.sesion || directo.pausado || !v?.videoWidth) return
   const chico = document.createElement('canvas')
   chico.width = 32
   chico.height = 18
@@ -125,6 +127,8 @@ async function detenerDirecto() {
   const sesion = directo.sesion
   if (!sesion) return
   directo.sesion = null
+  directo.pausado = false
+  directo.sinMic = false
   clearInterval(directo.timer)
   clearInterval(directo.reloj)
   directo.grabadores.forEach((r) => r.state !== 'inactive' && r.stop()) // cada uno sube su último tramo
@@ -137,6 +141,7 @@ async function detenerDirecto() {
   try {
     await Promise.allSettled([...directo.subidas])
     trasCerrar(await api(`/directo/${sesion}/cerrar`, {}))
+    window.traerVivo?.()
   } catch (e) { error(e) }
 }
 
@@ -335,11 +340,12 @@ const momentoDirectoHTML = (m) => `<div class="momento ${m.tipo}"><span class="m
 
 async function montarDirecto() {
   $('#principal').innerHTML = `
-    <div class="titulo"><h1>Directo</h1><p>El resumen de lo que Mastropiero vio, y una bandeja para aceptar o descartar. Las tareas, entidades y conexiones no entran solas.</p>
-      <div class="fila"><button class="btn btn-primario" id="dv-boton">${directo.sesion ? 'Apagar el Directo' : '● Prender el Directo'}</button></div></div>
+    <div class="titulo"><h1>Directo</h1><p>El archivo: tu foco de 14 días y los informes de cada Directo. Lo vivo (qué estás haciendo, los consejos, la charla y validar) está en Hoy.</p>
+      <div class="fila"><button class="btn" id="dv-hoy">Ir a Hoy →</button><button class="btn btn-primario" id="dv-boton">${directo.sesion ? 'Apagar el Directo' : '● Prender el Directo'}</button></div></div>
     <div id="dv-foco"></div>
     <div id="dv"></div>`
   $('#dv-boton').onclick = modalDirecto
+  $('#dv-hoy').onclick = () => irA('hoy')
   pintarFoco($('#dv-foco'))
   try {
     const d = await api('/directo')
@@ -352,7 +358,7 @@ async function montarDirecto() {
       ${d.activa ? `<section class="panel"><h3>En curso · desde las ${new Date(d.activa.inicio).toTimeString().slice(0, 5)}</h3>
         ${d.activa.resumen?.tramos?.length
           ? tableroDirecto({ ...d.activa, informe: d.activa.resumen.tramos.map((t) => `${horaDe(t.desde)}–${horaDe(t.hasta)} · ${t.texto}`).join('\n\n') })
-          : '<p class="tenue chico">Cada hora te dejo acá lo que vi, con sus propuestas: las podés ir aceptando sin apagarlo.</p>'}
+          : '<p class="tenue chico">Cada 20 minutos te dejo lo que vi, con sus propuestas: las validás en Hoy (📥) sin apagarlo.</p>'}
         ${d.activa.momentos.length ? `<div class="momentos" id="dv-momentos">${d.activa.momentos.slice().reverse().map(momento).join('')}</div>` : '<p class="tenue">Todavía nada: el primer cuadro llega en unos segundos y la voz al minuto.</p>'}</section>` : ''}
       <h3 class="sub">Informes</h3>
       ${d.sesiones.length ? d.sesiones.map((s) => {

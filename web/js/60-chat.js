@@ -340,7 +340,7 @@ function pintarChat() {
       ${sug.length ? `<div class="sugerencias">${sug.map((s) => `<button data-sug="${esc(s)}">${esc(s)}</button>`).join('')}</div>` : ''}</div>`
     $$('[data-sug]', col).forEach((b) => (b.onclick = () => { $('#chat-txt').value = b.dataset.sug; enviarChat() }))
   } else {
-    col.innerHTML = (chat.hayMas ? '<div class="chat-mas"><button class="btn btn-chico" id="chat-anteriores">Ver mensajes anteriores</button></div>' : '') + hiloHTML(chat.mensajes, q, chat.pensando ? chat.vivo ?? {} : null)
+    col.innerHTML = (chat.hayMas ? '<div class="chat-mas"><button class="btn btn-chico" id="chat-anteriores">Ver mensajes anteriores</button></div>' : '') + hiloHTML(window.conMomentos ? conMomentos(chat.mensajes) : chat.mensajes, q, chat.pensando ? chat.vivo ?? {} : null)
     if ($('#chat-anteriores')) $('#chat-anteriores').onclick = verAnteriores
   }
   $('#chat-enviar').disabled = chat.pensando
@@ -380,6 +380,8 @@ function hiloHTML(ms, q, vivo) {
   for (const m of ms) {
     // Una línea de registro (lo que hizo desde el HUD): sola, discreta, y corta el turno.
     if (m.rol === 'evento') { turnos.push({ evento: m }); continue }
+    // Un momento del Directo en vivo (Hoy): una línea fina, como un evento.
+    if (m.rol === 'momento') { turnos.push({ evento: m, momento: true }); continue }
     // Lo que manda una rutina (el saludo, el cierre, la calificación) es su propio mensaje: no se pega a la respuesta anterior.
     if (m.rol === 'asistente' && m.modelo === 'rutina') { turnos.push({ yo: null, herr: [], textos: m.texto ? [m.texto] : [], errores: [], tokens: 0, modelo: 'rutina', rutina: true, en: m.en }); continue }
     if (m.rol === 'operador' || !turnos.length || turnos.at(-1).evento || turnos.at(-1).rutina) turnos.push({ yo: m.rol === 'operador' ? m : null, herr: [], textos: [], errores: [], tokens: 0, modelo: null })
@@ -393,7 +395,7 @@ function hiloHTML(ms, q, vivo) {
       t.modelo = m.modelo ?? t.modelo
     }
   }
-  return turnos.map((t, i) => (t.evento ? `<div class="m-evento">· ${t.evento.en ? new Date(t.evento.en).toTimeString().slice(0, 5) : ''} ${esc(t.evento.texto ?? '')}</div>` : turnoHTML(t, q, i === turnos.length - 1 ? vivo : null))).join('')
+  return turnos.map((t, i) => (t.evento ? `<div class="m-evento${t.momento ? ' m-momento' : ''}">· ${t.evento.en ? new Date(t.evento.en).toTimeString().slice(0, 5) : ''} ${esc(t.evento.texto ?? '')}</div>` : turnoHTML(t, q, i === turnos.length - 1 ? vivo : null))).join('')
 }
 
 function turnoHTML(t, q, vivo) {

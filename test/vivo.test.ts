@@ -1,125 +1,85 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { abrir, fechaLocal } from '../src/db.ts'
-import { _probarModelo } from '../src/modelo.ts'
-import { archivar, corregir, escribaDeMemoria, memoriaParaPrompt, memoriaVigente, recordar } from '../src/memoria.ts'
-import { eventosDelDia, _probarCalendario } from '../src/calendario.ts'
-import { leerJornada } from '../src/jornada.ts'
-import { correrRutinas, pendientes } from '../src/rutinas.ts'
-import { _probarEscriba, conversacionHoy, crearConversacion, enviar, mensajes } from '../src/chat/index.ts'
-import { listarPiezas } from '../src/corpus.ts'
 
-process.env.GCAL_ICS_URLS = 'https://calendario.falso/ics'
+process.env.TZ = 'Europe/Madrid'
+process.env.NAN_API_KEY = 'test'
+
+const { abrir, fijarAjuste } = await import('../src/db.ts')
+const { iniciarDirecto } = await import('../src/directo.ts')
+const { estadoVivo, vivoParaPrompt } = await import('../src/vivo.ts')
+const { _probarModelo } = await import('../src/modelo.ts')
+const { _probarEscriba, conversacionHoy, estaPensando } = await import('../src/chat/index.ts')
+const { PEDIDO_CONSEJO, pedirConsejo, reglasDeConsejo } = await import('../src/copiloto.ts')
+const sombra = await import('../src/sombra.ts')
+
 _probarEscriba(async () => {})
+const sistemas: string[] = []
+_probarModelo(async (_l: any, o: any) => { sistemas.push(String(o.mensajes[0].content)); return { texto: 'Lleva 25 minutos en Instagram. [[seguir]]\nPasá a la siguiente banda\n[[/seguir]]', llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 } as any })
 
-type Vista = { sistema: string; usuario: string; herramientas: number }
-/** Modelo falso que contesta según quién pregunta (escriba, jornada o chat). */
-function modelo(respuestas: { escriba?: unknown; jornada?: unknown; chat?: string }) {
-  const vistos: Vista[] = []
-  _probarModelo(async (_l, o) => {
-    const sistema = String(o.mensajes[0].content)
-    const usuario = String(o.mensajes.at(-1)!.content)
-    vistos.push({ sistema, usuario, herramientas: (o.herramientas as unknown[]).length })
-    const datos = sistema.includes('escriba de memoria') ? respuestas.escriba : sistema.includes('armás la jornada') ? respuestas.jornada : sistema.includes('gemelo predictivo') ? { predicciones: [] } : null
-    return { texto: datos ? JSON.stringify(datos) : respuestas.chat ?? 'ok', llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }
-  })
-  return vistos
+const T = new Date(2026, 9, 21, 15, 0).getTime()
+const MIN = 60_000
+
+function sembrar() {
+  const db = abrir(':memory:')
+  fijarAjuste(db, 'apps_estimulo', 'instagram')
+  const s = iniciarDirecto(db, ['pantalla', 'voz'], T - 40 * MIN)
+  const m = db.prepare(`INSERT INTO directo_momentos (sesion_id, tipo, desde, hasta, app, actividad, tema, texto) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+  m.run(s.id, 'pantalla', T - 40 * MIN, T - 30 * MIN, 'VS Code', 'programando', 'Deprocast', null)
+  m.run(s.id, 'pantalla', T - 29 * MIN, T - 20 * MIN, 'Instagram', 'navegando', 'reels', null)
+  m.run(s.id, 'pantalla', T - 19 * MIN, T - 1 * MIN, 'Instagram', 'navegando', 'reels', null)
+  m.run(s.id, 'voz', T - 5 * MIN, T - 4 * MIN, null, null, null, 'tengo que llamar a Pablo')
+  const prop = { id: 'p1', tipo: 'tarea', estado: 'pendiente', titulo: 'Llamar a Pablo', detalle: null, misionId: null, tipoEntidad: null, tipoCon: null, alias: [], de: null, con: null, oido: 'tengo que llamar a Pablo' }
+  db.prepare('UPDATE directo_sesiones SET resumen = ? WHERE id = ?').run(JSON.stringify({ propuestas: [prop] }), s.id)
+  return { db, s }
 }
 
-const ICS = (cuerpo: string) => `BEGIN:VCALENDAR\r\n${cuerpo}\r\nEND:VCALENDAR`
-
-test('memoria: no duplica, corregir deja versión, archivar la saca', () => {
-  const db = abrir(':memory:')
-  const a = recordar(db, { texto: 'Prefiere trabajar en series de 12 minutos', tipo: 'preferencia' })
-  assert.equal(recordar(db, { texto: 'prefiere trabajar en series de 12 minutos.', tipo: 'preferencia' }).id, a.id)
-  const meta = recordar(db, { texto: 'Quiere ser mega millonario en un año', tipo: 'meta', horizonte: 'castillo' })
-  const b = corregir(db, a.id, { texto: 'Prefiere series de 25 minutos a la tarde' })
-  assert.equal(b.reemplaza, a.id)
-  assert.deepEqual(memoriaVigente(db).map((r) => r.id).sort(), [meta.id, b.id].sort())
-  assert.match(memoriaParaPrompt(db).split('\n')[0], /\[meta · castillo\]/, 'metas primero')
-  archivar(db, meta.id)
-  assert.equal(memoriaVigente(db).length, 1)
+test('En vivo: qué está haciendo, cuánto lleva en lo mismo, el estímulo, los momentos y lo que espera su ok', () => {
+  const { db, s } = sembrar()
+  const v = estadoVivo(db, T)!
+  assert.equal(v.sesion.id, s.id)
+  assert.deepEqual([v.actual!.app, v.actual!.tema], ['Instagram', 'reels'])
+  assert.equal(v.bloque, 29, 'los dos momentos seguidos de Instagram son un solo bloque, hasta ahora')
+  assert.equal(v.enEstimulo, true)
+  assert.equal(v.estimuloHoy, 27, '9 + 18 minutos de Instagram')
+  assert.equal(v.momentos.length, 4)
+  assert.equal(v.pendientes, 1)
+  assert.equal(v.banda, null, 'sin run')
+  const p = vivoParaPrompt(db, T)
+  assert.match(p, /Ahora: Instagram · navegando · reels, hace 29 min seguidos \(su meta de bloque es \d+ min\); es una app de alto estímulo/)
+  assert.match(p, /dijo: «tengo que llamar a Pablo»/)
+  assert.match(p, /Esperan su ok 1 cosas/)
+  assert.equal(estadoVivo(abrir(':memory:'), T), null, 'sin Directo, nada')
 })
 
-test('el escriba guarda lo que dice el operador y falla en silencio', async () => {
-  const db = abrir(':memory:')
-  const vistos = modelo({ escriba: { recuerdos: [{ texto: 'Quiere aprender ruso', tipo: 'meta', horizonte: 'campamento' }, { texto: '' }] } })
-  const nuevos = await escribaDeMemoria(db, 'Che, este año quiero aprender ruso en serio.', 7)
-  assert.equal(nuevos.length, 1)
-  assert.equal(nuevos[0].creadaPor, 'escriba')
-  assert.equal(nuevos[0].origen, 7)
-  assert.match(vistos[0].usuario, /aprender ruso en serio/)
-  assert.deepEqual(await escribaDeMemoria(db, 'ok', 7), [], 'lo corto no se lee')
-  _probarModelo(async () => { throw new Error('caído') })
-  assert.deepEqual(await escribaDeMemoria(db, 'Un mensaje largo cualquiera para recordar', 7), [])
+test('El consejo, solo cuando lo pide: entra como su pedido (💡), con el contexto en vivo y acciones rápidas', async () => {
+  const { db } = sembrar()
+  const cid = conversacionHoy(db).id
+  assert.match(reglasDeConsejo(db, T), /UNA sola cosa/)
+  assert.match(reglasDeConsejo(abrir(':memory:')), /El Directo está apagado/)
+  sistemas.length = 0
+  pedirConsejo(db, cid)
+  for (let i = 0; i < 200 && estaPensando(cid); i++) await new Promise((r) => setTimeout(r, 10))
+  const ms = db.prepare('SELECT rol, texto, via FROM mensajes WHERE conversacion_id = ? ORDER BY id').all(cid) as any[]
+  assert.deepEqual({ ...ms[0] }, { rol: 'operador', texto: PEDIDO_CONSEJO, via: 'copiloto' })
+  assert.match(sistemas[0], /te pidió un consejo para ESTE momento/)
+  assert.match(sistemas[0], /En vivo \(el Directo está prendido/, 've lo que está haciendo')
+  assert.match(ms.at(-1).texto, /\[\[seguir\]\]/)
 })
 
-test('calendario: UTC, TZID, día entero, repeticiones, excepciones y cancelados', () => {
-  const ics = ICS([
-    'BEGIN:VEVENT\r\nDTSTART:20261007T080000Z\r\nDTEND:20261007T090000Z\r\nSUMMARY:Reunión UTC\r\nEND:VEVENT',
-    'BEGIN:VEVENT\r\nDTSTART;TZID=Europe/Madrid:20261007T183000\r\nDTEND;TZID=Europe/Madrid:20261007T193000\r\nSUMMARY:Gym\\, piernas\r\nEND:VEVENT',
-    'BEGIN:VEVENT\r\nDTSTART;VALUE=DATE:20261007\r\nDTEND;VALUE=DATE:20261008\r\nSUMMARY:Feriado\r\nEND:VEVENT',
-    'BEGIN:VEVENT\r\nDTSTART;TZID=Europe/Madrid:20260930T100000\r\nDTEND;TZID=Europe/Madrid:20260930T101500\r\nRRULE:FREQ=WEEKLY;BYDAY=WE\r\nSUMMARY:Stand-up\r\nEND:VEVENT',
-    'BEGIN:VEVENT\r\nDTSTART:20261001T120000Z\r\nDTEND:20261001T123000Z\r\nRRULE:FREQ=DAILY;COUNT=3\r\nSUMMARY:Solo tres días\r\nEND:VEVENT',
-    'BEGIN:VEVENT\r\nDTSTART:20261007T150000Z\r\nDTEND:20261007T160000Z\r\nSTATUS:CANCELLED\r\nSUMMARY:Cancelado\r\nEND:VEVENT',
-    'BEGIN:VEVENT\r\nDTSTART;TZID=Europe/Madrid:20260923T090000\r\nDTEND;TZID=Europe/Madrid:20260923T093000\r\nRRULE:FREQ=WEEKLY\r\nEXDATE;TZID=Europe/Madrid:20261007T090000\r\nSUMMARY:Exceptuado\r\nEND:VEVENT',
-  ].join('\r\n'))
-  const ev = eventosDelDia([ics], '2026-10-07')
-  const titulos = ev.map((e) => e.titulo)
-  assert.deepEqual(titulos.sort(), ['Feriado', 'Gym, piernas', 'Reunión UTC', 'Stand-up'].sort())
-  const gym = ev.find((e) => e.titulo.startsWith('Gym'))!
-  assert.equal(gym.fin - gym.inicio, 3_600_000)
-  assert.ok(ev.find((e) => e.titulo === 'Feriado')!.todoElDia)
-  assert.equal(eventosDelDia([ics], '2026-10-03').filter((e) => e.titulo === 'Solo tres días').length, 1)
-  assert.equal(eventosDelDia([ics], '2026-10-04').filter((e) => e.titulo === 'Solo tres días').length, 0, 'COUNT=3 corta')
-})
-
-test('rutinas: corren una vez por día a su hora y dejan el mensaje en Hoy; el cierre recibe la respuesta', async () => {
-  const db = abrir(':memory:')
-  _probarCalendario(async () => ICS(''))
-  modelo({ chat: 'Gracias por contarme.' })
-  const ahora = new Date(2026, 9, 7, 7, 30).getTime()
-  assert.deepEqual(pendientes(db, ahora).map((r) => r.id), ['autocritica', 'fragua', 'lectura'], 'a las 07:30 solo las de la madrugada')
-  const nueve = new Date(2026, 9, 7, 9, 0).getTime()
-  const r = await correrRutinas(db, nueve)
-  // Las de la madrugada no tienen nada que hacer (sin errores, propuestas ni obras). La brújula y el audio fallan sin romper: el modelo falso no devuelve JSON.
-  assert.deepEqual(r.map((x) => [x.id, x.ok]), [['autocritica', true], ['fragua', true], ['lectura', true], ['ayudantes', true], ['matinal', false], ['brujula', false], ['prediccion', true], ['jornada', true]])
-  assert.equal((await correrRutinas(db, nueve + 60_000)).length, 0, 'una vez por día')
-  const hoy = conversacionHoy(db)
-  assert.match(mensajes(db, hoy.id).at(-1)!.texto!, /Buen día.*No tenés primarias.*arrancamos una run/)
-
-  const noche = new Date(2026, 9, 7, 22, 45).getTime()
-  await correrRutinas(db, noche)
-  assert.match(mensajes(db, hoy.id).at(-1)!.texto!, /Cerramos el día/)
-  // La respuesta del operador en Hoy queda como cierre (la jornada es la de hoy real, así que se usa la fecha de hoy).
-  db.prepare('UPDATE jornadas SET fecha = ? WHERE fecha = ?').run(fechaLocal(), '2026-10-07')
-  await enviar(db, hoy.id, 'Fue un día raro pero avancé con la película.')
-  assert.equal(leerJornada(db, fechaLocal())!.cierre, 'Fue un día raro pero avancé con la película.')
-})
-
-test('diario: lo que cuenta entra al corpus como propio y Mastropiero solo escucha', async () => {
-  const db = abrir(':memory:')
-  const vistos = modelo({ chat: 'Te escucho.' })
-  const c = crearConversacion(db, 'mastropiero', 'diario')
-  await enviar(db, c.id, 'Hoy caminé por el río pensando en la escena final.')
-  assert.equal(vistos.at(-1)!.herramientas, 0, 'en el diario no opera la plataforma')
-  assert.match(vistos.at(-1)!.sistema, /escuchás/)
-  const p = listarPiezas(db, { nivel: 'propia' }).piezas[0]
-  assert.match(p.titulo, /^Diario/)
-  assert.ok(p.etiquetas.includes('diario'))
-  assert.throws(() => crearConversacion(db, 'GEN-0001', 'diario'))
-})
-
-test('aprender de lo cargado: lee charlas y piezas propias, en paralelo, y cuenta lo nuevo', async () => {
-  const { insertar } = await import('../src/corpus.ts')
-  const { aprender, fuentesParaAprender } = await import('../src/memoria.ts')
-  const db = abrir(':memory:')
-  for (let i = 0; i < 6; i++) insertar(db, { fuente: 'operador', titulo: `audio ${i}`, contenido: `Grabación ${i}: `.padEnd(260, 'quiero filmar la escena final en el río y presentarla en festivales '), estado: 'disponible', peso: i })
-  insertar(db, { fuente: 'web', titulo: 'tercero', contenido: 'x'.repeat(300), estado: 'disponible' })
-  assert.equal(fuentesParaAprender(db, 10).length, 6, 'solo su voz')
-  let n = 0
-  _probarModelo(async () => ({ texto: JSON.stringify({ recuerdos: [{ texto: `Recuerdo número ${++n} sobre su película`, tipo: 'hecho' }] }), llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }))
-  const r = await aprender(db, 10)
-  assert.deepEqual(r, { hechos: 6, total: 6, nuevos: 6, terminado: true })
-  assert.equal(memoriaVigente(db).length, 6)
+test('Para validar: lo del Directo en curso se resuelve en la misma bandeja, de a una o en lote', async () => {
+  const { db, s } = sembrar()
+  const b = sombra.bandeja(db, T)
+  const g = b.grupos.find((x) => x.tipo === 'directo')!
+  assert.equal(g.n, 1, 'también lo del Directo que sigue prendido')
+  assert.equal(b.grupos[0].tipo, 'directo', 'con el Directo prendido, lo suyo va primero')
+  assert.deepEqual(g.items[0], { id: `${s.id}:p1`, texto: 'Tarea: Llamar a Pablo', sub: 'tengo que llamar a Pablo' })
+  await sombra.resolverBandeja(db, 'directo', `${s.id}:p1`, 'aceptar', T)
+  assert.ok(db.prepare(`SELECT 1 FROM misiones WHERE titulo = 'Llamar a Pablo'`).get())
+  assert.equal(sombra.bandeja(db, T).grupos.find((x) => x.tipo === 'directo'), undefined)
+  // Las propuestas de La Fragua también se resuelven acá.
+  const pid = Number(db.prepare(`INSERT INTO propuestas (titulo, detalle, estado, creada_en) VALUES ('Atajo para dictar', 'Mantener Alt', 'abierta', 1)`).run().lastInsertRowid)
+  assert.equal(sombra.bandeja(db, T).grupos.find((x) => x.tipo === 'propuesta')!.items[0].texto, 'Atajo para dictar')
+  await sombra.resolverBandeja(db, 'propuesta', pid, 'aceptar', T)
+  assert.equal((db.prepare('SELECT prioridad FROM propuestas WHERE id = ?').get(pid) as any).prioridad, 'alta', 'aceptar es marcarla para construir')
+  assert.equal(sombra.bandeja(db, T).grupos.find((x) => x.tipo === 'propuesta'), undefined, 'decidida, ya no se pregunta')
 })

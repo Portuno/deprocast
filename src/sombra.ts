@@ -61,15 +61,30 @@ export function bandeja(db: Db, ahora = Date.now()) {
   g.push({ tipo: 'monto', nombre: 'Montos que contaste', n: ss.length, peso: 3, items: ss.slice(0, 8).map((s) => ({ id: s.id, texto: `${s.descripcion}: ${s.monto > 0 ? '+' : ''}${s.monto} ${s.moneda}`, sub: s.fecha })), acciones: [['aceptar', '✓ Anotar'], ['descartar', '✕']], ir: null })
   const prims = db.prepare(`SELECT id, titulo, detalle, semana FROM misiones WHERE personaje = 'jugador' AND nivel IN ('primaria', 'principal') AND estado = 'sugerida' ORDER BY id DESC LIMIT 8`).all() as any[]
   g.push({ tipo: 'primaria', nombre: 'Primarias que te propone', n: n(db, `SELECT COUNT(*) AS n FROM misiones WHERE personaje = 'jugador' AND nivel IN ('primaria', 'principal') AND estado = 'sugerida'`), peso: 3, items: prims.map((m) => ({ id: m.id, texto: m.titulo, sub: m.detalle })), acciones: [['aceptar', '✓ Aceptar'], ['descartar', '✕']], ir: null })
-  const dir = (db.prepare(`SELECT resumen FROM directo_sesiones WHERE estado = 'cerrada' AND resumen IS NOT NULL ORDER BY id DESC LIMIT 30`).all() as { resumen: string }[])
-    .reduce((s, r) => s + ((json<any>(r.resumen, {})?.propuestas ?? []) as any[]).filter((p) => p.estado === 'pendiente').length, 0)
-  g.push({ tipo: 'directo', nombre: 'Lo que vio el Directo', n: dir, peso: 2, items: [], acciones: null, ir: 'directo' })
+  // Lo que vio el Directo (también el que sigue prendido): cada propuesta se resuelve acá mismo, una por una o todas.
+  // Con el Directo prendido, lo suyo va primero: es lo que está pasando ahora.
+  const sesiones = db.prepare(`SELECT id, resumen, estado FROM directo_sesiones WHERE resumen IS NOT NULL ORDER BY id DESC LIMIT 30`).all() as { id: number; resumen: string; estado: string }[]
+  const dir = sesiones.flatMap((r) => ((json<any>(r.resumen, {})?.propuestas ?? []) as any[]).filter((p) => p.estado === 'pendiente').map((p) => ({ ...p, sesionId: r.id })))
+  g.push({
+    tipo: 'directo', nombre: 'Lo que vio el Directo', n: dir.length, peso: sesiones.some((r) => r.estado === 'activa') ? 100 : 2, ir: null, acciones: [['aceptar', '✓'], ['descartar', '✕']],
+    items: dir.slice(0, 40).map((p) => ({ id: `${p.sesionId}:${p.id}`, texto: `${ETIQUETA_DIRECTO[p.tipo] ?? p.tipo}: ${p.titulo}`, sub: p.tipo === 'conexion' && p.de && p.con ? `${p.de} ↔ ${p.con}${p.detalle ? ` · ${p.detalle}` : ''}` : p.parecida ? `¿Es ${p.parecida.nombre}? (ya está en tus entidades)` : p.detalle ?? p.oido ?? null })),
+  })
+  // Las sorpresas de La Mano que todavía no respondió (cada clase con sus respuestas).
+  const sorpresas = db.prepare(`SELECT id, tipo, texto, ids FROM mano_eventos WHERE estado IN ('pendiente', 'sin_hipotesis') ORDER BY id DESC LIMIT 30`).all() as { id: number; tipo: string; texto: string | null; ids: string }[]
+  for (const [tipo, nombre, acciones] of SORPRESAS_MANO) {
+    const xs = sorpresas.filter((s) => s.tipo === tipo)
+    const textos = (s: { ids: string }) => (json<number[]>(s.ids, []).map((i) => (db.prepare('SELECT texto FROM quantomos WHERE id = ?').get(i) as { texto: string } | undefined)?.texto).filter(Boolean) as string[])
+    g.push({ tipo: `mano_${tipo}`, nombre, n: xs.length, peso: 1, ir: null, acciones, items: xs.slice(0, 8).map((s) => ({ id: s.id, texto: textos(s).map((t) => `«${t.slice(0, 90)}»`).join(' · ') || (s.texto ?? ''), sub: s.texto })) })
+  }
   const inv = db.prepare(`SELECT id, nombre, detalle FROM inventario WHERE personaje = 'jugador' AND estado = 'sugerido' ORDER BY id DESC LIMIT 8`).all() as any[]
   g.push({ tipo: 'inventario', nombre: 'Lo que tenés (según lo que contaste)', n: n(db, `SELECT COUNT(*) AS n FROM inventario WHERE personaje = 'jugador' AND estado = 'sugerido'`), peso: 1, items: inv.map((i) => ({ id: i.id, texto: i.nombre, sub: i.detalle })), acciones: [['aceptar', '✓ Es mío'], ['descartar', '✕']], ir: null })
   const recs = db.prepare(`SELECT id, texto, fecha FROM memoria WHERE estado = 'vigente' AND revisada = 0 AND creada_por IN ${MAQUINA} ORDER BY id DESC LIMIT 8`).all() as any[]
   g.push({ tipo: 'recuerdo', nombre: 'Lo que anotó de vos', n: n(db, `SELECT COUNT(*) AS n FROM memoria WHERE estado = 'vigente' AND revisada = 0 AND creada_por IN ${MAQUINA}`), peso: 1, items: recs.map((r) => ({ id: r.id, texto: r.texto, sub: r.fecha })), acciones: [['aceptar', '✓ Es así'], ['descartar', '✕ No']], ir: null })
   g.push({ tipo: 'nombre', nombre: 'Nombres del archivo', n: n(db, `SELECT COUNT(*) AS n FROM takeout_nombres WHERE estado = 'propuesta'`), peso: 0.5, items: [], acciones: null, ir: 'takeout' })
-  g.push({ tipo: 'propuesta', nombre: 'Propuestas de mejora', n: n(db, `SELECT COUNT(*) AS n FROM propuestas WHERE estado = 'abierta'`), peso: 0.5, items: [], acciones: null, ir: 'fragua' })
+  // Las de La Fragua que todavía no decidió (aceptar la deja abierta con prioridad alta, para construirla: ya no se pregunta).
+  const sinDecidir = `estado = 'abierta' AND CAST(id AS TEXT) NOT IN (SELECT ref FROM decisiones WHERE tipo = 'propuesta')`
+  const props = db.prepare(`SELECT id, titulo, detalle FROM propuestas WHERE ${sinDecidir} ORDER BY id DESC LIMIT 8`).all() as any[]
+  g.push({ tipo: 'propuesta', nombre: 'Propuestas de mejora (La Fragua)', n: n(db, `SELECT COUNT(*) AS n FROM propuestas WHERE ${sinDecidir}`), peso: 0.5, items: props.map((p) => ({ id: p.id, texto: p.titulo ?? '', sub: p.detalle ?? null })), acciones: [['aceptar', '✓ Construir'], ['descartar', '✕']], ir: null })
   g.push({ tipo: 'quantomo', nombre: 'Quántomos proto para pesar', n: n(db, `SELECT COUNT(*) AS n FROM quantomos WHERE etapa = 'proto'`), peso: 0.2, items: [], acciones: null, ir: 'quantomos' })
   const grupos = g.filter((x) => x.n > 0).sort((a, b) => b.peso * Math.min(b.n, 10) - a.peso * Math.min(a.n, 10))
   const hoy = new Date(`${fechaLocal(ahora)}T00:00:00`).getTime()
@@ -81,9 +96,30 @@ export function bandeja(db: Db, ahora = Date.now()) {
   }
 }
 
-/** Resolver algo desde la bandeja: va por el camino de siempre (y queda anotado ahí). */
-export function resolverBandeja(db: Db, tipo: string, id: number, accion: 'aceptar' | 'descartar', ahora = Date.now()) {
+const ETIQUETA_DIRECTO: Record<string, string> = { tarea: 'Tarea', cumplida: 'Parece hecha', banda: 'Banda hecha', entidad: 'Entidad', conexion: 'Conexión', idea: 'Idea', medio: 'Lo que miraste' }
+const SORPRESAS_MANO: [string, string, [string, string][]][] = [
+  ['puente', 'Puentes no obvios (La Mano)', [['real', '✓ Es real'], ['casualidad', '✕ Casualidad']]],
+  ['contradiccion', '¿Se cae lo que creías? (La Mano)', [['actualizo', 'Actualizo'], ['sostengo', 'Sostengo'], ['pruebo', 'Lo pruebo']]],
+  ['combo', 'Combos e hipótesis (La Mano)', [['real', '✓ Vale'], ['casualidad', '✕ Casualidad']]],
+]
+
+/**
+ * Resolver algo desde la bandeja: va por el camino de siempre (y queda anotado ahí). Directo: id «sesión:propuesta».
+ * La Mano: la acción es la respuesta de la sorpresa (real, casualidad, actualizo…).
+ */
+export async function resolverBandeja(db: Db, tipo: string, id: number | string, accion: string, ahora = Date.now()) {
+  if (tipo === 'directo') {
+    const [sesion, ...resto] = String(id).split(':')
+    if (accion !== 'aceptar' && accion !== 'descartar') throw new Error('Aceptar o descartar')
+    return (await import('./directo.ts')).resolverPropuestas(db, Number(sesion), [resto.join(':')], accion === 'aceptar' ? 'aceptar' : 'rechazar', ahora)
+  }
+  if (tipo.startsWith('mano_')) return (await import('./mano.ts')).responderSorpresa(db, Number(id), accion, null, ahora)
+  if (tipo === 'propuesta') {
+    if (accion !== 'aceptar' && accion !== 'descartar') throw new Error('Aceptar o descartar')
+    return (await import('./chat/index.ts')).resolverPropuesta(db, Number(id), accion === 'aceptar' ? 'aceptada' : 'descartada')
+  }
   if (accion !== 'aceptar' && accion !== 'descartar') throw new Error('Aceptar o descartar')
+  id = Number(id)
   if (tipo === 'monto') return resolverSugerido(db, id, accion, {}, ahora)
   if (tipo === 'primaria') return actualizarMision(db, id, { estado: accion === 'aceptar' ? 'activa' : 'descartada' }, { por: 'operador', ahora })
   if (tipo === 'inventario') return editarItem(db, id, { estado: accion === 'aceptar' ? 'vigente' : 'archivado' }, ahora)

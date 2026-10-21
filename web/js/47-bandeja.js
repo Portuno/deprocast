@@ -9,10 +9,10 @@ async function modalBandeja() {
   let b, s
   try { [b, s] = await Promise.all([api('/bandeja'), api('/sombra')]) } catch (e) { return error(e) }
   const hora = (ms) => new Date(ms).toTimeString().slice(0, 5)
-  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>📥 Para decidir</h2>
-    <p class="tenue">Lo que te propuse y espera tu ok. Cada cosa que decidís me enseña cuánto acierto: lo que acierto casi siempre te lo ofrezco hacer solo.</p>
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>📥 Para validar</h2>
+    <p class="tenue">Todo lo que espera tu ok, junto: lo que vio el Directo, lo que contaste, las sorpresas de La Mano, las propuestas de La Fragua. Una por una o todas de una. Cada cosa que decidís me enseña cuánto acierto.</p>
     ${b.ofertas.length ? b.ofertas.map((o) => `<div class="bj-oferta"><span>🎯 <b>${esc(o.nombre)}</b>: acerté ${o.aciertos} de ${o.n} (${Math.round((o.tasa ?? 0) * 100)} %). ¿Lo hago solo? Siempre deshacible.</span><button class="btn btn-chico btn-primario" data-bj-auto="${esc(o.tipo)}">Sí, solo</button></div>`).join('') : ''}
-    ${b.grupos.length ? b.grupos.map((g) => `<section class="bj-grupo"><h3>${esc(g.nombre)} <small class="tenue">${g.n}</small></h3>
+    ${b.grupos.length ? b.grupos.map((g) => `<section class="bj-grupo" data-bj-grupo="${g.tipo}"><h3>${esc(g.nombre)} <small class="tenue">${g.n}</small>${g.acciones && g.items.length > 1 ? `<span class="bj-todas">${g.acciones.map(([a, t]) => `<button class="btn btn-chico" data-bj-todas="${a}" title="${esc(t)} todas las de este grupo">${esc(t)} todas</button>`).join('')}</span>` : ''}</h3>
         ${g.items.length ? g.items.map((i) => `<div class="bj-item" data-bj-tipo="${g.tipo}" data-bj-id="${esc(i.id)}"><div><span>${esc(i.texto)}</span>${i.sub ? `<small class="tenue">${esc(String(i.sub).slice(0, 140))}</small>` : ''}</div>
           <span class="bj-acc">${g.acciones.map(([a, t]) => `<button class="btn btn-chico ${a === 'aceptar' ? 'btn-primario' : ''}" data-bj-acc="${a}">${t}</button>`).join('')}</span></div>`).join('')
           : `<button class="btn btn-chico" data-bj-ir="${g.ir}">Abrir →</button>`}
@@ -30,7 +30,22 @@ async function modalBandeja() {
   const recargar = async () => { await modalBandeja(); if (vista === 'hoy') traerHoy() }
   $$('[data-bj-acc]').forEach((btn) => (btn.onclick = async () => {
     const it = btn.closest('[data-bj-tipo]')
-    try { await api(`/bandeja/${it.dataset.bjTipo}/${it.dataset.bjId}`, { accion: btn.dataset.bjAcc }); it.remove() } catch (e) { error(e) }
+    try {
+      const r = await api('/bandeja/lote', { items: [{ tipo: it.dataset.bjTipo, id: it.dataset.bjId, accion: btn.dataset.bjAcc }] })
+      if (r.errores.length) return error(new Error(r.errores[0]))
+      it.remove()
+    } catch (e) { error(e) }
+  }))
+  // Todas las de un grupo, de una (con un segundo toque para confirmar).
+  $$('[data-bj-todas]').forEach((btn) => (btn.onclick = async () => {
+    const g = btn.closest('[data-bj-grupo]')
+    const items = $$('[data-bj-id]', g).map((it) => ({ tipo: it.dataset.bjTipo, id: it.dataset.bjId, accion: btn.dataset.bjTodas }))
+    if (!btn.classList.contains('seguro')) { btn.classList.add('seguro'); btn.textContent = `¿${items.length}? Tocá de nuevo`; return }
+    try {
+      const r = await api('/bandeja/lote', { items })
+      toast(`${r.hechas} listas${r.errores.length ? ` · ${r.errores.length} no se pudieron` : ''}`, 'suave')
+      recargar()
+    } catch (e) { error(e) }
   }))
   $$('[data-bj-deshacer]').forEach((btn) => (btn.onclick = async () => { try { await api(`/decisiones/${btn.dataset.bjDeshacer}/deshacer`, {}); toast('↩ Deshecho', 'suave'); recargar() } catch (e) { error(e) } }))
   $$('[data-bj-auto]').forEach((btn) => (btn.onclick = async () => { try { await api('/sombra', { tipo: btn.dataset.bjAuto, modo: 'auto' }); toast('🤖 De ahora en más lo hago solo', 'suave'); recargar() } catch (e) { error(e) } }))

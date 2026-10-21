@@ -19,6 +19,7 @@ import { leerJornada, progreso, registrarCierre } from '../jornada.ts'
 import { listarMisiones, misionesParaPrompt } from '../misiones.ts'
 import { menciones } from '../menciones.ts'
 import { directoParaPrompt } from '../directo.ts'
+import { vivoParaPrompt } from '../vivo.ts'
 import { finanzasParaPrompt } from '../finanzas.ts'
 import { saludParaPrompt } from '../salud.ts'
 import { cienParaPrompt } from '../cien.ts'
@@ -290,7 +291,7 @@ Ahora: ${ahoraEnPalabras()}
 Calendario: ${calendarioCorto()}${horarioParaPrompt(db, fechaLocal()) ? `
 ${horarioParaPrompt(db, fechaLocal())}` : ''}${hud && HUD[hud] ? `\nEn su panel de Hoy está mirando: ${HUD[hud]}. Si pregunta sin decir de qué («¿cómo voy?», «¿qué hago?»), es de eso.` : ''}
 ${hoy(db, mensaje)}
-${directoParaPrompt(db)}
+${vivoParaPrompt(db) || directoParaPrompt(db)}
 ${finanzasParaPrompt(db)}
 ${saludParaPrompt(db)}
 ${cienParaPrompt(db)}
@@ -420,7 +421,7 @@ const pensando = new Set<number>()
 export const estaPensando = (id: number) => pensando.has(id)
 
 /** Manda un mensaje y corre el turno completo. La pantalla lo llama sin esperar y sigue el avance leyendo los mensajes. */
-export async function enviar(db: Db, cid: number, texto: string, o: { hud?: string | null; via?: 'voz' | null; extra?: string | null } = {}): Promise<void> {
+export async function enviar(db: Db, cid: number, texto: string, o: { hud?: string | null; via?: 'voz' | 'copiloto' | null; extra?: string | null } = {}): Promise<void> {
   const c = leerConversacion(db, cid)
   if (!c) throw new Error(`No existe la conversación ${cid}`)
   if (!texto.trim()) throw new Error('Mensaje vacío')

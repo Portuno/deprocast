@@ -2318,3 +2318,25 @@ span.ej-chip { cursor: default; }
 .m-via { font-size: 12px; margin-right: 6px; opacity: .7; }
 .voz-globo { position: fixed; right: 18px; bottom: 18px; max-width: min(420px, calc(100vw - 36px)); z-index: 60; background: var(--panel-2); border: 1px solid var(--acento); border-radius: 14px; padding: 12px 14px; display: grid; gap: 4px; font-size: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.35); cursor: pointer; }
 .voz-globo small { color: var(--tenue); font-size: 12px; }
+
+/* ─── El Directo en vivo, adentro de Hoy ─────────────────────────────── */
+.hoy-vivo { border: 1px solid color-mix(in srgb, var(--mal) 55%, var(--linea)); border-radius: 12px; padding: 8px 12px; margin: 6px 10px 0; display: grid; gap: 6px; font-size: 13px; background: color-mix(in srgb, var(--mal) 6%, transparent); }
+.hoy-vivo.pausado { border-color: var(--linea-2); background: none; }
+.hoy-vivo.apagado { border: 0; background: none; padding: 2px 12px 0; margin: 0; }
+.vivo-prender { font: inherit; font-size: 12px; color: var(--tenue); background: none; border: 1px dashed var(--linea); border-radius: 999px; padding: 3px 12px; cursor: pointer; }
+.vivo-prender:hover { color: var(--mal); border-color: var(--mal); }
+.vivo-fila { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.vivo-punto { font: 600 11px var(--mono); color: var(--mal); letter-spacing: .05em; }
+.hoy-vivo.pausado .vivo-punto { color: var(--tenue); }
+.vivo-reloj { font: 500 12px var(--mono); color: var(--tenue); }
+.vivo-ahora { flex: 1; min-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vivo-acc { display: inline-flex; gap: 4px; align-items: center; }
+.vivo-acc .btn.on { border-color: var(--mal); color: var(--mal); }
+.vivo-lineas { width: auto; margin: 0; font-size: 12px; padding: 2px 6px; }
+.vivo-foco { font-size: 12.5px; }
+.vivo-barra { display: inline-block; width: 70px; height: 5px; border-radius: 3px; background: var(--linea); overflow: hidden; vertical-align: middle; margin-left: 6px; }
+.vivo-barra b { display: block; height: 100%; background: var(--acento); }
+.vivo-alerta { color: var(--mal); font-weight: 600; }
+.m-momento { opacity: .75; font-size: 12px; }
+.bj-todas { display: inline-flex; gap: 4px; margin-left: 10px; vertical-align: middle; }
+.bj-todas .btn.seguro { color: var(--mal); border-color: var(--mal); }
