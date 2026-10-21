@@ -105,9 +105,10 @@ El Gem (`Mastropiero.md`, escrito por Lautaro, recibido el 21/10/2026) define la
   - **plena:** la matinal, el reporte de cada run, el semanal y la síntesis del domingo;
   - **mínima:** el chat de Hoy y el chat general;
   - **ninguna:** la bitácora y el diario, la salud, la autocrítica técnica, los borradores en la voz del operador.
-- **Por decidir:**
-  - si Deprocast también cierra con el número de página del Gem («— Página 41»), y dónde;
-  - si el análisis alquímico (los pilares, el 22, la Magnum Opus) entra cuando él pide análisis o queda en el Gem.
+- **Decidido (21/10/2026):**
+  - **El número de página** del Gem no se muestra. En su lugar, cada mensaje guarda en la metadata su número dentro de la conversación y dónde ocurrió (`mensajes.numero` y `mensajes.lugar`: hoy, diario, chat o agente).
+  - **El análisis alquímico** (los seis pilares, el 22, la Magnum Opus) queda fuera de Deprocast por ahora; vive en el Gem.
+  - **Los textos fijos** de la app quedan como están.
 
 ## Anclas (dónde está cada rasgo en las fuentes)
 | Rasgo | Ancla |

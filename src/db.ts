@@ -1378,6 +1378,8 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   mensajes: [
     ['deshacer', 'TEXT'], // JSON: cómo volver atrás lo que escribió esa herramienta (si se puede)
     ['deshecho_en', 'INTEGER'],
+    ['numero', 'INTEGER'], // el número de mensaje dentro de su conversación (1, 2, 3…)
+    ['lugar', 'TEXT'], // dónde ocurrió: hoy | diario | chat | agente:<id>
   ],
   runs: [
     ['comentario', 'TEXT'], // lo que dijo de la run entera
@@ -1600,6 +1602,21 @@ export function migrar(db: Db) {
     alta.run(fuente, deprocast ? `Deprocast ${fuente}` : fuente, 'propia', null, deprocast ? 'deprocast-0.7' : null, 0, ahora)
   }
   db.exec(`UPDATE corpus SET nivel = COALESCE((SELECT nivel FROM fuentes WHERE fuentes.id = corpus.fuente), 'propia') WHERE nivel IS NULL`)
+  // La metadata de cada mensaje: su número dentro de la conversación y dónde ocurrió (hoy | diario | chat | agente:<id>).
+  // Los viejos se numeran una vez, de una pasada; los nuevos, con un trigger (sirve para todo lo que inserta mensajes).
+  if (db.prepare('SELECT 1 FROM mensajes WHERE numero IS NULL LIMIT 1').get()) {
+    db.exec(`UPDATE mensajes SET numero = w.n, lugar = w.lugar FROM (
+      SELECT m.id, ROW_NUMBER() OVER (PARTITION BY m.conversacion_id ORDER BY m.id) AS n,
+        CASE WHEN c.con = 'mastropiero' THEN COALESCE(c.modo, 'chat') ELSE 'agente:' || c.con END AS lugar
+      FROM mensajes m LEFT JOIN conversaciones c ON c.id = m.conversacion_id) AS w
+      WHERE mensajes.id = w.id AND mensajes.numero IS NULL`)
+  }
+  db.exec(`CREATE TRIGGER IF NOT EXISTS mensajes_metadata AFTER INSERT ON mensajes WHEN new.numero IS NULL BEGIN
+    UPDATE mensajes SET
+      numero = COALESCE((SELECT numero FROM mensajes WHERE conversacion_id = new.conversacion_id AND id < new.id ORDER BY id DESC LIMIT 1), 0) + 1,
+      lugar = (SELECT CASE WHEN con = 'mastropiero' THEN COALESCE(modo, 'chat') ELSE 'agente:' || con END FROM conversaciones WHERE id = new.conversacion_id)
+    WHERE id = new.id;
+  END`)
 }
 
 /**

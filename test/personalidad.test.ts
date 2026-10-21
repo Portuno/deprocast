@@ -41,6 +41,22 @@ test('El chat de Mastropiero lo trata de usted (con la personalidad); el diario,
   assert.doesNotMatch(diario, /Dosis de personalidad/)
 })
 
+test('Cada mensaje lleva su metadata: el número dentro de su conversación y dónde ocurrió (Hoy, diario, chat, un agente)', () => {
+  const db = abrir(':memory:')
+  const conv = (con: string, modo: string) => Number(db.prepare(`INSERT INTO conversaciones (con, modo, creada_en, actualizada_en) VALUES (?, ?, 1, 1)`).run(con, modo).lastInsertRowid)
+  const hoy = conv('mastropiero', 'hoy')
+  const chat = conv('mastropiero', 'chat')
+  const agente = conv('GEN-0007', 'chat')
+  const msj = (cid: number) => Number(db.prepare(`INSERT INTO mensajes (conversacion_id, rol, texto, en) VALUES (?, 'operador', 'hola', 1)`).run(cid).lastInsertRowid)
+  const a = [msj(hoy), msj(chat), msj(hoy), msj(agente), msj(hoy)]
+  const meta = (id: number) => db.prepare('SELECT numero, lugar FROM mensajes WHERE id = ?').get(id) as any
+  assert.deepEqual({ ...meta(a[0]) }, { numero: 1, lugar: 'hoy' })
+  assert.deepEqual({ ...meta(a[2]) }, { numero: 2, lugar: 'hoy' })
+  assert.deepEqual({ ...meta(a[4]) }, { numero: 3, lugar: 'hoy' })
+  assert.deepEqual({ ...meta(a[1]) }, { numero: 1, lugar: 'chat' })
+  assert.deepEqual({ ...meta(a[3]) }, { numero: 1, lugar: 'agente:GEN-0007' })
+})
+
 test('La guardia del nombre: ningún nombre de pila pegado a Mastropiero (se detecta sin escribir ninguno)', () => {
   assert.equal(nombraDePila('Ruperto Mastropiero compuso esto'), 'Ruperto Mastropiero')
   assert.equal(nombraDePila('Le escribe Ruperto Anselmo Mastropiero'), 'Ruperto Anselmo Mastropiero')
