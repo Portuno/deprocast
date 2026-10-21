@@ -38,6 +38,8 @@ import { crearCharla, crearImagen, crearJuego, crearPersonaje, crearVideo, crear
 import { buscarOportunidades, listarOportunidades, redactarOportunidad } from '../radar.ts'
 import { buscarWeb, hayBuscadorWeb, leerPagina } from '../web.ts'
 import { listarSesiones, momentos as momentosDirecto, sesionActiva } from '../directo.ts'
+import { bandeja, pedidosDeGrupo, resolverLote } from '../sombra.ts'
+import { arrancarBloque, terminarBloque } from '../bloques.ts'
 import { agregarItem, editarItem, entidadPorNombre, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, personaje, personaPorNombre, resolverPersonaje, TIPOS_INVENTARIO } from '../personajes.ts'
 import { asientos, especializacion } from '../auditor.ts'
 import { enEspera, leerTarea, pausarIngesta, publicar, reanudarIngesta, tareas } from '../bus.ts'
@@ -1006,6 +1008,56 @@ export const HERRAMIENTAS: Herramienta[] = [
     },
   },
   {
+    nombre: 'arrancar_bloque', familia: 'accion',
+    descripcion: 'Arranca un bloque de foco guiado cuando él lo dice («arranco 25 minutos con el informe»). Sin largo, usa su meta de bloque. Mientras dura, si el Directo ve que se fue del tema más de 3 minutos, le aviso una vez; al terminar va la tarjeta con cuánto sostuvo y el descanso. Solo si él lo pidió.',
+    parametros: S({ minutos: int('Cuántos minutos, si lo dijo'), tema: str('En qué, si lo dijo') }),
+    ejecutar: (a, { db }) => { const b = arrancarBloque(db, { minutos: a.minutos ?? null, tema: a.tema ?? null }); return { bloque: b.id, minutos: b.minutos, tema: b.tema, con_directo: b.sesionId != null } },
+    resumen: (_a, r) => `arrancó un bloque de ${r?.minutos ?? '?'} min`,
+  },
+  {
+    nombre: 'terminar_bloque', familia: 'accion',
+    descripcion: 'Corta el bloque de foco guiado antes de tiempo (cuando él lo dice). Devuelve la tarjeta: cuánto duró, cuánto sostuvo y el descanso que le toca; decísela.',
+    parametros: S({}),
+    ejecutar: (_a, { db }) => terminarBloque(db) ?? { error: 'No hay un bloque en curso' },
+    resumen: () => 'cerró el bloque',
+  },
+  {
+    nombre: 'ver_para_validar', familia: 'lectura',
+    descripcion: 'Lo que espera su ok, junto («Para validar»): lo que vio el Directo (tareas, personas, conexiones…), lo que contó, las sorpresas de La Mano, las propuestas de La Fragua. Por grupo: tipo, cuántas, las acciones posibles y los ítems con su id.',
+    parametros: S({}),
+    ejecutar: (_a, { db }) => {
+      const b = bandeja(db)
+      return {
+        total: b.total,
+        grupos: b.grupos.filter((g) => g.acciones).map((g) => ({ tipo: g.tipo, nombre: g.nombre, n: g.n, acciones: g.acciones!.map(([a]) => a), items: g.items.slice(0, 15).map((i) => ({ id: i.id, texto: recorte(i.texto, 140), sub: i.sub ? recorte(String(i.sub), 100) : undefined })) })),
+        en_su_seccion: b.grupos.filter((g) => !g.acciones).map((g) => `${g.nombre} (${g.n})`),
+      }
+    },
+  },
+  {
+    nombre: 'validar', familia: 'accion',
+    descripcion: 'Resuelve lo que espera su ok, como los botones de «Para validar»: cosas puntuales (items), un grupo entero (tipo + accion) o todo de una (todo + accion, pide confirmación). La acción es la del grupo (ver_para_validar): aceptar o descartar casi siempre; en La Mano, la respuesta (real, casualidad, actualizo…). Solo lo que él dijo: nunca decidas por él.',
+    parametros: S({
+      items: { type: 'array', items: S({ tipo: str('El tipo del grupo'), id: str('El id del ítem, tal cual'), accion: str('La acción') }, ['tipo', 'id', 'accion']), description: 'Las cosas puntuales' },
+      tipo: str('Un grupo entero: su tipo'),
+      accion: str('Para un grupo entero o para todo: aceptar o descartar'),
+      todo: bool('Todo lo que admite esa acción, de todos los grupos'),
+      confirmado: bool('Ya confirmó resolver todo'),
+    }),
+    ejecutar: async (a, { db }) => {
+      const xs = (Array.isArray(a.items) ? a.items : []).map((i: any) => ({ tipo: String(i.tipo), id: /^\d+$/.test(String(i.id)) ? Number(i.id) : String(i.id), accion: String(i.accion) }))
+      if (a.tipo || a.todo) {
+        if (!a.accion) return { error: 'Falta la acción (aceptar o descartar)' }
+        if (a.todo) { const c = exigirConfirmacion(a, `resuelve con «${a.accion}» todo lo que espera su ok`); if (c) return c }
+        xs.push(...pedidosDeGrupo(db, { tipo: a.tipo, todo: a.todo === true, accion: String(a.accion) }))
+      }
+      if (!xs.length) return { error: 'No encontré nada para resolver con eso (mirá ver_para_validar)' }
+      const r = await resolverLote(db, xs)
+      return { hechas: r.hechas, errores: r.errores.length ? r.errores : undefined, quedan: bandeja(db).total }
+    },
+    resumen: (_a, r) => (r?.requiere_confirmacion ? 'pidió confirmación para validar todo' : `validó ${r?.hechas ?? 0}${r?.errores?.length ? ` (${r.errores.length} no se pudieron)` : ''}`),
+  },
+  {
     nombre: 'forjar_mejora', familia: 'accion',
     descripcion: 'Lleva una propuesta de mejora (o un pedido) a La Fragua: escribe el cambio en una rama aparte, corre typecheck y tests, y deja el diff para que él lo lea. No toca lo que está andando; aplicarlo es decisión suya, desde La Fragua. Tarda unos minutos y avisa al terminar.',
     parametros: S({ propuesta: int('id de la propuesta (listar_propuestas)'), pedido: str('Si no hay propuesta: la mejora en palabras') }),
@@ -1520,7 +1572,7 @@ export const HERRAMIENTAS: Herramienta[] = [
 export const NUCLEO = [
   'pedir_herramientas', 'que_puede_deprocast', 'ver_dia', 'ver_agenda', 'ver_linea', 'fijar_horario', 'ver_uso', 'buscar_corpus', 'leer_pieza', 'leer_memoria', 'recordar',
   'corregir_memoria', 'listar_entidades', 'ver_entidad', 'ver_misiones', 'crear_mision', 'actualizar_mision', 'anotar_side_quest', 'ver_run', 'preparar_run',
-  'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'votar_dia', 'ver_plan', 'proponer_mejora', 'deshacer_ultima_accion',
+  'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'votar_dia', 'ver_plan', 'proponer_mejora', 'deshacer_ultima_accion', 'ver_para_validar', 'validar', 'arrancar_bloque', 'terminar_bloque',
 ]
 export const GRUPOS: Record<string, string[]> = {
   liga: ['ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],

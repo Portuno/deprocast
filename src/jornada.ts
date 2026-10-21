@@ -75,7 +75,7 @@ export function textoDeCierre(db: Db, fecha: string, ahora = Date.now()): string
   ).all(fecha) as { titulo: string }[]).map((x) => x.titulo.toLowerCase())
   db.prepare('UPDATE jornadas SET pidio_cierre = 1 WHERE fecha = ?').run(fecha)
   return [
-    `Cerramos el día. ${p.total ? `Hiciste ${p.hechos} de ${p.total} bandas${p.parciales ? ` (y ${p.parciales} a medias)` : ''}${hechas.length ? `: ${hechas.join(', ')}` : ''}.` : ''}`,
+    `Cerramos el día.${p.total ? ` Hiciste ${p.hechos} de ${p.total} bandas${p.parciales ? ` (y ${p.parciales} a medias)` : ''}${hechas.length ? `: ${hechas.join(', ')}` : ''}.` : ''}`,
     '¿Cómo te fue? Contame lo que quieras, lo que salió, lo que no y lo que te quedó dando vueltas; con eso calibro las próximas runs.',
   ].join(' ').trim()
 }

@@ -664,18 +664,22 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/bandeja$/, async () => (await import('./sombra.ts')).bandeja(db)],
   ['POST', /^\/api\/bandeja\/(\w+)\/(\d+)$/, async (b, [t, i]) => { await (await import('./sombra.ts')).resolverBandeja(db, t, id(i), b.accion); return { ok: true } }],
   // Varias de una («aceptar todas las tareas», «todo»): cada una por su camino; lo que falle se informa sin frenar el resto.
-  ['POST', /^\/api\/bandeja\/lote$/, async (b) => {
-    const { resolverBandeja } = await import('./sombra.ts')
-    const items = Array.isArray(b.items) ? b.items.slice(0, 200) : []
-    const errores: string[] = []
-    let hechas = 0
-    for (const x of items) {
-      try { await resolverBandeja(db, String(x.tipo), x.id, String(x.accion)); hechas++ } catch (e) { errores.push(e instanceof Error ? e.message : String(e)) }
-    }
-    return { hechas, errores }
-  }],
+  ['POST', /^\/api\/bandeja\/lote$/, async (b) => (await import('./sombra.ts')).resolverLote(db, Array.isArray(b.items) ? b.items : [])],
   // El Directo en vivo, para Hoy: qué está haciendo, el bloque, la run, los últimos momentos y lo pendiente.
-  ['GET', /^\/api\/directo\/vivo$/, async () => ({ vivo: (await import('./vivo.ts')).estadoVivo(db) })],
+  ['GET', /^\/api\/directo\/vivo$/, async () => ({ vivo: (await import('./vivo.ts')).estadoVivo(db), bloque: (await import('./bloques.ts')).bloqueParaVivo(db) })],
+  // El cierre del día hablado: Mastropiero abre con lo del día (en Hoy) y la pantalla prende la charla en vivo.
+  ['POST', /^\/api\/hoy\/cierre$/, async () => {
+    const texto = (await import('./jornada.ts')).textoDeCierre(db, fechaLocal())
+    mensajeDeMastropiero(db, conversacionHoy(db).id, texto)
+    return { texto }
+  }],
+  // Los bloques guiados: arrancarlo (sin largo, su meta) y cortarlo antes (la tarjeta va al chat de Hoy).
+  ['POST', /^\/api\/bloque$/, async (b) => (await import('./bloques.ts')).arrancarBloque(db, { minutos: b.minutos != null ? Number(b.minutos) : null, tema: b.tema ? String(b.tema) : null })],
+  ['POST', /^\/api\/bloque\/terminar$/, async () => {
+    const r = (await import('./bloques.ts')).terminarBloque(db)
+    if (r) mensajeDeMastropiero(db, conversacionHoy(db).id, r.tarjeta)
+    return { ok: !!r }
+  }],
   ['POST', /^\/api\/decisiones\/(\d+)\/deshacer$/, async (_, [d]) => (await import('./sombra.ts')).deshacerDecision(db, id(d))],
   ['GET', /^\/api\/sombra$/, async () => ({ tipos: (await import('./decisiones.ts')).estadoSombra(db) })],
   ['POST', /^\/api\/sombra$/, async (b) => { (await import('./decisiones.ts')).fijarModo(db, String(b.tipo ?? ''), b.modo); return { ok: true } }],
@@ -1555,6 +1559,9 @@ setInterval(async () => {
     const s = await latidoDirecto(db)
     if (s?.informe) mensajeDeMastropiero(db, conversacionHoy(db).id, `El Directo se cortó (no me llegó nada en 10 minutos: se cerró la pestaña o se apagó el servidor), así que lo cerré yo. ${s.informe}`)
     else void tramoDirecto(db).catch((e) => console.error('  directo:', e instanceof Error ? e.message : e))
+    // El bloque guiado que él arrancó: se cierra a su hora y avisa una vez si se fue del tema.
+    const dicho = (await import('./bloques.ts')).vigilarBloque(db)
+    if (dicho) mensajeDeMastropiero(db, conversacionHoy(db).id, dicho)
   } catch (e) { console.error('  directo:', e instanceof Error ? e.message : e) }
 }, 60_000).unref()
 

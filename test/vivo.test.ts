@@ -83,3 +83,19 @@ test('Para validar: lo del Directo en curso se resuelve en la misma bandeja, de 
   assert.equal((db.prepare('SELECT prioridad FROM propuestas WHERE id = ?').get(pid) as any).prioridad, 'alta', 'aceptar es marcarla para construir')
   assert.equal(sombra.bandeja(db, T).grupos.find((x) => x.tipo === 'propuesta'), undefined, 'decidida, ya no se pregunta')
 })
+
+test('Validar hablando: ver lo pendiente, aceptar un grupo entero y pedir confirmación para todo', async () => {
+  const { HERRAMIENTAS, ejecutarHerramienta } = await import('../src/chat/herramientas.ts')
+  const { db, s } = sembrar()
+  const correr = (n: string, a: object) => ejecutarHerramienta(HERRAMIENTAS, n, JSON.stringify(a), { db, conversacionId: null })
+  const v = (await correr('ver_para_validar', {})).resultado as any
+  assert.deepEqual(v.grupos[0].items[0], { id: `${s.id}:p1`, texto: 'Tarea: Llamar a Pablo', sub: 'tengo que llamar a Pablo' })
+  const todo = (await correr('validar', { todo: true, accion: 'aceptar' })).resultado as any
+  assert.equal(todo.requiere_confirmacion, true, 'todo de una, solo si lo confirmó')
+  const r = await correr('validar', { tipo: 'directo', accion: 'aceptar' })
+  assert.equal((r.resultado as any).hechas, 1)
+  assert.match(r.resumen, /validó 1/)
+  assert.ok(db.prepare(`SELECT 1 FROM misiones WHERE titulo = 'Llamar a Pablo'`).get())
+  await correr('validar', { items: [{ tipo: 'directo', id: `${s.id}:p1`, accion: 'aceptar' }] })
+  assert.equal((db.prepare(`SELECT COUNT(*) AS n FROM misiones WHERE titulo = 'Llamar a Pablo'`).get() as any).n, 1, 'aceptarla dos veces no la duplica')
+})

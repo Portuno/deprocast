@@ -3,7 +3,7 @@
 // el estímulo de hoy, la banda de la run), los controles (pausar, micrófono, charla en vivo, consejo, apagar), lo que
 // espera su ok para validar ahí mismo, y los momentos como líneas finas en la charla.
 
-const vivo = { datos: null, timer: null, firma: '' }
+const vivo = { datos: null, bloque: null, timer: null, firma: '', firmaBloque: '' }
 const LINEAS_VIVO = [['compacto', 'Momentos: cuando cambia'], ['todas', 'Momentos: todos'], ['ninguna', 'Momentos: ninguno']]
 const lineasVivo = () => pref.leer('mastro-vivo-lineas', 'compacto')
 
@@ -12,9 +12,15 @@ const hayDirecto = () => !!(directo.sesion || E?.hoy?.directo)
 
 async function traerVivo() {
   if (vista !== 'hoy' || document.hidden) return
-  if (!hayDirecto()) { vivo.datos = null; pintarVivo(); return }
-  try { vivo.datos = (await api('/directo/vivo')).vivo } catch { return }
+  let r
+  try { r = await api('/directo/vivo') } catch { return }
+  vivo.datos = r.vivo
+  vivo.bloque = r.bloque
   pintarVivo()
+  // El bloque guiado terminó o le avisé que se fue del tema: el mensaje ya está en Hoy (y se escucha si la voz está prendida).
+  const fb = r.bloque ? `${r.bloque.id}:${r.bloque.avisado}` : ''
+  if (vivo.firmaBloque && fb !== vivo.firmaBloque) traerLoNuevo()
+  vivo.firmaBloque = fb || (vivo.firmaBloque ? '-' : '')
   // Las líneas de momentos entran al hilo: se repinta el chat solo si cambiaron.
   const firma = JSON.stringify(vivo.datos?.momentos?.map((m) => m.id) ?? [])
   if (firma !== vivo.firma) { vivo.firma = firma; if (vista === 'hoy' && !chat.pensando) pintarChat() }
@@ -31,14 +37,38 @@ const reloj = (desde) => {
   return `${Math.floor(s / 3600) ? `${Math.floor(s / 3600)}:` : ''}${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 }
 
+/** La fila del bloque guiado (con o sin Directo): el tema, lo que lleva contra lo que dijo, si se fue del tema, y cortar. */
+function filaBloque() {
+  const b = vivo.bloque
+  if (!b) return ''
+  const pct = Math.min(100, Math.round((b.lleva / b.minutos) * 100))
+  return `<div class="vivo-fila vivo-guiado">
+    <span title="El bloque de foco que arrancó">⏱ <b>${esc(b.tema ?? 'Bloque de foco')}</b> · ${b.lleva}′ de ${b.minutos}′<i class="vivo-barra"><b style="width:${pct}%"></b></i></span>
+    ${b.fuera && b.fuera.minutos >= 1 ? `<span class="vivo-alerta">fuera del tema hace ${b.fuera.minutos}′ (${esc(b.fuera.donde)})</span>` : ''}
+    <button class="btn btn-chico" id="vivo-bloque-fin" title="Cortar el bloque ahora (la tarjeta va al chat)">cortar</button>
+  </div>`
+}
+
+/** Los botones que van siempre, con o sin Directo: un bloque guiado y cerrar el día hablando. */
+const botonesSiempre = () => `${vivo.bloque ? '' : '<button class="btn btn-chico" id="vivo-bloque" title="Un bloque de foco guiado: le cuido el tema y le aviso una vez si se va">⏱</button>'}
+  <button class="btn btn-chico" id="vivo-cierre" title="Cerrar el día hablando (unos 3 minutos)">🌙</button>`
+
+function engancharSiempre() {
+  const en = (id, f) => { const b = $(id); if (b) b.onclick = f }
+  en('#vivo-bloque', () => modalBloque())
+  en('#vivo-bloque-fin', async () => { try { await api('/bloque/terminar', {}); await traerVivo(); traerLoNuevo() } catch (e) { error(e) } })
+  en('#vivo-cierre', () => cerrarDiaHablando())
+}
+
 function pintarVivo() {
   const el = $('#hoy-vivo')
   if (!el) return
   const d = vivo.datos
   if (!d) {
-    el.innerHTML = `<button class="vivo-prender" id="vivo-prender" title="Mastropiero mira tu pantalla y te escucha mientras trabajás">● Prender el Directo</button>`
-    el.className = 'hoy-vivo apagado'
+    el.innerHTML = `<div class="vivo-fila"><button class="vivo-prender" id="vivo-prender" title="Mastropiero mira tu pantalla y te escucha mientras trabajás">● Prender el Directo</button><span class="vivo-acc">${botonesSiempre()}</span></div>${filaBloque()}`
+    el.className = `hoy-vivo apagado${vivo.bloque ? ' con-bloque' : ''}`
     $('#vivo-prender').onclick = () => modalDirecto()
+    engancharSiempre()
     return
   }
   el.className = `hoy-vivo${directo.pausado ? ' pausado' : ''}`
@@ -57,11 +87,13 @@ function pintarVivo() {
         <button class="btn btn-chico" id="vivo-consejo" title="Un consejo para este momento (solo cuando lo pedís)">💡</button>
         <button class="btn btn-chico" id="vivo-validar" title="Lo que espera tu ok">📥${d.pendientes ? ` ${d.pendientes}` : ''}</button>
         <select class="campo-suelto vivo-lineas" id="vivo-lineas" title="Los momentos en la charla">${LINEAS_VIVO.map(([k, n]) => `<option value="${k}" ${lineasVivo() === k ? 'selected' : ''}>${n}</option>`).join('')}</select>
+        ${botonesSiempre()}
         <button class="btn btn-chico" id="vivo-apagar" title="Apagar el Directo (escribo el informe)">■</button>
       </span>
     </div>
+    ${filaBloque()}
     <div class="vivo-fila vivo-foco">
-      ${a ? `<span title="Lo que lleva en lo mismo, contra su meta de bloque">⏱ ${d.bloque}′${d.meta ? ` de ${d.meta}′` : ''}<i class="vivo-barra"><b style="width:${pct}%"></b></i></span>` : ''}
+      ${a ? `<span title="Lo que lleva en lo mismo, contra su meta de bloque">▣ ${d.bloque}′${d.meta ? ` de ${d.meta}′` : ''}<i class="vivo-barra"><b style="width:${pct}%"></b></i></span>` : ''}
       ${d.enEstimulo ? '<span class="vivo-alerta">alto estímulo</span>' : ''}
       ${d.estimuloHoy ? `<span class="tenue">estímulo hoy ${d.estimuloHoy}′</span>` : ''}
       ${d.banda ? `<span>⚔ ${esc(d.banda.titulo)}${d.banda.restan != null ? ` · quedan ${d.banda.restan}′` : ''}${d.banda.siguiente ? ` <span class="tenue">→ ${esc(d.banda.siguiente)}</span>` : ''}</span>` : '<span class="tenue">sin run</span>'}
@@ -73,6 +105,7 @@ function pintarVivo() {
   en('#vivo-consejo', () => pedirConsejo())
   en('#vivo-validar', () => modalBandeja())
   en('#vivo-apagar', () => { if (directo.sesion) { if (confirm('¿Apagar el Directo? Escribo el informe con lo que vi y escuché.')) detenerDirecto() } else modalDirecto() })
+  engancharSiempre()
   $('#vivo-lineas').onchange = (e) => { pref.guardar('mastro-vivo-lineas', e.target.value); vivo.firma = ''; pintarChat() }
 }
 setInterval(() => { const r = $('#vivo-reloj'); if (r && vivo.datos && !document.hidden) r.textContent = reloj(vivo.datos.sesion.inicio) }, 1000)
@@ -111,5 +144,49 @@ async function pedirConsejo() {
     chat.pensando = true
     pintarChat()
     seguirTurno()
+  } catch (e) { error(e) }
+}
+
+/** Trae lo que llegó a Hoy sin que él escribiera (la tarjeta del bloque, el aviso) y, con la voz prendida, lo dice. */
+async function traerLoNuevo() {
+  if (vista !== 'hoy' || !chat.actual) return
+  const antes = chat.mensajes.reduce((m, x) => (x.id > m ? x.id : m), 0)
+  await abrirConversacion(chat.actual.id)
+  if (!(voz.vivo || voz.leer)) return
+  for (const m of chat.mensajes) if (m.id > antes && m.rol === 'asistente') encolar(paraOir(partirSeguir(m.texto).texto))
+}
+const paraOir = (t) => t.replace(/[⏱🌙]/gu, '').trim()
+
+/** ⏱ Arrancar un bloque guiado: cuántos minutos (sin nada, su meta de bloque) y en qué. */
+function modalBloque() {
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>⏱ Un bloque de foco</h2>
+    <p class="tenue">Mientras dura, si el Directo ve que se fue del tema más de 3 minutos, le aviso una vez. Al terminar: cuánto sostuvo y el descanso que le toca.</p>
+    <div class="form-ing">
+      <label class="campo">En qué<input id="bq-tema" placeholder="el informe, el mail al cliente…"></label>
+      <label class="campo">Minutos<input id="bq-min" type="number" min="5" max="180" placeholder="su meta de bloque"></label>
+    </div>
+    <div class="fila" style="margin-top:12px"><button class="btn btn-primario" id="bq-ir">⏱ Arrancar</button><button class="btn" data-bq="25">25′</button><button class="btn" data-bq="50">50′</button></div>`)
+  const ir = async (min) => {
+    try {
+      await api('/bloque', { minutos: min || Number($('#bq-min').value) || null, tema: $('#bq-tema').value.trim() || null })
+      cerrarModal()
+      toast('⏱ Bloque arrancado<small>Le cuido el tema.</small>', 'suave')
+      traerVivo()
+    } catch (e) { error(e) }
+  }
+  $('#bq-ir').onclick = () => ir(null)
+  $$('[data-bq]').forEach((b) => (b.onclick = () => ir(Number(b.dataset.bq))))
+  $('#bq-tema').onkeydown = (e) => { if (e.key === 'Enter') ir(null) }
+  $('#bq-tema').focus()
+}
+
+/** 🌙 El cierre del día hablado: Mastropiero abre con lo del día, se escucha, y queda la charla en vivo para contestarle. */
+async function cerrarDiaHablando() {
+  try {
+    const { texto } = await api('/hoy/cierre', {})
+    if (chat.actual) await abrirConversacion(chat.actual.id)
+    encolar(paraOir(texto))
+    if (!voz.vivo) await alternarCharlaEnVivo()
+    pintarVivo()
   } catch (e) { error(e) }
 }

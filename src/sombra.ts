@@ -127,6 +127,25 @@ export async function resolverBandeja(db: Db, tipo: string, id: number | string,
   throw new Error(`«${tipo}» se resuelve en su sección`)
 }
 
+type Pedido = { tipo: string; id: number | string; accion: string }
+
+/** Varias de una («aceptar todas las tareas», «todo»): cada una por su camino; lo que falle se informa sin frenar el resto. */
+export async function resolverLote(db: Db, items: Pedido[], ahora = Date.now()) {
+  const errores: string[] = []
+  let hechas = 0
+  for (const x of items.slice(0, 200)) {
+    try { await resolverBandeja(db, String(x.tipo), x.id, String(x.accion), ahora); hechas++ } catch (e) { errores.push(e instanceof Error ? e.message : String(e)) }
+  }
+  return { hechas, errores }
+}
+
+/** Lo de un grupo entero (o de todos) que admite esa acción, tal como está en la bandeja. */
+export function pedidosDeGrupo(db: Db, o: { tipo?: string; todo?: boolean; accion: string }, ahora = Date.now()): Pedido[] {
+  return bandeja(db, ahora).grupos
+    .filter((g) => (o.todo || g.tipo === o.tipo) && g.acciones?.some(([a]) => a === o.accion))
+    .flatMap((g) => g.items.map((i) => ({ tipo: g.tipo, id: i.id, accion: o.accion })))
+}
+
 // ─── el aviso diario ────────────────────────────────────────────────────
 
 const indiceDe = (tipo: string) => CLAVES_TIPO.indexOf(tipo)

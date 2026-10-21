@@ -937,6 +937,20 @@ CREATE TABLE IF NOT EXISTS mano_eventos (
 );
 CREATE INDEX IF NOT EXISTS mano_eventos_estado ON mano_eventos(estado, id);
 CREATE INDEX IF NOT EXISTS mano_eventos_tipo ON mano_eventos(tipo, creado_en);
+-- Los bloques de foco guiados («arranco 25 minutos»): lo que dijo, lo que estaba haciendo al arrancar (la referencia del
+-- tema), el Directo y la banda de su run si había, si ya le avisó que se fue del tema, y al cerrar cuánto sostuvo.
+CREATE TABLE IF NOT EXISTS bloques_foco (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  inicio INTEGER NOT NULL,
+  minutos INTEGER NOT NULL,
+  tema TEXT,
+  referencia TEXT,                    -- app|tema normalizados
+  sesion_id INTEGER,
+  mision_id INTEGER,
+  avisado INTEGER NOT NULL DEFAULT 0,
+  fin INTEGER,
+  sostenido INTEGER                   -- minutos en el tema (null sin Directo)
+);
 -- Las piezas que ya dejaron sus tarjetas (lo que miró o leyó): una vez cada una, aunque no haya salido ninguna.
 CREATE TABLE IF NOT EXISTS tarjetas_piezas (
   pieza_id INTEGER PRIMARY KEY,

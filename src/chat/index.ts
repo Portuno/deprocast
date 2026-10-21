@@ -20,6 +20,7 @@ import { listarMisiones, misionesParaPrompt } from '../misiones.ts'
 import { menciones } from '../menciones.ts'
 import { directoParaPrompt } from '../directo.ts'
 import { vivoParaPrompt } from '../vivo.ts'
+import { bloqueParaPrompt } from '../bloques.ts'
 import { finanzasParaPrompt } from '../finanzas.ts'
 import { saludParaPrompt } from '../salud.ts'
 import { cienParaPrompt } from '../cien.ts'
@@ -152,6 +153,9 @@ function guardar(db: Db, cid: number, m: Partial<Mensaje> & { rol: Mensaje['rol'
 }
 
 // ─── personas ───────────────────────────────────────────────────────────
+
+/** El cierre del día hablado: lo que Mastropiero sigue mientras lo cierran conversando (unos 3 minutos). */
+const REGLAS_DE_CIERRE = `Están cerrando el día hablando (él contesta en voz alta y tu respuesta se escucha). Una pregunta por vez, corta: qué salió, qué quedó abierto y con qué llega a mañana. Nada de listas ni de links. Si ya pasaron 4 o 5 vueltas o él da el día por cerrado, despedilo en una o dos oraciones con lo que mañana conviene mirar primero.`
 
 const recorte = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…' : s)
 
@@ -292,6 +296,7 @@ Calendario: ${calendarioCorto()}${horarioParaPrompt(db, fechaLocal()) ? `
 ${horarioParaPrompt(db, fechaLocal())}` : ''}${hud && HUD[hud] ? `\nEn su panel de Hoy está mirando: ${HUD[hud]}. Si pregunta sin decir de qué («¿cómo voy?», «¿qué hago?»), es de eso.` : ''}
 ${hoy(db, mensaje)}
 ${vivoParaPrompt(db) || directoParaPrompt(db)}
+${bloqueParaPrompt(db)}
 ${finanzasParaPrompt(db)}
 ${saludParaPrompt(db)}
 ${cienParaPrompt(db)}
@@ -451,9 +456,14 @@ export async function enviar(db: Db, cid: number, texto: string, o: { hud?: stri
       ingerir(db, { fuente: 'operador', nivel: 'propia', titulo: `Diario · ${fechaLocal()} · ${recorte(texto.trim().replace(/\s+/g, ' '), 50)}`, contenido: texto.trim(), dominio: 'diario' })
       await bucle({ db, sistema: promptDiario(db), hs: [], previos, clase: 'mastropiero', agenteId: MASTROPIERO, ctx: { db, conversacionId: cid }, alGuardar, vivo })
     } else if (c.con === MASTROPIERO) {
-      // Si Mastropiero pidió el cierre del día y todavía no llegó, esta es la respuesta.
+      // Si Mastropiero pidió el cierre del día y todavía no llegó, esta es la respuesta. Si lo está cerrando hablando
+      // (la charla de la noche), lo que sigue diciendo se suma. Va al diario (el corpus, como propio) y al gemelo.
       const j = c.modo === 'hoy' ? leerJornada(db, fechaLocal()) : null
-      if (j?.pidioCierre && !j.cierre) registrarCierre(db, j.fecha, texto)
+      const enCierre = !!j?.pidioCierre && (!j.cierre || (o.via === 'voz' && Date.now() - j.actualizadaEn < 10 * 60_000))
+      if (enCierre) {
+        registrarCierre(db, j!.fecha, j!.cierre ? `${j!.cierre}\n${texto.trim()}` : texto)
+        ingerir(db, { fuente: 'operador', nivel: 'propia', titulo: `Cierre · ${j!.fecha} · ${recorte(texto.trim().replace(/\s+/g, ' '), 50)}`, contenido: texto.trim(), dominio: 'diario' })
+      }
       // Si lo está corrigiendo, primero se anota la corrección: este mismo turno ya la obedece.
       if (pareceCorreccion(texto)) corregido = await registrarCorreccion(db, cid, texto).catch(() => [])
       const hs = herramientasPara('mastropiero')
@@ -463,7 +473,10 @@ export async function enviar(db: Db, cid: number, texto: string, o: { hud?: stri
       final = await bucle({
         db, sistema: `${promptMastropiero(db, texto, o.hud, cid, archivo)}${o.extra ? `
 
-${o.extra}` : ''}`, hs, previos, clase: 'mastropiero', agenteId: MASTROPIERO, grupos,
+${o.extra}` : ''}${enCierre && o.via === 'voz' ? `
+
+${REGLAS_DE_CIERRE}
+${vozPara('ceremonia')}` : ''}`, hs, previos, clase: 'mastropiero', agenteId: MASTROPIERO, grupos,
         ctx: {
           db, conversacionId: cid, hablarConAgente: (id, m) => hablarConAgente(db, id, m),
           activar: (gs) => { for (const g of gs) if (GRUPOS[g]) grupos.add(g); return activas(hs, grupos).map((h) => h.nombre) },

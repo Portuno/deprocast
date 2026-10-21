@@ -2337,6 +2337,10 @@ span.ej-chip { cursor: default; }
 .vivo-barra { display: inline-block; width: 70px; height: 5px; border-radius: 3px; background: var(--linea); overflow: hidden; vertical-align: middle; margin-left: 6px; }
 .vivo-barra b { display: block; height: 100%; background: var(--acento); }
 .vivo-alerta { color: var(--mal); font-weight: 600; }
+.hoy-vivo.apagado .vivo-fila { gap: 6px; }
+.hoy-vivo.apagado.con-bloque { border: 1px solid var(--linea); border-radius: 12px; padding: 6px 12px; margin: 6px 10px 0; }
+.vivo-guiado { font-size: 12.5px; }
+.vivo-guiado b { font-weight: 600; }
 .m-momento { opacity: .75; font-size: 12px; }
 .bj-todas { display: inline-flex; gap: 4px; margin-left: 10px; vertical-align: middle; }
 .bj-todas .btn.seguro { color: var(--mal); border-color: var(--mal); }
