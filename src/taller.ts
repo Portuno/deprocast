@@ -498,7 +498,7 @@ export async function sugerenciasTaller(db: Db, tipo: string): Promise<{ titulo:
   const primarias = (db.prepare(`SELECT titulo FROM misiones WHERE personaje = 'jugador' AND nivel IN ('primaria', 'principal') AND estado = 'activa' ORDER BY id DESC LIMIT 6`).all() as { titulo: string }[]).map((m) => m.titulo)
   const ideas = (db.prepare(`SELECT texto FROM quantomos WHERE etapa = 'sellado' ORDER BY COALESCE(peso, 0) DESC, id DESC LIMIT 10`).all() as { texto: string }[]).map((q) => q.texto)
   const usuario = [
-    `Tipo: ${tipo} (${{ juego: 'un juego HTML jugable', imagen: 'una imagen', voz: 'una voz o una charla a dos voces', personaje: 'un personaje con retrato y voz', video: 'un video corto narrado' }[tipo] ?? tipo})`,
+    `Tipo: ${tipo} (${{ juego: 'un juego HTML jugable', imagen: 'una imagen', voz: 'una voz o una charla a dos voces', personaje: 'un personaje con retrato y voz', video: 'un video corto narrado', visual: 'un visual interactivo que explique un concepto de lo que está aprendiendo (diagrama, simulación o movimiento del cuerpo)' }[tipo] ?? tipo})`,
     proyectos.length ? `Sus proyectos: ${proyectos.map((p) => `${p.nombre}${p.notas ? ` (${p.notas.slice(0, 120)})` : ''}`).join('; ')}` : '',
     primarias.length ? `Sus focos de la semana: ${primarias.join('; ')}` : '',
     ideas.length ? `Ideas suyas que pesó alto:\n${ideas.map((i) => `- ${i.slice(0, 200)}`).join('\n')}` : '',

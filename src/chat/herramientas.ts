@@ -1209,9 +1209,31 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'ver_aprendizajes', familia: 'lectura',
-    descripcion: 'Lo que quiere aprender: cada tema con minutos, días practicados este mes y última práctica; con un tema, también sus recursos (Librería y corpus).',
+    descripcion: 'Su Academia: cada dominio con su nivel del tutor (1 a 6), el tema que sigue, si el examen está habilitado, minutos y última práctica; las sugerencias pendientes; con un tema, también sus recursos (Librería y corpus).',
     parametros: S({ tema: str('Un tema, para ver sus recursos') }),
-    ejecutar: (a, { db }) => ({ aprendizajes: listarAprendizajes(db), recursos: a.tema ? recursosDe(db, a.tema) : undefined }),
+    ejecutar: async (a, { db }) => {
+      const ac = await import('../academia.ts')
+      return {
+        dominios: ac.listarDominios(db).map((d) => ({ id: d.id, tema: d.tema, estado: d.estado, nivel: `${d.tutorNivel} (${d.nivelNombre})`, sigue: d.temaSiguiente, clases: d.clases, examen: d.examen, idioma: d.idioma || undefined, minutos: d.minutos, ultima: d.ultima, tarjetas_hoy: d.tarjetasHoy })),
+        sugeridos: ac.sugeridosDe(db).map((d) => ({ id: d.id, tema: d.tema, por_que: ac.textoSugerencia(d) })),
+        recursos: a.tema ? recursosDe(db, a.tema) : undefined,
+      }
+    },
+  },
+  {
+    nombre: 'preparar_sesion_tutor', familia: 'accion',
+    descripcion: 'Deja lista la próxima clase (o el examen, si está habilitado) de un dominio de su Academia, con su visual en la cola del Taller. Abrirla después es instantáneo, desde Aprender → Academia.',
+    parametros: S({ tema: str('El dominio («Electricidad», «Drones»)'), examen: { type: 'boolean', description: 'true = el examen del nivel' } }, ['tema']),
+    ejecutar: async (a, { db }) => {
+      const ac = await import('../academia.ts')
+      const q = String(a.tema).toLowerCase()
+      const d = ac.listarDominios(db).find((x) => x.tema.toLowerCase() === q) ?? ac.listarDominios(db).find((x) => x.tema.toLowerCase().includes(q))
+      if (!d) return { error: `No hay un dominio «${a.tema}» en su Academia: crealo primero con crear_aprendizaje` }
+      if (d.idioma) return { error: 'Los idiomas tienen su propio tutor: está en Aprender → Idiomas' }
+      const s = await ac.prepararSesionTutor(db, d.id, { examen: !!a.examen, prioridadVisual: 5 })
+      return { sesion: s.id, tema: s.tema, nivel: s.nivel, tipo: s.tipo, preguntas: s.paquete.preguntas.length, visual: ac.visualDe(db, s), donde: 'Aprender → Academia' }
+    },
+    resumen: (a) => `preparó una clase de ${recorte(a.tema, 40)}`,
   },
   {
     nombre: 'ver_finanzas', familia: 'lectura',
@@ -1580,7 +1602,7 @@ export const GRUPOS: Record<string, string[]> = {
   liga: ['ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
+  vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   web: ['buscar_web', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   crear: ['ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }

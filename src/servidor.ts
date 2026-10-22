@@ -512,7 +512,9 @@ const rutas: [string, RegExp, Ruta][] = [
     const obras = libreria(db, { tipo: q.get('tipo') || undefined, q: q.get('q') || undefined })
     const cuenta: Record<string, number> = {}
     for (const o of libreria(db)) cuenta[o.ultima.tipo] = (cuenta[o.ultima.tipo] ?? 0) + 1
-    return { obras, haciendo: listarArtefactos(db, { limite: 40 }).filter((a) => a.estado === 'haciendo'), cola: estadoCola(db), cuenta, voces: VOCES, estilos: Object.fromEntries(Object.entries(ESTILOS).map(([k, v]) => [k, v.nombre])), aspectos: Object.fromEntries(Object.entries(ASPECTOS).map(([k, v]) => [k, v.nombre])), ffmpeg: hayFfmpeg(), artefactos: listarArtefactos(db, { limite: 80 }) }
+    const cola = estadoCola(db)
+    const esperan = new Set(cola.enEspera.map((t) => t.artefacto))
+    return { obras, haciendo: listarArtefactos(db, { limite: 40 }).filter((a) => a.estado === 'haciendo' && !esperan.has(a.id)), cola, cuenta, voces: VOCES, estilos: Object.fromEntries(Object.entries(ESTILOS).map(([k, v]) => [k, v.nombre])), aspectos: Object.fromEntries(Object.entries(ASPECTOS).map(([k, v]) => [k, v.nombre])), ffmpeg: hayFfmpeg(), artefactos: listarArtefactos(db, { limite: 80 }) }
   }],
   ['GET', /^\/api\/taller\/sugerencias$/, async (_, __, q) => ({ sugerencias: await sugerenciasTaller(db, q.get('tipo') || 'imagen') })],
   ['POST', /^\/api\/taller\/(\d+)\/borrar$/, (_, [a]) => (borrarArtefacto(db, id(a)), { ok: true })],
@@ -520,7 +522,13 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/taller$/, async (b) => {
     const pedido = String(b.pedido ?? '').trim()
     if (!pedido && !(b.tipo === 'personaje' && b.entidadId)) throw new Error('Decime qué querés crear')
-    if (!['juego', 'imagen', 'voz', 'personaje', 'video'].includes(b.tipo)) throw new Error('Tipo inválido')
+    if (!['juego', 'imagen', 'voz', 'personaje', 'video', 'visual'].includes(b.tipo)) throw new Error('Tipo inválido')
+    if (b.tipo === 'visual') {
+      // Un visual a mano también pasa por la caché: si ese concepto ya está dibujado, se reusa.
+      const r = (await import('./taller-cola.ts')).pedirVisual(db, { clase: String(b.clase || 'diagrama'), pedido, concepto: String(b.concepto || pedido).slice(0, 120), origen: 'pantalla', prioridad: 8 })
+      if (r.degradado) throw new Error(`Ahora no se puede: ${r.degradado}`)
+      return { ok: true, artefacto: r.artefactoId, desdeCache: r.desdeCache }
+    }
     const t = (await import('./taller-cola.ts')).encolarTaller(db, { tipo: 'crear', args: b, titulo: pedido || 'Personaje', prioridad: 8, origen: 'pantalla' })
     return { ok: true, trabajo: t.id }
   }],
@@ -746,7 +754,8 @@ const rutas: [string, RegExp, Ruta][] = [
     const ac = await import('./academia.ts')
     const d = ac.leerDominio(db, id(a))
     if (!d) throw new Error(`No existe el dominio ${a}`)
-    return { dominio: { ...d, nivelNombre: ac.nombreNivel(d.tutorNivel) }, examen: ac.examenHabilitado(db, d.id), sesiones: ac.sesionesDe(db, d.id).map(({ paquete, ...s }) => ({ ...s, preguntas: paquete?.preguntas.length ?? 0, visual: paquete?.visual?.tipo ?? null })), recursos: recursosDe(db, d.tema), practicas: practicasDe(db, d.id, 10) }
+    const visuales = (db.prepare(`SELECT id FROM artefactos WHERE tipo = 'visual' AND json_extract(meta, '$.dominioId') = ? ORDER BY id DESC LIMIT 40`).all(d.id) as { id: number }[]).map((r) => leerArtefacto(db, r.id)!)
+    return { dominio: { ...d, nivelNombre: ac.nombreNivel(d.tutorNivel) }, examen: ac.examenHabilitado(db, d.id), visuales, sesiones: ac.sesionesDe(db, d.id).map(({ paquete, ...s }) => ({ ...s, preguntas: paquete?.preguntas.length ?? 0, visual: paquete?.visual?.tipo ?? null })), recursos: recursosDe(db, d.tema), practicas: practicasDe(db, d.id, 10) }
   }],
   ['POST', /^\/api\/academia\/(\d+)\/sesion$/, async (b, [a]) => {
     const ac = await import('./academia.ts')

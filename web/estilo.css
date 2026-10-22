@@ -1669,8 +1669,6 @@ details.puentes > summary { cursor: pointer; padding: 6px 0; }
 .pl-proy { max-width: 11em; font-size: var(--t-2); }
 
 /* Aprender: el plan de los cien y lo que querés aprender */
-.apr-tema.pausado { opacity: .7; }
-.apr-recursos ul { margin: 4px 0 0; padding-left: 18px; font-size: var(--t-3); }
 .apr-rep { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-top: 1px solid var(--linea); }
 .apr-rep:first-of-type { border-top: 0; }
 
@@ -2559,3 +2557,59 @@ span.ej-chip { cursor: default; }
 .naipe[data-madurez='pesado'] { --madurez: var(--aviso); }
 .naipe[data-madurez='sellado'] { --madurez: var(--acento); }
 .naipe[data-madurez='nucleo'] { --madurez: var(--ok); }
+
+/* ─── La Academia (plan v23): dominios con la escalera de 6 niveles, la clase con su visual ─── */
+.aca-acciones { margin: 0 0 var(--e-4); flex-wrap: wrap; }
+.aca-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: var(--e-4); }
+.aca-naipe { display: flex; flex-direction: column; gap: var(--e-2); padding: var(--e-4); background: var(--panel); }
+.aca-naipe header { display: flex; align-items: baseline; justify-content: space-between; gap: var(--e-2); flex-wrap: wrap; }
+.aca-naipe h3 { margin: 0; font-size: var(--t-6); }
+.aca-naipe h3 a { color: inherit; text-decoration: none; }
+.aca-naipe h3 a:hover { text-decoration: underline; }
+.aca-naipe.pausado { opacity: .7; }
+.aca-naipe p { margin: 0; }
+.aca-sugerido { border-style: dashed; }
+.aca-porque { color: var(--tenue); font-style: italic; }
+.aca-metricas { display: flex; gap: var(--e-3); flex-wrap: wrap; }
+.aca-escalera { display: flex; gap: 4px; margin: var(--e-1) 0; padding: 0; list-style: none; }
+.aca-escalera li { flex: 1; height: 6px; border-radius: var(--r-pill); background: var(--linea); }
+.aca-escalera li.hecho { background: var(--acento-suave); }
+.aca-escalera li.actual { background: var(--acento); }
+.aca-quietos summary { cursor: pointer; color: var(--tenue); margin-bottom: var(--e-3); }
+.aca-dom-cab { display: flex; align-items: center; gap: var(--e-3); margin-bottom: var(--e-2); }
+.aca-dom-cab h2 { margin: 0; }
+.aca-fuentes { margin: 0; padding-left: 18px; }
+.aca-visuales { display: flex; flex-wrap: wrap; gap: var(--e-2); }
+.aca-vis { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: var(--e-2) var(--e-3); border: 1px solid var(--linea); border-radius: var(--r-m); background: var(--panel); color: inherit; cursor: pointer; text-align: left; }
+.aca-vis:hover { border-color: var(--linea-2); }
+.aca-vis small { color: var(--tenue); }
+.aca-vis.fallo { opacity: .6; }
+.aca-preparando { display: flex; align-items: center; gap: var(--e-3); padding: var(--e-6) 0; color: var(--tenue); }
+.aca-clase-cuerpo { display: grid; gap: var(--e-5); margin: var(--e-4) 0; }
+.aca-clase-cuerpo.con-visual { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); align-items: start; }
+.aca-expl { line-height: 1.6; max-width: 70ch; }
+.aca-visual { position: sticky; top: var(--e-4); display: flex; flex-direction: column; gap: var(--e-2); }
+.aca-iframe { width: 100%; aspect-ratio: 4 / 3; border: 1px solid var(--linea); border-radius: var(--r-m); background: var(--panel-2); }
+.aca-horno { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--e-2); aspect-ratio: 4 / 3; border: 1px dashed var(--linea-2); border-radius: var(--r-m); padding: var(--e-4); text-align: center; color: var(--tenue); }
+.aca-horno p { margin: 0; }
+.aca-valorar { align-items: center; flex-wrap: wrap; }
+.aca-valorar [data-estrella], .aca-valorar [data-tl-estrella] { color: var(--tenue); }
+.aca-valorar .on { color: var(--oro); }
+.aca-preguntas { display: flex; flex-direction: column; gap: var(--e-3); margin: var(--e-4) 0; }
+.aca-pregunta { padding: var(--e-3); border: 1px solid var(--linea); border-radius: var(--r-m); box-shadow: inset 3px 0 0 transparent; }
+.aca-pregunta p { margin: 0 0 var(--e-2); }
+.aca-pregunta.bien { box-shadow: inset 3px 0 0 var(--ok); }
+.aca-pregunta.mal { box-shadow: inset 3px 0 0 var(--aviso); }
+.aca-devolucion { margin-top: var(--e-2); font-size: var(--t-3); }
+.aca-devolucion:empty { display: none; }
+.aca-resumen { padding: var(--e-4); }
+.aca-resumen h3 { margin-top: 0; }
+.tl-horno-cab { display: flex; align-items: baseline; justify-content: space-between; gap: var(--e-3); flex-wrap: wrap; }
+.tl-espera { opacity: .75; }
+.tl-registro { margin-top: var(--e-2); }
+.tl-registro summary { cursor: pointer; color: var(--tenue); font-size: var(--t-3); }
+@media (max-width: 720px) {
+  .aca-clase-cuerpo.con-visual { grid-template-columns: 1fr; }
+  .aca-visual { position: static; order: -1; }
+  .aca-grid { grid-template-columns: 1fr; }
+}

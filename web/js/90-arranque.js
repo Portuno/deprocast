@@ -70,7 +70,7 @@ const ESPACIOS = [
   { id: 'chat', nombre: 'Chat', ico: 'message-circle', tecla: 'c', vistas: [['chat', 'Chat']] },
   { id: 'plan', nombre: 'Plan', ico: 'target', tecla: 'p', vistas: [['misiones', 'Misiones'], ['calendario', 'Calendario'], ['linea', 'Línea'], ['mapa', 'Mapa']] },
   { id: 'vida', nombre: 'Vida', ico: 'heart-pulse', tecla: 'v', vistas: [['salud', 'Salud'], ['personas', 'Personas'], ['jugador', 'Jugador'], ['suenos', 'Sueños']] },
-  { id: 'aprender', nombre: 'Aprender', ico: 'graduation-cap', tecla: 'a', vistas: [['mano', 'La Mano'], ['idiomas', 'Idiomas'], ['aprender', 'Aprender'], ['criba', 'Criba']] },
+  { id: 'aprender', nombre: 'Aprender', ico: 'graduation-cap', tecla: 'a', vistas: [['aprender', 'Academia'], ['idiomas', 'Idiomas'], ['mano', 'La Mano'], ['criba', 'Criba']] },
   { id: 'saber', nombre: 'Saber', ico: 'library', tecla: 's', vistas: [['corpus', 'Corpus'], ['cuadernos', 'Cuadernos'], ['libreria', 'Librería'], ['entidades', 'Entidades']] },
   { id: 'afuera', nombre: 'Afuera', ico: 'globe', tecla: 'f', vistas: [['taller', 'Taller'], ['radar', 'Radar'], ['cuentas', 'Cuentas'], ['discovery', 'Discovery']] },
   { id: 'maquina', nombre: 'La máquina', ico: 'cog', tecla: 'm', vistas: [['fragua', 'La Fragua'], ['liga', 'Roster'], ['forja', 'Forja'], ['encargos', 'Encargos'], ['matriz', 'Matriz 72'], ['cementerio', 'Cementerio']] },

@@ -1,57 +1,290 @@
 'use strict'
-// Aprender: lo que querés aprender (temas, práctica y repaso espaciado). Lo que estudiás se lo contás a Mastropiero.
+// La Academia: cada dominio que querés aprender tiene un tutor de seis niveles (del niño de 10 a la frontera). Arriba, lo
+// que te conviene aprender (lo propone y vos aceptás); después tus dominios como naipes, con la escalera de niveles. Un
+// dominio abre su clase (explicación, el visual del Taller, preguntas con devolución), el examen, sus fuentes y visuales.
+// Idiomas es un dominio más, con su propia pestaña.
 
-let aprTab = 'temas'
+const aca = { tab: 'dominios', datos: null, dominio: null, sondeo: null }
 
 function montarAprender() {
   $('#principal').innerHTML = `
-    <div class="titulo"><h1>Aprender</h1><p>Lo que querés aprender. Lo que estudiás se lo contás a Mastropiero: te repregunta en 1, 3, 7 y 16 días.</p></div>
-    <div class="tabs" id="apr-tabs">${[['temas', 'Quiero aprender'], ['repaso', 'Repaso']].map(([k, n]) => `<button data-tab="${k}" class="${aprTab === k ? 'on' : ''}">${n}</button>`).join('')}</div>
-    <div id="apr-cuerpo"></div>`
-  $$('#apr-tabs button').forEach((b) => (b.onclick = () => { aprTab = b.dataset.tab; montarAprender() }))
+    <div class="titulo"><h1>Academia</h1><p>Tus dominios, cada uno con un tutor de seis niveles. Cada clase deja su pieza en el corpus, tarjetas para repasar y un quántomo para La Mano.</p></div>
+    <div class="tabs" id="aca-tabs">${[['dominios', 'Dominios'], ['repaso', 'Repaso']].map(([k, n]) => `<button data-tab="${k}" class="${aca.tab === k ? 'on' : ''}">${n}</button>`).join('')}</div>
+    <div id="aca-cuerpo"></div>`
+  $$('#aca-tabs button').forEach((b) => (b.onclick = () => { aca.tab = b.dataset.tab; aca.dominio = null; montarAprender() }))
   pintarAprender()
 }
 
 async function pintarAprender() {
-  const cont = $('#apr-cuerpo')
+  const cont = $('#aca-cuerpo')
   if (!cont) return
-  try {
-    const d = await api('/aprender')
-    if (aprTab === 'temas') pintarTemas(cont, d)
-    else pintarRepaso(cont, d)
-  } catch (e) { error(e) }
+  clearTimeout(aca.sondeo)
+  if (aca.tab === 'repaso') {
+    try { pintarRepaso(cont, await api('/aprender')) } catch (e) { error(e) }
+    return
+  }
+  if (aca.dominio) return pintarDominio(aca.dominio)
+  try { aca.datos = await api('/academia') } catch (e) { return error(e) }
+  const { dominios, sugeridos } = aca.datos
+  const activos = dominios.filter((d) => d.estado === 'activo')
+  const quietos = dominios.filter((d) => d.estado !== 'activo')
+  cont.innerHTML = `
+    <div class="fila aca-acciones"><button class="btn btn-primario" id="aca-sumar">＋ Sumar un dominio</button><button class="btn" id="aca-sugerir">💡 ¿Qué me conviene aprender?</button></div>
+    ${sugeridos.length ? `<section class="seccion"><h3>Sugeridos para vos</h3><div class="aca-grid">${sugeridos.map(naipeSugerido).join('')}</div></section>` : ''}
+    ${activos.length ? `<div class="aca-grid">${activos.map(naipeDominio).join('')}</div>` : '<div class="vacio"><div class="gran">🎓</div><h2>Tu Academia está vacía</h2><p>Sumá algo que quieras aprender (y para qué), o pedí que te proponga qué te conviene según lo que viene en tu agenda y tus metas.</p></div>'}
+    ${quietos.length ? `<details class="seccion aca-quietos"><summary>En pausa (${quietos.length})</summary><div class="aca-grid">${quietos.map(naipeDominio).join('')}</div></details>` : ''}`
+  $('#aca-sumar').onclick = modalSumarDominio
+  $('#aca-sugerir').onclick = sugerirDominios
+  $$('[data-aca-aceptar]', cont).forEach((b) => (b.onclick = async () => { b.disabled = true; try { const d = await api(`/academia/${b.dataset.acaAceptar}/aceptar`, {}); toast(`${esc(d.tema)} entra a tu Academia<small>Su primera clase y sus fuentes se preparan de fondo.</small>`, 'suave'); pintarAprender() } catch (e) { b.disabled = false; error(e) } }))
+  $$('[data-aca-descartar]', cont).forEach((b) => (b.onclick = async () => { try { await api(`/academia/${b.dataset.acaDescartar}/descartar`, {}); pintarAprender() } catch (e) { error(e) } }))
+  $$('[data-aca-abrir]', cont).forEach((b) => (b.onclick = (e) => { e.preventDefault(); aca.dominio = Number(b.dataset.acaAbrir); pintarAprender() }))
+  $$('[data-aca-clase]', cont).forEach((b) => (b.onclick = () => abrirClase(Number(b.dataset.acaClase), !!b.dataset.examen)))
+  $$('[data-aca-idioma]', cont).forEach((b) => (b.onclick = () => irA('idiomas')))
+  $$('[data-aca-estado]', cont).forEach((b) => (b.onclick = async () => { try { await api(`/aprender/${b.dataset.acaEstado}`, { estado: b.dataset.a }); pintarAprender() } catch (e) { error(e) } }))
 }
 
-function pintarTemas(cont, d) {
-  cont.innerHTML = `
-    <section class="seccion"><form class="fila" id="apr-nuevo"><input name="tema" placeholder="Quiero aprender… (francés, SQL, a negociar)" required style="flex:2;min-width:12em"><input name="nivelObjetivo" placeholder="Hasta dónde (opcional)" style="flex:1;min-width:10em"><button class="btn btn-primario">＋ Sumar</button></form></section>
-    ${d.aprendizajes.length ? `<div class="tarjetas">${d.aprendizajes.map((a) => `<article class="tarjeta apr-tema ${a.estado}" data-tema="${a.id}">
-      <h4>${esc(a.tema)} ${a.estado !== 'activo' ? `<small class="tenue">(${esc(a.estado)})</small>` : ''}</h4>
-      <p>${a.practicas ? `${a.minutosSemana} min esta semana · ${a.minutos} en total · ${a.diasMes} día${a.diasMes === 1 ? '' : 's'} este mes · última ${esc(a.ultima)}` : 'Todavía sin práctica anotada.'}</p>
-      ${a.nivelObjetivo ? `<p>Objetivo: ${esc(a.nivelObjetivo)}</p>` : ''}
-      <form class="fila" data-practica="${a.id}"><input name="minutos" type="number" min="1" placeholder="min" style="width:5em"><input name="que" placeholder="Qué practicaste" class="f1"><button class="btn btn-chico">Anotar</button></form>
-      <div class="fila"><button class="btn btn-chico" data-recursos="${a.id}">Recursos</button><button class="btn btn-chico" data-estado="${a.id}" data-a="${a.estado === 'activo' ? 'pausado' : 'activo'}">${a.estado === 'activo' ? 'Pausar' : 'Reactivar'}</button></div>
-      <div class="apr-recursos" id="apr-rec-${a.id}"></div></article>`).join('')}</div>` : '<p class="tenue">Todavía no anotaste nada para aprender.</p>'}`
-  $('#apr-nuevo').onsubmit = async (ev) => { ev.preventDefault(); try { await api('/aprender', Object.fromEntries(new FormData(ev.target))); pintarAprender() } catch (e) { error(e) } }
-  $$('[data-practica]', cont).forEach((f) => (f.onsubmit = async (ev) => {
-    ev.preventDefault()
-    const v = Object.fromEntries(new FormData(f))
-    try { await api(`/aprender/${f.dataset.practica}/practica`, { minutos: v.minutos ? Number(v.minutos) : null, que: v.que }); toast('Anotado<small>Te repregunto mañana</small>', 'suave'); pintarAprender() } catch (e) { error(e) }
-  }))
-  $$('[data-estado]', cont).forEach((b) => (b.onclick = async () => { try { await api(`/aprender/${b.dataset.estado}`, { estado: b.dataset.a }); pintarAprender() } catch (e) { error(e) } }))
-  $$('[data-recursos]', cont).forEach((b) => (b.onclick = async () => {
-    try {
-      const r = await api(`/aprender/${b.dataset.recursos}`)
-      const lista = [...r.recursos.obras.map((o) => `📖 ${esc(o.titulo)}${o.autor ? ` — ${esc(o.autor)}` : ''} <small class="tenue">(${esc(o.estado)})</small>`), ...r.recursos.piezas.map((p) => `<a href="#" class="ref" data-pieza="${p.id}">${esc(p.titulo)}</a>`)]
-      $(`#apr-rec-${b.dataset.recursos}`).innerHTML = lista.length ? `<ul>${lista.map((x) => `<li>${x}</li>`).join('')}</ul>` : '<p class="tenue chico">No encontré nada en tu Librería ni en el corpus. Sumá una obra o pedile al Mentor.</p>'
-    } catch (e) { error(e) }
-  }))
+/** La escalera de los seis niveles, con el actual marcado. */
+function escalera(nivel) {
+  const niveles = aca.datos?.niveles ?? []
+  return `<ol class="aca-escalera" title="${esc(niveles.map((n) => `${n.n}. ${n.nombre}`).join(' → '))}">${niveles.map((n) => `<li class="${n.n < nivel ? 'hecho' : n.n === nivel ? 'actual' : ''}" title="${n.n}. ${esc(n.nombre)}"></li>`).join('')}</ol>`
 }
+
+function naipeSugerido(d) {
+  const s = d.sugerencia ?? {}
+  return `<article class="naipe aca-naipe aca-sugerido" data-madurez="proto">
+    <header><h3>${esc(d.tema)}</h3>${s.horizonte ? `<span class="chip">${esc(s.horizonte)} plazo</span>` : ''}</header>
+    <p>${esc(s.porQue ?? d.porQue ?? '')}</p>
+    ${s.para ? `<p class="tenue chico">Para ${esc(s.para)}${s.fecha ? ` · ${esc(s.fecha)}` : ''}</p>` : ''}
+    ${s.primerPaso ? `<p class="chico">Primera clase: ${esc(s.primerPaso)}</p>` : ''}
+    <div class="fila"><button class="btn btn-primario btn-chico" data-aca-aceptar="${d.id}">✓ Lo aprendo</button><button class="btn btn-chico" data-aca-descartar="${d.id}">✕ No</button></div>
+  </article>`
+}
+
+function naipeDominio(d) {
+  if (d.idioma) return `<article class="naipe aca-naipe" data-madurez="pesado">
+    <header><h3>🗣 ${esc(d.tema.replace(/^Idioma · /, ''))}</h3><span class="chip">Idiomas</span></header>
+    <p class="tenue chico">Tiene su propio tutor, con cómo se lee y cómo suena.</p>
+    <div class="fila"><button class="btn btn-chico" data-aca-idioma="${d.id}">Abrir en Idiomas →</button></div></article>`
+  const madurez = d.tutorNivel >= 5 ? 'nucleo' : d.tutorNivel >= 3 ? 'sellado' : 'pesado'
+  return `<article class="naipe aca-naipe ${d.estado}" data-madurez="${d.estado === 'activo' ? madurez : ''}">
+    <header><h3><a href="#" data-aca-abrir="${d.id}">${esc(d.tema)}</a></h3><span class="chip">Nivel ${d.tutorNivel} · ${esc(d.nivelNombre)}</span></header>
+    ${escalera(d.tutorNivel)}
+    ${d.porQue ? `<p class="aca-porque">«${esc(d.porQue)}»</p>` : ''}
+    <p class="chico">${d.temaSiguiente ? `Sigue: <b>${esc(d.temaSiguiente)}</b>${d.sesionLista ? ' <span class="tenue">(lista)</span>' : ''}` : '<span class="tenue">La primera clase arma el temario del nivel.</span>'}</p>
+    <div class="aca-metricas tenue chico"><span>${d.clases} clase${d.clases === 1 ? '' : 's'}</span>${d.diasSinPracticar != null ? `<span>hace ${d.diasSinPracticar} día${d.diasSinPracticar === 1 ? '' : 's'}</span>` : ''}${d.tarjetasHoy ? `<span>🃏 ${d.tarjetasHoy} para hoy</span>` : ''}</div>
+    <div class="fila">${d.estado === 'activo' ? `<button class="btn btn-primario btn-chico" data-aca-clase="${d.id}">▶ Clase</button>${d.examen ? `<button class="btn btn-chico" data-aca-clase="${d.id}" data-examen="1">📝 Examen</button>` : ''}` : ''}
+      <button class="btn btn-chico" data-aca-abrir="${d.id}">Ver dominio</button>
+      <button class="btn btn-chico" data-aca-estado="${d.id}" data-a="${d.estado === 'activo' ? 'pausado' : 'activo'}">${d.estado === 'activo' ? 'Pausar' : 'Reactivar'}</button></div>
+  </article>`
+}
+
+function modalSumarDominio() {
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Un dominio nuevo</h2>
+    <p class="tenue">Arrancás en el nivel 1 (como a un chico de 10) y subís con un examen cuando dos clases seguidas te salen bien.</p>
+    <form id="aca-form">
+      <label class="campo">Qué querés aprender<input name="tema" required placeholder="Electricidad, drones, biomecánica…"></label>
+      <label class="campo">Para qué (guía el temario y las fuentes)<textarea name="porQue" rows="2" placeholder="Ej.: armar mi primer drone para el evento de noviembre"></textarea></label>
+      <button class="btn btn-primario">Sumar</button>
+    </form>`)
+  $('#aca-form').onsubmit = async (ev) => {
+    ev.preventDefault()
+    const f = Object.fromEntries(new FormData(ev.target))
+    try { await api('/academia', f); cerrarModal(); toast('Sumado a tu Academia', 'suave'); pintarAprender() } catch (e) { error(e) }
+  }
+}
+
+async function sugerirDominios() {
+  const b = $('#aca-sugerir')
+  if (b) b.disabled = true
+  toast('Mirando tu agenda, tus metas y el Radar…', 'suave')
+  try {
+    const r = await api('/academia/sugerir', {})
+    toast(r.sugeridos.length ? `Te propuse ${r.sugeridos.length}<small>Están arriba (y en 📥 Para validar).</small>` : 'Nada nuevo para proponerte ahora', 'suave')
+    pintarAprender()
+  } catch (e) { error(e) } finally { if (b) b.disabled = false }
+}
+
+// ─── un dominio ─────────────────────────────────────────────────────────
+
+async function pintarDominio(id) {
+  let r
+  try { r = await api(`/academia/${id}`) } catch (e) { aca.dominio = null; return error(e) }
+  if (!aca.datos) { try { aca.datos = await api('/academia') } catch { /* sin escalera */ } }
+  // Mientras llegaba, pudo cambiar la vista (o abrirse otra cosa): se pinta solo si sigue siendo este dominio.
+  const cont = $('#aca-cuerpo')
+  if (!cont || aca.dominio !== id) return
+  const d = r.dominio
+  const hechas = r.sesiones.filter((s) => s.estado === 'hecha')
+  cont.innerHTML = `<div class="aca-dominio">
+    <header class="aca-dom-cab"><button class="btn btn-chico" id="aca-volver">←</button><div class="f1"><h2>${esc(d.tema)}</h2>${d.porQue ? `<small class="tenue">${esc(d.porQue)}</small>` : ''}</div><span class="chip">Nivel ${d.tutorNivel} · ${esc(d.nivelNombre)}</span></header>
+    ${escalera(d.tutorNivel)}
+    <div class="fila aca-acciones">
+      ${d.estado === 'activo' ? `<button class="btn btn-primario" data-aca-clase="${d.id}">▶ Clase</button>${r.examen ? `<button class="btn" data-aca-clase="${d.id}" data-examen="1">📝 Examen del nivel</button>` : ''}` : ''}
+      <button class="btn" id="aca-tarjetas">🃏 Repasar tarjetas</button>
+      <button class="btn" id="aca-fuentes" title="Busca material a tu nivel y lo suma al corpus (en la nube)">🔎 Buscar fuentes</button>
+    </div>
+    ${!r.examen && d.estado === 'activo' ? '<p class="tenue chico">El examen se habilita con dos clases seguidas del nivel resueltas con 80 % o más.</p>' : ''}
+    <section class="seccion"><h3>Clases</h3>${hechas.length ? hechas.map((s) => `<div class="fila item"><span class="f1">${s.tipo === 'examen' ? '📝 ' : ''}${esc(s.tema)}</span><small class="tenue">nivel ${s.nivel}${s.puntaje != null ? ` · ${Math.round(s.puntaje * 100)} %` : ''} · ${new Date(s.cerradaEn ?? s.creadaEn).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}</small>${s.piezaId ? `<a href="#" class="ref" data-pieza="${s.piezaId}">pieza</a>` : ''}</div>`).join('') : '<p class="tenue">Todavía ninguna.</p>'}</section>
+    <section class="seccion"><h3>Visuales</h3>${r.visuales.length ? `<div class="aca-visuales">${r.visuales.map((a) => `<button class="aca-vis ${a.estado}" data-vis="${a.id}"><b>${esc(a.titulo)}</b><small>${esc(a.meta.clase ?? '')}${a.meta.valoracion ? ` · ${'★'.repeat(a.meta.valoracion)}` : ''}${a.meta.sellado ? ' · sellado' : ''}${a.estado === 'haciendo' ? ' · en el horno' : a.estado === 'fallo' ? ' · no salió' : ''}</small></button>`).join('')}</div>` : '<p class="tenue">Cuando una clase pide un dibujo, el Taller lo hace y queda acá.</p>'}</section>
+    <section class="seccion"><h3>Fuentes</h3>${fuentesHTML(r.recursos)}</section>
+  </div>`
+  $('#aca-volver', cont).onclick = () => { aca.dominio = null; pintarAprender() }
+  $$('[data-aca-clase]', cont).forEach((b) => (b.onclick = () => abrirClase(d.id, !!b.dataset.examen)))
+  $('#aca-tarjetas', cont).onclick = () => repasarTarjetas(`aprender:${d.id}`)
+  $('#aca-fuentes').onclick = async () => {
+    const b = $('#aca-fuentes')
+    b.disabled = true
+    try { const f = await api(`/academia/${d.id}/fuentes`, {}); toast(f.nuevas.length ? `${f.nuevas.length} fuente${f.nuevas.length === 1 ? '' : 's'} nueva${f.nuevas.length === 1 ? '' : 's'} al corpus` : (f.aviso ?? 'Nada nuevo esta vez'), 'suave'); pintarDominio(d.id) } catch (e) { error(e) } finally { b.disabled = false }
+  }
+  $$('[data-pieza]', cont).forEach((x) => (x.onclick = (e) => { e.preventDefault(); modalPieza(Number(x.dataset.pieza)) }))
+  $$('[data-vis]', cont).forEach((b) => (b.onclick = () => fichaVisual(r.visuales.find((a) => a.id === Number(b.dataset.vis)), () => pintarDominio(d.id))))
+}
+
+function fuentesHTML(rec) {
+  const lista = [...rec.obras.map((o) => `📖 ${esc(o.titulo)}${o.autor ? ` — ${esc(o.autor)}` : ''} <small class="tenue">(${esc(o.estado)})</small>`), ...rec.piezas.map((p) => `<a href="#" class="ref" data-pieza="${p.id}">${esc(p.titulo)}</a>`)]
+  return lista.length ? `<ul class="aca-fuentes">${lista.map((x) => `<li>${x}</li>`).join('')}</ul>` : '<p class="tenue">Nada todavía en tu Librería ni en el corpus. «Buscar fuentes» sale a buscar material a tu nivel.</p>'
+}
+
+// ─── el visual: verlo, valorarlo y mejorarlo ────────────────────────────
+
+const ESTRELLAS = [1, 2, 3, 4, 5]
+
+/** El visual de la clase (o «en el horno», o «solo texto»), con ★ y Mejorar cuando está listo. */
+function visualHTML(v) {
+  if (!v) return ''
+  if (v.estado === 'listo') return `<iframe class="aca-iframe" sandbox="allow-scripts" src="${esc(v.url)}" title="El visual de la clase"></iframe>
+    <div class="fila aca-valorar"><span class="tenue chico">¿Te sirvió?</span>${ESTRELLAS.map((n) => `<button class="btn btn-chico btn-icono ${(v.valoracion ?? 0) >= n ? 'on' : ''}" data-estrella="${n}" title="${n} de 5${n >= 4 ? ' (queda sellado: es la referencia de este concepto)' : ''}">★</button>`).join('')}
+      <button class="btn btn-chico" data-mejorar>Mejorar</button><a class="btn btn-chico" href="${esc(v.url)}" target="_blank" rel="noopener">Pantalla completa</a></div>`
+  if (v.estado === 'haciendo') return `<div class="aca-horno"><span class="pensando"><span><i></i><i></i><i></i></span></span><p>El visual está en el horno del Taller${v.progreso ? `: ${esc(v.progreso)}` : ''}.</p><small class="tenue">Seguí con la explicación: aparece solo cuando esté.</small></div>`
+  if (v.estado === 'fallo') return `<p class="aviso">El visual no salió${v.progreso ? `: ${esc(v.progreso)}` : ''}.</p>`
+  return `<div class="aca-horno"><p>Solo texto por ahora: ${esc(v.motivo ?? 'el visual queda para después')}.</p><small class="tenue">Se vuelve a pedir la próxima vez que abras la clase.</small></div>`
+}
+
+/** Engancha ★ y Mejorar de un visual listo. luego: qué repintar después. */
+function engancharVisual(cont, artefactoId, luego) {
+  $$('[data-estrella]', cont).forEach((b) => (b.onclick = async () => {
+    const n = Number(b.dataset.estrella)
+    const nota = n <= 3 ? await preguntar('¿Qué le faltó? (sirve para mejorarlo)', '', { placeholder: 'Más grande, menos texto, que se vea la corriente…', ok: 'Guardar' }) : ''
+    if (nota === null) return
+    try { await api(`/taller/${artefactoId}/valorar`, { estrellas: n, nota: nota || null }); toast(n >= 4 ? 'Sellado<small>Es la referencia de este concepto: se reusa.</small>' : 'Anotado', 'suave'); luego?.() } catch (e) { error(e) }
+  }))
+  const m = $('[data-mejorar]', cont)
+  if (m) m.onclick = async () => {
+    const cambio = await preguntar('¿Qué cambio? Sale una versión nueva por la cola del Taller.', '', { largo: true, placeholder: 'Que muestre la corriente con flechas animadas…', ok: 'Mejorar' })
+    if (!cambio?.trim()) return
+    try { await api(`/taller/${artefactoId}/iterar`, { cambio }); toast('Nueva versión en el horno', 'suave'); luego?.() } catch (e) { error(e) }
+  }
+}
+
+function fichaVisual(a, luego) {
+  if (!a) return
+  const v = { estado: a.estado, url: `/taller/${a.id}/index.html`, progreso: a.progreso, valoracion: a.meta.valoracion ?? null }
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>${esc(a.titulo)}</h2><p class="tenue chico">${esc(a.pedido)}</p>${visualHTML(v)}`)
+  $('#modal').classList.add('modal-ancho')
+  engancharVisual($('#modal'), a.id, () => { cerrarModal(); luego?.() })
+}
+
+// ─── la clase ───────────────────────────────────────────────────────────
+
+/** Abre la clase (o el examen): si estaba lista, al instante; si no, el tutor la arma (unos segundos). */
+async function abrirClase(id, examen = false) {
+  aca.dominio = id
+  const cont = $('#aca-cuerpo')
+  if (!cont) return
+  clearTimeout(aca.sondeo)
+  cont.innerHTML = `<div class="aca-preparando"><span class="pensando"><span><i></i><i></i><i></i></span></span><p>${examen ? 'Armando el examen del nivel…' : 'Abriendo tu clase (si no estaba lista, el tutor la arma: unos segundos)…'}</p></div>`
+  let r
+  try { r = await api(`/academia/${id}/sesion`, examen ? { examen: true } : {}) } catch (e) { error(e); return pintarDominio(id) }
+  if (aca.dominio === id) pintarClase(r)
+}
+
+function pintarClase(r) {
+  const cont = $('#aca-cuerpo')
+  if (!cont) return
+  const s = r.sesion
+  const p = s.paquete
+  const turno = (i) => [...r.turnos].reverse().find((t) => t.i === i)
+  cont.innerHTML = `<div class="aca-clase">
+    <header class="aca-dom-cab"><button class="btn btn-chico" id="aca-volver">←</button><div class="f1"><h2>${s.tipo === 'examen' ? '📝 ' : ''}${esc(p.tema)}</h2><small class="tenue">Nivel ${s.nivel}${s.tipo === 'examen' ? ' · aprobás con 4 de 5' : ''}</small></div></header>
+    <div class="aca-clase-cuerpo ${r.visual ? 'con-visual' : ''}">
+      <section class="aca-expl">${(p.explicacion || '').split(/\n{2,}/).map((x) => `<p>${esc(x)}</p>`).join('')}
+        ${p.ejemplos?.length ? `<h4>Ejemplos</h4><ul>${p.ejemplos.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</section>
+      ${r.visual ? `<aside class="aca-visual" id="aca-visual">${visualHTML(r.visual)}</aside>` : ''}
+    </div>
+    <section class="aca-preguntas"><h3>${s.tipo === 'examen' ? 'El examen' : 'Para chequear'}</h3>
+      ${p.preguntas.map((q, i) => { const t = turno(i); return `<form class="aca-pregunta ${t ? (t.correcto ? 'bien' : 'mal') : ''}" data-i="${i}">
+        <p><b>${i + 1}.</b> ${esc(q.pregunta)}</p>
+        <div class="fila"><textarea class="campo-suelto f1" name="respuesta" rows="2" placeholder="Con tus palabras…" ${s.estado === 'hecha' ? 'disabled' : ''}>${esc(t?.respuesta ?? '')}</textarea>${s.estado === 'hecha' ? '' : `<button class="btn btn-chico">${t ? 'De nuevo' : 'Responder'}</button>`}</div>
+        <div class="aca-devolucion">${t ? `${t.correcto ? '✓' : '✗'} ${esc(t.devolucion)}` : ''}</div></form>` }).join('')}
+    </section>
+    ${s.estado === 'hecha' ? '' : `<div class="fila"><button class="btn btn-primario" id="aca-cerrar">✋ Cerrar ${s.tipo === 'examen' ? 'el examen' : 'la clase'}</button><small class="tenue">Queda en tu corpus, con tarjetas para repasar.</small></div>`}
+    <div id="aca-cierre"></div>
+  </div>`
+  $('#aca-volver').onclick = () => { clearTimeout(aca.sondeo); pintarDominio(s.aprendizajeId) }
+  if (r.visual?.estado === 'listo') engancharVisual($('#aca-visual'), r.visual.artefactoId, () => refrescarVisual(s.id))
+  if (r.visual?.estado === 'haciendo') esperarVisual(s.id)
+  $$('.aca-pregunta', cont).forEach((f) => (f.onsubmit = async (ev) => {
+    ev.preventDefault()
+    const respuesta = f.respuesta.value.trim()
+    if (!respuesta) return
+    const b = $('button', f)
+    b.disabled = true
+    $('.aca-devolucion', f).innerHTML = '<span class="tenue">El tutor está leyendo…</span>'
+    try {
+      const d = await api(`/academia/sesion/${s.id}/responder`, { i: Number(f.dataset.i), respuesta })
+      r.turnos.push({ i: d.i, respuesta, correcto: d.correcto, devolucion: d.devolucion })
+      f.classList.toggle('bien', d.correcto)
+      f.classList.toggle('mal', !d.correcto)
+      $('.aca-devolucion', f).innerHTML = `${d.correcto ? '✓' : '✗'} ${esc(d.devolucion)}`
+      b.textContent = 'De nuevo'
+    } catch (e) { $('.aca-devolucion', f).innerHTML = ''; error(e) } finally { b.disabled = false }
+  }))
+  $$('.aca-pregunta textarea', cont).forEach((t) => t.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); t.form.requestSubmit() } }))
+  const cerrar = $('#aca-cerrar')
+  if (cerrar) cerrar.onclick = async () => {
+    const sin = p.preguntas.length - new Set(r.turnos.map((t) => t.i)).size
+    if (sin && !(await confirmar(`Te ${sin === 1 ? 'queda una pregunta' : `quedan ${sin} preguntas`} sin responder. ¿Cerrar igual?`, { si: 'Cerrar' }))) return
+    cerrar.disabled = true
+    try {
+      const c = await api(`/academia/sesion/${s.id}/cerrar`, {})
+      clearTimeout(aca.sondeo)
+      $('#aca-cierre').innerHTML = `<section class="seccion aca-resumen naipe" data-madurez="${c.subio ? 'nucleo' : 'sellado'}">
+        <h3>${s.tipo === 'examen' ? (c.subio ? `🎉 Subiste al nivel ${c.nivel}` : 'Todavía no') : `Clase cerrada: ${Math.round(c.puntaje * 100)} %`}</h3>
+        <p>${[c.tarjetas ? `${c.tarjetas} tarjeta${c.tarjetas === 1 ? '' : 's'} para repasar` : '', c.quantomos ? `${c.quantomos} quántomo${c.quantomos === 1 ? '' : 's'} para La Mano` : '', 'la pieza en tu corpus'].filter(Boolean).join(' · ')}.</p>
+        ${c.repasar?.length ? `<p>Para repasar antes de volver a intentarlo:</p><ul>${c.repasar.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+        ${c.examen && s.tipo !== 'examen' ? '<p><b>El examen del nivel está habilitado.</b></p>' : ''}
+        <div class="fila"><button class="btn btn-primario" id="aca-otra">▶ Otra clase</button><button class="btn" id="aca-al-dominio">Volver al dominio</button></div></section>`
+      $$('.aca-pregunta textarea, .aca-pregunta button', cont).forEach((x) => (x.disabled = true))
+      cerrar.parentElement.remove()
+      $('#aca-otra').onclick = () => abrirClase(s.aprendizajeId)
+      $('#aca-al-dominio').onclick = () => pintarDominio(s.aprendizajeId)
+    } catch (e) { cerrar.disabled = false; error(e) }
+  }
+}
+
+/** Mientras el visual está en el horno, se mira cada pocos segundos (solo con la pestaña a la vista). */
+function esperarVisual(sid) {
+  clearTimeout(aca.sondeo)
+  aca.sondeo = setTimeout(() => cuandoSeVea(() => refrescarVisual(sid)), 4000)
+}
+
+async function refrescarVisual(sid) {
+  const el = $('#aca-visual')
+  if (!el || vista !== 'aprender') return
+  let r
+  try { r = await api(`/academia/sesion/${sid}`) } catch { return esperarVisual(sid) }
+  el.innerHTML = visualHTML(r.visual)
+  if (r.visual?.estado === 'listo') engancharVisual(el, r.visual.artefactoId, () => refrescarVisual(sid))
+  else if (r.visual?.estado === 'haciendo') esperarVisual(sid)
+}
+
+// ─── el repaso espaciado (lo que contaste que estudiaste) ───────────────
 
 function pintarRepaso(cont, d) {
   const tocan = d.repaso.filter((p) => p.toca)
   const vienen = d.repaso.filter((p) => !p.toca)
   cont.innerHTML = `
+    <p class="tenue">Lo que le contás a Mastropiero que estudiaste vuelve como pregunta en 1, 3, 7 y 16 días. Las tarjetas de cada dominio se repasan desde su página.</p>
     <section class="seccion"><h3>Para repasar ahora (${tocan.length})</h3>
       ${tocan.length ? tocan.map((p) => `<form class="apr-rep" data-rep="${p.id}"><b>${esc(p.texto)}</b><small class="tenue">${esc(p.porQue ?? '')} · vuelta ${p.vuelta + 1} de 4</small>
         <div class="fila"><input name="respuesta" placeholder="De memoria…" class="f1"><button class="btn btn-chico btn-primario">Responder</button><button class="btn btn-chico" type="button" data-saltar="${p.id}">Mañana</button></div></form>`).join('') : '<p class="tenue">Nada para repasar ahora.</p>'}</section>

@@ -25,6 +25,8 @@ const ACCIONES_PALETA = [
   { id: 'anotar', titulo: 'Anotar algo (nota, idea, foto)', ico: 'pencil', claves: 'anotar nota idea foto capturar', hacer: () => enHoy(() => accionHud('anotar')) },
   { id: 'cierre', titulo: 'Cerrar el día hablando', ico: 'moon', claves: 'cierre noche terminar diario', hacer: () => enHoy(() => cerrarDiaHablando()) },
   { id: 'persona', titulo: 'Nueva persona', ico: 'user-plus', claves: 'persona contacto agregar gente', hacer: () => cargarScript('42-personas.js').then(() => modalNuevaPersona()) },
+  { id: 'dominio', titulo: 'Sumar algo para aprender (Academia)', ico: 'graduation-cap', claves: 'aprender estudiar dominio tutor academia curso', hacer: () => { irA('aprender'); cargarScript('59-aprender.js').then(() => modalSumarDominio()) } },
+  { id: 'conviene', titulo: '¿Qué me conviene aprender?', ico: 'lightbulb', claves: 'aprender sugerir conviene metas academia predecir', hacer: () => { irA('aprender'); cargarScript('59-aprender.js').then(() => sugerirDominios()) } },
   { id: 'sueno', titulo: 'Anotar un sueño', ico: 'moon', claves: 'sueño soñe dormir noche', hacer: () => cargarScript('59-suenos.js').then(() => modalSueno()) },
   { id: 'ajustes', titulo: 'Ajustes (rutinas, voz, Directo, tope)', ico: 'settings', claves: 'ajustes configuracion rutinas voz tope horario', hacer: () => enHoy(() => modalAjustesHoy()) },
   { id: 'tema', titulo: 'Cambiar el tema', ico: 'sun-moon', claves: 'tema oscuro claro modo sistema', hacer: () => $('#btn-tema').click() },
@@ -37,7 +39,7 @@ const SINONIMOS = {
   hoy: 'inicio dia jornada', directo: 'pantalla informes foco', chat: 'conversar hablar mensajes', misiones: 'tareas primarias quests objetivos semana',
   calendario: 'agenda eventos google', linea: 'tiempo historia timeline', mapa: 'lugares', salud: 'cuerpo comida peso entreno kcal habitos',
   personas: 'gente contactos amigos', jugador: 'yo perfil plata finanzas gastos ingresos inventario', suenos: 'soñe dormir', mano: 'cartas afirmaciones pesquisa',
-  idiomas: 'chino ingles lenguas', aprender: 'estudiar practicar', criba: 'pesar pasajes', corpus: 'archivo piezas buscar notas quantomos', cuadernos: 'notebook',
+  idiomas: 'chino ingles lenguas', aprender: 'estudiar practicar academia tutor dominios cursos clases', criba: 'pesar pasajes', corpus: 'archivo piezas buscar notas quantomos', cuadernos: 'notebook',
   libreria: 'libros peliculas series obras', entidades: 'proyectos conceptos', taller: 'crear imagen video estudio', radar: 'oportunidades convocatorias',
   cuentas: 'redes publicaciones posts', discovery: 'clientes encargos consultoria', fragua: 'propuestas mejoras', liga: 'agentes roster',
 }
