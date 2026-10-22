@@ -190,5 +190,5 @@ async function montarCuaderno(id) {
   else pintarBusqueda()
   // Mientras graba la charla, se refresca solo.
   clearTimeout(cuEspera)
-  if (c.haciendo) cuEspera = setTimeout(() => { if (vista === 'cuadernos' && cuadernoAbierto === id) otra() }, 5000)
+  if (c.haciendo) cuEspera = setTimeout(() => cuandoSeVea(() => { if (vista === 'cuadernos' && cuadernoAbierto === id) otra() }), 5000)
 }

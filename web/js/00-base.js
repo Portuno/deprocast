@@ -5,6 +5,15 @@ const $ = (s, el = document) => el.querySelector(s)
 const $$ = (s, el = document) => [...el.querySelectorAll(s)]
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms))
+/** Lo que se sondea mientras algo se hace: con la pestaña oculta espera a que vuelvas (no gasta nada mientras tanto). */
+function cuandoSeVea(f) {
+  if (!document.hidden) return f()
+  document.addEventListener('visibilitychange', function alVolver() {
+    if (document.hidden) return
+    document.removeEventListener('visibilitychange', alVolver)
+    f()
+  })
+}
 
 async function api(ruta, cuerpo) {
   const r = await fetch('/api' + ruta, cuerpo === undefined ? {} : {

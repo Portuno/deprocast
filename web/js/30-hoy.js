@@ -83,60 +83,6 @@ function pintarHoy() {
 
 const corto = (s, n = 110) => (s && s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s || '')
 
-function brujulaHTML() {
-  const b = hoyDatos.brujula
-  if (!b) return '<button type="button" class="btn btn-chico" id="hoy-brujula">Armar la brújula de hoy</button>'
-  return `<details class="brujula" ${pref.leer('mastro-brujula-caja', 'no') === 'si' ? 'open' : ''}>
-    <summary><small>Si hacés una sola cosa</small><b>${esc(b.foco)}</b></summary>
-    <p><b>Cuerpo.</b> ${esc(b.cuerpo)}</p>
-    <p><b>Mente.</b> ${esc(b.mente)}</p>
-    <p><b>Alma.</b> ${esc(b.alma)}</p>
-  </details>`
-}
-
-function colaRunHTML() {
-  const run = hoyDatos.run
-  if (run?.estado === 'en_curso') {
-    const ms = run.misiones
-    const actual = ms.find((m) => m.id === hoyDatos.actual)
-    const hechas = ms.filter((m) => m.estado === 'hecha').length
-    const titulo = actual ? actual.titulo : minutosAhora() < aMinJs(run.inicio) ? `Arranca a las ${run.inicio}` : 'Entre bandas'
-    return `<div class="cola-bloque">
-      <button type="button" class="cola-item" data-dia="run">
-        <small>Run · ${run.inicio}–${run.fin}</small>
-        <b>${esc(titulo)}</b>
-        <em>Abrir</em>
-      </button>
-      <div class="cola-pie">
-        <i class="cola-barra" title="${hechas} de ${ms.length}"><b style="width:${ms.length ? Math.round((hechas / ms.length) * 100) : 0}%"></b></i>
-        <span>${hechas}/${ms.length}</span>
-        ${actual ? `<span class="cola-marcas">${[['hecha', '✓ Hecha'], ['parcial', '◐'], ['no', '✗']].map(([e, g]) => `<button type="button" data-cola-marcar="${e}" data-mid="${actual.id}" class="${actual.estado === e ? 'on' : ''}">${g}</button>`).join('')}</span>` : ''}
-      </div>
-    </div>`
-  }
-  if (run?.estado === 'propuesta') {
-    return `<button type="button" class="cola-item pendiente" data-dia="run">
-      <small>Run propuesta · ${run.inicio}–${run.fin}</small>
-      <b>${esc(corto(run.resumen || `${run.misiones.length} bandas listas`, 120))}</b>
-      <em>Abrir</em>
-    </button>`
-  }
-  return `<button type="button" class="cola-item" data-dia="run"><small>Run</small><b>Sin run. Cuando quieras, la armamos.</b><em>Arrancar</em></button>`
-}
-
-function engancharCola(cont) {
-  $$('[data-dia]', cont).forEach((b) => (b.onclick = () => abrirDia(b.dataset.dia)))
-  $$('[data-cola-marcar]', cont).forEach((b) => (b.onclick = async () => {
-    const m = hoyDatos.run?.misiones?.find((x) => x.id === Number(b.dataset.mid))
-    if (!m) return
-    try {
-      await api(`/misiones/${m.id}/marcar`, { estado: m.estado === b.dataset.colaMarcar ? 'activa' : b.dataset.colaMarcar })
-      await refrescar()
-      await traerHoy()
-    } catch (e) { error(e) }
-  }))
-}
-
 const MARCA = { hecha: '✓', parcial: '◐', no: '✗' }
 let cuentaRegresiva = null
 
@@ -251,25 +197,6 @@ function sinRunHTML() {
       <button class="btn btn-primario" id="run-nueva">Nueva run</button>
       ${hoyDatos.plantillas.map((p) => `<button class="chip" data-plantilla="${p.id}" title="Armar con esta plantilla, sin más">${esc(p.nombre)}</button>`).join('')}
     </div>
-  </section>`
-}
-
-function semanaHoyHTML() {
-  const { primarias, principal, terciarias, seguimientos, reporte } = hoyDatos
-  const activas = primarias.filter((m) => m.estado !== 'sugerida')
-  const sugeridas = primarias.filter((m) => m.estado === 'sugerida')
-  return `<section class="hoy-semana">
-    ${principal ? `<p class="principal-linea" title="Tu misión principal">◎ ${esc(principal.titulo)}</p>` : ''}
-    <h3 class="sub">Primarias de la semana <a href="#" class="ref" data-ir="misiones">ver todo</a></h3>
-    ${activas.length ? `<div class="prim-mini">${activas.map((m) => `<div class="pm ${m.estado}">
-        <span>${esc(m.titulo)}</span><i class="barrita"><b style="width:${m.avance.progreso}%"></b></i><small>${m.avance.bandas.hechas ? `${m.avance.bandas.hechas} bandas` : ''}</small></div>`).join('')}</div>`
-      : `<p class="tenue chico">${sugeridas.length ? `Mastropiero te sugirió ${sugeridas.length}: aceptalas en <a href="#" class="ref" data-ir="misiones">Misiones</a>.` : 'Sin primarias esta semana. <a href="#" class="ref" data-ir="misiones">Proponer</a>'}</p>`}
-    ${terciarias.filter((m) => m.estado === 'activa').length ? `<h3 class="sub">Side quests</h3>${terciarias.filter((m) => m.estado === 'activa').map((m) => `<div class="sq" data-mid="${m.id}">
-        <span>⚑ ${esc(m.titulo)}${m.disparador ? `<small>${esc(Object.values(m.disparador).filter(Boolean).join(' · '))}</small>` : ''}</span>
-        <button class="btn btn-chico" data-sq-hecha title="Cumplida">✓</button></div>`).join('')}` : ''}
-    ${seguimientos.length ? `<h3 class="sub">Te deben</h3>${seguimientos.map((m) => `<div class="sq"><span>↻ <b>${esc(m.quien)}</b>: ${esc(m.titulo)}<small>vencía ${esc(m.vence)}</small></span></div>`).join('')}` : ''}
-    ${hoyDatos.aportes?.length ? `<h3 class="sub">De tus ayudantes</h3>${hoyDatos.aportes.map((a) => `<div class="sq"><span><a href="#" data-pieza="${a.id}">${esc(a.titulo.split(' · ').slice(1).join(' · ') || a.titulo)}</a><small>${esc(a.autor ?? a.agente)} · ${haceCuanto(a.en)}</small></span></div>`).join('')}` : ''}
-    ${reporte && reporte.tipo !== 'hora' ? `<details class="hoy-reporte"><summary>Último reporte (${reporte.tipo === 'run' ? 'run' : 'semana'})</summary><div class="md">${md(reporte.texto)}</div></details>` : ''}
   </section>`
 }
 
@@ -395,7 +322,7 @@ async function traerPregunta() {
     const r = await api('/preguntas/siguiente')
     preguntaVista = r
     pintarTarjetaPregunta(r)
-    if (r.generando && !r.pregunta) setTimeout(() => vista === 'hoy' && traerPregunta(), 6000)
+    if (r.generando && !r.pregunta) setTimeout(() => cuandoSeVea(() => vista === 'hoy' && traerPregunta()), 6000)
     if (diaAbierto === 'pregunta' && $('#modal .dia-modal') && !focoEnCampo()) pintarDiaModal()
   } catch { /* la tarjeta se queda en lo último que tuvo */ }
 }
@@ -437,7 +364,7 @@ function engancharPreguntaModal(raiz) {
       if (respuesta) toast('Anotado<small>Lo guardo en lo que sé de vos.</small>', 'suave')
       preguntaVista = { pregunta: r2.siguiente, generando: !r2.siguiente, respondidas: (preguntaVista.respondidas ?? 0) + (respuesta ? 1 : 0) }
       pintarTarjetaPregunta(preguntaVista)
-      if (!r2.siguiente) setTimeout(() => vista === 'hoy' && traerPregunta(), 6000)
+      if (!r2.siguiente) setTimeout(() => cuandoSeVea(() => vista === 'hoy' && traerPregunta()), 6000)
       if (diaAbierto === 'pregunta') pintarDiaModal(true)
     } catch (e) { error(e) }
   }
@@ -625,13 +552,6 @@ function engancharGemeloModal(raiz) {
     predCursor = 0
     await traerGemelo(f)
   })
-}
-
-function engancharSemanaHoy(cont) {
-  $$('[data-ir]', cont).forEach((a) => (a.onclick = (e) => { e.preventDefault(); irA(a.dataset.ir) }))
-  $$('[data-sq-hecha]', cont).forEach((b) => (b.onclick = async () => {
-    try { await api(`/misiones/${b.closest('[data-mid]').dataset.mid}`, { estado: 'hecha' }); toast('Side quest cumplida', 'suave'); await traerHoy() } catch (e) { error(e) }
-  }))
 }
 
 async function trabajando(boton, texto, f) {

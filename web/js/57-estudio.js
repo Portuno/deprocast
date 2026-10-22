@@ -29,7 +29,7 @@ async function montarEstudio() {
     <h3 class="tl-h">Tus proyectos</h3>
     ${b.proyectos.length ? `<div class="tl-grid">${b.proyectos.map((o) => {
       const a = o.ultima
-      const mini = a.archivos.includes('miniatura.jpg') ? `<img src="/taller/${a.id}/miniatura.jpg" alt="">` : `<video src="/taller/${a.meta?.proyecto?.fuente?.artefacto ?? a.id}/fuente.mp4#t=1" muted preload="metadata"></video>`
+      const mini = a.archivos.includes('miniatura.jpg') ? `<img src="/taller/${a.id}/miniatura.jpg" alt="" loading="lazy" decoding="async">` : `<video src="/taller/${a.meta?.proyecto?.fuente?.artefacto ?? a.id}/fuente.mp4#t=1" muted preload="metadata"></video>`
       return `<button class="tl-obra" data-es="${o.raiz}"><div class="tl-mini">${mini}</div><span class="tl-obra-txt"><span class="tipo-chip">🎬 ${esc(a.meta?.proyecto?.formato ?? '')}</span><b>${esc(a.titulo)}</b><small>${o.versiones.length > 1 ? `${o.versiones.length - 1} exportaciones · ` : ''}${new Date(a.creadoEn).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}</small></span></button>`
     }).join('')}</div>` : '<div class="vacio"><p>Todavía no posprodujiste nada.</p><button class="btn" data-paso-ir="taller">Ir al Taller</button></div>'}
     <h3 class="tl-h" style="margin-top:22px">Plantillas (tu kit de marca)</h3>
@@ -431,7 +431,7 @@ async function esperarTarea() {
   clearTimeout(es.sondeo)
   let d
   try { d = await api(`/estudio/${es.id}`) } catch { return }
-  if (d.tarea?.activa) return void (es.sondeo = setTimeout(() => vista === 'estudio' && esperarTarea(), 2500))
+  if (d.tarea?.activa) return void (es.sondeo = setTimeout(() => cuandoSeVea(() => vista === 'estudio' && esperarTarea()), 2500))
   if (d.tarea?.error) { $('#es-respuesta').textContent = ''; return error(new Error(d.tarea.error)) }
   es.p = d.proyecto
   $('#es-respuesta').textContent = '☿ Listo: subtítulos armados. Revisalos en el inspector (tocá la capa).'
@@ -456,7 +456,7 @@ async function refrescarVersiones() {
     try { await api(`/estudio/${s.dataset.pub}/publicar`, { cuentaId: Number(s.value) }); toast('En Cuentas, como borrador<small>Revisalo y aprobalo ahí: no sale solo.</small>', 'suave') } catch (e) { error(e) } finally { s.value = '' }
   }))
   clearTimeout(es.sondeoExp)
-  if (haciendo) es.sondeoExp = setTimeout(() => vista === 'estudio' && refrescarVersiones(), 3000)
+  if (haciendo) es.sondeoExp = setTimeout(() => cuandoSeVea(() => vista === 'estudio' && refrescarVersiones()), 3000)
 }
 
 function refrescarEstudio() {}

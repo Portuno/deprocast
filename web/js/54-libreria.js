@@ -104,7 +104,7 @@ async function refrescarLibreria() {
   $('#lib-csv').href = `/api/libreria.csv?tipo=${libTipo}`
   $('#lib-nueva').autor.placeholder = AUTOR_LIB[libTipo]
   clearTimeout(libEspera)
-  if (d.poblando || d.expandiendo) libEspera = setTimeout(() => { if (vista === 'libreria') refrescarLibreria() }, 4000)
+  if (d.poblando || d.expandiendo) libEspera = setTimeout(() => cuandoSeVea(() => { if (vista === 'libreria') refrescarLibreria() }), 4000)
 
   const obras = libSoloRevisar ? d.obras.filter((o) => !o.revisada) : d.obras
   const celda = (campo, valor, extra = '') => `<td contenteditable="true" spellcheck="false" data-campo="${campo}" ${extra}>${esc(valor ?? '')}</td>`

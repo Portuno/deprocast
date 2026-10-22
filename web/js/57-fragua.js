@@ -67,7 +67,7 @@ async function refrescarFragua() {
   })
   $$('[data-ver]', cont).forEach((b) => (b.onclick = () => verForja(Number(b.dataset.ver), d.rama)))
   clearTimeout(fraguaEspera)
-  if (haciendo) fraguaEspera = setTimeout(() => { if (vista === 'fragua') refrescarFragua() }, 5000)
+  if (haciendo) fraguaEspera = setTimeout(() => cuandoSeVea(() => { if (vista === 'fragua') refrescarFragua() }), 5000)
 }
 
 function pintarDiff(diff) {

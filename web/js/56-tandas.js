@@ -58,7 +58,7 @@ async function pintarCola() {
       ${t.piezaId ? `<a href="#" data-pieza="${t.piezaId}">ver</a>` : ''}${t.estado === 'fallo' ? `<button class="btn btn-chico" data-reintentar="${t.id}">Reintentar</button>` : ''}</div>`).join('')
   $$('[data-reintentar]', cont).forEach((b) => (b.onclick = async () => { await api(`/tandas/${b.dataset.reintentar}/reintentar`, {}).catch(error); pintarCola() }))
   clearTimeout(tandasEspera)
-  if (d.cuenta.pendiente + d.cuenta.procesando) tandasEspera = setTimeout(pintarCola, 4000)
+  if (d.cuenta.pendiente + d.cuenta.procesando) tandasEspera = setTimeout(() => cuandoSeVea(pintarCola), 4000)
 }
 
 // ─── Google Takeout (Gemini y NotebookLM) ───────────────────────────────

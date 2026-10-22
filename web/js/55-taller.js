@@ -148,7 +148,7 @@ async function traerTaller(forzar = false) {
   // El horno: lo que se está haciendo; cuando algo sale, aviso.
   const firma = JSON.stringify(d.haciendo.map((a) => [a.id, a.progreso]))
   clearTimeout(tl.sondeo)
-  if (d.haciendo.length) tl.sondeo = setTimeout(() => vista === 'taller' && traerTaller(), 3000)
+  if (d.haciendo.length) tl.sondeo = setTimeout(() => cuandoSeVea(() => vista === 'taller' && traerTaller()), 3000)
   if (antes) {
     const salieron = antes.haciendo.filter((a) => !d.haciendo.some((x) => x.id === a.id))
     if (salieron.length) toast(`Listo en el Taller<small>${esc(salieron.map((a) => a.titulo).join(', '))}</small>`)
@@ -179,7 +179,7 @@ function vistaGrande(a) {
   if (a.tipo === 'video') return a.archivos.includes('video.mp4') ? `<video controls src="${urlTaller(a, 'video.mp4')}"></video>` : `<iframe class="tl-juego" sandbox="allow-scripts" src="${urlTaller(a, 'presentacion.html')}"></iframe>`
   const imgs = a.archivos.filter((n) => /\.(png|jpe?g)$/.test(n))
   const audio = a.archivos.find((n) => /\.mp3$/.test(n))
-  return `${imgs.length ? `<div class="tl-imgs n${Math.min(imgs.length, 4)}">${imgs.map((n) => `<a href="${urlTaller(a, n)}" target="_blank" rel="noopener"><img src="${urlTaller(a, n)}" alt="${esc(a.titulo)}"></a>`).join('')}</div>` : ''}
+  return `${imgs.length ? `<div class="tl-imgs n${Math.min(imgs.length, 4)}">${imgs.map((n) => `<a href="${urlTaller(a, n)}" target="_blank" rel="noopener"><img src="${urlTaller(a, n)}" alt="${esc(a.titulo)}" loading="lazy" decoding="async"></a>`).join('')}</div>` : ''}
     ${audio ? `<audio controls src="${urlTaller(a, audio)}"></audio>` : ''}
     ${a.meta?.ficha ? `<div class="tl-ficha-pj"><p>${esc(a.meta.ficha.descripcion ?? '')}</p>${a.meta.ficha.personalidad?.length ? `<p class="tenue chico">${a.meta.ficha.personalidad.map(esc).join(' · ')}</p>` : ''}<p><i>«${esc(a.meta.ficha.frase ?? '')}»</i></p></div>` : ''}
     ${a.meta?.guion?.length && a.tipo === 'voz' ? `<details class="tl-guion"><summary>Guion</summary>${a.meta.guion.map((t) => `<p><b>${esc(tl.datos?.voces?.[t.voz]?.split(' ')[0] ?? t.voz)}:</b> ${esc(t.texto)}</p>`).join('')}</details>` : ''}`
