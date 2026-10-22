@@ -289,7 +289,7 @@ async function modalTarea(id) {
       ${t.error ? `<div class="respuesta" style="background:#2a1111;border-color:#5b2a2a">✗ ${esc(t.error)}</div>` : ''}
       ${destacado}
       <h3 style="color:var(--tenue);font-size:12px;letter-spacing:.12em">PAYLOAD</h3><pre class="json">${esc(JSON.stringify(t.payload, null, 2))}</pre>
-      ${r ? `<h3 style="color:var(--tenue);font-size:12px;letter-spacing:.12em">RESULTADO</h3><pre class="json">${esc(JSON.stringify(r, (k, v) => (k === 'embedding' && Array.isArray(v) ? `[${v.length} dimensiones]` : v), 2))}</pre>` : ''}`)
+      ${r ? `<h3 style="color:var(--tenue);font-size:12px;letter-spacing:.12em">RESULTADO</h3><pre class="json">${esc(JSON.stringify(r, (k, v) => (k === 'embedding' && Array.isArray(v) ? `[${v.length} dimensiones]` : v), 2))}</pre>` : ''}`, { lado: true })
   } catch (e) { error(e) }
 }
 
@@ -395,7 +395,7 @@ async function modalAgente(id) {
       if (!c) nuevaConversacion(f.id)
     }
     $('#a-retirar').onclick = async () => {
-      if (!confirm(`¿Retirar a ${f.nombre ?? f.id} para siempre? Va al cementerio y su designación no vuelve.`)) return
+      if (!(await confirmar(`¿Retirar a ${f.nombre ?? f.id} para siempre?`, { detalle: 'Va al cementerio y su designación no vuelve.', si: 'Retirar', peligro: true }))) return
       try { await api(`/agentes/${encodeURIComponent(f.id)}/retirar`, {}); cerrarModal(); toast(`✝ ${esc(f.nombre ?? f.id)} retirado`, 'suave'); await refrescar() } catch (err) { error(err) }
     }
     const bt = $('#a-bautizar')

@@ -110,7 +110,7 @@ async function montarCuaderno(id) {
     } catch (e) { error(e); boton.disabled = false; boton.textContent = t }
   }
   $('#cu-volver').onclick = (e) => { e.preventDefault(); cuadernoAbierto = null; montarCuadernos() }
-  $('#cu-borrar').onclick = async () => { if (!confirm(`¿Borrar el cuaderno «${c.titulo}»? Las fuentes quedan en el corpus.`)) return; try { await api(`/cuadernos/${id}/borrar`, {}); cuadernoAbierto = null; montarCuadernos() } catch (e) { error(e) } }
+  $('#cu-borrar').onclick = async () => { if (!(await confirmar(`¿Borrar el cuaderno «${c.titulo}»?`, { detalle: 'Las fuentes quedan en el corpus.', si: 'Borrar el cuaderno', peligro: true }))) return; try { await api(`/cuadernos/${id}/borrar`, {}); cuadernoAbierto = null; montarCuadernos() } catch (e) { error(e) } }
   $$('[data-quitar]').forEach((b) => (b.onclick = async () => { try { await api(`/cuadernos/${id}/quitar`, { pieza: Number(b.dataset.quitar) }); otra() } catch (e) { error(e) } }))
   $('#cu-guia').onclick = (e) => ocupado(e.target, 'Leyendo las fuentes…', () => api(`/cuadernos/${id}/guia`, {}))
   $('#cu-charla').onclick = (e) => ocupado(e.target, 'Arrancando…', async () => { await api(`/cuadernos/${id}/charla`, {}); toast('Armando la charla<small>Tarda unos minutos; te aviso acá cuando esté.</small>') })

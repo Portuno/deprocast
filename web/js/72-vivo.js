@@ -107,7 +107,7 @@ function pintarVivo() {
   en('#vivo-charla', () => { alternarCharlaEnVivo().then(pintarVivo) })
   en('#vivo-consejo', () => pedirConsejo())
   en('#vivo-validar', () => modalBandeja())
-  en('#vivo-apagar', () => { if (directo.sesion) { if (confirm('¿Apagar el Directo? Escribo el informe con lo que vi y escuché.')) detenerDirecto() } else modalDirecto() })
+  en('#vivo-apagar', async () => { if (directo.sesion) { if (await confirmarApagarDirecto()) detenerDirecto() } else modalDirecto() })
   engancharSiempre()
   $('#vivo-lineas').onchange = (e) => { pref.guardar('mastro-vivo-lineas', e.target.value); vivo.firma = ''; pintarChat() }
 }

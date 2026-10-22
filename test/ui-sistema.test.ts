@@ -13,9 +13,9 @@ const js = fs.readdirSync(path.join(WEB, 'js')).filter((f) => f.endsWith('.js'))
 const cuenta = (texto: string, re: RegExp) => (texto.match(re) ?? []).length
 
 const TOPES = {
-  confirm: 20,
-  prompt: 20,
-  coloresFijos: 50,
+  confirm: 0,
+  prompt: 0,
+  coloresFijos: 49,
   styleEnJs: 253,
   letraSinToken: 3, // los glifos gigantes decorativos (84 px, 140 px, el clamp de la portada)
 }

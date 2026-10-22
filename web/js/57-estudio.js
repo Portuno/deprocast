@@ -178,9 +178,10 @@ async function abrirEstudio(id) {
     try { es.p = { ...es.p, ...(await api(`/estudio/${es.id}/plantilla/${pid}`, {})) }; es.p.puedeDeshacer = true; refrescarEditor(); toast('Plantilla aplicada', 'suave') } catch (err) { error(err) }
   }
   $('#es-guardar-pl').onclick = async () => {
-    const nombre = prompt('Nombre de la plantilla (por ejemplo, el de tu proyecto):')
+    const nombre = await preguntar('Nombre de la plantilla (por ejemplo, el de tu proyecto):', '', { ok: 'Seguir' })
     if (!nombre) return
-    const marca = prompt('Tu marca en una línea (colores, tipografía, tono) — para que el agente la respete. Opcional:') ?? ''
+    const marca = await preguntar('Tu marca en una línea (colores, tipografía, tono) — para que el agente la respete. Opcional:', '', { ok: 'Guardar plantilla' })
+    if (marca === null) return
     try { await guardarEstudioYa(); await api(`/estudio/${es.id}/plantilla`, { nombre, marca }); es.base = await api('/estudio'); toast('Plantilla guardada', 'suave'); abrirEstudio(es.id) } catch (e) { error(e) }
   }
   // Arrastrar en el lienzo (las capas), con el mouse o el dedo.

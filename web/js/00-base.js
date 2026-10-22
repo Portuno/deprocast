@@ -59,28 +59,133 @@ document.addEventListener('keydown', (e) => {
 
 // ─── toasts y modal ─────────────────────────────────────────────────────
 
-function toast(html, tipo = '') {
+/**
+ * Un aviso abajo a la derecha. Con `accion` lleva un botón (Deshacer, Ver…) y dura más, para que dé tiempo a tocarlo.
+ * Los errores se anuncian a los lectores de pantalla en el acto; lo demás, cuando terminen de leer.
+ */
+function toast(html, tipo = '', o = {}) {
   const t = document.createElement('div')
   t.className = `toast ${tipo}`
-  t.innerHTML = html
+  t.setAttribute('role', tipo === 'error' ? 'alert' : 'status')
+  t.innerHTML = `<div class="toast-txt">${html}</div>`
+  if (o.accion) {
+    const b = document.createElement('button')
+    b.className = 'toast-accion'
+    b.textContent = o.accion.texto
+    b.onclick = () => { t.remove(); o.accion.hacer() }
+    t.append(b)
+  }
+  const ms = o.ms ?? (o.accion ? 8000 : 3700)
+  t.style.animationDuration = `${(ms - 100) / 1000}s` // se desvanece al final de su tiempo, no antes
   $('#toasts').append(t)
-  setTimeout(() => t.remove(), 3700)
+  setTimeout(() => t.remove(), ms)
 }
 const error = (e) => toast(esc(e.message ?? e), 'error')
 
-function abrirModal(html) {
+// ─── modal ──────────────────────────────────────────────────────────────
+
+/** Lo que se puede enfocar adentro de algo (para que Tab no se escape del modal). */
+const enfocables = (el) => [...el.querySelectorAll('a[href], button:not([disabled]), input:not([disabled]):not([type=hidden]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')].filter((x) => x.offsetParent !== null)
+/** Tab y Shift+Tab dan la vuelta adentro de `el`. */
+function atraparFoco(e, el) {
+  if (e.key !== 'Tab') return
+  const xs = enfocables(el)
+  if (!xs.length) return
+  const [primero, ultimo] = [xs[0], xs[xs.length - 1]]
+  if (e.shiftKey && document.activeElement === primero) { e.preventDefault(); ultimo.focus() }
+  else if (!e.shiftKey && document.activeElement === ultimo) { e.preventDefault(); primero.focus() }
+}
+
+let antesDelModal = null
+/**
+ * Abre el modal. `lado: true` lo abre como panel lateral (las fichas: persona, pieza, agente), así lo de atrás se sigue
+ * viendo. Al cerrarlo, el foco vuelve a lo que lo abrió.
+ */
+function abrirModal(html, o = {}) {
+  if ($('#velo').hidden) antesDelModal = document.activeElement
   document.activeElement?.blur?.()
-  $('#modal').className = 'modal' // cada modal arranca con su tamaño normal (el que necesite más, se agranda)
-  $('#modal').innerHTML = html
+  const m = $('#modal')
+  m.className = `modal${o.lado ? ' modal-lado' : ''}` // cada modal arranca con su tamaño normal (el que necesite más, se agranda)
+  $('#velo').classList.toggle('velo-lado', !!o.lado)
+  m.innerHTML = html
+  m.setAttribute('role', 'dialog')
+  m.setAttribute('aria-modal', 'true')
+  const titulo = m.querySelector('h2')
+  if (titulo) { titulo.id = 'modal-titulo'; m.setAttribute('aria-labelledby', 'modal-titulo') } else m.removeAttribute('aria-labelledby')
+  m.querySelectorAll('[data-cerrar]:not([aria-label])').forEach((b) => b.setAttribute('aria-label', 'Cerrar'))
   $('#velo').hidden = false
   // El foco va al primer campo: si se queda en el botón que abrió el modal, lo que tipeás se pierde (y la barra espaciadora lo reabre).
-  setTimeout(() => $('#modal [autofocus], #modal input:not([type=hidden]):not([type=checkbox]):not([type=range]):not([data-sin-foco]), #modal textarea:not([data-sin-foco])')?.focus(), 0)
+  setTimeout(() => ($('#modal [autofocus], #modal input:not([type=hidden]):not([type=checkbox]):not([type=range]):not([data-sin-foco]), #modal textarea:not([data-sin-foco])') ?? m.querySelector('[data-cerrar]'))?.focus(), 0)
 }
 function cerrarModal() {
+  if ($('#velo').hidden) return
   $('#velo').hidden = true
   $('#modal').innerHTML = ''
+  const antes = antesDelModal
+  antesDelModal = null
+  if (antes?.isConnected) antes.focus?.()
 }
 $('#velo').addEventListener('click', (e) => { if (e.target.id === 'velo' || e.target.closest('[data-cerrar]')) cerrarModal() })
+$('#velo').addEventListener('keydown', (e) => atraparFoco(e, $('#modal')))
+
+// ─── confirmar y preguntar (en vez de los diálogos del navegador) ───────
+
+/**
+ * Un diálogo chico encima de todo (también encima de un modal abierto). Devuelve una promesa: true/false para confirmar,
+ * el texto o null para preguntar. Esc o tocar afuera es «no».
+ */
+function dialogo(html, alListo, foco = '[data-si]') {
+  return new Promise((resolver) => {
+    const antes = document.activeElement
+    const velo = document.createElement('div')
+    velo.className = 'dialogo-velo'
+    velo.innerHTML = `<div class="dialogo" role="alertdialog" aria-modal="true" aria-labelledby="dialogo-t">${html}</div>`
+    document.body.append(velo)
+    const caja = velo.firstElementChild
+    const terminar = (valor) => {
+      velo.remove()
+      if (antes?.isConnected) antes.focus?.()
+      resolver(valor)
+    }
+    velo.addEventListener('mousedown', (e) => { if (e.target === velo) terminar(alListo(false)) })
+    caja.addEventListener('keydown', (e) => {
+      e.stopPropagation() // que Esc no cierre también el modal de abajo, ni dispare atajos
+      if (e.key === 'Escape') { e.preventDefault(); terminar(alListo(false)) }
+      else if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON') { e.preventDefault(); terminar(alListo(true)) }
+      else atraparFoco(e, caja)
+    })
+    caja.querySelector('[data-si]').onclick = () => terminar(alListo(true))
+    caja.querySelector('[data-no]').onclick = () => terminar(alListo(false))
+    setTimeout(() => {
+      const campo = caja.querySelector('input, textarea')
+      if (!campo) return caja.querySelector(foco)?.focus()
+      campo.focus()
+      // Como el prompt de siempre: lo que ya estaba queda elegido (escribir lo reemplaza); en un texto largo, el cursor al final.
+      if (campo.tagName === 'INPUT' && campo.type !== 'date' && campo.type !== 'number') campo.select()
+      else if (campo.tagName === 'TEXTAREA') campo.setSelectionRange(campo.value.length, campo.value.length)
+    }, 0)
+  })
+}
+
+/**
+ * ¿Seguro? `si` es el verbo de lo que va a pasar («Borrar», «Apagar y escribir el informe»); `peligro` lo pinta de rojo
+ * y deja el foco en Cancelar, para que un Enter apurado no borre nada.
+ */
+function confirmar(pregunta, o = {}) {
+  const { si = 'Sí', no = 'Cancelar', peligro = false, detalle = '' } = o
+  return dialogo(`<p class="dialogo-t" id="dialogo-t">${esc(pregunta)}</p>${detalle ? `<p class="tenue">${esc(detalle)}</p>` : ''}
+    <div class="dialogo-acc"><button class="btn" data-no>${esc(no)}</button><button class="btn ${peligro ? 'btn-peligro-lleno' : 'btn-primario'}" data-si>${esc(si)}</button></div>`,
+  (ok) => ok, peligro ? '[data-no]' : '[data-si]')
+}
+
+/** Pide un texto. Devuelve lo escrito (puede ser '') o null si canceló. `largo` usa un cuadro de varias líneas. */
+function preguntar(pregunta, valor = '', o = {}) {
+  const { ok = 'Listo', placeholder = '', largo = false, tipo = 'text' } = o
+  return dialogo(`<label class="dialogo-t" id="dialogo-t" for="dialogo-campo">${esc(pregunta)}</label>
+    ${largo ? `<textarea class="campo-suelto" id="dialogo-campo" rows="4" placeholder="${esc(placeholder)}">${esc(valor ?? '')}</textarea>` : `<input class="campo-suelto" id="dialogo-campo" type="${tipo}" placeholder="${esc(placeholder)}" value="${esc(valor ?? '')}" data-sin-menciones>`}
+    <div class="dialogo-acc"><button class="btn" data-no>Cancelar</button><button class="btn btn-primario" data-si>${esc(ok)}</button></div>`,
+  (si) => (si ? $('#dialogo-campo')?.value ?? '' : null)) // se lee antes de que el diálogo se borre
+}
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') cerrarModal()
   const activo = document.activeElement

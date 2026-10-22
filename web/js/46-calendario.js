@@ -174,14 +174,14 @@ function detalleItem(it, estado, recargar) {
     try {
       if (a === 'editar') return formularioEvento(it, it.fecha, recargar)
       if (a === 'borrar') {
-        if (!confirm(`¿Borrar «${it.titulo}» de tu Google Calendar?`)) return
+        if (!(await confirmar(`¿Borrar «${it.titulo}» de tu Google Calendar?`, { si: 'Borrar del calendario', peligro: true }))) return
         await api(`/calendario/evento/${encodeURIComponent(it.google)}/borrar`, {})
         toast('Borrado de tu calendario', 'suave')
       } else if (a === 'llevar') {
         await trabajando(b, 'Agendando…', () => api('/calendario/llevar', { origen: origenLlevable, id: Number(oid) }))
         toast(it.google ? 'Actualizado en tu calendario' : 'Agendado en tu calendario', 'suave')
       } else if (a === 'quitar') {
-        if (!confirm('¿Sacarlo de tu Google Calendar? (en Deprocast sigue)')) return
+        if (!(await confirmar('¿Sacarlo de tu Google Calendar?', { detalle: 'En Deprocast sigue.', si: 'Sacar del calendario' }))) return
         await api('/calendario/quitar', { origen: origenLlevable, id: Number(oid) })
       } else if (a === 'pieza') { cerrarModal(); return modalPieza(Number(it.ref.id)) }
       else if (a === 'radar') { cerrarModal(); return irA('radar') }

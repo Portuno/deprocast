@@ -36,6 +36,7 @@
   --sombra-1: 0 2px 8px rgba(0, 0, 0, 0.25);
   --toque: 32px; /* alto mínimo de lo que se toca (44 en pantallas táctiles) */
   --anillo: 0 0 0 2px var(--fondo), 0 0 0 4px var(--acento);
+  --velo: rgba(0, 0, 0, 0.45); /* lo que oscurece detrás de un modal */
 
   /* clases: apagadas, distinguibles */
   --generativo: #c9849f;
@@ -131,6 +132,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { box-shadow: 
 /* Sin movimiento si lo pidió el sistema: nada de loops ni transiciones largas. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+  .toast { animation: none !important; } /* su animación termina invisible: sin movimiento, se ve quieto hasta que se va */
 }
 /* Los íconos del sprite: trazo del color del texto, del tamaño de la letra. */
 .ico { width: 1.15em; height: 1.15em; flex-shrink: 0; vertical-align: -0.2em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
@@ -748,7 +750,7 @@ sup.cita a:hover { background: var(--acento-suave); }
 .ev.banca i, .ev.vacante i { color: var(--aviso); }
 
 /* ─── Modal y toasts ─── */
-.velo { position: fixed; inset: 0; background: rgba(0, 0, 0, .5); display: grid; place-items: center; z-index: var(--z-modal); padding: 20px; }
+.velo { position: fixed; inset: 0; background: var(--velo); display: grid; place-items: center; z-index: var(--z-modal); padding: 20px; }
 .velo:has(.dia-modal) { align-items: start; padding-top: 28px; }
 :root[data-tema='claro'] .velo { background: rgba(30, 28, 24, .3); }
 .velo[hidden] { display: none; }
@@ -774,6 +776,10 @@ pre.json { background: var(--panel-2); border-radius: var(--r-m); padding: 12px;
   box-shadow: var(--sombra); animation: toast 3.6s ease forwards;
 }
 .toast.error { border-left-color: var(--mal); }
+.toast { display: flex; align-items: center; gap: var(--e-3); }
+.toast-txt { min-width: 0; }
+.toast-accion { margin-left: auto; flex-shrink: 0; background: none; border: 1px solid var(--linea-2); border-radius: var(--r-s); color: var(--acento-texto); font-weight: 600; font-size: var(--t-2); padding: 3px 9px; cursor: pointer; }
+.toast-accion:hover { background: var(--acento-suave); }
 .toast.suave { border-left-color: var(--linea-2); }
 .toast small { display: block; font-weight: 400; color: var(--tenue); font-size: var(--t-2); margin-top: 1px; }
 @keyframes toast { 0% { opacity: 0; transform: translateY(6px); } 6%, 85% { opacity: 1; transform: none; } 100% { opacity: 0; } }
@@ -1032,6 +1038,19 @@ pre.json { background: var(--panel-2); border-radius: var(--r-m); padding: 12px;
 .tl-obra-txt small { color: var(--tenue); font-size: var(--t-2); }
 .tl-obra-txt .tipo-chip { align-self: flex-start; }
 .modal.modal-ancho { width: min(1180px, 100%); }
+/* La ficha como panel lateral: lo de atrás se sigue viendo (persona, pieza, agente). */
+.velo.velo-lado { place-items: stretch end; padding: 0; background: color-mix(in srgb, var(--velo) 65%, transparent); }
+.modal.modal-lado { width: min(560px, 100%); max-height: none; height: 100%; border-radius: 0; border-width: 0 0 0 1px; animation: lado-entra .18s ease-out; }
+@keyframes lado-entra { from { transform: translateX(24px); opacity: 0; } }
+/* confirmar() y preguntar(): un diálogo chico encima de todo, también de un modal abierto. */
+.dialogo-velo { position: fixed; inset: 0; z-index: var(--z-flotante); background: var(--velo); display: grid; place-items: center; padding: var(--e-4); }
+.dialogo { width: min(440px, 100%); background: var(--panel); border: 1px solid var(--linea-2); border-radius: var(--r-l); padding: var(--e-5); box-shadow: var(--sombra); display: grid; gap: var(--e-3); }
+.dialogo-t { display: block; margin: 0; font-size: var(--t-4); font-weight: 600; line-height: 1.45; }
+.dialogo p { margin: 0; }
+.dialogo .campo-suelto { width: 100%; margin: 0; }
+.dialogo-acc { display: flex; justify-content: flex-end; gap: var(--e-2); margin-top: var(--e-1); }
+.btn-peligro-lleno { background: var(--mal); border-color: var(--mal); color: var(--sobre-acento); }
+.btn-peligro-lleno:hover { filter: brightness(1.08); background: var(--mal); border-color: var(--mal); }
 .tl-ficha { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr); gap: 20px; align-items: start; }
 .tl-ficha-vista { display: grid; gap: 10px; }
 .tl-ficha-vista video, .tl-ficha-vista audio { width: 100%; border-radius: var(--r-m); }

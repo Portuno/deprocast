@@ -42,7 +42,7 @@ function modalEstado() {
       <span class="tenue">${n('corpus')} piezas · ${n('memoria')} recuerdos · ${n('misiones')} misiones · ${n('runs')} runs · ${n('mensajes')} mensajes · ${n('entidades')} entidades · ${n('agentes')} agentes</span></p>
       <button class="btn btn-peligro" id="es-importar">Reemplazar esta base con esa exportación</button>`
     $('#es-importar').onclick = async () => {
-      if (!confirm('¿Reemplazar todo lo de esta base por la exportación? Lo actual queda respaldado en data/respaldos/.')) return
+      if (!(await confirmar('¿Reemplazar todo lo de esta base por la exportación?', { detalle: 'Lo actual queda respaldado en data/respaldos/.', si: 'Reemplazar la base', peligro: true }))) return
       const b = $('#es-importar')
       b.disabled = true
       b.textContent = 'Importando…'

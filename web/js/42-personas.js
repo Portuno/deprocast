@@ -173,7 +173,7 @@ async function editarPersona(p) {
         <div class="fila"><input class="campo-suelto" id="pp-proy" list="pp-lista" placeholder="Proyecto o empresa…"><datalist id="pp-lista"></datalist><input class="campo-suelto" id="pp-rol" placeholder="Rol (socia, cliente…)"><input class="campo-suelto" id="pp-imp" type="number" min="1" max="12" placeholder="1–12" style="width:5em"><button type="button" class="btn btn-chico" id="pp-sumar">Sumar</button></div>
       </div>
       <button class="btn btn-primario">Guardar</button>
-    </form>`)
+    </form>`, { lado: true })
   $$('#per-form .per-elegir').forEach((g) => $$('button', g).forEach((b) => (b.onclick = () => {
     $$('button', g).forEach((x) => x.classList.toggle('on', x === b))
     $(`#per-form input[name="${g.dataset.campo}"]`).value = b.dataset.n
@@ -243,7 +243,7 @@ function modalUnir(id, nombre, alTerminar = () => {}) {
     $('#un-res').innerHTML = r.map((x) => `<div class="sq"><span>${esc(x.nombre)} <small class="tenue">${esc(x.tipo)} · ${x.piezas} piezas${x.alias?.length ? ` · ${x.alias.slice(0, 3).map(esc).join(', ')}` : ''}</small></span>
       <span class="fila"><button class="btn btn-chico" data-queda="${id}" data-absorbe="${x.id}" title="Se queda «${esc(nombre)}»">Queda «${esc(nombre.slice(0, 18))}»</button><button class="btn btn-chico" data-queda="${x.id}" data-absorbe="${id}">Queda esta</button></span></div>`).join('') || '<p class="tenue">Nada con ese nombre.</p>'
     $$('#un-res [data-queda]').forEach((b) => (b.onclick = async () => {
-      if (!confirm('¿Unirlas? Lo de las dos queda en una sola y no se puede deshacer.')) return
+      if (!(await confirmar('¿Unirlas?', { detalle: 'Lo de las dos queda en una sola y no se puede deshacer.', si: 'Unir', peligro: true }))) return
       try { await api(`/entidades/${b.dataset.queda}/fusionar`, { absorbe: [Number(b.dataset.absorbe)] }); cerrarModal(); toast('Unidas', 'suave'); alTerminar(Number(b.dataset.queda)) } catch (err) { error(err) }
     }))
   }, 250) }

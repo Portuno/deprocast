@@ -696,9 +696,9 @@ function engancharRun(cont, run) {
     const m = run.misiones.find((x) => x.id === Number(b.closest('[data-mid]').dataset.mid))
     marcar(m.id, m.estado === b.dataset.marcar ? 'activa' : b.dataset.marcar)
   }))
-  $$('.banda [data-nota]', cont).forEach((b) => (b.onclick = () => {
+  $$('.banda [data-nota]', cont).forEach((b) => (b.onclick = async () => {
     const m = run.misiones.find((x) => x.id === Number(b.closest('[data-mid]').dataset.mid))
-    const nota = prompt(`Nota sobre «${m.titulo}» (para calibrar):`, m.feedback ?? '')
+    const nota = await preguntar(`Nota sobre «${m.titulo}» (para calibrar):`, m.feedback ?? '', { ok: 'Guardar nota', largo: true })
     if (nota?.trim()) marcar(m.id, m.estado === 'activa' ? 'parcial' : m.estado, nota.trim())
   }))
   $$('.banda [data-fijar]', cont).forEach((b) => (b.onclick = async () => {
@@ -773,8 +773,8 @@ function engancharRun(cont, run) {
   const descartar = $('#run-descartar', cont)
   if (descartar) descartar.onclick = async () => { try { await api(`/runs/${run.id}/descartar`, {}); await traerHoy() } catch (e) { error(e) } }
   const cerrar = $('#run-cerrar', cont)
-  if (cerrar) cerrar.onclick = () => {
-    if (!confirm('¿Cerrar la run? Escribo el reporte con lo que marcaste.')) return
+  if (cerrar) cerrar.onclick = async () => {
+    if (!(await confirmar('¿Cerrar la run?', { detalle: 'Escribo el reporte con lo que marcaste.', si: 'Cerrar y escribir el reporte' }))) return
     trabajando(cerrar, 'Escribiendo el reporte…', async () => {
       const r = await api(`/runs/${run.id}/cerrar`, {})
       diaAbierto = null
@@ -786,7 +786,7 @@ function engancharRun(cont, run) {
   }
   const plantilla = $('#run-plantilla', cont)
   if (plantilla) plantilla.onclick = async () => {
-    const nombre = prompt('Nombre de la plantilla (ej. «Tarde creativa»):', run.pedido.plantillaNombre && run.pedido.texto ? '' : run.pedido.plantillaNombre ?? '')
+    const nombre = await preguntar('Nombre de la plantilla (ej. «Tarde creativa»):', run.pedido.plantillaNombre && run.pedido.texto ? '' : run.pedido.plantillaNombre ?? '', { ok: 'Guardar plantilla' })
     if (!nombre?.trim()) return
     const { incluir, plantillaNombre, inicio, fin, ...pedido } = run.pedido
     try { await api('/plantillas', { nombre: nombre.trim(), pedido: { ...pedido, incluir: (incluir ?? []).map((e) => e.id) } }); toast(`Plantilla «${esc(nombre.trim())}» guardada`, 'suave'); await traerHoy() } catch (e) { error(e) }
@@ -883,7 +883,7 @@ function modalRun(pre = {}) {
     else await traerHoy()
   })
   $('#r-guardar').onclick = async () => {
-    const nombre = prompt('Nombre de la plantilla:')
+    const nombre = await preguntar('Nombre de la plantilla:', '', { ok: 'Guardar plantilla' })
     if (!nombre?.trim()) return
     const { texto, plantilla, ...resto } = pedido()
     try {

@@ -134,7 +134,7 @@ async function modalTakeout() {
       const accion = b.dataset.tk
       try {
         if (accion === 'fusionar') {
-          const nombre = prompt('¿Con qué entidad es la misma? (escribí su nombre)')
+          const nombre = await preguntar('¿Con qué entidad es la misma? (escribí su nombre)', '', { ok: 'Unir' })
           if (!nombre) return
           const e = (await api(`/entidades?q=${encodeURIComponent(nombre)}`)).entidades?.[0]
           if (!e) return toast('No encontré esa entidad')

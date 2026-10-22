@@ -227,7 +227,7 @@ async function fichaObra(raiz, verId = null) {
   $$('[data-usar]').forEach((b) => (b.onclick = () => { cerrarModal(); abrirMesa(b.dataset.usar, { personajeId: a.id }); $('#tl-mesa').scrollIntoView({ behavior: 'smooth' }) }))
   const bo = $('#tlf-borrar')
   if (bo) bo.onclick = async () => {
-    if (!confirm(`¿Borrar ${o.versiones.length > 1 ? `la versión ${a.version} de` : ''} «${a.titulo}»? Se borran sus archivos.`)) return
+    if (!(await confirmar(`¿Borrar ${o.versiones.length > 1 ? `la versión ${a.version} de` : ''} «${a.titulo}»?`, { detalle: 'Se borran sus archivos.', si: 'Borrar', peligro: true }))) return
     try { await api(`/taller/${a.id}/borrar`, {}); cerrarModal(); toast('Borrado', 'suave'); traerTaller(true) } catch (e) { error(e) }
   }
 }

@@ -10,9 +10,12 @@ function subirDirecto(ruta, blob, tipo) {
   return p
 }
 
-function modalDirecto() {
+/** Apagar escribe el informe (usa el modelo y no se deshace): se pregunta con la consecuencia escrita. */
+const confirmarApagarDirecto = () => confirmar('¿Apagar el Directo?', { detalle: 'Escribo el informe con lo que vi y escuché.', si: 'Apagar y escribir el informe' })
+
+async function modalDirecto() {
   if (directo.sesion) {
-    if (confirm('¿Apagar el Directo? Escribo el informe con lo que vi y escuché.')) detenerDirecto()
+    if (await confirmarApagarDirecto()) detenerDirecto()
     return
   }
   const huerfano = E.hoy?.directo

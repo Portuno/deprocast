@@ -84,8 +84,8 @@ async function traerCuentas() {
         const a = b.dataset.pa
         try {
           if (a === 'copiar') { await navigator.clipboard.writeText(p.texto); return toast('Copiada', 'suave') }
-          if (a === 'editar') { const t = prompt('Editar:', p.texto); if (t === null) return; await api(`/publicaciones/${p.id}`, { accion: 'editar', texto: t }) }
-          else if (a === 'publicada') { const u = prompt('¿Link de la publicación? (opcional)') ?? ''; await api(`/publicaciones/${p.id}`, { accion: 'publicada', url: u || null }) }
+          if (a === 'editar') { const t = await preguntar('Editar:', p.texto, { ok: 'Guardar', largo: true }); if (t === null) return; await api(`/publicaciones/${p.id}`, { accion: 'editar', texto: t }) }
+          else if (a === 'publicada') { const u = await preguntar('¿Link de la publicación? (opcional)', '', { ok: 'Marcar publicada', tipo: 'url' }); if (u === null) return; await api(`/publicaciones/${p.id}`, { accion: 'publicada', url: u || null }) }
           else await api(`/publicaciones/${p.id}`, { accion: a })
           traerCuentas()
         } catch (e) { error(e) }

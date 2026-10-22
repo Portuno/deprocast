@@ -580,7 +580,7 @@ document.addEventListener('click', async (e) => {
   e.stopPropagation()
   const ids = b.dataset.deshacer.split(',').map(Number)
   const linea = b.previousElementSibling?.textContent ?? 'lo que hizo'
-  if (!confirm(`¿Deshacer esto?\n\n${linea}`)) return
+  if (!(await confirmar('¿Deshacer esto?', { detalle: linea, si: 'Deshacer' }))) return
   try {
     const r = await api(`/chat/${chat.actual.id}/deshacer`, { ids })
     toast(`Deshecho<small>${esc(r.deshechas.join(' · '))}</small>`, 'suave')

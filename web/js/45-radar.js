@@ -113,7 +113,7 @@ async function agendarOportunidad(id, boton) {
   const o = radarDatos?.oportunidades.find((x) => x.id === Number(id))
   let fecha = null
   if (o && !o.fecha && !o.cierre) {
-    fecha = prompt('Esta no tiene fecha. ¿Qué día la ponés? (AAAA-MM-DD)', hoyIso())
+    fecha = await preguntar('Esta no tiene fecha. ¿Qué día la ponés?', hoyIso(), { ok: 'Agendar', tipo: 'date' })
     if (!fecha) return
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return toast('La fecha va como AAAA-MM-DD')
   }

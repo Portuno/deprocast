@@ -27,10 +27,10 @@ function opcionesFuente(sel, { vacia = '', soloNivel = null } = {}) {
 function engancharFuente(select, nivelPorDefecto) {
   select.addEventListener('change', async () => {
     if (select.value !== '__nueva') return
-    const nombre = prompt('Nombre de la fuente nueva (ej.: Gemini, Perplexity, Biblioteca de papers):')
+    const nombre = await preguntar('Nombre de la fuente nueva (ej.: Gemini, Perplexity, Biblioteca de papers):', '', { ok: 'Crear fuente' })
     if (!nombre) { select.value = select.options[0].value; return }
     const nivel = nivelPorDefecto?.() ?? 'propia'
-    const madre = E.fuentes.find((f) => /deprocast-0\.7$/.test(f.id)) && confirm('¿Cuelga de Deprocast 0.7? (Aceptar = sí, Cancelar = fuente independiente)') ? 'deprocast-0.7' : null
+    const madre = E.fuentes.find((f) => /deprocast-0\.7$/.test(f.id)) && (await confirmar('¿Cuelga de Deprocast 0.7?', { si: 'Sí, cuelga de Deprocast', no: 'No, es independiente' })) ? 'deprocast-0.7' : null
     try {
       const f = await api('/fuentes', { nombre, nivel, padreId: madre })
       await refrescar()
@@ -189,7 +189,7 @@ async function modalPieza(id) {
       <div class="respuesta" style="max-height:42vh;overflow:auto;margin-top:12px">${esc(p.contenido)}</div>
       <h3 class="sub">Quántomos de esta pieza (${quantomos.length})</h3>
       ${quantomos.length ? `<div class="q-lista">${quantomos.map(quantomoHTML).join('')}</div>` : '<p class="tenue">Ninguno. Si pasa por la pipeline, el extractor propone proto-quántomos.</p>'}
-      ${meta.length ? `<h3 class="sub">Metadatos</h3><pre class="json">${esc(JSON.stringify(Object.fromEntries(meta), null, 2))}</pre>` : ''}`)
+      ${meta.length ? `<h3 class="sub">Metadatos</h3><pre class="json">${esc(JSON.stringify(Object.fromEntries(meta), null, 2))}</pre>` : ''}`, { lado: true })
     engancharQuantomos($('#modal'), () => modalPieza(id))
     if ($('#p-recordar')) $('#p-recordar').onclick = () => recordarPiezaUI(p.id)
     const c = $('#p-crawl')
@@ -397,7 +397,7 @@ async function modalCarga(id) {
       }
       const des = $('#cg-deshacer')
       if (des) des.onclick = async () => {
-        if (!confirm(`¿Sacar del corpus todo lo que entró con la carga #${c.id}? Las piezas, quántomos y entidades de esta carga se borran.`)) return
+        if (!(await confirmar(`¿Sacar del corpus todo lo que entró con la carga #${c.id}?`, { detalle: 'Las piezas, quántomos y entidades de esta carga se borran.', si: 'Deshacer la carga', peligro: true }))) return
         try { await api(`/cargas/${c.id}/deshacer`, {}); toast(`Carga #${c.id} deshecha`, 'suave'); cerrarModal(); await refrescar() } catch (e) { error(e) }
       }
       return
@@ -496,7 +496,7 @@ function engancharQuantomos(raiz, luego) {
   $$('[data-aceptar]', raiz).forEach((b) => (b.onclick = hacer(async (el) => { await api(`/quantomos/${el.dataset.aceptar}/aceptar`, {}); toast('Propuesta aceptada: la versión anterior queda en el linaje', 'suave') })))
   $$('[data-descartar]', raiz).forEach((b) => (b.onclick = hacer(async (el) => api(`/quantomos/${el.dataset.descartar}/descartar`, {}))))
   $$('[data-mejorar]', raiz).forEach((b) => (b.onclick = hacer(async (el) => {
-    const instruccion = prompt('¿Qué mejorar? (opcional: más corto, más preciso, sin jerga…)', '')
+    const instruccion = await preguntar('¿Qué mejorar? (opcional: más corto, más preciso, sin jerga…)', '', { ok: 'Pedir la mejora' })
     if (instruccion === null) return
     const t = await api(`/quantomos/${el.dataset.mejorar}/mejora`, { instruccion })
     toast(`Misión #${t.id} para un generativo<small>Dale Tick: la versión nueva vuelve como propuesta.</small>`, 'suave')
@@ -560,7 +560,7 @@ async function modalLotes() {
     }))
     $$('#modal [data-lote-sellar]').forEach((b) => (b.onclick = async () => {
       const g = grupos[Number(b.dataset.loteSellar)]
-      const peso = Number(prompt('Peso del lote (1–12):', '7'))
+      const peso = Number(await preguntar('Peso del lote (1–12):', '7', { ok: 'Sellar', tipo: 'number' }))
       if (!peso || peso < 1 || peso > 12) return
       try {
         const r = await api('/quantomos/lote/sellar', { ids: idsDe(g), peso })
@@ -570,7 +570,7 @@ async function modalLotes() {
     }))
     $$('#modal [data-lote-descartar]').forEach((b) => (b.onclick = async () => {
       const g = grupos[Number(b.dataset.loteDescartar)]
-      const motivo = prompt('Motivo del descarte:', 'sin sustancia')
+      const motivo = await preguntar('Motivo del descarte:', 'sin sustancia', { ok: 'Descartar' })
       if (!motivo) return
       try {
         const r = await api('/quantomos/lote/descartar', { ids: idsDe(g), motivo })
@@ -715,7 +715,7 @@ async function verEntidad(id) {
     pintarTab()
     const soy = $('#ent-soy-yo')
     if (soy) soy.onclick = async () => {
-      if (!confirm(`¿${e.nombre} sos vos? Su ficha y la tuya de jugador pasan a ser una sola.`)) return
+      if (!(await confirmar(`¿${e.nombre} sos vos?`, { detalle: 'Su ficha y la tuya de jugador pasan a ser una sola.', si: 'Sí, soy yo' }))) return
       try { await api(`/entidades/${e.id}/soy-yo`, {}); toast(`Listo: ${esc(e.nombre)} sos vos`, 'suave'); await refrescar(); verEntidad(e.id) } catch (err) { error(err) }
     }
     const fj = $('#ent-ficha-jugador')
@@ -724,7 +724,7 @@ async function verEntidad(id) {
     if (esp) esp.onclick = () => modalEspacio(e.id)
     $$('[data-quitar-alias]', det).forEach((b) => (b.onclick = async () => {
       const a = b.dataset.quitarAlias
-      if (!confirm(`¿Sacar «${a}» de los alias de ${e.nombre}? Sigue encontrándose por las piezas que lo nombran.`)) return
+      if (!(await confirmar(`¿Sacar «${a}» de los alias de ${e.nombre}?`, { detalle: 'Sigue encontrándose por las piezas que lo nombran.', si: 'Sacar el alias' }))) return
       try { await api(`/entidades/${e.id}`, { quitarAlias: [a] }); verEntidad(e.id) } catch (err) { error(err) }
     }))
     $('#ent-unir').onclick = () => modalUnir(e.id, e.nombre, async (queda) => { await refrescar(); verEntidad(queda) })
@@ -847,7 +847,7 @@ async function pintarEjes(cont, id) {
         ${i === 0 ? '<small class="tenue">Esta queda como está.</small>' : `<button class="btn btn-chico btn-primario" data-separar="${i}">Separar como entidad nueva</button>`}</div>`).join('')
       $$('[data-separar]').forEach((s) => (s.onclick = async () => {
         const a = r.acepciones[Number(s.dataset.separar)]
-        if (!confirm(`¿Separar «${a.nombre}» como entidad nueva? Se le mueven ${a.piezas.length} piezas.`)) return
+        if (!(await confirmar(`¿Separar «${a.nombre}» como entidad nueva?`, { detalle: `Se le mueven ${a.piezas.length} piezas.`, si: 'Separar' }))) return
         try { const n = await api(`/entidades/${id}/separar`, { nombre: a.nombre, tipo: a.tipo, notas: a.descripcion, piezas: a.piezas.map((p) => p.id) }); toast(`Separada<small>${n.movidas} piezas pasaron a «${esc(a.nombre)}».</small>`, 'suave'); traerEntidades(); verEntidad(n.id) } catch (e) { error(e) }
       }))
     } catch (e) { $('#ej-resultado').innerHTML = ''; error(e) } finally { b.disabled = false }

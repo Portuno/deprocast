@@ -18,7 +18,7 @@ function montarNorte(cont = $('#principal')) {
       <div class="fila" style="margin-top:12px"><button class="btn btn-primario" id="n-agregar">Agregar</button></div>
     </div>`
   $('#n-aprender').onclick = async () => {
-    const n = prompt('¿De cuántas cosas tuyas aprendo? (charlas con Mastropiero + tus piezas más pesadas; cada una es una llamada corta al modelo)', '40')
+    const n = await preguntar('¿De cuántas cosas tuyas aprendo? (charlas con Mastropiero + tus piezas más pesadas; cada una es una llamada corta al modelo)', '40', { ok: 'Aprender', tipo: 'number' })
     if (!n) return
     try {
       const r = await api('/memoria/aprender', { limite: Number(n) })
@@ -75,12 +75,12 @@ async function traerNorte() {
       el.querySelector('[data-mover]').onchange = (e) => accion(() => api(`/memoria/${id}`, { horizonte: e.target.value || null }))
       const rv = el.querySelector('[data-revisar]')
       if (rv) rv.onclick = () => accion(() => api(`/memoria/${id}/revisar`, {}))
-      el.querySelector('[data-editar]').onclick = () => {
+      el.querySelector('[data-editar]').onclick = async () => {
         const actual = el.querySelector('p').textContent
-        const nuevo = prompt('Corregir (la versión vieja queda guardada):', actual)
+        const nuevo = await preguntar('Corregir (la versión vieja queda guardada):', actual, { ok: 'Corregir', largo: true })
         if (nuevo && nuevo.trim() && nuevo.trim() !== actual) accion(() => api(`/memoria/${id}`, { texto: nuevo.trim() }))
       }
-      el.querySelector('[data-archivar]').onclick = () => { if (confirm('¿Olvidar esto? Deja de usarse, pero queda archivado.')) accion(() => api(`/memoria/${id}/archivar`, {})) }
+      el.querySelector('[data-archivar]').onclick = async () => { if (await confirmar('¿Olvidar esto?', { detalle: 'Deja de usarse, pero queda archivado.', si: 'Olvidar' })) accion(() => api(`/memoria/${id}/archivar`, {})) }
     })
   } catch (e) { error(e) }
 }
@@ -309,20 +309,23 @@ function engancharMisiones(cont, d) {
   })
   $$('[data-sem]', cont).forEach((b) => (b.onclick = () => { misSemana = b.dataset.sem; traerMisiones() }))
   $$('[data-elegir]', cont).forEach((b) => (b.onclick = async () => {
-    if (!confirm('¿Esta pasa a ser tu misión principal?')) return
+    if (!(await confirmar('¿Esta pasa a ser tu misión principal?', { si: 'Hacerla principal' }))) return
     try { await api('/personajes/jugador/principal', { id: Number(b.dataset.elegir) }); await recargar() } catch (e) { error(e) }
   }))
   $('#mi-fijar').onclick = async () => {
-    const t = prompt('Tu misión principal, en una frase:', d.principal?.titulo ?? '')
+    const t = await preguntar('Tu misión principal, en una frase:', d.principal?.titulo ?? '', { ok: 'Fijar' })
     if (!t?.trim()) return
     try { await api('/personajes/jugador/principal', { titulo: t.trim() }); await recargar() } catch (e) { error(e) }
   }
-  $('#mi-proponer').onclick = () => trabajando($('#mi-proponer'), 'Pensando…', async () => {
-    const texto = prompt('¿Algo que quieras que tenga en cuenta? (vacío = lo que ya sabe de vos)') ?? ''
-    const r = await api('/misiones/primarias', { semana: d.semana, texto })
-    toast(`${r.length} primarias sugeridas`, 'suave')
-    await recargar()
-  })
+  $('#mi-proponer').onclick = async () => {
+    const texto = await preguntar('¿Algo que quieras que tenga en cuenta? (vacío = lo que ya sabe de vos)', '', { ok: 'Proponer', largo: true })
+    if (texto === null) return
+    trabajando($('#mi-proponer'), 'Pensando…', async () => {
+      const r = await api('/misiones/primarias', { semana: d.semana, texto })
+      toast(`${r.length} primarias sugeridas`, 'suave')
+      await recargar()
+    })
+  }
   $('#mi-reporte').onclick = () => trabajando($('#mi-reporte'), 'Escribiendo…', async () => {
     const r = await api('/reportes/semana', { semana: d.semana })
     abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Semana ${esc(d.semana.split('-W')[1])}</h2><div class="md">${md(r.texto)}</div>`)
@@ -472,7 +475,7 @@ async function montarBitacora(cont) {
     const c = $('[data-compartir]', el)
     if (c) c.onclick = async () => { try { await api(`/bitacora/${id}`, { compartida: c.dataset.compartir === '1' }); montarBitacora(cont) } catch (e) { error(e) } }
     $('[data-borrar]', el).onclick = async () => {
-      if (!confirm('¿Borrar esta entrada para siempre?')) return
+      if (!(await confirmar('¿Borrar esta entrada para siempre?', { si: 'Borrar', peligro: true }))) return
       try { await api(`/bitacora/${id}`, { borrar: true }); montarBitacora(cont) } catch (e) { error(e) }
     }
   })
@@ -625,11 +628,11 @@ async function fichaPersonaje(cont, clave, { tabs = ['misiones', 'historia', 'in
     })
   }
   $$('[data-inv]', cont).forEach((b) => (b.onclick = () => accion(() => api(`/inventario/${b.closest('[data-item]').dataset.item}`, { estado: b.dataset.inv }))))
-  $$('[data-inv-editar]', cont).forEach((b) => (b.onclick = () => {
+  $$('[data-inv-editar]', cont).forEach((b) => (b.onclick = async () => {
     const i = f.inventario.find((x) => x.id === Number(b.closest('[data-item]').dataset.item))
-    const detalle = prompt(`Detalle de «${i.nombre}»:`, i.detalle ?? '')
+    const detalle = await preguntar(`Detalle de «${i.nombre}»:`, i.detalle ?? '', { ok: 'Seguir', largo: true })
     if (detalle === null) return
-    const valor = prompt('Valor (vacío = sin número):', i.valor ?? '')
+    const valor = await preguntar('Valor (vacío = sin número):', i.valor ?? '', { ok: 'Guardar' })
     accion(() => api(`/inventario/${i.id}`, { detalle: detalle.trim() || null, valor: valor === null || valor.trim() === '' ? null : Number(valor) }))
   }))
   const ia = $('#inv-agregar', cont)
@@ -651,8 +654,8 @@ async function fichaPersonaje(cont, clave, { tabs = ['misiones', 'historia', 'in
       : { personaje: clave, nivel: 'primaria', titulo, vence: $('#fm-vence').value || null }))
   }
   const fp = $('#fm-principal', cont)
-  if (fp) fp.onclick = () => {
-    const t = prompt(`La misión principal de ${f.personaje.nombre}:`, f.principal?.titulo ?? '')
+  if (fp) fp.onclick = async () => {
+    const t = await preguntar(`La misión principal de ${f.personaje.nombre}:`, f.principal?.titulo ?? '', { ok: 'Fijar' })
     if (t?.trim()) accion(() => api(`/personajes/${k}/principal`, { titulo: t.trim() }))
   }
 }

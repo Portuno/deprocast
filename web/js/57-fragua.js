@@ -86,7 +86,7 @@ async function verForja(id, rama) {
     ${f.salida ? `<details ${f.estado !== 'lista' ? 'open' : ''}><summary class="tenue">Salida de la verificación</summary><pre class="fr-diff">${esc(f.salida)}</pre></details>` : ''}
     <div class="fila" style="margin-top:12px">${f.estado === 'lista' ? `<button class="btn btn-primario" id="fr-aplicar">Aplicar a ${esc(rama ?? 'la rama actual')}</button>` : ''}${['lista', 'rota', 'fallo'].includes(f.estado) ? '<button class="btn" id="fr-descartar">Descartar</button>' : ''}</div>`)
   if ($('#fr-aplicar')) $('#fr-aplicar').onclick = async () => {
-    if (!confirm(`¿Aplicar este cambio al código (rama ${rama ?? 'actual'})? Después hay que reiniciar el servidor.`)) return
+    if (!(await confirmar(`¿Aplicar este cambio al código (rama ${rama ?? 'actual'})?`, { detalle: 'Después hay que reiniciar el servidor.', si: 'Aplicar el cambio' }))) return
     try { await api(`/fragua/${id}/aplicar`, {}); cerrarModal(); toast('Aplicada<small>Reiniciá el servidor para que corra lo nuevo.</small>'); refrescarFragua() } catch (e) { error(e) }
   }
   if ($('#fr-descartar')) $('#fr-descartar').onclick = async () => { try { await api(`/fragua/${id}/descartar`, {}); cerrarModal(); refrescarFragua() } catch (e) { error(e) } }
