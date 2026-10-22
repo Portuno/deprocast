@@ -63,6 +63,46 @@ async function github(url: string, m: RegExpExecArray): Promise<Lectura | null> 
   return null
 }
 
+/**
+ * Un documento de Google (Docs, Sheets, Slides) compartido con el link: su exportación entera (Markdown, CSV o texto),
+ * no la página del editor. Si es privado, Google devuelve su login: se avisa cómo compartirlo.
+ */
+async function google(url: string, m: RegExpExecArray): Promise<Lectura | null> {
+  const [, tipo, id] = m
+  const gid = /[#&?]gid=(\d+)/.exec(url)?.[1]
+  const base = `https://docs.google.com/${tipo}/d/${id}`
+  const candidatos = tipo === 'document' ? [`${base}/export?format=md`, `${base}/export?format=txt`]
+    : tipo === 'spreadsheets' ? [`${base}/export?format=csv${gid ? `&gid=${gid}` : ''}`]
+      : [`${base}/export/txt`]
+  let privado = false
+  for (const c of candidatos) {
+    const r = await pedir(c).catch(() => null)
+    if (!r?.ok) { if (r && [401, 403].includes(r.status)) privado = true; continue }
+    if (/html/i.test(r.headers.get('content-type') ?? '')) { privado = true; continue } // el login de Google
+    const texto = (await r.text()).replace(/^﻿/, '')
+    if (!texto.trim()) continue
+    const titulo = texto.match(/^#{1,3}\s+(.+)$/m)?.[1] ?? texto.split('\n').find((l) => l.trim())?.replace(/[#*_]/g, '').trim().slice(0, 100) ?? url
+    const md = tipo === 'spreadsheets' ? `\`\`\`csv\n${texto.trim()}\n\`\`\`` : texto
+    return lectura(url, 'google', titulo, md, { meta: { sitio: tipo === 'document' ? 'Google Docs' : tipo === 'spreadsheets' ? 'Google Sheets' : 'Google Slides' } })
+  }
+  return privado ? lectura(url, 'google', url, '', { aviso: 'Ese documento de Google es privado: compartilo como «Cualquier persona con el enlace puede ver» y mandámelo de nuevo.' }) : null
+}
+
+/**
+ * Un tramo de un texto largo, para leerlo entero de a partes (sin cortar una línea al medio). `sigue` es desde dónde
+ * pedir el próximo; null si ya es el final.
+ */
+export function tramo(texto: string, desde = 0, largo = 10_000) {
+  const total = texto.length
+  const ini = Math.max(0, Math.min(Math.trunc(desde) || 0, total))
+  let fin = Math.min(total, ini + largo)
+  if (fin < total) {
+    const corte = texto.lastIndexOf('\n', fin)
+    if (corte > ini + largo * 0.6) fin = corte
+  }
+  return { texto: texto.slice(ini, fin), desde: ini, hasta: fin, total, sigue: fin < total ? fin : null }
+}
+
 async function wikipedia(url: string, m: RegExpExecArray): Promise<Lectura | null> {
   const [, idioma, articulo] = m
   const r = await pedir(`https://${idioma}.wikipedia.org/api/rest_v1/page/html/${articulo}`).catch(() => null)
@@ -112,6 +152,7 @@ async function oembed(url: string, endpoint: string, fuente: string): Promise<Le
 }
 
 const ESPECIALES: [RegExp, (url: string, m: RegExpExecArray) => Promise<Lectura | null>][] = [
+  [/^https?:\/\/docs\.google\.com\/(document|spreadsheets|presentation)\/d\/([\w-]{20,})/i, google],
   [/^https?:\/\/(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+)(\/.*)?$/i, github],
   [/^https?:\/\/(\w+)\.(?:m\.)?wikipedia\.org\/wiki\/([^?#]+)/i, wikipedia],
   [/^https?:\/\/(?:www\.|old\.|new\.)?reddit\.com\/r\/\w+\/comments\//i, (u) => reddit(u)],
@@ -128,7 +169,8 @@ export async function leer(url: string): Promise<Lectura> {
   for (const [re, f] of ESPECIALES) {
     const m = re.exec(u)
     if (!m) continue
-    try { const l = await f(u, m); if (l?.markdown) return l } catch { /* se prueba como página común */ }
+    // Un Google privado vuelve sin texto pero con el aviso de cómo compartirlo (si no, se leería el login de Google).
+    try { const l = await f(u, m); if (l?.markdown || (l?.fuente === 'google' && l.aviso)) return l } catch { /* se prueba como página común */ }
   }
   if (SIN_CUENTA.test(u)) return lectura(u, 'red', u, '', { aviso: 'Esa red no deja leer sin cuenta: guardo el link y lo que me contaste.' })
   let r: Response

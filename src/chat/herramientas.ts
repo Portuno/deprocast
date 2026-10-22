@@ -258,14 +258,19 @@ export const HERRAMIENTAS: Herramienta[] = [
     },
   },
   {
-    nombre: 'leer_pieza', familia: 'lectura', descripcion: 'Una pieza del corpus entera, con sus quántomos y entidades.',
-    parametros: S({ id: int('id de la pieza') }, ['id']),
-    ejecutar: (a, { db }) => {
+    nombre: 'leer_pieza', familia: 'lectura',
+    descripcion: 'Una pieza del corpus entera, de a tramos de unos 10.000 caracteres (con sus quántomos y entidades en el primero). Si trae `sigue`, hay más: pedí desde=sigue hasta el final.',
+    parametros: S({ id: int('id de la pieza'), desde: int('Desde qué carácter seguir (el `sigue` del tramo anterior)') }, ['id']),
+    ejecutar: async (a, { db }) => {
       const p = leerPieza(db, a.id)
       if (!p) return { error: `No existe la pieza ${a.id}` }
-      return { ...piezaCorta(p, 9000), meta: p.meta ?? undefined, estado: p.estado,
+      const { tramo } = await import('../lector/index.ts')
+      const { extracto: _, ...ficha } = piezaCorta(p, 1)
+      const t = tramo(p.contenido ?? '', a.desde ?? 0)
+      if (t.desde > 0) return { id: p.id, titulo: p.titulo, ...t }
+      return { ...ficha, ...t, meta: p.meta ?? undefined, estado: p.estado,
         entidades: entidadesPorId(db, p.entidades).map((e) => `${e.tipo}: ${e.nombre}`),
-        quantomos: quantomosDePieza(db, p.id).map((q) => ({ id: q.id, texto: q.texto, etapa: q.etapa, peso: q.peso })) }
+        quantomos: quantomosDePieza(db, p.id).slice(0, 30).map((q) => ({ id: q.id, texto: q.texto, etapa: q.etapa, peso: q.peso })) }
     },
   },
   {
@@ -1247,10 +1252,18 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a, r) => `buscó en la web «${recorte(a.consulta, 40)}» → ${r?.resultados?.length ?? 0}`,
   },
   {
-    nombre: 'leer_pagina', familia: 'lectura', descripcion: 'Lee una página web en Markdown limpio (sin menús ni pies; GitHub, Wikipedia, Reddit, YouTube y PDF incluidos), recortada. No la guarda.',
-    parametros: S({ url: str('URL') }, ['url']),
-    ejecutar: async (a) => (await leerPagina(a.url, 8000)) ?? { error: 'No pude leer esa página' },
-    resumen: (a) => `leyó ${recorte(a.url, 50)}`,
+    nombre: 'leer_pagina', familia: 'lectura',
+    descripcion: 'Lee una página web en Markdown limpio (sin menús ni pies; Google Docs/Sheets/Slides, GitHub, Wikipedia, Reddit, YouTube y PDF incluidos), de a tramos de unos 10.000 caracteres. Si la respuesta trae `sigue`, hay más: pedí el tramo siguiente con desde=sigue hasta llegar al final (no le digas que se corta: seguí leyendo). Si el link ya está guardado en el corpus (los que él manda se guardan enteros solos), lee lo guardado, completo.',
+    parametros: S({ url: str('URL'), desde: int('Desde qué carácter seguir (el `sigue` del tramo anterior); vacío = desde el principio') }, ['url']),
+    ejecutar: async (a, { db }) => {
+      const { leer, normalizarUrl, tramo } = await import('../lector/index.ts')
+      const guardada = db.prepare('SELECT id, titulo, contenido FROM corpus WHERE origen_id = ?').get(`url:${normalizarUrl(a.url)}`) as { id: number; titulo: string; contenido: string } | undefined
+      if (guardada?.contenido?.trim()) return { titulo: guardada.titulo, pieza: guardada.id, ...tramo(guardada.contenido, a.desde ?? 0) }
+      const l = await leer(a.url)
+      if (!l.markdown) return { error: l.aviso ?? 'No pude leer esa página' }
+      return { titulo: l.titulo, ...tramo(l.markdown, a.desde ?? 0), aviso: l.aviso }
+    },
+    resumen: (a, r) => `leyó ${recorte(a.url, 50)}${r?.total > (r?.hasta ?? 0) ? ` (${Math.round((r.hasta / r.total) * 100)} %)` : ''}`,
   },
   {
     nombre: 'guardar_link', familia: 'accion',

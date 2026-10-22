@@ -409,7 +409,7 @@ async function bucle(t: Turno): Promise<string> {
         }
       }
       const x = await ejecutarHerramienta(t.hs, l.nombre, l.argumentos, t.ctx)
-      const contenido = recorte(JSON.stringify(x.resultado ?? null), 12000)
+      const contenido = recorte(JSON.stringify(x.resultado ?? null), 16000) // un tramo de lectura (10.000) entra entero
       t.alGuardar({ rol: 'herramienta', texto: contenido, llamadaId: l.id, herramienta: l.nombre, resumen: x.resumen, deshacer: x.inversa ?? null })
       conv.push({ role: 'tool', tool_call_id: l.id, content: contenido })
     }
@@ -474,14 +474,30 @@ export async function enviar(db: Db, cid: number, texto: string, o: OpcionesEnvi
   }
 }
 
+/** La línea que queda en la charla por cada link que mandó: qué se guardó y cuánto, o por qué no. */
+function lineaDeLink(link: string, r: { piezaId: number; nueva: boolean; rastreando?: boolean; lectura: { titulo: string; palabras: number; aviso?: string; markdown: string } | null }): string {
+  if (!r.nueva) return `🔗 «${recorte(r.lectura?.titulo ?? link, 60)}» ya estaba en el corpus (#${r.piezaId}).`
+  const l = r.lectura
+  if (!l?.markdown) return `🔗 Guardé solo el link de ${recorte(link, 60)} (#${r.piezaId})${l?.aviso ? `: ${l.aviso}` : '.'}`
+  return `🔗 Guardé «${recorte(l.titulo, 60)}» entero en el corpus: ${l.palabras.toLocaleString('es-AR')} palabras (#${r.piezaId})${r.rastreando ? ' · rastreando el sitio' : ''}${l.aviso ? ` · ${l.aviso}` : ''}`
+}
+
 /** Lo que pasa con cada mensaje apenas llega, se conteste en este turno o en otro: sus links se leen y la charla toma título. */
 function alRecibir(db: Db, cid: number, c: Conversacion, texto: string) {
-  // Un link en lo que escribe: se lee y se guarda en Markdown de fondo (una vez por URL); si es un sitio, se rastrea.
-  for (const link of [...new Set(texto.match(/https?:\/\/[^\s<>)"']+/g) ?? [])].slice(0, 3)) {
-    void import('../lector/index.ts').then(({ procesarLink }) => procesarLink(db, link, {
-      alTerminar: (x) => mensajeDeMastropiero(db, cid, `🕸 Rastreé ${x.paginas} página${x.paginas === 1 ? '' : 's'} de «${x.titulo}»: están juntas en un cuaderno (Cuadernos).`),
-    })).catch(() => {})
-  }
+  // Los links que escribe (hasta 30 por mensaje): se leen enteros y se guardan en el corpus de fondo, uno tras otro (una
+  // vez por URL); si es un sitio con índice, se rastrea. Cada uno deja una línea en la charla con lo que quedó guardado.
+  const links = [...new Set(texto.match(/https?:\/\/[^\s<>)"']+/g) ?? [])].slice(0, 30)
+  if (links.length) void (async () => {
+    const { procesarLink } = await import('../lector/index.ts')
+    for (const link of links) {
+      try {
+        const r = await procesarLink(db, link, {
+          alTerminar: (x) => mensajeDeMastropiero(db, cid, `🕸 Rastreé ${x.paginas} página${x.paginas === 1 ? '' : 's'} de «${x.titulo}»: están juntas en un cuaderno (Cuadernos).`),
+        })
+        registrarEvento(db, cid, lineaDeLink(link, r))
+      } catch (e) { registrarEvento(db, cid, `🔗 No pude guardar ${recorte(link, 60)}: ${e instanceof Error ? e.message : e}`) }
+    }
+  })()
   if (!c.titulo && !leerConversacion(db, cid)?.titulo) db.prepare('UPDATE conversaciones SET titulo = ? WHERE id = ?').run(recorte(comoTexto(texto.trim()).replace(/\s+/g, ' '), 60), cid)
 }
 
