@@ -113,6 +113,14 @@ export const ACCIONES: Acciones = {
     const r = await calificarDia(db, fecha, { ahora })
     return r.predicciones.length ? textoDeCalificacion(r) : null
   },
+  /** Los lunes (en la nube): la Academia propone qué le conviene aprender para lo que viene; quedan en 📥 Para validar. */
+  async academia(db, _fecha, ahora) {
+    if (topeAlcanzado(db, ahora) || !(await import('./reproceso.ts')).enLaNube()) return null
+    const ac = await import('./academia.ts')
+    const xs = await ac.sugerirAprendizajes(db, { ahora })
+    if (!xs.length) return null
+    return `Para lo que viene, le conviene aprender: ${xs.map((d) => `**${d.tema}** (${ac.textoSugerencia(d)})`).join('; ')}. Están en 📥 Para validar: si acepta, armo el tutor y busco las primeras fuentes.`
+  },
   /** Lunes y jueves: el radar busca oportunidades para sus metas. */
   async radar(db, _fecha, ahora) {
     const r = await buscarOportunidades(db, { ahora })

@@ -317,3 +317,113 @@ export function sumarDominio(db: Db, a: { tema: string; porQue?: string | null }
   if (!r.nuevo && r.estado !== 'activo') db.prepare(`UPDATE aprendizajes SET estado = 'activo', por_que = COALESCE(?, por_que) WHERE id = ?`).run(a.porQue?.trim() || null, r.id)
   return leerDominio(db, r.id)!
 }
+
+// ─── qué le conviene aprender (lo propone; él acepta en 📥 Para validar) ─
+
+const SISTEMA_SUGERIR = (n: number) => `Sos el consejero de su Academia. Mirás lo que viene con fecha (eventos, convocatorias, viajes), lo que quiere (su misión principal, sus primarias, sus metas por horizonte) y quién es, y proponés hasta ${n} dominios NUEVOS que le conviene aprender para eso.
+Reglas:
+- Cada propuesta nombra la meta o el evento concreto que la justifica (con su fecha si la tiene). Nada genérico («inglés», «productividad») salvo que una meta lo pida explícito.
+- No repitas lo que ya está aprendiendo ni lo que descartó.
+- horizonte: "corto" (algo con fecha en las próximas semanas: llegar con lo básico), "medio" (meses), "largo" (sus metas de fondo).
+- tema: corto, como se nombraría la materia («Drones», «Negociación», «Electrónica básica»).
+- primer_paso: qué vería en la primera clase.
+- Si no hay señales claras, proponé menos (o ninguna). Mejor una certera que tres de relleno.
+Forma: {"sugerencias": [{"tema": string, "por_que": string, "horizonte": "corto"|"medio"|"largo", "para": string|null, "fecha": "AAAA-MM-DD"|null, "primer_paso": string}]}`
+
+const HORIZONTE_DE: Record<string, string> = { trinchera: 'corto', campamento: 'medio', castillo: 'largo' }
+const normTema = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9ñ ]/g, ' ').replace(/\s+/g, ' ').trim()
+
+/** Lo que el predictor mira: lo que viene con fecha, lo que quiere y lo que ya aprende (o descartó). */
+async function contextoSugerir(db: Db, ahora: number): Promise<string> {
+  const hoy = fechaLocal(ahora)
+  const hasta = fechaLocal(ahora + 100 * 86_400_000)
+  let agenda: string[] = []
+  try {
+    const { itemsDelCalendario } = await import('./agenda.ts')
+    agenda = (await itemsDelCalendario(db, hoy, hasta, new Set(['google', 'linea', 'radar', 'mision']))).items.slice(0, 50).map((i) => `- ${i.fecha}: ${i.titulo}${i.lugar ? ` (${i.lugar})` : ''}`)
+  } catch { /* sin calendario: sigue con lo demás */ }
+  const { listarOportunidades } = await import('./radar.ts')
+  const ops = listarOportunidades(db, { estados: ['nueva', 'me_interesa'], limite: 15 }).map((o) => `- ${o.titulo}${o.cierre ? ` (cierra ${o.cierre})` : ''}${o.fecha ? ` (el ${o.fecha})` : ''}${o.porQue ? `: ${o.porQue}` : ''}`)
+  const { principalDe, listarMisiones, semanaDe } = await import('./misiones.ts')
+  const principal = principalDe(db, 'jugador')
+  const primarias = listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana: semanaDe(ahora), estados: ['activa'] }).map((m) => `- ${m.titulo}`)
+  const { memoriaVigente } = await import('./memoria.ts')
+  const metas = ['meta', 'vision', 'sueño'].flatMap((tipo) => memoriaVigente(db, { tipo, limite: 25 })).map((r) => `- ${r.horizonte ? `[${HORIZONTE_DE[r.horizonte] ?? r.horizonte} plazo] ` : ''}${r.texto}`)
+  const { yoParaPrompt } = await import('./yo.ts')
+  const todos = db.prepare('SELECT tema, estado FROM aprendizajes').all() as { tema: string; estado: string }[]
+  const vivos = todos.filter((t) => t.estado !== 'descartado').map((t) => t.tema)
+  const descartados = todos.filter((t) => t.estado === 'descartado').map((t) => t.tema)
+  return [
+    `Hoy es ${hoy}.`,
+    principal ? `Su misión principal: ${principal.titulo}${principal.detalle ? ` — ${principal.detalle}` : ''}` : '',
+    primarias.length ? `Sus primarias de esta semana:\n${primarias.join('\n')}` : '',
+    metas.length ? `Sus metas y visión:\n${metas.slice(0, 40).join('\n')}` : '',
+    yoParaPrompt(db),
+    agenda.length ? `Lo que viene en los próximos 100 días:\n${agenda.join('\n')}` : 'No hay nada agendado a 100 días.',
+    ops.length ? `Oportunidades del Radar abiertas:\n${ops.join('\n')}` : '',
+    vivos.length ? `Ya está aprendiendo (o se lo propusiste): ${vivos.join(' · ')}` : '',
+    descartados.length ? `Descartó (no lo propongas de nuevo): ${descartados.join(' · ')}` : '',
+  ].filter(Boolean).join('\n\n')
+}
+
+/**
+ * Propone hasta 3 dominios que le conviene aprender para lo que viene y lo que quiere, cada uno con su porqué, horizonte
+ * y para qué evento o meta. Quedan «sugeridos» (📥 Para validar): aceptar los vuelve dominios; descartados, no vuelven.
+ * Las sugerencias sin responder de más de 3 semanas se van solas.
+ */
+export async function sugerirAprendizajes(db: Db, o: { ahora?: number; max?: number } = {}): Promise<Dominio[]> {
+  const ahora = o.ahora ?? Date.now()
+  db.prepare(`DELETE FROM aprendizajes WHERE estado = 'sugerido' AND creado_en < ?`).run(ahora - 21 * 86_400_000)
+  const pendientes = (db.prepare(`SELECT COUNT(*) AS n FROM aprendizajes WHERE estado = 'sugerido'`).get() as { n: number }).n
+  const n = Math.max(0, Math.min(3, o.max ?? 3) - pendientes)
+  if (!n) return []
+  const datos = await modelo(db, SISTEMA_SUGERIR(n), await contextoSugerir(db, ahora))
+  const ya = new Set((db.prepare('SELECT tema FROM aprendizajes').all() as { tema: string }[]).map((r) => normTema(r.tema)))
+  const nuevos: Dominio[] = []
+  for (const s of (Array.isArray(datos?.sugerencias) ? datos.sugerencias : []).slice(0, n)) {
+    const tema = txt(s?.tema, 120)
+    if (tema.length < 2 || ya.has(normTema(tema))) continue
+    ya.add(normTema(tema))
+    const sugerencia = {
+      porQue: txt(s.por_que, 400) || null, horizonte: ['corto', 'medio', 'largo'].includes(s.horizonte) ? s.horizonte : null,
+      para: txt(s.para, 200) || null, fecha: /^\d{4}-\d{2}-\d{2}$/.test(String(s.fecha ?? '')) ? s.fecha : null, primerPaso: txt(s.primer_paso, 300) || null,
+    }
+    // Directo a la tabla: una sugerencia no crea entidad ni cuenta como aprendizaje hasta que la acepta.
+    const id = Number(db.prepare(`INSERT INTO aprendizajes (tema, por_que, estado, sugerencia, creado_en) VALUES (?, ?, 'sugerido', ?, ?)`).run(tema, sugerencia.porQue, JSON.stringify(sugerencia), ahora).lastInsertRowid)
+    nuevos.push(leerDominio(db, id)!)
+  }
+  return nuevos
+}
+
+export const sugeridosDe = (db: Db): Dominio[] =>
+  (db.prepare(`SELECT id FROM aprendizajes WHERE estado = 'sugerido' ORDER BY creado_en DESC, id DESC`).all() as { id: number }[]).map((r) => leerDominio(db, r.id)!)
+
+/** Lo que pasa al aceptar un dominio (la Fase 6 suma: buscar sus primeras fuentes). */
+let alAceptar: (db: Db, d: Dominio) => void = () => {}
+export function _alAceptar(f: typeof alAceptar) { alAceptar = f }
+
+/** Aceptar una sugerencia: pasa a ser un dominio activo, con su entidad, su primera clase (de fondo) y sus fuentes. */
+export async function aceptarSugerencia(db: Db, id: number, ahora = Date.now()): Promise<Dominio> {
+  const d = leerDominio(db, id)
+  if (!d || d.estado !== 'sugerido') throw new Error('Esa sugerencia ya no está')
+  db.prepare(`UPDATE aprendizajes SET estado = 'activo', creado_en = ? WHERE id = ?`).run(ahora, id)
+  try { (await import('./entidades.ts')).asegurarPorNombre(db, d.tema, 'dominio', ahora) } catch { /* el grafo es un plus */ }
+  prepararEnFondo(db, id)
+  const activo = leerDominio(db, id)!
+  alAceptar(db, activo)
+  return activo
+}
+
+/** Descartar: queda anotado para no volver a proponerlo igual. */
+export function descartarSugerencia(db: Db, id: number) {
+  const d = leerDominio(db, id)
+  if (!d || d.estado !== 'sugerido') throw new Error('Esa sugerencia ya no está')
+  db.prepare(`UPDATE aprendizajes SET estado = 'descartado' WHERE id = ?`).run(id)
+  return { ok: true }
+}
+
+/** El texto de una sugerencia para la bandeja y el aviso: por qué, para qué y cuándo. */
+export const textoSugerencia = (d: Dominio) => {
+  const s = (d.sugerencia ?? {}) as { porQue?: string; horizonte?: string; para?: string; fecha?: string }
+  return [s.porQue ?? d.porQue, s.para ? `para ${s.para}${s.fecha ? ` (${s.fecha})` : ''}` : s.fecha ?? null, s.horizonte ? `${s.horizonte} plazo` : null].filter(Boolean).join(' · ')
+}

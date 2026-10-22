@@ -13,11 +13,20 @@ const MIN = 60_000
 /** El modelo falso: temario, clase (con su visual), examen y devoluciones que aprueban si la respuesta dice «bien». */
 const pedidos: string[] = []
 const visuales: { tipo: string; prioridad: number }[] = []
+const contextos: string[] = []
 ac._probarAcademia({
   nube: () => false,
   alPedirVisual: (_db, s, prioridad) => visuales.push({ tipo: s.paquete.visual!.tipo, prioridad }),
   modelo: async (_db, sistema, usuario) => {
     pedidos.push(sistema)
+    if (/consejero de su Academia/.test(sistema)) {
+      contextos.push(usuario)
+      return { sugerencias: [
+        { tema: 'Drones', por_que: 'Llegar al evento de defensa-tech sabiendo de qué se habla', horizonte: 'corto', para: 'Evento defensa-tech', fecha: '2026-11-14', primer_paso: 'Cómo vuela un cuadricóptero' },
+        { tema: 'electricidad', por_que: 'repetida', horizonte: 'medio', para: null, fecha: null, primer_paso: '' },
+        { tema: 'Cocina', por_que: 'la descartó', horizonte: 'largo', para: null, fecha: 'pronto', primer_paso: '' },
+      ] }
+    }
     if (/temario/.test(sistema)) return { temario: ['Qué es la corriente', 'Resistencia y ley de Ohm', 'Circuitos en serie'] }
     if (/Corregís UNA respuesta/.test(sistema)) return { correcto: /bien/.test(usuario.split('Respuesta del alumno:')[1]), devolucion: 'Devolución.' }
     if (/examen/i.test(sistema)) return { tema: 'Examen del nivel 1', explicacion: 'Cinco preguntas.', preguntas: Array.from({ length: 5 }, (_, i) => ({ pregunta: `P${i}`, clave: 'k' })) }
@@ -104,4 +113,45 @@ test('Los dominios de la Academia: Idiomas aparece marcado, lo sugerido y lo des
   assert.deepEqual(ds.map((d) => [d.tema, d.idioma]), [['Electricidad', false], ['Idioma · Francés', true]])
   const dr = ac.sumarDominio(db, { tema: 'Drones', porQue: 'Para el evento' }, T)
   assert.equal(dr.estado, 'activo', 'sumar lo sugerido lo activa')
+})
+
+test('Qué le conviene aprender: mira lo que viene y lo que quiere, propone sin repetir, y se acepta o descarta desde 📥', async () => {
+  const db = abrir(':memory:')
+  const { guardarOportunidad } = await import('../src/radar.ts')
+  const { fijarPrincipal } = await import('../src/misiones.ts')
+  const { bandeja, resolverBandeja } = await import('../src/sombra.ts')
+  fijarPrincipal(db, 'jugador', { titulo: 'Construir una empresa de hardware' })
+  guardarOportunidad(db, { titulo: 'Evento defensa-tech', cierre: '2026-11-14', porQue: 'Contactos de drones' }, T)
+  ac.sumarDominio(db, { tema: 'Electricidad' }, T)
+  db.prepare(`INSERT INTO aprendizajes (tema, estado, creado_en) VALUES ('Cocina', 'descartado', ?)`).run(T)
+
+  const xs = await ac.sugerirAprendizajes(db, { ahora: T })
+  assert.match(contextos.at(-1)!, /Evento defensa-tech \(cierra 2026-11-14\)/)
+  assert.match(contextos.at(-1)!, /Construir una empresa de hardware/)
+  assert.match(contextos.at(-1)!, /Descartó \(no lo propongas de nuevo\): Cocina/)
+  assert.deepEqual(xs.map((d) => d.tema), ['Drones'], 'lo que ya aprende o descartó no vuelve')
+  assert.equal(xs[0].estado, 'sugerido')
+  assert.equal(ac.textoSugerencia(xs[0]), 'Llegar al evento de defensa-tech sabiendo de qué se habla · para Evento defensa-tech (2026-11-14) · corto plazo')
+  assert.deepEqual(ac.listarDominios(db, T).map((d) => d.tema), ['Electricidad'], 'lo sugerido no es un dominio todavía')
+  assert.equal((db.prepare(`SELECT COUNT(*) AS n FROM entidades WHERE nombre = 'Drones'`).get() as any).n, 0, 'ni una entidad')
+
+  const g = bandeja(db, T).grupos.find((x) => x.tipo === 'aprender')!
+  assert.equal(g.items[0].texto, 'Drones')
+  let aceptados: string[] = []
+  ac._alAceptar((_db, d) => aceptados.push(d.tema))
+  const d = await resolverBandeja(db, 'aprender', g.items[0].id, 'aceptar', T) as any
+  assert.deepEqual([d.estado, aceptados], ['activo', ['Drones']], 'aceptar lo vuelve dominio y busca sus fuentes')
+  assert.equal((db.prepare(`SELECT COUNT(*) AS n FROM entidades WHERE nombre = 'Drones'`).get() as any).n, 1)
+
+  // Con 3 pendientes no propone más; las viejas sin responder se van solas.
+  db.prepare(`INSERT INTO aprendizajes (tema, estado, creado_en) VALUES ('A', 'sugerido', ?), ('B', 'sugerido', ?), ('C', 'sugerido', ?)`).run(T, T, T)
+  const n = pedidos.length
+  assert.deepEqual(await ac.sugerirAprendizajes(db, { ahora: T }), [])
+  assert.equal(pedidos.length, n, 'ni llamó al modelo')
+  await ac.sugerirAprendizajes(db, { ahora: T + 22 * 86_400_000 })
+  assert.equal((db.prepare(`SELECT COUNT(*) AS n FROM aprendizajes WHERE tema IN ('A', 'B', 'C')`).get() as any).n, 0)
+  db.prepare(`INSERT INTO aprendizajes (tema, estado, creado_en) VALUES ('Soldadura', 'sugerido', ?)`).run(T)
+  const desc = ac.sugeridosDe(db)[0]
+  ac.descartarSugerencia(db, desc.id)
+  assert.equal(ac.leerDominio(db, desc.id)!.estado, 'descartado')
 })

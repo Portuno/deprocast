@@ -1454,6 +1454,7 @@ const RUTINAS_SISTEMA = [
   { id: 'mano', nombre: 'La Mano: aviso solo si llegó algo nuevo de verdad', hora: '19:00', dias: '0123456', accion: 'mano' },
   { id: 'creencias', nombre: 'Creencias: ¿descubiertas o heredadas? (una vez por mes)', hora: '17:00', dias: '0', accion: 'creencias' },
   { id: 'brujula', nombre: 'La brújula del día', hora: '08:10', dias: '0123456', accion: 'brujula' },
+  { id: 'academia', nombre: 'La Academia propone qué te conviene aprender', hora: '08:15', dias: '1', accion: 'academia' },
   { id: 'mentor', nombre: 'El Mentor recomienda qué leer o ver', hora: '08:05', dias: '1', accion: 'mentor' },
   { id: 'puentes', nombre: 'Puentes con tu gente', hora: '11:00', dias: '0', accion: 'puentes' },
   { id: 'temporada', nombre: 'Cierre de temporada de la liga', hora: '07:30', dias: '1', accion: 'temporada' },

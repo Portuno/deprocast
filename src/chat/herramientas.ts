@@ -802,6 +802,17 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `anotó que quiere aprender ${recorte(a.tema, 40)}`,
   },
   {
+    nombre: 'sugerir_aprendizajes', familia: 'accion',
+    descripcion: 'Propone hasta 3 cosas que le conviene aprender para lo que viene (eventos con fecha, Radar) y lo que quiere (principal, primarias, metas por horizonte). Quedan en 📥 Para validar; él las acepta o descarta.',
+    parametros: S({}),
+    ejecutar: async (_a, { db }) => {
+      const ac = await import('../academia.ts')
+      const xs = await ac.sugerirAprendizajes(db)
+      return { sugeridos: (xs.length ? xs : ac.sugeridosDe(db)).map((d) => ({ id: d.id, tema: d.tema, por_que: ac.textoSugerencia(d), primer_paso: (d.sugerencia as any)?.primerPaso ?? null })), nuevas: xs.length, donde: '📥 Para validar' }
+    },
+    resumen: () => 'pensó qué te conviene aprender',
+  },
+  {
     nombre: 'registrar_practica', familia: 'accion',
     descripcion: 'Anota lo que estudió o practicó de algo que aprende («30 min de francés: los verbos en pasado»). Después le llegan preguntas de repaso espaciado.',
     parametros: S({ tema: str('El tema'), minutos: int('Minutos'), que: str('Qué practicó, concreto'), fecha: str('YYYY-MM-DD; vacío = hoy') }, ['tema']),
@@ -1557,7 +1568,7 @@ export const GRUPOS: Record<string, string[]> = {
   liga: ['ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
+  vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   web: ['buscar_web', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   crear: ['ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }

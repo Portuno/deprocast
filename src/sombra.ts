@@ -76,6 +76,12 @@ export function bandeja(db: Db, ahora = Date.now()) {
     const textos = (s: { ids: string }) => (json<number[]>(s.ids, []).map((i) => (db.prepare('SELECT texto FROM quantomos WHERE id = ?').get(i) as { texto: string } | undefined)?.texto).filter(Boolean) as string[])
     g.push({ tipo: `mano_${tipo}`, nombre, n: xs.length, peso: 1, ir: null, acciones, items: xs.slice(0, 8).map((s) => ({ id: s.id, texto: textos(s).map((t) => `«${t.slice(0, 90)}»`).join(' · ') || (s.texto ?? ''), sub: s.texto })) })
   }
+  // Lo que la Academia le propone aprender (por sus metas y lo que viene con fecha).
+  const apr = db.prepare(`SELECT id, tema, por_que, sugerencia FROM aprendizajes WHERE estado = 'sugerido' ORDER BY creado_en DESC, id DESC LIMIT 8`).all() as any[]
+  g.push({ tipo: 'aprender', nombre: 'Para aprender (tu Academia)', n: apr.length, peso: 2, ir: null, acciones: [['aceptar', '✓ Lo aprendo'], ['descartar', '✕']], items: apr.map((a) => {
+    const s = json<any>(a.sugerencia, {}) ?? {}
+    return { id: a.id, texto: a.tema, sub: [s.porQue ?? a.por_que, s.para ? `para ${s.para}${s.fecha ? ` (${s.fecha})` : ''}` : null, s.horizonte ? `${s.horizonte} plazo` : null].filter(Boolean).join(' · ') || null }
+  }) })
   const inv = db.prepare(`SELECT id, nombre, detalle FROM inventario WHERE personaje = 'jugador' AND estado = 'sugerido' ORDER BY id DESC LIMIT 8`).all() as any[]
   g.push({ tipo: 'inventario', nombre: 'Lo que tenés (según lo que contaste)', n: n(db, `SELECT COUNT(*) AS n FROM inventario WHERE personaje = 'jugador' AND estado = 'sugerido'`), peso: 1, items: inv.map((i) => ({ id: i.id, texto: i.nombre, sub: i.detalle })), acciones: [['aceptar', '✓ Es mío'], ['descartar', '✕']], ir: null })
   const recs = db.prepare(`SELECT id, texto, fecha FROM memoria WHERE estado = 'vigente' AND revisada = 0 AND creada_por IN ${MAQUINA} ORDER BY id DESC LIMIT 8`).all() as any[]
@@ -124,6 +130,10 @@ export async function resolverBandeja(db: Db, tipo: string, id: number | string,
   if (tipo === 'primaria') return actualizarMision(db, id, { estado: accion === 'aceptar' ? 'activa' : 'descartada' }, { por: 'operador', ahora })
   if (tipo === 'inventario') return editarItem(db, id, { estado: accion === 'aceptar' ? 'vigente' : 'archivado' }, ahora)
   if (tipo === 'recuerdo') return accion === 'aceptar' ? revisar(db, id) : archivar(db, id)
+  if (tipo === 'aprender') {
+    const ac = await import('./academia.ts')
+    return accion === 'aceptar' ? ac.aceptarSugerencia(db, id, ahora) : ac.descartarSugerencia(db, id)
+  }
   throw new Error(`«${tipo}» se resuelve en su sección`)
 }
 
