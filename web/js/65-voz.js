@@ -252,7 +252,12 @@ function pintarBotonesVoz() {
 window.engancharVoz = function engancharVoz() {
   const d = $('#chat-dictar')
   if (!d) return
-  d.onclick = alternarDictado
+  // Un toque dicta (y otro manda); mantenerlo apretado es como mantener Alt: habla mientras lo aprieta y al soltar manda.
+  let espera = null
+  let manteniendo = false
+  d.onpointerdown = () => { manteniendo = false; espera = setTimeout(() => { manteniendo = true; voz.alt = { t: null }; empezarAlt() }, 350) }
+  d.onpointerup = d.onpointercancel = () => { clearTimeout(espera); if (manteniendo) terminarAlt(true) }
+  d.onclick = (e) => { if (manteniendo) { manteniendo = false; e.preventDefault(); return } alternarDictado() }
   $('#chat-vivo').onclick = alternarCharlaEnVivo
   $('#chat-leer').onclick = alternarLeer
   pintarBotonesVoz()
@@ -282,7 +287,7 @@ async function empezarAlt() {
     voz.alt.stream = stream
     voz.alt.rec = grabador(stream)
     callar()
-    globo('<b>🎙 Le escucho…</b><small>Suelte la tecla para mandar</small>', 0)
+    globo('<b>🎙 Le escucho…</b><small>Suelte para mandar</small>', 0)
   } catch (e) { voz.alt = null; error(e) }
 }
 

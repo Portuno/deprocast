@@ -121,6 +121,25 @@ $('#pestanas').addEventListener('click', (e) => {
 })
 pintarNav()
 
+/** «Más» en el celular: los 7 espacios (y La máquina) en una hoja que sube desde abajo. */
+function hojaEspacios() {
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Ir a</h2>
+    <div class="hoja-espacios">${ESPACIOS.map((e) => `<button class="hoja-espacio" data-hoja-espacio="${e.id}">${ico(e.ico, 'grande')}<b>${esc(e.nombre)}</b><small>${esc(e.vistas.map(([, n]) => n).join(' · '))}</small></button>`).join('')}</div>
+    <div class="fila hoja-mas"><button class="btn" data-hoja-tema>${ico('sun-moon')} Tema</button><button class="btn" data-hoja-atajos>${ico('keyboard')} Atajos</button></div>`, { hoja: true })
+  $$('[data-hoja-espacio]').forEach((b) => (b.onclick = () => { cerrarModal(); irAEspacio(b.dataset.hojaEspacio) }))
+  $('[data-hoja-tema]').onclick = () => $('#btn-tema').click()
+  $('[data-hoja-atajos]').onclick = () => mostrarAtajos()
+}
+$('#barra-abajo').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-abajo]')
+  if (!b) return
+  const que = b.dataset.abajo
+  if (que === 'hoy' || que === 'chat') irA(que)
+  else if (que === 'buscar') abrirPaleta()
+  else if (que === 'validar') modalBandeja()
+  else hojaEspacios()
+})
+
 function irA(v) {
   if (!VISTAS[v]) v = 'hoy'
   vista = v
@@ -131,6 +150,7 @@ function irA(v) {
   $('#principal').classList.toggle('lleno', v === 'chat' || v === 'hoy')
   aplicarCronica()
   pintarEspacio(v)
+  $$('#barra-abajo [data-abajo]').forEach((b) => b.classList.toggle('activo', b.dataset.abajo === v || (b.dataset.abajo === 'mas' && v !== 'hoy' && v !== 'chat')))
   document.title = `${nombreDeVista(VISTA_PADRE[v] ?? v)} · Mastropiero`
   VISTAS[v].montar()
   $('#principal').scrollTop = 0

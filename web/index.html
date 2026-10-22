@@ -48,6 +48,15 @@
     <main class="principal" id="principal"></main>
   </div>
 
+  <!-- En el celular: lo de todos los días abajo, al alcance del pulgar. -->
+  <nav class="barra-abajo" id="barra-abajo" aria-label="Lo principal">
+    <button data-abajo="hoy"><svg class="ico" aria-hidden="true"><use href="#i-sun"></use></svg><span>Hoy</span></button>
+    <button data-abajo="chat"><svg class="ico" aria-hidden="true"><use href="#i-message-circle"></use></svg><span>Chat</span></button>
+    <button data-abajo="buscar"><svg class="ico" aria-hidden="true"><use href="#i-search"></use></svg><span>Buscar</span></button>
+    <button data-abajo="validar"><svg class="ico" aria-hidden="true"><use href="#i-inbox"></use></svg><span>Validar</span><b id="n-validar-abajo"></b></button>
+    <button data-abajo="mas"><svg class="ico" aria-hidden="true"><use href="#i-ellipsis"></use></svg><span>Más</span></button>
+  </nav>
+
   <aside class="cronica" id="cronica">
     <h2>Crónica <button class="btn btn-chico btn-icono" id="cronica-cerrar" title="Ocultar la crónica (☰ arriba la vuelve a mostrar)">✕</button></h2>
     <div id="cronica-lista" class="cronica-lista"></div>

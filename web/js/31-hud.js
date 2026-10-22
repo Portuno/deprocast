@@ -61,9 +61,10 @@ function pintarHud(cont) {
   if (cont.dataset.hud === clave && $('#hud-cuerpo', cont)) return void pintarModoHud()
   cont.dataset.hud = clave
   cont.innerHTML = `<div class="hud-hoy">
+    <div class="hoja-asa" id="hoja-asa" aria-hidden="true"></div>
     <header class="hud-estado">
       <div><b>${esc(mayuscula(fecha.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })))}</b><small>${esc(estadoRun)}</small></div>
-      <span class="hud-estado-acc">${hoyDatos.tarjetasHoy ? `<button class="btn btn-chico hud-tarjetas" id="hoy-tarjetas" title="Las tarjetas que tocan hoy (recuerdo activo)">🃏 ${hoyDatos.tarjetasHoy} para repasar</button>` : ''}${hoyDatos.manoNuevas ? `<button class="btn btn-chico hud-tarjetas" id="hoy-mano" title="Afirmaciones tuyas que no se parecen a nada que tengas: jugalas en La Mano">♤ ${hoyDatos.manoNuevas} nueva${hoyDatos.manoNuevas === 1 ? '' : 's'} para jugar</button>` : ''}<button class="btn btn-chico btn-icono" id="hoy-ajustes" title="Ajustes: rutinas, plantillas, voz, Directo y tope de gasto" aria-label="Ajustes">${ico('settings')}</button><button class="btn btn-chico btn-icono" id="hoy-ocultar" title="Pantalla de foco: solo lo de ahora y el chat (Alt+F)" aria-label="Pantalla de foco">${ico('panel-right-close')}</button></span>
+      <span class="hud-estado-acc">${hoyDatos.tarjetasHoy ? `<button class="btn btn-chico hud-tarjetas" id="hoy-tarjetas" title="Las tarjetas que tocan hoy (recuerdo activo)">🃏 ${hoyDatos.tarjetasHoy} para repasar</button>` : ''}${hoyDatos.manoNuevas ? `<button class="btn btn-chico hud-tarjetas" id="hoy-mano" title="Afirmaciones tuyas que no se parecen a nada que tengas: jugalas en La Mano">♤ ${hoyDatos.manoNuevas} nueva${hoyDatos.manoNuevas === 1 ? '' : 's'} para jugar</button>` : ''}<button class="btn btn-chico hud-hoja-btn" id="hud-hoja-btn" aria-expanded="false" aria-controls="hoy-dia">${ico('chevron-up')}<span>El día</span></button><button class="btn btn-chico btn-icono" id="hoy-ajustes" title="Ajustes: rutinas, plantillas, voz, Directo y tope de gasto" aria-label="Ajustes">${ico('settings')}</button><button class="btn btn-chico btn-icono" id="hoy-ocultar" title="Pantalla de foco: solo lo de ahora y el chat (Alt+F)" aria-label="Pantalla de foco">${ico('panel-right-close')}</button></span>
     </header>
     <section class="hud-ahora" id="hud-ahora" aria-label="Ahora"></section>
     <nav class="hud-modos" role="tablist" aria-label="Paneles del día">${HUD_MODOS.map(([k, n, ic], i) => `<button role="tab" data-hud="${k}" class="${k === modo ? 'on' : ''}" aria-selected="${k === modo}" tabindex="${k === modo ? 0 : -1}" title="${n} (Alt+${i + 1})">${ico(ic)}<span>${n}</span><kbd>${i + 1}</kbd></button>`).join('')}</nav>
@@ -72,12 +73,30 @@ function pintarHud(cont) {
     <nav class="hud-rapidas">${HUD_ACCIONES.map(([k, ic, n, t]) => `<button data-hud-acc="${k}" title="${n} (Alt+${t})"><i>${ic}</i><span>${n}</span></button>`).join('')}</nav>
   </div>`
   $('#hoy-ajustes').onclick = modalAjustesHoy
+  engancharHojaHoy()
   if ($('#hoy-tarjetas')) $('#hoy-tarjetas').onclick = () => repasarTarjetas()
   if ($('#hoy-mano')) $('#hoy-mano').onclick = () => irA('mano')
   $('#hoy-ocultar').onclick = () => window.ocultarDia?.()
   $$('[data-hud]', cont).forEach((b) => (b.onclick = () => cambiarModoHud(b.dataset.hud)))
   $$('[data-hud-acc]', cont).forEach((b) => (b.onclick = () => accionHud(b.dataset.hudAcc)))
   pintarModoHud()
+}
+
+/**
+ * En el celular, el panel del día es una hoja: cerrada muestra solo «Ahora»; abierta sube desde abajo con las
+ * pestañas, y se baja arrastrando el asa (o con el mismo botón).
+ */
+function engancharHojaHoy() {
+  const dia = $('#hoy-dia')
+  const btn = $('#hud-hoja-btn')
+  if (!dia || !btn) return
+  const poner = (abierta) => { dia.classList.toggle('hoja', abierta); btn.setAttribute('aria-expanded', abierta); btn.querySelector('span').textContent = abierta ? 'Cerrar' : 'El día' }
+  btn.onclick = () => poner(!dia.classList.contains('hoja'))
+  poner(dia.classList.contains('hoja')) // si se redibujó abierta, el botón lo dice
+  const asa = $('#hoja-asa')
+  let y0 = null
+  asa.onpointerdown = (e) => { y0 = e.clientY; try { asa.setPointerCapture(e.pointerId) } catch { /* igual anda */ } }
+  asa.onpointerup = (e) => { if (y0 != null && e.clientY - y0 > 50) poner(false); y0 = null }
 }
 
 function cambiarModoHud(modo) {

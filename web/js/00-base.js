@@ -109,8 +109,9 @@ function abrirModal(html, o = {}) {
   alCerrarModal = o.alCerrar ?? null
   document.activeElement?.blur?.()
   const m = $('#modal')
-  m.className = `modal${o.lado ? ' modal-lado' : ''}` // cada modal arranca con su tamaño normal (el que necesite más, se agranda)
+  m.className = `modal${o.lado ? ' modal-lado' : ''}${o.hoja ? ' modal-hoja' : ''}` // cada modal arranca con su tamaño normal (el que necesite más, se agranda)
   $('#velo').classList.toggle('velo-lado', !!o.lado)
+  $('#velo').classList.toggle('velo-hoja', !!o.hoja) // `hoja`: sube desde abajo (el celular)
   m.innerHTML = html
   m.setAttribute('role', 'dialog')
   m.setAttribute('aria-modal', 'true')
@@ -234,8 +235,8 @@ function cartaHTML(f) {
 // ─── HUD y crónica ──────────────────────────────────────────────────────
 
 function renderHud() {
-  const nv = $('#n-validar')
-  if (nv) nv.textContent = E.paraValidar ? (E.paraValidar > 99 ? '99+' : E.paraValidar) : ''
+  const n = E.paraValidar ? (E.paraValidar > 99 ? '99+' : String(E.paraValidar)) : ''
+  for (const el of [$('#n-validar'), $('#n-validar-abajo')]) if (el) el.textContent = n
   const r = E.roster
   const cuenta = (e) => r.filter((f) => f.estado === e).length
   const t = Object.fromEntries(E.liga.tareas.map((x) => [x.estado, x.n]))

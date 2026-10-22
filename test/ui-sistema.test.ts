@@ -66,3 +66,8 @@ test('Contraste WCAG: todo texto se lee (≥ 4,5:1) sobre el fondo, el panel y e
     assert.ok(contraste(t['sobre-acento'], t.acento) >= 4.5, `${nombre}: el texto del botón primario`)
   }
 })
+
+test('Tres anchos y nada más: compu (más de 1000), tablet (1000) y celular (720)', () => {
+  const anchos = new Set([...css.matchAll(/@media \(max-width: (\d+)px\)/g)].map((m) => m[1]))
+  assert.deepEqual([...anchos].sort(), ['1000', '1280', '720'])
+})
