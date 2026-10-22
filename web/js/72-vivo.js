@@ -17,6 +17,7 @@ async function traerVivo() {
   vivo.datos = r.vivo
   vivo.bloque = r.bloque
   pintarVivo()
+  window.pintarAhora?.() // el bloque y la cuenta de la banda viven en «Ahora»
   // El bloque guiado terminó o le avisé que se fue del tema: el mensaje ya está en Hoy (y se escucha si la voz está prendida).
   const fb = r.bloque ? `${r.bloque.id}:${r.bloque.avisado}` : ''
   if (vivo.firmaBloque && fb !== vivo.firmaBloque) traerLoNuevo()
@@ -39,18 +40,6 @@ const reloj = (desde) => {
   return `${Math.floor(s / 3600) ? `${Math.floor(s / 3600)}:` : ''}${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 }
 
-/** La fila del bloque guiado (con o sin Directo): el tema, lo que lleva contra lo que dijo, si se fue del tema, y cortar. */
-function filaBloque() {
-  const b = vivo.bloque
-  if (!b) return ''
-  const pct = Math.min(100, Math.round((b.lleva / b.minutos) * 100))
-  return `<div class="vivo-fila vivo-guiado">
-    <span title="El bloque de foco que arrancó">⏱ <b>${esc(b.tema ?? 'Bloque de foco')}</b> · ${b.lleva}′ de ${b.minutos}′<i class="vivo-barra"><b style="width:${pct}%"></b></i></span>
-    ${b.fuera && b.fuera.minutos >= 1 ? `<span class="vivo-alerta">fuera del tema hace ${b.fuera.minutos}′ (${esc(b.fuera.donde)})</span>` : ''}
-    <button class="btn btn-chico" id="vivo-bloque-fin" title="Cortar el bloque ahora (la tarjeta va al chat)">cortar</button>
-  </div>`
-}
-
 /** Los botones que van siempre, con o sin Directo: un bloque guiado y cerrar el día hablando. */
 const botonesSiempre = () => `${vivo.bloque ? '' : '<button class="btn btn-chico" id="vivo-bloque" title="Un bloque de foco guiado: le cuido el tema y le aviso una vez si se va">⏱</button>'}
   <button class="btn btn-chico" id="vivo-cierre" title="Cerrar el día hablando (unos 3 minutos)">🌙</button>`
@@ -58,7 +47,6 @@ const botonesSiempre = () => `${vivo.bloque ? '' : '<button class="btn btn-chico
 function engancharSiempre() {
   const en = (id, f) => { const b = $(id); if (b) b.onclick = f }
   en('#vivo-bloque', () => modalBloque())
-  en('#vivo-bloque-fin', async () => { try { await api('/bloque/terminar', {}); await traerVivo(); traerLoNuevo() } catch (e) { error(e) } })
   en('#vivo-cierre', () => cerrarDiaHablando())
 }
 
@@ -67,8 +55,8 @@ function pintarVivo() {
   if (!el) return
   const d = vivo.datos
   if (!d) {
-    el.innerHTML = `<div class="vivo-fila"><button class="vivo-prender" id="vivo-prender" title="Mastropiero mira tu pantalla y te escucha mientras trabajás">● Prender el Directo</button><span class="vivo-acc">${botonesSiempre()}</span></div>${filaBloque()}`
-    el.className = `hoy-vivo apagado${vivo.bloque ? ' con-bloque' : ''}`
+    el.innerHTML = `<div class="vivo-fila"><button class="vivo-prender" id="vivo-prender" title="Mastropiero mira tu pantalla y te escucha mientras trabajás">● Prender el Directo</button><span class="vivo-acc">${botonesSiempre()}</span></div>`
+    el.className = 'hoy-vivo apagado'
     $('#vivo-prender').onclick = () => modalDirecto()
     engancharSiempre()
     return
@@ -93,13 +81,11 @@ function pintarVivo() {
         <button class="btn btn-chico" id="vivo-apagar" title="Apagar el Directo (escribo el informe)">■</button>
       </span>
     </div>
-    ${filaBloque()}
     <div class="vivo-fila vivo-foco">
       ${a ? `<span title="Lo que lleva en lo mismo, contra su meta de bloque">▣ ${d.bloque}′${d.meta ? ` de ${d.meta}′` : ''}<i class="vivo-barra"><b style="width:${pct}%"></b></i></span>` : ''}
       ${d.enEstimulo ? '<span class="vivo-alerta">alto estímulo</span>' : ''}
       ${d.estimuloHoy ? `<span class="tenue">estímulo hoy ${d.estimuloHoy}′</span>` : ''}
       ${d.costo?.directoPorHora || d.costo?.copilotoHoy ? `<span class="tenue" title="Lo que gasta el Directo por hora (mirar y escribir los tramos) y el copiloto hoy">≈ ${miles(d.costo.directoPorHora)} tok/h${d.costo.copilotoHoy ? ` · 💡 ${miles(d.costo.copilotoHoy)}` : ''}</span>` : ''}
-      ${d.banda ? `<span>⚔ ${esc(d.banda.titulo)}${d.banda.restan != null ? ` · quedan ${d.banda.restan}′` : ''}${d.banda.siguiente ? ` <span class="tenue">→ ${esc(d.banda.siguiente)}</span>` : ''}</span>` : '<span class="tenue">sin run</span>'}
     </div>`
   const en = (id, f) => { const b = $(id); if (b) b.onclick = f }
   en('#vivo-pausa', () => { directo.pausado = !directo.pausado; toast(directo.pausado ? '⏸ En pausa: no miro ni escucho' : '▶ Sigo mirando', 'suave'); pintarVivo() })

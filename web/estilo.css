@@ -649,6 +649,18 @@ sup.cita a:hover { background: var(--acento-suave); }
 .chat-acciones button:disabled { opacity: .45; cursor: not-allowed; }
 .chat-compositor form { max-width: 760px; margin: 0 auto; display: flex; gap: 8px; align-items: flex-end; border: 1px solid var(--linea-2); border-radius: var(--r-l); background: var(--panel); padding: 6px 6px 6px 12px; min-width: 0; }
 .chat-compositor form:focus-within { border-color: var(--acento); }
+/* El «＋» del compositor: adjuntar, subir audio, charla en vivo y leer en voz alta (un punto si algo está prendido). */
+.chat-mas { position: relative; align-self: flex-end; }
+.chat-mas > summary { list-style: none; position: relative; }
+.chat-mas > summary::-webkit-details-marker { display: none; }
+.chat-mas:has(.on) > summary::after { content: ''; position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--acento); }
+.chat-mas-menu { position: absolute; bottom: calc(100% + 8px); left: 0; z-index: var(--z-flotante); min-width: 280px; display: grid; gap: 2px; padding: var(--e-1); background: var(--panel); border: 1px solid var(--linea-2); border-radius: var(--r-l); box-shadow: var(--sombra); }
+.chat-mas-item { display: flex; align-items: center; gap: var(--e-3); min-height: 38px; padding: var(--e-2) var(--e-3); border: 0; border-radius: var(--r-m); background: none; color: var(--texto); font-size: var(--t-3); text-align: left; cursor: pointer; }
+.chat-mas-item:hover { background: var(--panel-2); }
+.chat-mas-item .ico { color: var(--tenue); }
+.chat-mas-item.on { color: var(--acento-texto); background: var(--acento-suave); }
+.chat-mas-item.on .ico { color: var(--acento-texto); }
+.chat-mas-item[hidden] { display: none; }
 .chat-compositor textarea { flex: 1 1 auto; min-width: 0; border: 0; background: none; resize: none; padding: 6px 0; max-height: 200px; line-height: 1.5; outline: none; }
 .chat-compositor #chat-audio { flex: none; }
 .aviso-modelo { max-width: 760px; margin: 0 auto 10px; }
@@ -659,12 +671,9 @@ sup.cita a:hover { background: var(--acento-suave); }
 .hoy-divisor { cursor: col-resize; background: var(--linea); transition: background .15s; touch-action: none; }
 .hoy-divisor:hover, .hoy-divisor:active { background: var(--acento); }
 .hoy-chat { min-height: 0; min-width: 0; position: relative; overflow: hidden; }
-.hoy-mostrar { display: none; position: absolute; top: 10px; right: 12px; z-index: 3; max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  border: 1px solid var(--acento); background: var(--panel); color: var(--acento-texto); border-radius: 20px; padding: 4px 12px; font: 500 var(--t-2) var(--mono); cursor: pointer; }
 .hoy.foco { grid-template-columns: minmax(0, 1fr) 0 0; }
 .hoy.foco .hoy-dia, .hoy.foco .hoy-divisor { display: none; }
-.hoy.foco .hoy-mostrar { display: block; }
-.hoy.foco .chat-cab { padding-top: 46px; }
+.hoy.foco .hoy-ahora-foco { display: block; }
 .hoy.foco .chat-col, .hoy.foco .chat-compositor form { max-width: 980px; }
 .hoy-cab { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 18px; }
 .hoy-cab small { color: var(--debil); font-size: var(--t-1); text-transform: uppercase; letter-spacing: .1em; font-weight: 600; }
@@ -1693,14 +1702,29 @@ details.puentes > summary { cursor: pointer; padding: 6px 0; }
 @media (max-width: 520px) { .mis-prims { grid-template-columns: 1fr; } }
 
 /* El HUD de Hoy: estado, seis modos, el widget del modo y acciones rápidas. Alto fijo, sin scroll de página. */
-.hud-hoy { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto auto; height: 100%; min-height: 0; gap: 0; }
+.hud-hoy { display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto auto; height: 100%; min-height: 0; gap: 0; }
+/* «Ahora»: lo que hay que hacer ya, siempre arriba (en el panel y en la pantalla de foco). */
+.hud-ahora { padding: var(--e-3) var(--e-3) var(--e-2); border-bottom: 1px solid var(--linea); }
+.ahora { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--e-2) var(--e-3); padding: var(--e-3); border-radius: var(--r-l); border: 1px solid color-mix(in srgb, var(--acento) 35%, var(--linea)); background: linear-gradient(160deg, var(--panel-2), color-mix(in srgb, var(--panel-2) 70%, var(--acento-suave))); }
+.ahora .hud-anillo { width: 64px; height: 64px; }
+.ahora .hud-anillo b { font-size: var(--t-5); }
+.ahora-txt { min-width: 0; display: grid; gap: 2px; }
+.ahora-txt .hud-titulo { margin: 0; overflow-wrap: anywhere; }
+.ahora:not(:has(.hud-anillo)) .ahora-txt { grid-column: 1 / 3; }
+.ahora .hud-marcas { grid-column: 1 / -1; align-items: center; }
+.ahora .hud-marcas .btn-link { margin-left: auto; }
+.ahora-panel { align-self: start; }
+.hoy-ahora-foco { display: none; padding: var(--e-3) var(--e-5) 0; }
+.hoy-ahora-foco .ahora { max-width: 980px; margin: 0 auto; }
+.hoy-ahora-foco .ahora .hud-anillo { width: 84px; height: 84px; }
+.hoy-ahora-foco .ahora .hud-titulo { font-size: var(--t-7); }
 .hud-estado { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 12px 8px; border-bottom: 1px solid var(--linea); }
 .hud-estado b { display: block; font-size: var(--t-4); font-weight: 600; }
 .hud-estado small { font: var(--t-1) var(--mono); color: var(--tenue); }
 .hud-estado-acc { display: flex; gap: 4px; }
-.hud-modos { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); border-bottom: 1px solid var(--linea); }
+.hud-modos { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-bottom: 1px solid var(--linea); }
 .hud-modos button { position: relative; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 8px 0 7px; background: none; border: 0; color: var(--tenue); cursor: pointer; font-size: var(--t-1); transition: color .12s, background .12s; }
-.hud-modos button i { font-style: normal; font-size: var(--t-6); line-height: 1.1; }
+.hud-modos button .ico { width: 18px; height: 18px; }
 .hud-modos button kbd { position: absolute; top: 3px; right: 5px; font: var(--t-1) var(--mono); color: var(--debil); background: none; border: 0; padding: 0; }
 .hud-modos button:hover { color: var(--texto); background: var(--panel-2); }
 .hud-modos button.on { color: var(--acento-texto, var(--acento)); box-shadow: inset 0 -2px 0 var(--acento); }
@@ -1718,7 +1742,7 @@ details.puentes > summary { cursor: pointer; padding: 6px 0; }
 .hud-barra i { display: block; height: 100%; background: var(--acento); }
 .hud-marcas { display: flex; gap: 6px; flex-wrap: wrap; }
 .hud-marcas button, .hud-chips button, .hud-votos button { border: 1px solid var(--linea); background: var(--panel-2); color: var(--texto); border-radius: var(--r-m); padding: 6px 10px; font-size: var(--t-3); cursor: pointer; }
-.hud-marcas button.on, .hud-votos button.on { background: var(--acento); border-color: var(--acento); color: #fff; }
+.hud-marcas button.on, .hud-votos button.on { background: var(--acento); border-color: var(--acento); color: var(--sobre-acento); }
 .hud-chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .hud-check { display: flex; align-items: center; gap: 7px; font-size: var(--t-3); min-width: 0; }
 .hud-check em { margin-left: auto; font: var(--t-1) var(--mono); color: var(--debil); font-style: normal; }
@@ -1757,7 +1781,7 @@ details.puentes > summary { cursor: pointer; padding: 6px 0; }
 .hud-modos button { border-radius: var(--r-m); padding: 7px 0 6px; transition: color .15s, background .15s, transform .15s, box-shadow .15s; }
 .hud-modos button:hover { transform: translateY(-1px); }
 .hud-modos button.on { background: var(--acento-suave); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acento) 45%, transparent), 0 0 18px -4px color-mix(in srgb, var(--acento) 60%, transparent); }
-.hud-modos button.on i { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--acento) 70%, transparent)); }
+.hud-modos button.on .ico { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--acento) 70%, transparent)); }
 .hud-cuerpo { overflow-y: auto; scrollbar-width: thin; }
 .hud-widget { gap: 9px; height: auto; min-height: 100%; }
 .hud-hero { display: flex; flex-direction: column; gap: 8px; padding: 12px 13px; border-radius: var(--r-l); background: linear-gradient(160deg, var(--panel-2), color-mix(in srgb, var(--panel-2) 70%, var(--acento-suave))); border: 1px solid var(--linea); box-shadow: 0 6px 20px -10px rgba(0, 0, 0, .5); }

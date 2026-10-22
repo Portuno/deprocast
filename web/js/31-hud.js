@@ -1,26 +1,22 @@
 'use strict'
-// El HUD de Hoy: el panel derecho como menú de juego. Una línea de estado, seis modos (Alt+1…6) que cambian el widget
-// sin tocar el chat, y acciones rápidas abajo (Alt+N/R/A/V/F). Lo que se hace desde acá deja una línea de registro
-// discreta en el chat; Mastropiero sabe qué modo estás mirando cuando le preguntás «¿cómo voy?».
+// El HUD de Hoy: el panel derecho como centro de mando (plan v22). Arriba, siempre, «Ahora»: lo que hay que hacer ya
+// (la banda con su cuenta y ✓ ◐ ✗, el bloque guiado o lo próximo). Debajo, cuatro pestañas (Alt+1…4) que quedan como
+// las dejaste, y acciones rápidas abajo (Alt+N/R/A/V/F). Lo que se hace desde acá deja una línea de registro discreta en
+// el chat; Mastropiero sabe qué pestaña estás mirando cuando le preguntás «¿cómo voy?».
 
-const HUD_MODOS = [['run', 'Run', '⚔'], ['quests', 'Quests', '◎'], ['agenda', 'Agenda', '☷'], ['cuerpo', 'Cuerpo', '♥'], ['stats', 'Stats', '◈'], ['oraculo', 'Oráculo', '✦']]
+const HUD_MODOS = [['dia', 'Día', 'calendar'], ['cuerpo', 'Cuerpo', 'heart'], ['numeros', 'Números', 'activity'], ['oraculo', 'Oráculo', 'sparkles']]
 const HUD_ACCIONES = [['tarea', '＋', 'Tarea', 'N'], ['run', '⚡', 'Run', 'R'], ['anotar', '◉', 'Anotar', 'A'], ['voto', '☑', 'Voto', 'V'], ['foco', '◎', 'Foco', 'F']]
 const VERBOS_HUD = [['estudio', 'Estudio'], ['trabajo', 'Trabajo'], ['entreno', 'Entreno'], ['ensenio', 'Enseño'], ['construyo', 'Construyo'], ['disenio', 'Diseño']]
 let hudDatos = null
 let hudPop = null
 
-const fechaHoyISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 
-/** El modo que toca solo: run en curso → Run; a la mañana → Oráculo (la brújula); a la noche → Cuerpo (voto y hábitos). */
-function modoAutoHud() {
-  if (hoyDatos?.run?.estado === 'en_curso') return 'run'
-  const h = new Date().getHours()
-  return h < 12 ? 'oraculo' : h >= 21 ? 'cuerpo' : 'quests'
-}
-/** El que elegiste a mano vale hasta mañana. */
+/** La pestaña que elegiste queda elegida (ya no cambia sola con la hora). Las de antes se traducen a las nuevas. */
+const MODO_VIEJO = { run: 'dia', quests: 'dia', agenda: 'dia', stats: 'numeros' }
 function modoHud() {
-  const [dia, modo] = String(pref.leer('mastro-hud-modo', '')).split('|')
-  return dia === fechaHoyISO() && HUD_MODOS.some(([k]) => k === modo) ? modo : modoAutoHud()
+  const guardado = String(pref.leer('mastro-hud-modo', 'dia')).split('|').pop()
+  const modo = MODO_VIEJO[guardado] ?? guardado
+  return HUD_MODOS.some(([k]) => k === modo) ? modo : 'dia'
 }
 window.hudModoActual = () => (vista === 'hoy' ? modoHud() : null)
 
@@ -61,23 +57,23 @@ function pintarHud(cont) {
   const estadoRun = run?.estado === 'en_curso' ? (() => { const { actual } = bandaDeAhora(run); return actual ? `⚔ ${Math.max(0, aMinJs(actual.fin) - minutosAhora())}′ en «${corto(actual.titulo, 28)}»` : `⚔ run ${run.inicio}–${run.fin}` })() : run?.estado === 'propuesta' ? 'run propuesta' : 'sin run'
   const modo = modoHud()
   // El esqueleto (estado, modos, chips, acciones) se arma de nuevo solo si cambió lo que muestra; si no, solo el widget.
-  const clave = JSON.stringify([hoyDatos.fecha, estadoRun, modo, hoyDatos.paraDecidir, hoyDatos.tarjetasHoy, hoyDatos.manoNuevas])
+  const clave = JSON.stringify([hoyDatos.fecha, estadoRun, modo, hoyDatos.tarjetasHoy, hoyDatos.manoNuevas])
   if (cont.dataset.hud === clave && $('#hud-cuerpo', cont)) return void pintarModoHud()
   cont.dataset.hud = clave
   cont.innerHTML = `<div class="hud-hoy">
     <header class="hud-estado">
       <div><b>${esc(mayuscula(fecha.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })))}</b><small>${esc(estadoRun)}</small></div>
-      <span class="hud-estado-acc">${hoyDatos.paraDecidir ? `<button class="btn btn-chico hud-tarjetas" id="hoy-bandeja" title="Lo que te propuse y espera tu ok (y lo que hice solo)">📥 ${hoyDatos.paraDecidir}</button>` : '<button class="btn btn-chico btn-icono" id="hoy-bandeja" title="Para decidir: lo que hice solo y cuánto acierto">📥</button>'}${hoyDatos.tarjetasHoy ? `<button class="btn btn-chico hud-tarjetas" id="hoy-tarjetas" title="Las tarjetas que tocan hoy (recuerdo activo)">🃏 ${hoyDatos.tarjetasHoy} para repasar</button>` : ''}${hoyDatos.manoNuevas ? `<button class="btn btn-chico hud-tarjetas" id="hoy-mano" title="Afirmaciones tuyas que no se parecen a nada que tengas: jugalas en La Mano">♤ ${hoyDatos.manoNuevas} nueva${hoyDatos.manoNuevas === 1 ? '' : 's'} para jugar</button>` : ''}<button class="btn btn-chico btn-icono" id="hoy-ajustes" title="Rutinas, plantillas y tope de gasto">⚙</button><button class="btn btn-chico btn-icono" id="hoy-ocultar" title="Ocultar el panel (Alt+F)">⇥</button></span>
+      <span class="hud-estado-acc">${hoyDatos.tarjetasHoy ? `<button class="btn btn-chico hud-tarjetas" id="hoy-tarjetas" title="Las tarjetas que tocan hoy (recuerdo activo)">🃏 ${hoyDatos.tarjetasHoy} para repasar</button>` : ''}${hoyDatos.manoNuevas ? `<button class="btn btn-chico hud-tarjetas" id="hoy-mano" title="Afirmaciones tuyas que no se parecen a nada que tengas: jugalas en La Mano">♤ ${hoyDatos.manoNuevas} nueva${hoyDatos.manoNuevas === 1 ? '' : 's'} para jugar</button>` : ''}<button class="btn btn-chico btn-icono" id="hoy-ajustes" title="Ajustes: rutinas, plantillas, voz, Directo y tope de gasto" aria-label="Ajustes">${ico('settings')}</button><button class="btn btn-chico btn-icono" id="hoy-ocultar" title="Pantalla de foco: solo lo de ahora y el chat (Alt+F)" aria-label="Pantalla de foco">${ico('panel-right-close')}</button></span>
     </header>
-    <nav class="hud-modos" role="tablist">${HUD_MODOS.map(([k, n, ic], i) => `<button role="tab" data-hud="${k}" class="${k === modo ? 'on' : ''}" title="${n} (Alt+${i + 1})"><i>${ic}</i><span>${n}</span><kbd>${i + 1}</kbd></button>`).join('')}</nav>
-    <section class="hud-cuerpo" id="hud-cuerpo"></section>
+    <section class="hud-ahora" id="hud-ahora" aria-label="Ahora"></section>
+    <nav class="hud-modos" role="tablist" aria-label="Paneles del día">${HUD_MODOS.map(([k, n, ic], i) => `<button role="tab" data-hud="${k}" class="${k === modo ? 'on' : ''}" aria-selected="${k === modo}" tabindex="${k === modo ? 0 : -1}" title="${n} (Alt+${i + 1})">${ico(ic)}<span>${n}</span><kbd>${i + 1}</kbd></button>`).join('')}</nav>
+    <section class="hud-cuerpo" id="hud-cuerpo" role="tabpanel"></section>
     <div class="hud-pop" id="hud-pop" hidden></div>
     <nav class="hud-rapidas">${HUD_ACCIONES.map(([k, ic, n, t]) => `<button data-hud-acc="${k}" title="${n} (Alt+${t})"><i>${ic}</i><span>${n}</span></button>`).join('')}</nav>
   </div>`
   $('#hoy-ajustes').onclick = modalAjustesHoy
   if ($('#hoy-tarjetas')) $('#hoy-tarjetas').onclick = () => repasarTarjetas()
   if ($('#hoy-mano')) $('#hoy-mano').onclick = () => irA('mano')
-  $('#hoy-bandeja').onclick = modalBandeja
   $('#hoy-ocultar').onclick = () => window.ocultarDia?.()
   $$('[data-hud]', cont).forEach((b) => (b.onclick = () => cambiarModoHud(b.dataset.hud)))
   $$('[data-hud-acc]', cont).forEach((b) => (b.onclick = () => accionHud(b.dataset.hudAcc)))
@@ -85,8 +81,8 @@ function pintarHud(cont) {
 }
 
 function cambiarModoHud(modo) {
-  pref.guardar('mastro-hud-modo', `${fechaHoyISO()}|${modo}`)
-  $$('[data-hud]').forEach((b) => b.classList.toggle('on', b.dataset.hud === modo))
+  pref.guardar('mastro-hud-modo', modo)
+  $$('[data-hud]').forEach((b) => { const on = b.dataset.hud === modo; b.classList.toggle('on', on); b.setAttribute('aria-selected', on); b.tabIndex = on ? 0 : -1 })
   cerrarPopHud()
   pintarModoHud()
 }
@@ -100,38 +96,74 @@ const barraHud = (v, max) => `<span class="hud-barra"><i style="width:${max ? Ma
 const filaHud = (izq, der, extra = '') => `<div class="hud-fila ${extra}"><span>${izq}</span><span class="hud-num">${der}</span></div>`
 const pieHud = (texto, ir, irNombre) => `<footer class="hud-pie">${ir ? `<a href="#" data-hud-ir="${ir}">${irNombre} →</a>` : '<span></span>'}<button class="btn-link" data-hud-preguntar="${esc(texto)}">Preguntarle ↗</button></footer>`
 
-function widgetRun() {
-  const run = hoyDatos.run
+/** Lo próximo de la agenda que todavía no empezó (para cuando no hay banda ni bloque). */
+function proximoEvento() {
+  const ahora = Date.now()
+  return (hudDatos?.agenda ?? []).filter((e) => !e.todoElDia && new Date(e.inicio).getTime() > ahora)
+    .sort((a, b) => new Date(a.inicio) - new Date(b.inicio))[0] ?? null
+}
+
+/** «en 25′», «en 2 h 10′». */
+const enCuanto = (min) => (min < 60 ? `${Math.max(1, min)}′` : `${Math.floor(min / 60)} h${min % 60 ? ` ${min % 60}′` : ''}`)
+const MARCAS_BANDA = [['hecha', '✓ Hecha'], ['parcial', '◐ A medias'], ['no', '✗ No']]
+
+/**
+ * «Ahora»: lo único que importa en este momento, en un lugar fijo. Por orden: la banda de la run (con su cuenta y las
+ * marcas), el bloque guiado, la run propuesta, o lo próximo de la agenda con cómo arrancar. `foco`: la versión de la
+ * pantalla de foco (arriba del chat, con el botón para volver al panel).
+ */
+function ahoraHTML(foco = false) {
+  const run = hoyDatos?.run
+  const bloque = typeof vivo !== 'undefined' ? vivo.bloque : null
+  const volver = foco ? `<button class="btn btn-chico btn-fantasma ahora-panel" data-mostrar-dia title="Volver al panel del día (Alt+F)">${ico('panel-left-close')}<span>Panel</span></button>` : ''
   if (run?.estado === 'en_curso') {
     const { actual, proxima } = bandaDeAhora(run)
     const ms = run.misiones
     const hechas = ms.filter((m) => m.estado === 'hecha').length
-    const siguientes = ms.filter((m) => aMinJs(m.inicio) > minutosAhora()).slice(0, 3)
-    const dur = actual ? Math.max(1, aMinJs(actual.fin) - aMinJs(actual.inicio)) : 1
-    const quedan = actual ? Math.max(0, aMinJs(actual.fin) - minutosAhora()) : 0
-    return `<div class="hud-hero">
-        <div class="hud-hero-fila">${anilloHud(actual ? dur - quedan : hechas, actual ? dur : ms.length, actual ? `${quedan}′` : `${hechas}/${ms.length}`, actual ? 'quedan' : 'hechas')}
-          <div><small class="hud-etq">${actual ? `Banda actual · ${actual.inicio}–${actual.fin}` : `Run ${run.inicio}–${run.fin}`}</small>
-          <h3 class="hud-titulo">${esc(actual ? actual.titulo : proxima ? `Lo que sigue: ${proxima.titulo}` : 'Terminaste las bandas')}</h3>
-          <small class="hud-texto">${hechas} de ${ms.length} bandas hechas</small></div></div>
-        ${actual ? `<div class="hud-marcas">${[['hecha', '✓ Hecha'], ['parcial', '◐ A medias'], ['no', '✗ No']].map(([e, n]) => `<button data-hud-marcar="${e}" data-mid="${actual.id}" class="${actual.estado === e ? 'on' : ''}">${n}</button>`).join('')}</div>` : ''}
-      </div>
-      ${siguientes.length ? `<small class="hud-etq">Después</small><ol class="hud-linea">${siguientes.map((m) => `<li class="banda"><span class="hud-num">${m.inicio}</span><span>${esc(corto(m.titulo, 40))}</span><em>${m.minutos ?? ''}′</em></li>`).join('')}</ol>` : ''}
-      <button class="btn btn-chico" data-dia="run">Abrir la run</button>
-      ${pieHud('¿Cómo voy con la run?')}`
+    if (actual) {
+      const dur = Math.max(1, aMinJs(actual.fin) - aMinJs(actual.inicio))
+      const quedan = Math.max(0, aMinJs(actual.fin) - minutosAhora())
+      return `<div class="ahora">${anilloHud(dur - quedan, dur, `${quedan}′`, 'quedan')}
+        <div class="ahora-txt"><small class="hud-etq">Ahora · ${actual.inicio}–${actual.fin}</small><h3 class="hud-titulo">${esc(actual.titulo)}</h3>
+          <small class="hud-texto">${proxima ? `Después: ${esc(corto(proxima.titulo, 40))} · ` : ''}${hechas} de ${ms.length} hechas</small></div>${volver}
+        <div class="hud-marcas">${MARCAS_BANDA.map(([e, n]) => `<button data-hud-marcar="${e}" data-mid="${actual.id}" class="${actual.estado === e ? 'on' : ''}" aria-pressed="${actual.estado === e}">${n}</button>`).join('')}<button class="btn-link" data-dia="run">La run →</button></div></div>`
+    }
+    return `<div class="ahora"><div class="ahora-txt"><small class="hud-etq">Run ${run.inicio}–${run.fin} · entre bandas</small>
+      <h3 class="hud-titulo">${proxima ? `Lo que sigue: ${esc(proxima.titulo)}` : 'Terminaste las bandas'}</h3><small class="hud-texto">${hechas} de ${ms.length} hechas${proxima ? ` · arranca ${proxima.inicio}` : ''}</small></div>${volver}
+      <div class="hud-marcas"><button class="btn-link" data-dia="run">La run →</button></div></div>`
+  }
+  if (bloque) {
+    const pct = Math.min(100, Math.round((bloque.lleva / bloque.minutos) * 100))
+    return `<div class="ahora">${anilloHud(bloque.lleva, bloque.minutos, `${bloque.quedan}′`, 'quedan')}
+      <div class="ahora-txt"><small class="hud-etq">Bloque de foco · ${bloque.lleva}′ de ${bloque.minutos}′</small><h3 class="hud-titulo">${esc(bloque.tema ?? 'Bloque de foco')}</h3>
+        ${bloque.fuera && bloque.fuera.minutos >= 1 ? `<small class="vivo-alerta">Fuera del tema hace ${bloque.fuera.minutos}′ (${esc(bloque.fuera.donde)})</small>` : `<small class="hud-texto">${pct}% del bloque</small>`}</div>${volver}
+      <div class="hud-marcas"><button data-ahora-cortar>Cortar el bloque</button></div></div>`
   }
   if (run?.estado === 'propuesta') {
-    return `<div class="hud-hero"><small class="hud-etq">Run propuesta · ${run.inicio}–${run.fin}</small><h3 class="hud-titulo">${run.misiones.length} bandas listas para arrancar</h3>
-      ${run.resumen ? `<p class="hud-texto">${esc(corto(run.resumen, 220))}</p>` : ''}
-      <button class="btn btn-primario" data-dia="run">▶ Ver y arrancar</button></div>${pieHud('¿Esta run está bien armada para hoy?')}`
+    return `<div class="ahora"><div class="ahora-txt"><small class="hud-etq">Run propuesta · ${run.inicio}–${run.fin}</small><h3 class="hud-titulo">${run.misiones.length} bandas listas para arrancar</h3></div>${volver}
+      <div class="hud-marcas"><button class="on" data-dia="run">▶ Ver y arrancar</button></div></div>`
   }
-  return `<div class="hud-hero hud-hero-centro"><span class="hud-glifo">⚔</span><h3 class="hud-titulo">¿Armamos una run?</h3>
-      <p class="hud-texto">Elegí una plantilla o contale a Mastropiero cuánto tiempo tenés.</p>
-      ${hoyDatos.plantillas?.length ? `<div class="hud-chips">${hoyDatos.plantillas.map((p) => `<button data-plantilla="${p.id}">⚡ ${esc(p.nombre)}</button>`).join('')}</div>` : ''}
-      <button class="btn btn-chico" id="run-nueva">Armarla con palabras</button></div>
-    ${hoyDatos.proximas?.length ? `<small class="hud-etq">Próximas</small>${hoyDatos.proximas.slice(0, 3).map((r) => filaHud(esc(new Date(`${r.fecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric' })), `${r.inicio}–${r.fin}`)).join('')}` : ''}
-    ${pieHud('¿Qué run me conviene ahora?')}`
+  const ev = proximoEvento()
+  return `<div class="ahora ahora-libre"><div class="ahora-txt"><small class="hud-etq">Ahora · sin run</small>
+      <h3 class="hud-titulo">${ev ? `Lo próximo: ${esc(corto(ev.titulo, 50))}` : '¿Qué hacemos?'}</h3>
+      ${ev ? `<small class="hud-texto">${new Date(ev.inicio).toTimeString().slice(0, 5)} · en ${enCuanto(Math.round((new Date(ev.inicio) - Date.now()) / 60000))}</small>` : '<small class="hud-texto">Una run para el día o un bloque de foco para lo de ahora.</small>'}</div>${volver}
+    <div class="hud-marcas">${(hoyDatos?.plantillas ?? []).slice(0, 3).map((p) => `<button data-plantilla="${p.id}">⚡ ${esc(p.nombre)}</button>`).join('')}<button id="run-nueva">Armar una run</button><button data-ahora-bloque>⏱ Bloque</button></div></div>`
 }
+
+/** Pinta «Ahora» en el panel y en la pantalla de foco (los dos lugares donde vive). */
+function pintarAhora() {
+  if (!hoyDatos) return
+  for (const [sel, foco] of [['#hud-ahora', false], ['#hoy-ahora-foco', true]]) {
+    const cont = $(sel)
+    if (!cont) continue
+    cont.innerHTML = ahoraHTML(foco)
+    engancharWidgetHud(cont)
+    $$('[data-ahora-bloque]', cont).forEach((b) => (b.onclick = () => modalBloque()))
+    $$('[data-ahora-cortar]', cont).forEach((b) => (b.onclick = async () => { try { await api('/bloque/terminar', {}); await traerVivo(); traerLoNuevo() } catch (e) { error(e) } }))
+    $$('[data-mostrar-dia]', cont).forEach((b) => (b.onclick = () => window.mostrarDia?.()))
+  }
+}
+window.pintarAhora = pintarAhora
 
 function widgetQuests() {
   const prims = (hoyDatos.primarias ?? []).filter((m) => m.estado !== 'descartada').slice(0, 4)
@@ -163,7 +195,7 @@ function widgetAgenda() {
     return `${ahoraAca}<li class="${x.tipo} ${x.hecha ? 'hecha' : ''}"><span class="hud-num">${x.hora}</span><span>${esc(corto(x.titulo, 40))}</span><em>${x.tipo}</em></li>`
   }).join('') || '<li><span></span><span>Nada en la agenda.</span></li>'}</ol>
     ${hoyDatos.calendarios ? '' : '<p class="hud-texto">Sin calendario conectado: cargá GCAL_ICS_URLS en las variables.</p>'}
-    ${pieHud('¿Cómo acomodo lo que queda del día?')}`
+  `
 }
 
 function widgetCuerpo() {
@@ -204,9 +236,12 @@ function widgetOraculo() {
     ${pieHud('¿Qué no estoy viendo de mi día?')}`
 }
 
-const WIDGETS = { run: widgetRun, quests: widgetQuests, agenda: widgetAgenda, cuerpo: widgetCuerpo, stats: widgetStats, oraculo: widgetOraculo }
+/** Día: la agenda (eventos, bandas, rutinas y lo fijo) y, debajo, la principal, las primarias y las tareas de hoy. */
+const widgetDia = () => `${widgetAgenda()}${widgetQuests()}`
+const WIDGETS = { dia: widgetDia, cuerpo: widgetCuerpo, numeros: widgetStats, oraculo: widgetOraculo }
 
 function pintarModoHud() {
+  pintarAhora()
   const cont = $('#hud-cuerpo')
   if (!cont || !hoyDatos) return
   const modo = modoHud()
@@ -255,7 +290,7 @@ function cerrarPopHud() {
 }
 
 function accionHud(cual) {
-  if (cual === 'foco') return window.ocultarDia?.()
+  if (cual === 'foco') return $('#hoy')?.classList.contains('foco') ? window.mostrarDia?.() : window.ocultarDia?.()
   if (cual === 'run') return modalRun()
   const p = $('#hud-pop')
   if (!p) return

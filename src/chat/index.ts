@@ -246,6 +246,10 @@ const VOZ_USTED = VOZ
 
 /** Lo que muestra cada modo del HUD de Hoy (para que Mastropiero sepa de qué le habla cuando dice «¿cómo voy?»). */
 const HUD: Record<string, string> = {
+  // Las pestañas del panel de Hoy (plan v22). Arriba de todas está siempre «Ahora»: la banda, el bloque o lo próximo.
+  dia: 'Día (la agenda de hoy, su misión principal, las primarias de la semana y las tareas de hoy; arriba, lo de ahora: la banda o el bloque en curso)',
+  numeros: 'Números (te conozco, foco, bandas de la semana, plata del mes y gasto de tokens)',
+  // Las de antes (si una pantalla vieja todavía las manda).
   run: 'Run (la banda en curso, el tiempo que queda y lo que sigue)',
   quests: 'Quests (su misión principal, las primarias de la semana y las tareas de hoy)',
   agenda: 'Agenda (los eventos, bandas y rutinas del día)',

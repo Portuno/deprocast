@@ -104,12 +104,17 @@ const hiloHTMLBase = () => `
     <div class="chat-acciones" id="chat-acciones" hidden></div>
     <form id="chat-form">
       <div class="chat-adjuntos" id="chat-adjuntos" hidden></div>
-      <label class="btn btn-icono" id="chat-adjuntar" title="Adjuntar imágenes o archivos (PDF, Word, Excel, PowerPoint, texto). También podés pegarlos o arrastrarlos">📎<input type="file" accept="image/*,.pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json" multiple hidden id="chat-img-in"></label>
-      <label class="btn btn-icono" id="chat-audio" title="Subir un audio: se transcribe y entra como lo que contás" hidden>🎙<input type="file" accept="audio/*" hidden id="chat-audio-in"></label>
-      <textarea id="chat-txt" rows="1" placeholder="Escribile a Mastropiero…" title="Enter envía. Shift+Enter, nueva línea."></textarea>
-      <button type="button" class="btn btn-icono" id="chat-dictar" title="Dictar: un toque graba, otro manda (o mantené Alt en cualquier pantalla)">🎙</button>
-      <button type="button" class="btn btn-icono" id="chat-vivo" title="Charla en vivo: le hablás y te contesta en voz alta">🎧</button>
-      <button type="button" class="btn btn-icono" id="chat-leer" title="Leer las respuestas en voz alta">🔊</button>
+      <details class="chat-mas" id="chat-mas">
+        <summary class="btn btn-icono" title="Adjuntar, voz y más" aria-label="Adjuntar, voz y más">${ico('plus')}</summary>
+        <div class="chat-mas-menu" role="menu">
+          <label class="chat-mas-item" id="chat-adjuntar" role="menuitem" title="También podés pegarlos o arrastrarlos">${ico('paperclip')}<span>Adjuntar imágenes o archivos</span><input type="file" accept="image/*,.pdf,.docx,.xlsx,.pptx,.txt,.md,.csv,.json" multiple hidden id="chat-img-in"></label>
+          <label class="chat-mas-item" id="chat-audio" role="menuitem" hidden>${ico('mic')}<span>Subir un audio (se transcribe)</span><input type="file" accept="audio/*" hidden id="chat-audio-in"></label>
+          <button type="button" class="chat-mas-item" id="chat-vivo" role="menuitem">${ico('headphones')}<span>Charla en vivo (te contesta en voz alta)</span></button>
+          <button type="button" class="chat-mas-item" id="chat-leer" role="menuitem">${ico('volume-2')}<span>Leer las respuestas en voz alta</span></button>
+        </div>
+      </details>
+      <textarea id="chat-txt" rows="1" placeholder="Escribile a Mastropiero…" title="Enter envía. Shift+Enter, nueva línea." aria-label="Mensaje para Mastropiero"></textarea>
+      <button type="button" class="btn btn-icono" id="chat-dictar" title="Dictar: un toque graba, otro manda (o mantené Alt en cualquier pantalla)" aria-label="Dictar">🎙</button>
       <button class="btn btn-primario" id="chat-enviar">Enviar</button>
     </form>
   </div>`
@@ -136,6 +141,10 @@ function engancharCompositor() {
   }
   pintarAdjuntos()
   window.engancharVoz?.()
+  // El menú «＋» se cierra al elegir algo, al tocar afuera o con Esc.
+  const mas = $('#chat-mas')
+  mas.querySelector('.chat-mas-menu').addEventListener('click', () => setTimeout(() => (mas.open = false), 0))
+  mas.addEventListener('keydown', (e) => { if (e.key === 'Escape' && mas.open) { e.stopPropagation(); mas.open = false; mas.querySelector('summary').focus() } })
   $('#chat-audio-in').onchange = async (e) => {
     const f = e.target.files[0]
     if (!f || !chat.actual) return
@@ -153,6 +162,8 @@ function engancharCompositor() {
   }
   ajustar()
 }
+
+document.addEventListener('click', (e) => { const mas = $('#chat-mas'); if (mas?.open && !mas.contains(e.target)) mas.open = false })
 
 async function montarChat() {
   $('#principal').classList.add('lleno')

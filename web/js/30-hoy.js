@@ -11,7 +11,7 @@ const aMinJs = (h) => Number(h.slice(0, 2)) * 60 + Number(h.slice(3, 5))
 async function montarHoy() {
   $('#principal').classList.add('lleno')
   $('#principal').innerHTML = `<div class="hoy ${pref.leer('mastro-hoy-foco', 'no') === 'si' ? 'foco' : ''}" id="hoy" style="--hoy-dia:${Number(pref.leer('mastro-hoy-ancho', '')) || Math.max(340, Math.round(window.innerWidth * 0.3))}px">
-    <section class="chat-main hoy-chat"><div class="hoy-vivo apagado" id="hoy-vivo"></div>${hiloHTMLBase()}<button class="hoy-mostrar" id="hoy-mostrar" title="Mostrar las tareas del día">⇤ ☀ <span id="hoy-mini"></span></button></section>
+    <section class="chat-main hoy-chat"><div class="hoy-vivo apagado" id="hoy-vivo"></div><div class="hoy-ahora-foco" id="hoy-ahora-foco"></div>${hiloHTMLBase()}</section>
     <div class="hoy-divisor" id="hoy-divisor" title="Arrastrá para repartir el espacio entre el chat y las tareas (doble clic: ocultar las tareas)"></div>
     <section class="hoy-dia" id="hoy-dia"></section></div>`
   engancharSplitHoy()
@@ -32,7 +32,6 @@ function engancharSplitHoy() {
     pref.guardar('mastro-hoy-foco', si ? 'si' : 'no')
     pintarMiniHoy()
   }
-  $('#hoy-mostrar').onclick = () => foco(false)
   div.ondblclick = () => foco(true)
   div.onpointerdown = (e) => {
     e.preventDefault()
@@ -49,15 +48,12 @@ function engancharSplitHoy() {
     }
   }
   window.ocultarDia = () => foco(true)
+  window.mostrarDia = () => foco(false)
 }
 
-/** Con el día oculto, una pastilla dice qué banda toca. */
+/** Con el panel oculto (pantalla de foco), «Ahora» queda arriba del chat: la banda, la cuenta y las marcas. */
 function pintarMiniHoy() {
-  const mini = $('#hoy-mini')
-  if (!mini || !hoyDatos) return
-  const run = hoyDatos.run
-  const actual = run?.misiones?.find((m) => m.id === hoyDatos.actual)
-  mini.textContent = actual ? `${actual.inicio}–${actual.fin} · ${actual.titulo}` : run?.estado === 'en_curso' ? `Run ${run.inicio}–${run.fin}` : run?.estado === 'propuesta' ? `Run propuesta ${run.inicio}–${run.fin}` : 'El día'
+  window.pintarAhora?.()
 }
 
 function refrescarHoy() {
