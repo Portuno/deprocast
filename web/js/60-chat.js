@@ -334,7 +334,7 @@ function pintarChat() {
   if (acc) {
     acc.hidden = !rapidas.length
     acc.innerHTML = rapidas.map((s) => `<button type="button" data-acc="${esc(s)}">${esc(s)}</button>`).join('')
-    $$('[data-acc]', acc).forEach((b) => (b.onclick = () => { if (chat.pensando) return; $('#chat-txt').value = b.dataset.acc; enviarChat() }))
+    $$('[data-acc]', acc).forEach((b) => (b.onclick = () => { $('#chat-txt').value = b.dataset.acc; enviarChat() }))
   }
   if (!c || !chat.mensajes.length) {
     const texto = c?.modo === 'diario'
@@ -354,7 +354,8 @@ function pintarChat() {
     col.innerHTML = (chat.hayMas ? '<div class="chat-mas"><button class="btn btn-chico" id="chat-anteriores">Ver mensajes anteriores</button></div>' : '') + hiloHTML(window.conMomentos ? conMomentos(chat.mensajes) : chat.mensajes, q, chat.pensando ? chat.vivo ?? {} : null)
     if ($('#chat-anteriores')) $('#chat-anteriores').onclick = verAnteriores
   }
-  $('#chat-enviar').disabled = chat.pensando
+  // Mientras piensa se puede seguir escribiendo: lo nuevo entra a lo que está haciendo (o a la próxima respuesta).
+  $('#chat-txt').placeholder = chat.pensando ? 'Podés seguir escribiendo: lo sumo a lo que estoy pensando…' : 'Escribile a Mastropiero…'
   const hilo = $('#hilo')
   if (chat.pegado !== false) hilo.scrollTop = hilo.scrollHeight
 }
@@ -511,7 +512,7 @@ async function enviarChat() {
   if (chat.adjuntos.some((a) => a.subiendo)) return toast(chat.adjuntos.some((a) => a.subiendo && a.tipo === 'archivo') ? 'Esperá: todavía estoy leyendo el archivo' : 'Esperá: todavía estoy mirando la imagen', 'suave')
   const marcas = chat.adjuntos.map((a) => a.marca).filter(Boolean)
   const texto = [txt.value.trim(), ...marcas].filter(Boolean).join('\n')
-  if (!texto || chat.pensando) return
+  if (!texto) return
   try {
     if (!chat.actual) {
       const c = await api('/chat', { con: 'mastropiero' })

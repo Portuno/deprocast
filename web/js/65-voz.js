@@ -49,8 +49,7 @@ async function conversacionParaVoz(global = false) {
 
 /** Manda lo grabado: se transcribe en el servidor y entra al chat. Devuelve lo que entendió (null si fue ruido). */
 async function mandarVoz(cid, blob, segundos) {
-  // Si todavía está contestando, espera (hasta 30 s): lo que dijo no se pierde.
-  for (let i = 0; i < 100 && chat.pensando && chat.actual?.id === cid; i++) await new Promise((r) => setTimeout(r, 300))
+  // Si todavía está contestando, no espera: lo que dijo entra a ese turno (o a la respuesta que sigue).
   const hud = window.hudModoActual?.() ?? ''
   const r = await fetch(`/api/chat/${cid}/voz?nombre=voz.webm&segundos=${segundos}${hud ? `&hud=${encodeURIComponent(hud)}` : ''}`, { method: 'POST', body: blob })
   const j = await r.json()

@@ -466,7 +466,11 @@ export function guardarNotaDeVoz(db: Db, texto: string, segundos: number | null,
 
 async function conversar(db: Db, texto: string, o: { porVoz?: boolean } = {}) {
   const c = conversacionHoy(db)
-  if (estaPensando(c.id)) return decir('Esperá, todavía estoy contestando lo anterior.')
+  // Si ya está contestando, esto se suma a ese turno: la respuesta de todo junto la manda el mensaje que lo empezó.
+  if (estaPensando(c.id)) {
+    await pedir('sendChatAction', { chat_id: suChat(), action: 'typing' }).catch(() => {})
+    return void (await enviar(db, c.id, texto))
+  }
   const desde = mensajes(db, c.id).at(-1)?.id ?? 0
   await pedir('sendChatAction', { chat_id: suChat(), action: 'typing' }).catch(() => {})
   await enviar(db, c.id, texto)

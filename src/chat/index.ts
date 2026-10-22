@@ -143,13 +143,14 @@ export function ultimosMensajes(db: Db, id: number, n = 200, antes?: number | nu
   return { mensajes: xs.map(msj), hayMas }
 }
 
-function guardar(db: Db, cid: number, m: Partial<Mensaje> & { rol: Mensaje['rol'] }) {
+function guardar(db: Db, cid: number, m: Partial<Mensaje> & { rol: Mensaje['rol'] }): number {
   const ahora = Date.now()
-  db.prepare(
+  const r = db.prepare(
     `INSERT INTO mensajes (conversacion_id, rol, texto, llamadas, llamada_id, herramienta, resumen, razonamiento, modelo, tokens, deshacer, via, en) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(cid, m.rol, m.texto ?? null, m.llamadas?.length ? JSON.stringify(m.llamadas) : null, m.llamadaId ?? null, m.herramienta ?? null,
     m.resumen ?? null, m.razonamiento ?? null, m.modelo ?? null, m.tokens ?? null, m.deshacer ? JSON.stringify(m.deshacer) : null, m.via ?? null, ahora)
   db.prepare('UPDATE conversaciones SET actualizada_en = ? WHERE id = ?').run(ahora, cid)
+  return Number(r.lastInsertRowid)
 }
 
 // ─── personas ───────────────────────────────────────────────────────────
@@ -361,6 +362,8 @@ type Turno = {
   vivo?: EnVivo
   /** Si viene, solo viajan el núcleo y estos grupos (los demás se piden con pedir_herramientas). */
   grupos?: Set<string>
+  /** Lo que el operador escribió mientras el turno trabajaba: entra antes de la próxima vuelta. */
+  nuevos?: () => Record<string, unknown>[]
 }
 
 /**
@@ -383,6 +386,7 @@ async function bucle(t: Turno): Promise<string> {
   const clase = t.clase === 'mastropiero' || !cadena(t.clase).length || t.clase === 'vectorizador' ? 'mastropiero' : t.clase
   for (let vuelta = 0; vuelta < MAX_VUELTAS; vuelta++) {
     if (t.vivo) Object.assign(t.vivo, { borrador: '', herramienta: null, argumentos: null })
+    if (vuelta > 0 && t.nuevos) conv.push(...t.nuevos())
     recortarYaLeido(conv, desde)
     const cierre = vuelta >= AVISO_VUELTAS ? [{ role: 'system', content: `Llevás ${vuelta} vueltas de herramientas en este turno: cerrá con lo que ya tenés y contestá (como mucho una vuelta más).` }] : []
     const r = await llamarModelo({ db: t.db, clase, agenteId: t.agenteId }, {
@@ -428,37 +432,93 @@ export async function hablarConAgente(db: Db, agenteId: string, mensaje: string)
 
 const pensando = new Set<number>()
 export const estaPensando = (id: number) => pensando.has(id)
+/** Hasta qué mensaje suyo ya vio el turno en curso (lo de después le llega en la próxima vuelta o en otro turno). */
+const visto = new Map<number, number>()
+/** Las opciones de lo que escribió mientras contestaba (el panel que miraba, si fue por voz, un pedido de consejo). */
+const opcionesEnCola = new Map<number, { hud?: string | null; via?: 'voz' | 'copiloto' | null; extra?: string | null }>()
+type OpcionesEnvio = { hud?: string | null; via?: 'voz' | 'copiloto' | null; extra?: string | null }
 
-/** Manda un mensaje y corre el turno completo. La pantalla lo llama sin esperar y sigue el avance leyendo los mensajes. */
-export async function enviar(db: Db, cid: number, texto: string, o: { hud?: string | null; via?: 'voz' | 'copiloto' | null; extra?: string | null } = {}): Promise<void> {
+/**
+ * Manda un mensaje. Nunca se bloquea: lo suyo se guarda en el acto, y si Mastropiero ya está contestando, entra a ese
+ * turno (lo lee en la próxima vuelta y ajusta lo que está haciendo) o, si ya estaba escribiendo la respuesta, al
+ * terminarla contesta todo lo que llegó después junto. Así cinco mensajes seguidos pueden ser una, dos o tres
+ * respuestas, según cuándo llegó cada uno. La pantalla lo llama sin esperar y sigue el avance leyendo los mensajes.
+ */
+export async function enviar(db: Db, cid: number, texto: string, o: OpcionesEnvio = {}): Promise<void> {
   const c = leerConversacion(db, cid)
   if (!c) throw new Error(`No existe la conversación ${cid}`)
   if (!texto.trim()) throw new Error('Mensaje vacío')
-  if (pensando.has(cid)) throw new Error('Esperá: todavía está contestando')
+  const id = guardar(db, cid, { rol: 'operador', texto: texto.trim(), via: o.via ?? null })
+  alRecibir(db, cid, c, texto)
+  if (pensando.has(cid)) {
+    const ya = opcionesEnCola.get(cid)
+    opcionesEnCola.set(cid, { hud: o.hud ?? ya?.hud, via: o.via ?? ya?.via, extra: [ya?.extra, o.extra].filter(Boolean).join('\n\n') || null })
+    return
+  }
   pensando.add(cid)
+  try {
+    let pedido: { texto: string; o: OpcionesEnvio; hasta: number } | null = { texto, o, hasta: id }
+    while (pedido) {
+      await turno(db, cid, c, pedido.texto, pedido.o, pedido.hasta)
+      // Lo que escribió y el turno no llegó a ver: un turno más que lo contesta todo junto.
+      const nuevos = db.prepare(`SELECT id, texto FROM mensajes WHERE conversacion_id = ? AND rol = 'operador' AND id > ? ORDER BY id`).all(cid, visto.get(cid) ?? pedido.hasta) as { id: number; texto: string }[]
+      const opc = opcionesEnCola.get(cid) ?? {}
+      opcionesEnCola.delete(cid)
+      pedido = nuevos.length ? { texto: nuevos.map((m) => m.texto).join('\n\n'), o: opc, hasta: nuevos.at(-1)!.id } : null
+    }
+  } finally {
+    pensando.delete(cid)
+    enVivo.delete(cid)
+    visto.delete(cid)
+    opcionesEnCola.delete(cid)
+  }
+}
+
+/** Lo que pasa con cada mensaje apenas llega, se conteste en este turno o en otro: sus links se leen y la charla toma título. */
+function alRecibir(db: Db, cid: number, c: Conversacion, texto: string) {
+  // Un link en lo que escribe: se lee y se guarda en Markdown de fondo (una vez por URL); si es un sitio, se rastrea.
+  for (const link of [...new Set(texto.match(/https?:\/\/[^\s<>)"']+/g) ?? [])].slice(0, 3)) {
+    void import('../lector/index.ts').then(({ procesarLink }) => procesarLink(db, link, {
+      alTerminar: (x) => mensajeDeMastropiero(db, cid, `🕸 Rastreé ${x.paginas} página${x.paginas === 1 ? '' : 's'} de «${x.titulo}»: están juntas en un cuaderno (Cuadernos).`),
+    })).catch(() => {})
+  }
+  if (!c.titulo && !leerConversacion(db, cid)?.titulo) db.prepare('UPDATE conversaciones SET titulo = ? WHERE id = ?').run(recorte(comoTexto(texto.trim()).replace(/\s+/g, ' '), 60), cid)
+}
+
+/**
+ * Lo que escribió mientras el turno trabajaba (entre una herramienta y otra): entra a la charla del modelo antes de la
+ * próxima vuelta, con una nota para que ajuste en vez de contestar mensaje por mensaje.
+ */
+function recienLlegados(db: Db, cid: number): Record<string, unknown>[] {
+  const nuevos = db.prepare(`SELECT id, texto FROM mensajes WHERE conversacion_id = ? AND rol = 'operador' AND id > ? ORDER BY id`).all(cid, visto.get(cid) ?? 0) as { id: number; texto: string }[]
+  if (!nuevos.length) return []
+  visto.set(cid, nuevos.at(-1)!.id)
+  return [
+    { role: 'system', content: `Mientras trabajabas, te escribió ${nuevos.length === 1 ? 'otro mensaje' : `${nuevos.length} mensajes más`}. Tomalo en cuenta para lo que estás haciendo: si cambia o suma al pedido, ajustá. En tu respuesta contestá todo junto, no mensaje por mensaje.` },
+    ...nuevos.map((m) => ({ role: 'user', content: m.texto })),
+  ]
+}
+
+/** Un turno completo sobre lo que escribió (uno o varios mensajes ya guardados, hasta el id `hasta`). */
+async function turno(db: Db, cid: number, c: Conversacion, texto: string, o: OpcionesEnvio, hasta: number): Promise<void> {
   const usadas: string[] = []
   let corregido: string[] = []
   let final = ''
   const vivo: EnVivo = { borrador: '', herramienta: null, argumentos: null }
   enVivo.set(cid, vivo)
   try {
-    guardar(db, cid, { rol: 'operador', texto: texto.trim(), via: o.via ?? null })
-    // Un link en lo que escribe: se lee y se guarda en Markdown de fondo (una vez por URL); si es un sitio, se rastrea.
-    for (const link of [...new Set(texto.match(/https?:\/\/[^\s<>)"']+/g) ?? [])].slice(0, 3)) {
-      void import('../lector/index.ts').then(({ procesarLink }) => procesarLink(db, link, {
-        alTerminar: (x) => mensajeDeMastropiero(db, cid, `🕸 Rastreé ${x.paginas} página${x.paginas === 1 ? '' : 's'} de «${x.titulo}»: están juntas en un cuaderno (Cuadernos).`),
-      })).catch(() => {})
-    }
-    if (!c.titulo) db.prepare('UPDATE conversaciones SET titulo = ? WHERE id = ?').run(recorte(comoTexto(texto.trim()).replace(/\s+/g, ' '), 60), cid)
-    const previos = await armarHistorial(db, mensajes(db, cid), { cid, resumirViejo: !(c.con === MASTROPIERO && c.modo === 'diario'), verImagenes: true })
+    const historial = mensajes(db, cid)
+    visto.set(cid, Math.max(hasta, ...historial.filter((m) => m.rol === 'operador').map((m) => m.id)))
+    const previos = await armarHistorial(db, historial, { cid, resumirViejo: !(c.con === MASTROPIERO && c.modo === 'diario'), verImagenes: true })
     const alGuardar = (m: Partial<Mensaje> & { rol: Mensaje['rol'] }) => {
       if (m.rol === 'herramienta' && m.herramienta) { usadas.push(m.herramienta); try { anotarUso(db, 'herramienta', m.herramienta) } catch { /* no frena */ } }
       guardar(db, cid, m)
     }
+    const nuevos = () => recienLlegados(db, cid)
     if (c.con === MASTROPIERO && c.modo === 'diario') {
       // Lo que cuenta en el diario es su voz: entra al corpus como propia.
       ingerir(db, { fuente: 'operador', nivel: 'propia', titulo: `Diario · ${fechaLocal()} · ${recorte(texto.trim().replace(/\s+/g, ' '), 50)}`, contenido: texto.trim(), dominio: 'diario' })
-      await bucle({ db, sistema: promptDiario(db), hs: [], previos, clase: 'mastropiero', agenteId: MASTROPIERO, ctx: { db, conversacionId: cid }, alGuardar, vivo })
+      await bucle({ db, sistema: promptDiario(db), hs: [], previos, clase: 'mastropiero', agenteId: MASTROPIERO, ctx: { db, conversacionId: cid }, alGuardar, vivo, nuevos })
     } else if (c.con === MASTROPIERO) {
       // Si Mastropiero pidió el cierre del día y todavía no llegó, esta es la respuesta. Si lo está cerrando hablando
       // (la charla de la noche), lo que sigue diciendo se suma. Va al diario (el corpus, como propio) y al gemelo.
@@ -485,24 +545,23 @@ ${vozPara('ceremonia')}` : ''}`, hs, previos, clase: 'mastropiero', agenteId: o.
           db, conversacionId: cid, hablarConAgente: (id, m) => hablarConAgente(db, id, m),
           activar: (gs) => { for (const g of gs) if (GRUPOS[g]) grupos.add(g); return activas(hs, grupos).map((h) => h.nombre) },
         },
-        alGuardar, vivo,
+        alGuardar, vivo, nuevos,
       })
     } else if (/^modelo:\d+$/.test(c.con)) {
       // Hablar con un modelo del consejo: desde su manual, sin herramientas.
       const { promptModelo } = await import('../modelos.ts')
-      await bucle({ db, sistema: promptModelo(db, Number(c.con.slice(7))), hs: [], previos, clase: 'mastropiero', agenteId: 'modelo', ctx: { db, conversacionId: cid }, alGuardar, vivo })
+      await bucle({ db, sistema: promptModelo(db, Number(c.con.slice(7))), hs: [], previos, clase: 'mastropiero', agenteId: 'modelo', ctx: { db, conversacionId: cid }, alGuardar, vivo, nuevos })
     } else {
       const f = leer(db, c.con)
       if (!f) throw new Error(`${c.con} ya no está en la liga (se retiró).`)
       await bucle({
         db, sistema: promptAgente(db, f), hs: herramientasPara('agente'), previos, clase: f.clase, agenteId: f.id,
-        ctx: { db, conversacionId: cid, lecturaMax: capa(nivel(f)).lecturaMax }, alGuardar, vivo,
+        ctx: { db, conversacionId: cid, lecturaMax: capa(nivel(f)).lecturaMax }, alGuardar, vivo, nuevos,
       })
     }
   } catch (e) {
     guardar(db, cid, { rol: 'error', texto: e instanceof Error ? e.message : String(e) })
   } finally {
-    pensando.delete(cid)
     enVivo.delete(cid)
   }
   // Si habló por voz, lo que contestó Mastropiero en ese turno también queda marcado (se escuchó).

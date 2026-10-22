@@ -307,15 +307,14 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['POST', /^\/api\/chat\/(\d+)\/mensajes$/, (b, [c]) => {
     const cid = id(c)
-    if (estaPensando(cid)) throw new Error('Esperá: todavía está contestando')
     if (!String(b.texto ?? '').trim()) throw new Error('Mensaje vacío')
-    // El turno corre en segundo plano; la pantalla sigue el avance leyendo los mensajes.
+    // El turno corre en segundo plano; la pantalla sigue el avance leyendo los mensajes. Si ya está contestando, no se
+    // frena: el mensaje entra a ese turno o al que sigue (ver enviar en chat/index.ts).
     void enviar(db, cid, String(b.texto), { hud: typeof b.hud === 'string' ? b.hud : null })
     return { ok: true }
   }],
   // 💡 Un consejo para este momento (solo cuando lo pide): entra como su pedido y contesta con lo que ve en vivo.
   ['POST', /^\/api\/chat\/(\d+)\/consejo$/, async (b, [c]) => {
-    if (estaPensando(id(c))) throw new Error('Esperá: todavía está contestando')
     ;(await import('./copiloto.ts')).pedirConsejo(db, id(c), { hud: typeof b.hud === 'string' ? b.hud : null })
     return { ok: true }
   }],
@@ -1224,7 +1223,7 @@ const servidor = http.createServer(async (req, res) => {
       const link = /https?:\/\/\S+/.exec(compartido)?.[0] ?? null
       ingerir(db, { fuente: 'operador', titulo: `Compartido · ${(f.title || link || compartido).slice(0, 80)}`, contenido: compartido, url: link, dominio: 'compartido' })
       const c = conversacionHoy(db)
-      if (!estaPensando(c.id)) void enviar(db, c.id, `Te compartí esto desde el celular:\n${compartido}`)
+      void enviar(db, c.id, `Te compartí esto desde el celular:\n${compartido}`)
     }
     return void res.writeHead(303, { location: '/?compartido=1' }).end()
   }
@@ -1436,7 +1435,6 @@ const servidor = http.createServer(async (req, res) => {
         const audio = await leerCrudo(req, 50 * 1024 * 1024)
         const texto = await nanTranscribir(db, audio, url.searchParams.get('nombre') || 'audio.m4a')
         if (!texto) throw new Error('El audio no tenía voz que transcribir')
-        if (estaPensando(cid)) throw new Error('Esperá: todavía está contestando')
         void enviar(db, cid, texto)
         return void res.end(JSON.stringify({ texto }))
       }
@@ -1474,7 +1472,6 @@ const servidor = http.createServer(async (req, res) => {
       const vozChat = req.method === 'POST' ? /^\/api\/chat\/(\d+)\/voz$/.exec(url.pathname) : null
       if (vozChat) {
         const cid = Number(vozChat[1])
-        if (estaPensando(cid)) throw new Error('Esperá: todavía está contestando')
         const audio = await leerCrudo(req, 25 * 1024 * 1024)
         const q = url.searchParams
         return void res.end(JSON.stringify(await (await import('./voz.ts')).escucharTurno(db, cid, audio, { nombre: q.get('nombre') || 'voz.webm', segundos: Number(q.get('segundos')) || null, hud: q.get('hud') || null })))
