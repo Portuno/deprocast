@@ -747,13 +747,13 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/academia\/(\d+)\/sesion$/, async (b, [a]) => {
     const ac = await import('./academia.ts')
     const s = await ac.abrirSesionTutor(db, id(a), { examen: !!b.examen })
-    return { sesion: s, turnos: ac.turnosDe(db, s.id) }
+    return { sesion: s, turnos: ac.turnosDe(db, s.id), visual: ac.visualDe(db, s) }
   }],
   ['GET', /^\/api\/academia\/sesion\/(\d+)$/, async (_, [s]) => {
     const ac = await import('./academia.ts')
     const x = ac.leerSesionTutor(db, id(s))
     if (!x) throw new Error(`No existe la sesión ${s}`)
-    return { sesion: x, turnos: ac.turnosDe(db, x.id) }
+    return { sesion: x, turnos: ac.turnosDe(db, x.id), visual: ac.visualDe(db, x) }
   }],
   ['POST', /^\/api\/academia\/sesion\/(\d+)\/responder$/, async (b, [s]) => (await import('./academia.ts')).responderTutor(db, id(s), Number(b.i), String(b.respuesta ?? ''))],
   ['POST', /^\/api\/academia\/sesion\/(\d+)\/cerrar$/, async (_, [s]) => (await import('./academia.ts')).cerrarSesionTutor(db, id(s))],

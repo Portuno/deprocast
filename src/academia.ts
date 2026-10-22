@@ -12,6 +12,8 @@ import { crearQuantomo } from './quantomos.ts'
 import { crearTarjeta, paraRepasar } from './tarjetas.ts'
 import { crearAprendizaje, leerAprendizaje, listarAprendizajes, recursosDe, registrarPractica, type Aprendizaje } from './aprender.ts'
 import { enLaNube } from './reproceso.ts'
+import { pedirVisual } from './taller-cola.ts'
+import { leerArtefacto } from './taller.ts'
 
 export const NIVELES_TUTOR = [
   { n: 1, nombre: 'Niño de 10', regla: 'Explicá como a un chico curioso de 10 años: imágenes de la vida diaria, cero jerga (si aparece una palabra técnica, la explicás con algo que conoce), oraciones cortas. Las preguntas se responden con una idea, no con una definición.' },
@@ -24,7 +26,7 @@ export const NIVELES_TUTOR = [
 export const nombreNivel = (n: number) => NIVELES_TUTOR[Math.max(1, Math.min(6, n)) - 1].nombre
 
 export const VISUALES = ['diagrama', 'simulacion', 'movimiento', 'ninguno'] as const
-export type Visual = { tipo: (typeof VISUALES)[number]; pedido: string } | null
+export type Visual = { tipo: (typeof VISUALES)[number]; pedido: string; degradado?: string | null } | null
 export type Pregunta = { pregunta: string; clave: string }
 export type Paquete = { tema: string; explicacion: string; ejemplos: string[]; preguntas: Pregunta[]; ideas: string[]; tarjetas: { frente: string; dorso: string }[]; visual: Visual }
 export type SesionTutor = {
@@ -41,14 +43,23 @@ const txt = (x: unknown, n = 400) => String(x ?? '').trim().slice(0, n)
 
 let modelo = async (db: Db, sistema: string, usuario: string): Promise<any> => (await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'academia' }, sistema, usuario, { temperatura: 0.5, maxTokens: 4000 })).datos
 let nube = () => enLaNube()
-/** Lo que pasa cuando una sesión pide un visual (la Fase 4 lo conecta con la cola del Taller). */
-let alPedirVisual: (db: Db, s: SesionTutor, prioridad: number) => void = () => {}
+/**
+ * Cuando una sesión pide un visual, va a la cola del Taller (sin esperarlo): si ya existe sale de la caché; si no se
+ * puede (cola llena, tope, sin modelo), la sesión queda solo con texto y lo dice.
+ */
+let alPedirVisual = (db: Db, s: SesionTutor, prioridad: number): void => {
+  const v = s.paquete?.visual
+  if (!v) return
+  const d = leerDominio(db, s.aprendizajeId)
+  const r = pedirVisual(db, { clase: v.tipo, pedido: v.pedido, concepto: s.tema, nivel: s.nivel, dominio: d?.tema ?? null, dominioId: s.aprendizajeId, origen: `tutor:${s.id}`, prioridad })
+  if (r.artefactoId) db.prepare('UPDATE tutor_sesiones SET visual_id = ? WHERE id = ?').run(r.artefactoId, s.id)
+  else db.prepare('UPDATE tutor_sesiones SET paquete = ? WHERE id = ?').run(JSON.stringify({ ...s.paquete, visual: { ...v, degradado: r.degradado } }), s.id)
+}
 export function _probarAcademia(o: { modelo?: typeof modelo; nube?: () => boolean; alPedirVisual?: typeof alPedirVisual }) {
   if (o.modelo) modelo = o.modelo
   if (o.nube) nube = o.nube
   if (o.alPedirVisual) alPedirVisual = o.alPedirVisual
 }
-export function conectarVisuales(f: typeof alPedirVisual) { alPedirVisual = f }
 
 // ─── leer ───────────────────────────────────────────────────────────────
 
@@ -196,9 +207,8 @@ export function prepararSesionTutor(db: Db, id: number, o: { tema?: string | nul
     if (!paquete.explicacion && !paquete.preguntas.length) throw new Error('El tutor no armó la clase: probá de nuevo')
     const sid = Number(db.prepare('INSERT INTO tutor_sesiones (aprendizaje_id, nivel, tipo, tema, paquete, estado, creada_en) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(id, n, o.examen ? 'examen' : 'clase', paquete.tema, JSON.stringify(paquete), 'lista', ahora).lastInsertRowid)
-    const s = leerSesionTutor(db, sid)!
-    if (paquete.visual) alPedirVisual(db, s, o.prioridadVisual ?? 5)
-    return s
+    if (paquete.visual) alPedirVisual(db, leerSesionTutor(db, sid)!, o.prioridadVisual ?? 5)
+    return leerSesionTutor(db, sid)!
   })()
   if (!o.tema) {
     preparando.set(clave, p)
@@ -221,7 +231,18 @@ export async function abrirSesionTutor(db: Db, id: number, o: { examen?: boolean
   const lista = sesionLista(db, id, o.examen ? 'examen' : 'clase')
   const s = lista ? deSesion(lista) : await prepararSesionTutor(db, id, { examen: o.examen, ahora, prioridadVisual: 9 })
   if (s.estado === 'lista') db.prepare(`UPDATE tutor_sesiones SET estado = 'en_curso', empezada_en = ? WHERE id = ?`).run(ahora, s.id)
+  // Si al prepararla el visual no pudo entrar (cola llena, tope), se intenta de nuevo ahora, con prioridad: la está mirando.
+  if (lista && s.paquete?.visual && !s.visualId) alPedirVisual(db, s, 9)
   return leerSesionTutor(db, s.id)!
+}
+
+/** Cómo está el visual de una sesión: listo (con su dirección), en el horno, falló, o solo texto (y por qué). */
+export function visualDe(db: Db, s: SesionTutor) {
+  const v = s.paquete?.visual
+  if (!v) return null
+  const a = s.visualId ? leerArtefacto(db, s.visualId) : null
+  if (!a) return { tipo: v.tipo, estado: 'solo_texto' as const, motivo: v.degradado ?? 'el visual queda para después', artefactoId: null, url: null, progreso: null }
+  return { tipo: v.tipo, estado: a.estado, motivo: null, artefactoId: a.id, url: a.estado === 'listo' ? `/taller/${a.id}/index.html` : null, progreso: a.progreso, valoracion: a.meta.valoracion ?? null }
 }
 
 export const turnosDe = (db: Db, sid: number) =>
