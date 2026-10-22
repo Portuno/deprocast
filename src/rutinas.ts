@@ -121,6 +121,14 @@ export const ACCIONES: Acciones = {
     if (!xs.length) return null
     return `Para lo que viene, le conviene aprender: ${xs.map((d) => `**${d.tema}** (${ac.textoSugerencia(d)})`).join('; ')}. Están en 📥 Para validar: si acepta, armo el tutor y busco las primeras fuentes.`
   },
+  /** De madrugada (en la nube): material nuevo para el dominio que hace más que no busca. Al corpus, sin aviso. */
+  async fuentes(db, _fecha, ahora) {
+    if (topeAlcanzado(db, ahora) || !(await import('./reproceso.ts')).enLaNube()) return null
+    const ac = await import('./academia.ts')
+    const d = ac.dominioParaFuentes(db, ahora)
+    if (d) await ac.buscarFuentes(db, d.id, { ahora })
+    return null
+  },
   /** Lunes y jueves: el radar busca oportunidades para sus metas. */
   async radar(db, _fecha, ahora) {
     const r = await buscarOportunidades(db, { ahora })

@@ -19,6 +19,7 @@ ac._probarAcademia({
   alPedirVisual: (_db, s, prioridad) => visuales.push({ tipo: s.paquete.visual!.tipo, prioridad }),
   modelo: async (_db, sistema, usuario) => {
     pedidos.push(sistema)
+    if (/búsquedas web para encontrar material/.test(sistema)) return { consultas: [`${/Tema: (.+)/.exec(usuario)?.[1]} intro`, 'segunda', 'tercera'] }
     if (/consejero de su Academia/.test(sistema)) {
       contextos.push(usuario)
       return { sugerencias: [
@@ -154,4 +155,31 @@ test('Qué le conviene aprender: mira lo que viene y lo que quiere, propone sin 
   const desc = ac.sugeridosDe(db)[0]
   ac.descartarSugerencia(db, desc.id)
   assert.equal(ac.leerDominio(db, desc.id)!.estado, 'descartado')
+})
+
+test('El corpus crece por dominio: busca a su nivel, guarda solo lo que volvió de la búsqueda (5 como mucho, variado) y anota cuándo', async () => {
+  const db = abrir(':memory:')
+  const guardadas: { url: string; nota: string }[] = []
+  ac._probarFuentes({
+    buscador: async (_db, q) => q === 'tercera' ? [] : Array.from({ length: 6 }, (_, i) => ({ titulo: `${q} ${i}`, url: `https://ej.org/${encodeURIComponent(q)}/${i}` })),
+    guardador: async (_db, url, nota) => { guardadas.push({ url, nota }); return { piezaId: guardadas.length, nueva: !url.endsWith('/1'), lectura: null } },
+  })
+  const d = ac.sumarDominio(db, { tema: 'Drones' }, T)
+  const r = await ac.buscarFuentes(db, d.id, { ahora: T })
+  assert.deepEqual(r.consultas, ['Drones intro', 'segunda', 'tercera'])
+  assert.ok(pedidos.at(-1)!.includes('nivel 1 (Niño de 10)') && /introducciones claras/.test(pedidos.at(-1)!), 'busca a su nivel')
+  assert.equal(r.nuevas.length, ac.MAX_FUENTES)
+  assert.deepEqual(guardadas.slice(0, 4).map((g) => g.url.split('/').slice(-2).join('/')), ['Drones%20intro/0', 'segunda/0', 'Drones%20intro/1', 'segunda/1'], 'de a una por consulta')
+  assert.ok(r.nuevas.every((x) => !x.url.endsWith('/1')), 'lo que ya estaba no cuenta como nuevo')
+  assert.match(guardadas[0].nota, /Fuente para aprender Drones \(nivel 1, Niño de 10\)/)
+  assert.equal(ac.leerDominio(db, d.id)!.fuentesEn, T)
+  assert.equal(ac.dominioParaFuentes(db, T + 86_400_000), null, 'buscó hace poco: la rutina espera')
+  assert.equal(ac.dominioParaFuentes(db, T + 7 * 86_400_000)!.id, d.id)
+
+  const { fijarAjuste } = await import('../src/db.ts')
+  fijarAjuste(db, 'tokens_dia_max', '10')
+  db.prepare(`INSERT INTO llamadas (motor, modelo, clase, agente_id, tokens_in, tokens_out, en) VALUES ('nan', 'x', 'gerente', 'g', 50, 50, ?)`).run(T)
+  const n = guardadas.length
+  assert.ok((await ac.buscarFuentes(db, d.id, { ahora: T })).aviso, 'con el tope, frena')
+  assert.equal(guardadas.length, n)
 })

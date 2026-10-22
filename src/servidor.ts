@@ -738,6 +738,7 @@ const rutas: [string, RegExp, Ruta][] = [
     }
   }],
   ['POST', /^\/api\/academia\/sugerir$/, async () => { soloNube('Qué te conviene aprender'); return { sugeridos: await (await import('./academia.ts')).sugerirAprendizajes(db) } }],
+  ['POST', /^\/api\/academia\/(\d+)\/fuentes$/, async (_, [a]) => { soloNube('Buscar fuentes'); return (await import('./academia.ts')).buscarFuentes(db, id(a)) }],
   ['POST', /^\/api\/academia\/(\d+)\/aceptar$/, async (_, [a]) => (await import('./academia.ts')).aceptarSugerencia(db, id(a))],
   ['POST', /^\/api\/academia\/(\d+)\/descartar$/, async (_, [a]) => (await import('./academia.ts')).descartarSugerencia(db, id(a))],
   ['POST', /^\/api\/academia$/, async (b) => (await import('./academia.ts')).sumarDominio(db, { tema: String(b.tema ?? ''), porQue: b.porQue ?? null })],

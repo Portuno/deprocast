@@ -307,6 +307,8 @@ export function cerrarSesionTutor(db: Db, sid: number, ahora = Date.now()) {
     }
   } else db.prepare('UPDATE aprendizajes SET tema_idx = tema_idx + 1 WHERE id = ?').run(d.id)
   prepararEnFondo(db, d.id)
+  // Al subir de nivel, material del nivel nuevo (más avanzado).
+  if (subio) buscarFuentesEnFondo(db, d.id)
   const fallidas = p.preguntas.filter((_, i) => !ultimos.get(i)?.correcto).map((q) => q.pregunta)
   return { puntaje, piezaId, quantomos: quantomos.length, tarjetas, subio, nivel: leerDominio(db, d.id)!.tutorNivel, examen: examenHabilitado(db, d.id), repasar: s.tipo === 'examen' && !subio ? fallidas : [] }
 }
@@ -315,6 +317,7 @@ export function cerrarSesionTutor(db: Db, sid: number, ahora = Date.now()) {
 export function sumarDominio(db: Db, a: { tema: string; porQue?: string | null }, ahora = Date.now()) {
   const r = crearAprendizaje(db, { tema: a.tema, porQue: a.porQue }, ahora)
   if (!r.nuevo && r.estado !== 'activo') db.prepare(`UPDATE aprendizajes SET estado = 'activo', por_que = COALESCE(?, por_que) WHERE id = ?`).run(a.porQue?.trim() || null, r.id)
+  if (r.nuevo || r.estado !== 'activo') alAceptar(db, leerDominio(db, r.id)!)
   return leerDominio(db, r.id)!
 }
 
@@ -398,8 +401,8 @@ export async function sugerirAprendizajes(db: Db, o: { ahora?: number; max?: num
 export const sugeridosDe = (db: Db): Dominio[] =>
   (db.prepare(`SELECT id FROM aprendizajes WHERE estado = 'sugerido' ORDER BY creado_en DESC, id DESC`).all() as { id: number }[]).map((r) => leerDominio(db, r.id)!)
 
-/** Lo que pasa al aceptar un dominio (la Fase 6 suma: buscar sus primeras fuentes). */
-let alAceptar: (db: Db, d: Dominio) => void = () => {}
+/** Lo que pasa al aceptar un dominio: sale a buscar sus primeras fuentes (en la nube). */
+let alAceptar: (db: Db, d: Dominio) => void = (db, d) => buscarFuentesEnFondo(db, d.id)
 export function _alAceptar(f: typeof alAceptar) { alAceptar = f }
 
 /** Aceptar una sugerencia: pasa a ser un dominio activo, con su entidad, su primera clase (de fondo) y sus fuentes. */
@@ -426,4 +429,71 @@ export function descartarSugerencia(db: Db, id: number) {
 export const textoSugerencia = (d: Dominio) => {
   const s = (d.sugerencia ?? {}) as { porQue?: string; horizonte?: string; para?: string; fecha?: string }
   return [s.porQue ?? d.porQue, s.para ? `para ${s.para}${s.fecha ? ` (${s.fecha})` : ''}` : s.fecha ?? null, s.horizonte ? `${s.horizonte} plazo` : null].filter(Boolean).join(' · ')
+}
+
+// ─── el corpus crece por dominio: fuentes para aprender ─────────────────
+
+const SISTEMA_FUENTES = (n: number) => `Escribís las búsquedas web para encontrar material para APRENDER un tema al nivel ${n} (${NIVELES_TUTOR[n - 1].nombre}).
+- 3 o 4 consultas cortas, como las escribiría alguien que busca aprender: ${n <= 2 ? 'introducciones claras, explicaciones visuales, cursos para principiantes, videos' : n <= 4 ? 'tutoriales prácticos, cursos completos, documentación, proyectos de ejemplo' : 'papers, revisiones del estado del arte, repositorios, documentación técnica, charlas de expertos'}.
+- Mezclá castellano e inglés (en inglés suele haber más). Nada de lo que ya tiene.
+Forma: {"consultas": [string]}`
+
+/** Buscar y guardar (inyectables para tests: sin red). */
+let buscador = async (db: Db, q: string, ahora: number): Promise<{ titulo: string; url: string }[]> => (await import('./web.ts')).buscarWeb(db, q, { n: 6, ahora })
+let guardador = async (db: Db, url: string, nota: string, ahora: number) => (await import('./lector/index.ts')).guardarLink(db, url, { nota, ahora })
+export function _probarFuentes(o: { buscador?: typeof buscador; guardador?: typeof guardador }) {
+  if (o.buscador) buscador = o.buscador
+  if (o.guardador) guardador = o.guardador
+}
+
+export const MAX_FUENTES = 5
+
+/**
+ * Sale a buscar material para un dominio, a su nivel: el modelo escribe las búsquedas, el buscador las corre y se guardan
+ * hasta 5 links nuevos (solo URLs que volvieron de la búsqueda, una de cada consulta por vuelta para que haya variedad).
+ * Entran al corpus como cualquier link (YouTube va a su cola) y el Reproceso los destila.
+ */
+export async function buscarFuentes(db: Db, id: number, o: { ahora?: number } = {}): Promise<{ nuevas: { piezaId: number; titulo: string; url: string }[]; consultas: string[]; aviso: string | null }> {
+  const ahora = o.ahora ?? Date.now()
+  const d = leerDominio(db, id)
+  if (!d) throw new Error(`No existe el dominio ${id}`)
+  const { topeAlcanzado } = await import('./nan.ts')
+  const tope = topeAlcanzado(db, ahora)
+  if (tope) return { nuevas: [], consultas: [], aviso: tope }
+  const r = recursosDe(db, d.tema)
+  const ya = [...r.obras.map((x) => x.titulo)]
+  const c = await modelo(db, SISTEMA_FUENTES(d.tutorNivel), [`Tema: ${d.tema}`, d.porQue ? `Para qué: ${d.porQue}` : '', ya.length ? `Ya tiene: ${ya.slice(0, 15).join(' · ')}` : ''].filter(Boolean).join('\n'))
+  const consultas = (Array.isArray(c?.consultas) ? c.consultas : []).map((x: unknown) => txt(x, 160)).filter(Boolean).slice(0, 4) as string[]
+  const listas: { titulo: string; url: string }[][] = []
+  for (const q of consultas) {
+    try { listas.push((await buscador(db, q, ahora)).filter((x) => /^https?:\/\//.test(x.url))) } catch { listas.push([]) }
+  }
+  // De a una por consulta, por vuelta: lo primero de cada búsqueda antes que lo segundo de una sola.
+  const orden: { titulo: string; url: string }[] = []
+  const vistas = new Set<string>()
+  for (let i = 0; i < 6; i++) for (const l of listas) if (l[i] && !vistas.has(l[i].url)) { vistas.add(l[i].url); orden.push(l[i]) }
+  const nuevas: { piezaId: number; titulo: string; url: string }[] = []
+  for (const x of orden) {
+    if (nuevas.length >= MAX_FUENTES) break
+    try {
+      const g = await guardador(db, x.url, `Fuente para aprender ${d.tema} (nivel ${d.tutorNivel}, ${nombreNivel(d.tutorNivel)})`, ahora)
+      if (g.nueva) nuevas.push({ piezaId: g.piezaId, titulo: x.titulo, url: x.url })
+    } catch { /* una página que no se deja leer: la siguiente */ }
+  }
+  db.prepare('UPDATE aprendizajes SET fuentes_en = ? WHERE id = ?').run(ahora, id)
+  const { hayBuscadorWeb } = await import('./web.ts')
+  return { nuevas, consultas, aviso: !orden.length ? (hayBuscadorWeb() ? 'La búsqueda no trajo nada.' : 'Sin clave de buscador solo hay Wikipedia.') : null }
+}
+
+/** De fondo y solo en la nube (gasta tokens y cuota del buscador). */
+export function buscarFuentesEnFondo(db: Db, id: number) {
+  if (!nube()) return
+  buscarFuentes(db, id).catch((e) => console.error('  academia: fuentes:', e instanceof Error ? e.message : e))
+}
+
+/** Para la rutina diaria: el dominio activo con la búsqueda más vieja (o que nunca buscó). */
+export function dominioParaFuentes(db: Db, ahora = Date.now()): Dominio | null {
+  const idiomas = `SELECT aprendizaje_id FROM idiomas`
+  const r = db.prepare(`SELECT id FROM aprendizajes WHERE estado = 'activo' AND id NOT IN (${idiomas}) AND (fuentes_en IS NULL OR fuentes_en < ?) ORDER BY fuentes_en IS NOT NULL, fuentes_en, id LIMIT 1`).get(ahora - 6 * 86_400_000) as { id: number } | undefined
+  return r ? leerDominio(db, r.id) : null
 }
