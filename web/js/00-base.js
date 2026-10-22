@@ -97,12 +97,16 @@ function atraparFoco(e, el) {
 }
 
 let antesDelModal = null
+let alCerrarModal = null
 /**
  * Abre el modal. `lado: true` lo abre como panel lateral (las fichas: persona, pieza, agente), así lo de atrás se sigue
- * viendo. Al cerrarlo, el foco vuelve a lo que lo abrió.
+ * viendo. `alCerrar`: lo que hay que hacer cuando se cierra (por ejemplo, mandar lo que quedó esperando su «Deshacer»).
+ * Al cerrarlo, el foco vuelve a lo que lo abrió.
  */
 function abrirModal(html, o = {}) {
   if ($('#velo').hidden) antesDelModal = document.activeElement
+  else if (alCerrarModal && alCerrarModal !== o.alCerrar) { const f = alCerrarModal; alCerrarModal = null; f() }
+  alCerrarModal = o.alCerrar ?? null
   document.activeElement?.blur?.()
   const m = $('#modal')
   m.className = `modal${o.lado ? ' modal-lado' : ''}` // cada modal arranca con su tamaño normal (el que necesite más, se agranda)
@@ -121,6 +125,9 @@ function cerrarModal() {
   if ($('#velo').hidden) return
   $('#velo').hidden = true
   $('#modal').innerHTML = ''
+  const f = alCerrarModal
+  alCerrarModal = null
+  f?.()
   const antes = antesDelModal
   antesDelModal = null
   if (antes?.isConnected) antes.focus?.()

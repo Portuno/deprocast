@@ -2490,3 +2490,37 @@ span.ej-chip { cursor: default; }
 .m-momento { opacity: .75; font-size: var(--t-2); }
 .bj-todas { display: inline-flex; gap: 4px; margin-left: 10px; vertical-align: middle; }
 .bj-todas .btn.seguro { color: var(--mal); border-color: var(--mal); }
+/* Para validar como bandeja (plan v22): lista a la izquierda, la cosa elegida a la derecha. */
+.modal.modal-bj { max-height: 92vh; }
+.bj-intro { margin: 2px 0 10px; }
+.bj-teclas { display: block; margin-top: 4px; font-size: var(--t-2); }
+.bj-teclas kbd { margin: 0 1px; }
+.bj-cuerpo { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--e-4); align-items: start; }
+.bj-lista { max-height: 58vh; overflow-y: auto; padding-right: var(--e-2); }
+.bj-lista .bj-grupo:first-child { margin-top: 0; }
+.bj-item { padding: var(--e-2); border-radius: var(--r-m); border-top: 0; border-bottom: 1px solid var(--linea); cursor: pointer; }
+.bj-item.sel { background: var(--acento-suave); box-shadow: inset 2px 0 0 var(--acento); }
+.bj-item.resuelto { opacity: .55; cursor: default; }
+.bj-item.resuelto .bj-item-txt span { text-decoration: line-through; }
+.bj-item-txt { flex: 1; }
+.bj-marca { flex-shrink: 0; accent-color: var(--acento); }
+.bj-hecho { display: flex; gap: var(--e-2); align-items: center; font-size: var(--t-2); color: var(--tenue); flex-shrink: 0; }
+.bj-item .bj-acc { visibility: hidden; }
+.bj-item.sel .bj-acc, .bj-item:hover .bj-acc { visibility: visible; }
+@media (hover: none) { .bj-item .bj-acc { visibility: visible; } }
+.bj-detalle { position: sticky; top: 0; padding: var(--e-4); border: 1px solid var(--linea); border-radius: var(--r-l); background: var(--panel-2); display: grid; gap: var(--e-2); touch-action: pan-y; transition: transform .15s; }
+.bj-detalle-cab { display: flex; justify-content: space-between; align-items: baseline; }
+.bj-titulo { margin: 0; font-size: var(--t-6); font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+.bj-sub { margin: 0; color: var(--tenue); overflow-wrap: anywhere; }
+.bj-que { margin: var(--e-1) 0 0; font-size: var(--t-2); }
+.bj-decidir { display: flex; gap: var(--e-2); flex-wrap: wrap; margin-top: var(--e-2); }
+.bj-decidir kbd { margin-left: 4px; }
+.bj-detalle .vacio { border: 0; padding: var(--e-5) var(--e-3); }
+@media (max-width: 720px) {
+  /* En el celular: una por vez, grande, deslizando (derecha acepta, izquierda descarta). */
+  .bj-cuerpo { grid-template-columns: 1fr; }
+  .bj-detalle { order: -1; position: static; min-height: 220px; }
+  .bj-decidir .btn { flex: 1; min-height: 48px; }
+  .bj-decidir kbd, .bj-teclas { display: none; }
+  .bj-lista { max-height: none; }
+}
