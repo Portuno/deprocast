@@ -467,6 +467,26 @@ CREATE TABLE IF NOT EXISTS artefactos (
   progreso TEXT,
   creado_en INTEGER NOT NULL
 );
+-- La cola del Taller (plan v23): todo lo que se crea pasa por acá, de a uno (o dos) a la vez, para no saturar. Cada
+-- trabajo deja su registro: de dónde vino, cuándo entró, empezó y terminó, cuántos tokens y el error si falló. La clave
+-- (tipo + concepto + nivel + dominio) es la caché: un visual que ya existe no se vuelve a generar.
+CREATE TABLE IF NOT EXISTS taller_cola (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tipo TEXT NOT NULL,                  -- crear | iterar | visual
+  args TEXT NOT NULL,                  -- JSON: lo que se pidió
+  titulo TEXT NOT NULL,
+  artefacto_id INTEGER,
+  prioridad INTEGER NOT NULL DEFAULT 5, -- más alto, antes
+  clave TEXT,
+  origen TEXT NOT NULL DEFAULT 'pantalla', -- pantalla | chat | tutor:<sesión>
+  estado TEXT NOT NULL DEFAULT 'en_cola',  -- en_cola | haciendo | listo | fallo
+  error TEXT,
+  tokens INTEGER,
+  encolado_en INTEGER NOT NULL,
+  empezado_en INTEGER,
+  terminado_en INTEGER
+);
+CREATE INDEX IF NOT EXISTS taller_cola_estado ON taller_cola(estado, prioridad, id);
 
 CREATE TABLE IF NOT EXISTS cuentas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

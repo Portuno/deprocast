@@ -27,7 +27,8 @@ import { clasificar, registrarCaptura } from './captura.ts'
 import { crearAprendizaje, editarAprendizaje, leerAprendizaje, listarAprendizajes, practicasDe, prepararRepaso, recursosDe, registrarPractica } from './aprender.ts'
 import { guardarFoto } from './chat/adjuntos.ts'
 import { aplicarBaseEntrante, recibirArchivo, recibirBase } from './mudanza.ts'
-import { artefactoAlCorpus, ASPECTOS, borrarArtefacto, carpeta as carpetaTaller, crearCharla, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, dirTaller, ESTILOS, hayFfmpeg, iterarArtefacto, libreria, listarArtefactos, sugerenciasTaller, VOCES } from './taller.ts'
+import { artefactoAlCorpus, ASPECTOS, borrarArtefacto, carpeta as carpetaTaller, dirTaller, ESTILOS, hayFfmpeg, leerArtefacto, libreria, listarArtefactos, sugerenciasTaller, valorarArtefacto, VOCES } from './taller.ts'
+import { estadoCola, retomarTaller } from './taller-cola.ts'
 import { conMatriz, desvincularDeProyecto, grafoPersonas, guardarRelacion, nuevaPersona, personas, vincularAProyecto } from './personas.ts'
 import { bandeja } from './sombra.ts'
 import { medirPedido, reiniciarVelocidad, velocidad } from './rendimiento-servidor.ts'
@@ -139,6 +140,8 @@ try {
   const m = migrarCien(db, { respaldos: path.join(path.dirname(resolverRuta()), 'respaldos') })
   if (m) console.log(`  ✦ Los Cien Días pasaron al corpus: ${m.piezas} piezas, ${m.dominios} dominios; respaldo en ${m.respaldo}`)
 } catch (e) { console.error('  migración de los Cien Días:', e instanceof Error ? e.message : e) }
+// La cola del Taller: lo que quedó a medias por un reinicio vuelve a la cola y sigue.
+try { const n = retomarTaller(db); if (n) console.log(`  ✎ El Taller retoma ${n} trabajo${n === 1 ? '' : 's'}`) } catch (e) { console.error('  taller:', e instanceof Error ? e.message : e) }
 alGuardar(() => { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)') } catch { /* todavía no */ } })
 
 function vista(db: Db, f: Ficha) {
@@ -509,26 +512,20 @@ const rutas: [string, RegExp, Ruta][] = [
     const obras = libreria(db, { tipo: q.get('tipo') || undefined, q: q.get('q') || undefined })
     const cuenta: Record<string, number> = {}
     for (const o of libreria(db)) cuenta[o.ultima.tipo] = (cuenta[o.ultima.tipo] ?? 0) + 1
-    return { obras, haciendo: listarArtefactos(db, { limite: 40 }).filter((a) => a.estado === 'haciendo'), cuenta, voces: VOCES, estilos: Object.fromEntries(Object.entries(ESTILOS).map(([k, v]) => [k, v.nombre])), aspectos: Object.fromEntries(Object.entries(ASPECTOS).map(([k, v]) => [k, v.nombre])), ffmpeg: hayFfmpeg(), artefactos: listarArtefactos(db, { limite: 80 }) }
+    return { obras, haciendo: listarArtefactos(db, { limite: 40 }).filter((a) => a.estado === 'haciendo'), cola: estadoCola(db), cuenta, voces: VOCES, estilos: Object.fromEntries(Object.entries(ESTILOS).map(([k, v]) => [k, v.nombre])), aspectos: Object.fromEntries(Object.entries(ASPECTOS).map(([k, v]) => [k, v.nombre])), ffmpeg: hayFfmpeg(), artefactos: listarArtefactos(db, { limite: 80 }) }
   }],
   ['GET', /^\/api\/taller\/sugerencias$/, async (_, __, q) => ({ sugerencias: await sugerenciasTaller(db, q.get('tipo') || 'imagen') })],
   ['POST', /^\/api\/taller\/(\d+)\/borrar$/, (_, [a]) => (borrarArtefacto(db, id(a)), { ok: true })],
-  // Crear corre en segundo plano (un video tarda minutos): la pantalla ve el avance en la lista.
-  ['POST', /^\/api\/taller$/, (b) => {
+  // Crear pasa por la cola del Taller (de a uno, de fondo): la pantalla ve el avance y lo que espera.
+  ['POST', /^\/api\/taller$/, async (b) => {
     const pedido = String(b.pedido ?? '').trim()
     if (!pedido && !(b.tipo === 'personaje' && b.entidadId)) throw new Error('Decime qué querés crear')
-    const n = (v: unknown) => (v == null || v === '' ? null : Number(v))
-    const crear = {
-      juego: () => crearJuego(db, pedido, { personajeId: n(b.personajeId), entidadId: n(b.entidadId) }),
-      imagen: () => crearImagen(db, pedido, { modelo: b.modelo || undefined, aspecto: b.aspecto || undefined, estilo: b.estilo || null, variantes: n(b.variantes) ?? 1 }),
-      voz: () => (b.modo === 'charla' ? crearCharla(db, pedido, { voces: Array.isArray(b.voces) ? b.voces : undefined }) : crearVoz(db, pedido, { voz: b.voz || undefined })),
-      personaje: () => crearPersonaje(db, pedido, { entidadId: n(b.entidadId) }),
-      video: () => crearVideo(db, pedido, { personajeId: n(b.personajeId), voz: b.voz || undefined, formato: b.formato || undefined, escenas: n(b.escenas) ?? undefined, movimiento: b.movimiento !== false }),
-    }[b.tipo as string]
-    if (!crear) throw new Error('Tipo inválido')
-    void crear().catch((e) => console.error('  taller:', e))
-    return { ok: true }
+    if (!['juego', 'imagen', 'voz', 'personaje', 'video'].includes(b.tipo)) throw new Error('Tipo inválido')
+    const t = (await import('./taller-cola.ts')).encolarTaller(db, { tipo: 'crear', args: b, titulo: pedido || 'Personaje', prioridad: 8, origen: 'pantalla' })
+    return { ok: true, trabajo: t.id }
   }],
+  ['GET', /^\/api\/taller\/cola$/, async () => (await import('./taller-cola.ts')).estadoCola(db)],
+  ['POST', /^\/api\/taller\/(\d+)\/valorar$/, (b, [a]) => valorarArtefacto(db, id(a), Number(b.estrellas), b.nota ?? null)],
   // La matriz de un término (sus ejes) y los homónimos.
   ['GET', /^\/api\/entidades\/(\d+)\/ejes$/, (_, [e]) => ejesDe(db, id(e))],
   ['POST', /^\/api\/entidades\/(\d+)\/acepciones$/, async (_, [e]) => ({ acepciones: await acepciones(db, id(e)) })],
@@ -567,7 +564,12 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/estudio\/(\d+)\/plantilla$/, (b, [e]) => estudio.guardarPlantilla(db, id(e), { nombre: String(b.nombre ?? ''), marca: b.marca ?? null, entidadId: b.entidadId ? Number(b.entidadId) : null })],
   ['POST', /^\/api\/estudio\/(\d+)\/plantilla\/(\d+)$/, (_, [e, pl]) => ({ ...estudio.aplicarPlantilla(db, id(e), id(pl)), deshacer: undefined })],
   ['POST', /^\/api\/estudio\/(\d+)\/publicar$/, async (b, [e]) => estudio.mandarACuentas(db, id(e), Number(b.cuentaId))],
-  ['POST', /^\/api\/taller\/(\d+)\/iterar$/, (b, [a]) => { void iterarArtefacto(db, id(a), String(b.cambio ?? '')).catch((e) => console.error('  taller:', e)); return { ok: true } }],
+  ['POST', /^\/api\/taller\/(\d+)\/iterar$/, async (b, [a]) => {
+    const x = leerArtefacto(db, id(a))
+    if (!x) throw new Error(`No existe el artefacto ${a}`)
+    const t = (await import('./taller-cola.ts')).encolarTaller(db, { tipo: 'iterar', args: { id: x.id, cambio: String(b.cambio ?? '') }, titulo: `${x.titulo} (mejora)`, prioridad: 8, origen: 'pantalla' })
+    return { ok: true, trabajo: t.id }
+  }],
   ['POST', /^\/api\/taller\/(\d+)\/corpus$/, (_, [a]) => ({ pieza: artefactoAlCorpus(db, id(a)) })],
   // Tandas (notas de voz y páginas de cuadernos): la subida va cruda, más abajo
   ['GET', /^\/api\/tandas$/, () => listarTandas(db)],

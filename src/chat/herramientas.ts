@@ -33,7 +33,8 @@ import { aportes, ayudantesDe, CLASES_AYUDANTE, pedirAportes, quitarAyudante, su
 import { encolarPregunta, listarPreguntas } from '../preguntas.ts'
 import { curva, prediccionesDe } from '../gemelo.ts'
 import { listarCuentas, listarPublicaciones, redactarPublicaciones } from '../cuentas.ts'
-import { crearCharla, crearImagen, crearJuego, crearPersonaje, crearVideo, crearVoz, ESTILOS, iterarArtefacto, listarArtefactos, VOCES } from '../taller.ts'
+import { CLASES_VISUAL, ESTILOS, leerArtefacto, listarArtefactos, VOCES } from '../taller.ts'
+import { encolarTaller, pedirVisual } from '../taller-cola.ts'
 import { buscarOportunidades, listarOportunidades, redactarOportunidad } from '../radar.ts'
 import { buscarWeb, hayBuscadorWeb, leerPagina } from '../web.ts'
 import { listarSesiones, momentos as momentosDirecto, sesionActiva } from '../directo.ts'
@@ -1420,32 +1421,33 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'crear_en_taller', familia: 'accion',
-    descripcion: `El Taller crea cosas: un juego (HTML jugable), una imagen (con aspecto, estilo y variantes), una voz (texto leído), una charla a dos voces sobre un tema de su archivo, un personaje (ficha + retrato + voz; puede salir de alguien de su mundo) o un video corto (guion, imágenes, voz, montaje; apaisado, vertical o cuadrado). Corre en segundo plano: decile que lo va a ver en Taller. Voces: ${Object.entries(VOCES).map(([k, v]) => `${k} (${v})`).join(', ')}.`,
+    descripcion: `El Taller crea cosas: un juego (HTML jugable), una imagen (con aspecto, estilo y variantes), una voz (texto leído), una charla a dos voces sobre un tema de su archivo, un personaje (ficha + retrato + voz; puede salir de alguien de su mundo), un video corto (guion, imágenes, voz, montaje), o un visual para entender un concepto (diagrama: piezas y relaciones como un circuito; simulacion: algo que se mueve, como una proteína; movimiento: un ejercicio del cuerpo). Todo pasa por la cola del Taller, de a uno: decile que lo va a ver en Taller (o en su clase). Voces: ${Object.entries(VOCES).map(([k, v]) => `${k} (${v})`).join(', ')}.`,
     parametros: S({
-      tipo: str('Qué crear', { enum: ['juego', 'imagen', 'voz', 'charla', 'personaje', 'video'] }), pedido: str('Lo que pide, con todo el detalle que dio (para una charla: el tema)'), voz: str('Voz (para voz, video)'),
+      tipo: str('Qué crear', { enum: ['juego', 'imagen', 'voz', 'charla', 'personaje', 'video', 'visual'] }), pedido: str('Lo que pide, con todo el detalle que dio (para una charla: el tema; para un visual: qué tiene que mostrar)'), voz: str('Voz (para voz, video)'),
       personaje: int('id de un personaje del Taller (para un video o un juego)'), entidad: int('id de una persona, proyecto o entidad de su mundo (para un personaje o un juego que salga de ahí)'),
       aspecto: str('Imagen: 1:1, 16:9 o 9:16', { enum: ['1:1', '16:9', '9:16'] }), estilo: str('Imagen: estilo', { enum: Object.keys(ESTILOS) }), variantes: int('Imagen: cuántas (1 a 4)'),
       formato: str('Video: 16:9, 9:16 (vertical, para reels) o 1:1', { enum: ['16:9', '9:16', '1:1'] }), escenas: int('Video: cuántas escenas (3 a 8)'),
+      clase: str('Visual: qué clase', { enum: Object.keys(CLASES_VISUAL) }), concepto: str('Visual: el concepto, corto («ley de Ohm», «plegado de una proteína», «sentadilla»)'),
     }, ['tipo', 'pedido']),
     ejecutar: (a, { db }) => {
-      const f = {
-        juego: () => crearJuego(db, a.pedido, { personajeId: a.personaje ?? null, entidadId: a.entidad ?? null }),
-        imagen: () => crearImagen(db, a.pedido, { aspecto: a.aspecto, estilo: a.estilo ?? null, variantes: a.variantes }),
-        voz: () => crearVoz(db, a.pedido, { voz: a.voz }),
-        charla: () => crearCharla(db, a.pedido),
-        personaje: () => crearPersonaje(db, a.pedido, { entidadId: a.entidad ?? null }),
-        video: () => crearVideo(db, a.pedido, { personajeId: a.personaje ?? null, voz: a.voz, formato: a.formato, escenas: a.escenas }),
-      }[a.tipo as string]
-      if (!f) return { error: 'Tipo inválido' }
-      void f().catch(() => {})
-      return { empezado: true, donde: 'Taller' }
+      if (a.tipo === 'visual') {
+        const r = pedirVisual(db, { clase: a.clase ?? 'diagrama', pedido: a.pedido, concepto: a.concepto ?? a.pedido.slice(0, 80), origen: 'chat', prioridad: 8 })
+        return r.degradado ? { error: `No lo puedo dibujar ahora: ${r.degradado}` } : { artefacto: r.artefactoId, yaExistia: r.desdeCache, donde: 'Taller' }
+      }
+      if (!['juego', 'imagen', 'voz', 'charla', 'personaje', 'video'].includes(a.tipo)) return { error: 'Tipo inválido' }
+      const t = encolarTaller(db, { tipo: 'crear', args: a, titulo: String(a.pedido).slice(0, 80), prioridad: 8, origen: 'chat' })
+      return { encolado: t.id, donde: 'Taller' }
     },
-    resumen: (a) => `empezó ${a.tipo === 'imagen' ? 'una imagen' : a.tipo === 'voz' ? 'una voz' : `un ${a.tipo}`} en el Taller`,
+    resumen: (a) => `encoló ${a.tipo === 'imagen' ? 'una imagen' : a.tipo === 'voz' ? 'una voz' : a.tipo === 'charla' ? 'una charla' : `un ${a.tipo}`} en el Taller`,
   },
   {
     nombre: 'iterar_en_taller', familia: 'accion', descripcion: 'Una versión nueva de algo del Taller con el cambio que pide («que el dragón sea azul», «que el juego tenga niveles»).',
     parametros: S({ id: int('id del artefacto'), cambio: str('El cambio') }, ['id', 'cambio']),
-    ejecutar: (a, { db }) => { void iterarArtefacto(db, a.id, a.cambio).catch(() => {}); return { empezado: true } },
+    ejecutar: (a, { db }) => {
+      const x = leerArtefacto(db, a.id)
+      if (!x) return { error: `No existe el artefacto ${a.id}` }
+      return { encolado: encolarTaller(db, { tipo: 'iterar', args: { id: x.id, cambio: a.cambio }, titulo: `${x.titulo} (mejora)`, prioridad: 8, origen: 'chat' }).id }
+    },
     resumen: () => 'pidió una versión nueva en el Taller',
   },
   {

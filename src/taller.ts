@@ -13,7 +13,7 @@ import { memoriaParaPrompt } from './memoria.ts'
 import { llamarModelo, pedirJson } from './modelo.ts'
 import { nanConfigurado } from './nan.ts'
 
-export const TIPOS_ARTEFACTO = ['juego', 'imagen', 'voz', 'personaje', 'video', 'estudio'] as const
+export const TIPOS_ARTEFACTO = ['juego', 'imagen', 'voz', 'personaje', 'video', 'estudio', 'visual'] as const
 export type TipoArtefacto = (typeof TIPOS_ARTEFACTO)[number]
 export type Artefacto = {
   id: number; tipo: TipoArtefacto; titulo: string; pedido: string; version: number; padreId: number | null; archivos: string[]
@@ -135,6 +135,89 @@ export async function crearJuego(db: Db, pedido: string, o: { padreId?: number |
     terminar(db, a.id, ['index.html'], { modelo: r.modelo })
   } catch (e) { fallar(db, a.id, e) }
   return leerArtefacto(db, a.id)!
+}
+
+// ─── visuales para aprender (plan v23) ──────────────────────────────────
+
+const BASE_VISUAL = `Sos el ilustrador técnico del Taller de Mastropiero. Escribís UN visual interactivo para entender un concepto, en un solo archivo HTML autocontenido que corre en un iframe aislado.
+- Todo inline: HTML, CSS y JavaScript. Sin librerías externas, sin fetch, sin localStorage, sin imágenes externas: dibujá con SVG o canvas.
+- Correcto antes que lindo: lo que muestra tiene que ser verdad (proporciones, relaciones, nombres). Si simplificás, decilo en una nota chica.
+- Etiquetas y textos en castellano rioplatense. Arriba, una línea con qué es; abajo, una línea de «cómo usarlo».
+- Se toca: tocar o pasar el mouse por cada parte la resalta y explica en un panel al costado o abajo. Controles claros (botones, deslizadores).
+- Fondo oscuro, que escale al iframe (también a 390 px de ancho), sin errores de consola, menos de 450 líneas.
+Respondé SOLO con el archivo HTML completo, empezando por <!doctype html>.`
+
+/** Lo propio de cada clase de visual: qué tiene que mostrar y qué se tiene que poder hacer. */
+export const CLASES_VISUAL: Record<string, string> = {
+  diagrama: `${BASE_VISUAL}
+Clase: DIAGRAMA. Piezas y relaciones: componentes con su símbolo normalizado (en electricidad, los de IEC), flechas de flujo (corriente, datos, energía) y rótulos. Un modo «paso a paso» que recorre el funcionamiento en orden, y un interruptor o parámetro que cambie algo y muestre el efecto.`,
+  simulacion: `${BASE_VISUAL}
+Clase: SIMULACIÓN. Algo que cambia en el tiempo o en el espacio (una proteína que se pliega, una molécula, un campo, un sistema dinámico). Canvas con animación (requestAnimationFrame), play/pausa, velocidad, reiniciar y uno o dos parámetros con deslizador. Si es 3D, proyectá a 2D con rotación arrastrando (matemática propia, sin librerías).`,
+  movimiento: `${BASE_VISUAL}
+Clase: MOVIMIENTO DEL CUERPO. Una figura humana articulada (esqueleto simple con cabeza, tronco, brazos y piernas con sus articulaciones) haciendo el ejercicio o la técnica por fases: posición inicial, recorrido y final. Botones por fase y animación continua, vista de frente y de costado, los músculos que trabajan resaltados por fase y los errores típicos (con un botón que muestre el error y su corrección).`,
+}
+
+/** Reserva el lugar de un visual (queda «en espera» hasta que la cola lo tome). */
+export function reservarVisual(db: Db, v: { clase: string; pedido: string; concepto: string; nivel?: number | null; dominio?: string | null; dominioId?: number | null; clave?: string | null; padreId?: number | null }, ahora = Date.now()): Artefacto {
+  if (!CLASES_VISUAL[v.clase]) throw new Error(`Clase de visual desconocida: ${v.clase}`)
+  const a = nuevo(db, { tipo: 'visual', titulo: v.concepto, pedido: v.pedido, padreId: v.padreId ?? null, meta: { clase: v.clase, concepto: v.concepto, nivel: v.nivel ?? null, dominio: v.dominio ?? null, dominioId: v.dominioId ?? null, clave: v.clave ?? null } }, ahora)
+  avance(db, a.id, 'en espera')
+  return leerArtefacto(db, a.id)!
+}
+
+/** Genera el visual reservado: el HTML interactivo según su clase. Con padre, es una versión nueva con la mejora pedida. */
+export async function crearVisual(db: Db, id: number): Promise<Artefacto> {
+  const a = leerArtefacto(db, id)
+  if (!a) throw new Error(`No existe el visual ${id}`)
+  const padre = a.padreId ? leerArtefacto(db, a.padreId) : null
+  try {
+    avance(db, a.id, 'dibujando')
+    let escritos = 0
+    const previo = padre?.archivos.includes('index.html') ? fs.readFileSync(path.join(carpeta(padre.id), 'index.html'), 'utf8') : null
+    const r = await llamarModelo({ db, clase: 'mastropiero', agenteId: 'taller' }, {
+      mensajes: [
+        { role: 'system', content: CLASES_VISUAL[a.meta.clase] ?? CLASES_VISUAL.diagrama },
+        { role: 'user', content: previo
+          ? `Este es el visual actual:\n\n${previo}\n\nLo que hay que mejorar: ${a.pedido}\n\nDevolvé el archivo completo, mejorado.`
+          : `Concepto: ${a.meta.concepto}${a.meta.dominio ? ` (dominio: ${a.meta.dominio}${a.meta.nivel ? `, nivel ${a.meta.nivel} de 6` : ''})` : ''}\nQué tiene que mostrar: ${a.pedido}` },
+      ],
+      herramientas: [], temperatura: 0.4, maxTokens: 24000, razonarPoco: true,
+    }, (parcial) => {
+      const k = Math.floor(parcial.length / 4000)
+      if (k > escritos) { escritos = k; avance(db, a.id, `dibujando (${(parcial.length / 1000).toFixed(0)}K caracteres)`) }
+    })
+    const html = (r.texto.match(/<!doctype html[\s\S]*<\/html>/i)?.[0] ?? r.texto.replace(/^```(?:html)?\s*|\s*```$/g, '')).trim()
+    if (!/<html[\s>]/i.test(html)) throw new Error('El modelo no devolvió un HTML')
+    fs.writeFileSync(path.join(carpeta(a.id), 'index.html'), html)
+    terminar(db, a.id, ['index.html'], { modelo: r.modelo })
+  } catch (e) { fallar(db, a.id, e) }
+  return leerArtefacto(db, a.id)!
+}
+
+/** ★ Su valoración (1 a 5) y una nota. Con 4 o 5 queda sellado: es la referencia de ese concepto (la caché lo prefiere). */
+export function valorarArtefacto(db: Db, id: number, estrellas: number, nota?: string | null): Artefacto {
+  const a = leerArtefacto(db, id)
+  if (!a) throw new Error(`No existe el artefacto ${id}`)
+  const e = Math.max(1, Math.min(5, Math.round(Number(estrellas))))
+  if (!Number.isFinite(e)) throw new Error('De 1 a 5 estrellas')
+  db.prepare('UPDATE artefactos SET meta = ? WHERE id = ?').run(JSON.stringify({ ...a.meta, valoracion: e, nota: nota?.trim().slice(0, 500) || null, sellado: e >= 4 }), id)
+  return leerArtefacto(db, id)!
+}
+
+/** Crear según lo que se pidió (la pantalla y el chat): el mismo camino para todo, que la cola corre de a uno. */
+export function crearSegun(db: Db, b: Record<string, any>): Promise<Artefacto> {
+  const pedido = String(b.pedido ?? '').trim()
+  const n = (v: unknown) => (v == null || v === '' ? null : Number(v))
+  const crear = {
+    juego: () => crearJuego(db, pedido, { personajeId: n(b.personajeId ?? b.personaje), entidadId: n(b.entidadId ?? b.entidad) }),
+    imagen: () => crearImagen(db, pedido, { modelo: b.modelo || undefined, aspecto: b.aspecto || undefined, estilo: b.estilo || null, variantes: n(b.variantes) ?? 1 }),
+    voz: () => (b.modo === 'charla' ? crearCharla(db, pedido, { voces: Array.isArray(b.voces) ? (b.voces as [string, string]) : undefined }) : crearVoz(db, pedido, { voz: b.voz || undefined })),
+    charla: () => crearCharla(db, pedido),
+    personaje: () => crearPersonaje(db, pedido, { entidadId: n(b.entidadId ?? b.entidad) }),
+    video: () => crearVideo(db, pedido, { personajeId: n(b.personajeId ?? b.personaje), voz: b.voz || undefined, formato: b.formato || undefined, escenas: n(b.escenas) ?? undefined, movimiento: b.movimiento !== false }),
+  }[b.tipo as string]
+  if (!crear) throw new Error('Tipo inválido')
+  return crear()
 }
 
 /** Formatos: el tamaño que se le pide al modelo y la resolución del video. */
@@ -364,6 +447,7 @@ export async function iterarArtefacto(db: Db, id: number, cambio: string): Promi
   const a = leerArtefacto(db, id)
   if (!a) throw new Error(`No existe el artefacto ${id}`)
   if (a.tipo === 'juego') return crearJuego(db, cambio, { padreId: a.id })
+  if (a.tipo === 'visual') return crearVisual(db, reservarVisual(db, { clase: a.meta.clase, pedido: cambio || a.meta.nota || 'Que se entienda mejor', concepto: a.meta.concepto ?? a.titulo, nivel: a.meta.nivel, dominio: a.meta.dominio, dominioId: a.meta.dominioId, clave: a.meta.clave, padreId: a.id }).id)
   if (a.tipo === 'imagen') return crearImagen(db, cambio, { padreId: a.id })
   if (a.tipo === 'voz') return crearVoz(db, cambio || a.pedido, { voz: a.meta.voz })
   if (a.tipo === 'personaje') return conPadre(db, await crearPersonaje(db, `${a.pedido}. Cambio: ${cambio}`, { entidadId: a.meta.entidad ?? null }), a)
