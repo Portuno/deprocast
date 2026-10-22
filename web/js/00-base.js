@@ -57,6 +57,36 @@ document.addEventListener('keydown', (e) => {
   ts[n].click()
 })
 
+/**
+ * Las barras de pestañas de cada vista (.tabs, .pestanas, .cu-modos, .dia-tabs, .rd-tabs) pasan a ser pestañas de
+ * verdad: role=tablist/tab y aria-selected según la clase on/activo que ya usa cada una. Así todas se recorren con las
+ * flechas y se leen bien, sin tocar cada vista. Se mantiene sola cuando la vista se redibuja o cambia de pestaña.
+ */
+const LISTAS_PESTANAS = '.tabs, .pestanas, .cu-modos, .dia-tabs, .rd-tabs'
+function marcarPestanas(raiz) {
+  const listas = raiz.matches?.(LISTAS_PESTANAS) ? [raiz] : [...(raiz.querySelectorAll?.(LISTAS_PESTANAS) ?? [])]
+  for (const l of listas) {
+    l.setAttribute('role', 'tablist')
+    const bs = [...l.querySelectorAll(':scope > button')]
+    const elegida = bs.find((b) => b.classList.contains('on') || b.classList.contains('activo')) ?? bs[0]
+    for (const b of bs) {
+      b.setAttribute('role', 'tab')
+      b.setAttribute('aria-selected', b === elegida && (b.classList.contains('on') || b.classList.contains('activo')))
+      b.tabIndex = b === elegida ? 0 : -1
+    }
+  }
+}
+new MutationObserver((ms) => {
+  for (const m of ms) {
+    if (m.type === 'attributes') { const l = m.target.parentElement?.closest(LISTAS_PESTANAS); if (l) marcarPestanas(l) }
+    else {
+      const l = m.target.closest?.(LISTAS_PESTANAS) // la barra se llenó por dentro
+      if (l) marcarPestanas(l)
+      for (const n of m.addedNodes) if (n.nodeType === 1) marcarPestanas(n)
+    }
+  }
+}).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] })
+
 // ─── toasts y modal ─────────────────────────────────────────────────────
 
 /**

@@ -7,15 +7,15 @@ const HORIZ = [['castillo', 'Castillo', 'años · estrategia'], ['campamento', '
 function montarNorte(cont = $('#principal')) {
   cont.innerHTML = `
     <div class="titulo titulo-chico"><p>Tu visión, tus metas y lo que Mastropiero sabe de vos. Se escribe solo con lo que le contás; acá lo corregís.</p>
-      <div class="fila"><span class="tenue" id="n-aprende" style="font-size:12.5px"></span><button class="btn" id="n-aprender" title="Lee tus charlas con Mastropiero y tus piezas propias más pesadas (audios, notas, cuaderno) y anota lo que vale recordar">Aprender de lo que ya cargaste</button></div></div>
+      <div class="fila"><span class="tenue chico" id="n-aprende"></span><button class="btn" id="n-aprender" title="Lee tus charlas con Mastropiero y tus piezas propias más pesadas (audios, notas, cuaderno) y anota lo que vale recordar">Aprender de lo que ya cargaste</button></div></div>
     <div id="norte"></div>
-    <div class="panel" style="margin-top:18px"><h3>Agregar</h3>
+    <div class="panel mt-4"><h3>Agregar</h3>
       <div class="form-ing">
         <label class="campo campo-ancho">Qué<input id="n-texto" placeholder="Quiero… / Prefiero… / Mi sueño es…"></label>
         <label class="campo">Tipo<select id="n-tipo">${Object.entries(TIPO_REC).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
         <label class="campo">Horizonte<select id="n-hor"><option value="">—</option>${HORIZ.map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></label>
       </div>
-      <div class="fila" style="margin-top:12px"><button class="btn btn-primario" id="n-agregar">Agregar</button></div>
+      <div class="fila mt-3"><button class="btn btn-primario" id="n-agregar">Agregar</button></div>
     </div>`
   $('#n-aprender').onclick = async () => {
     const n = await preguntar('¿De cuántas cosas tuyas aprendo? (charlas con Mastropiero + tus piezas más pesadas; cada una es una llamada corta al modelo)', '40', { ok: 'Aprender', tipo: 'number' })
@@ -65,7 +65,7 @@ async function traerNorte() {
     const sinUbicar = grandes.filter((r) => !r.horizonte)
     const saber = ms.filter((r) => !['meta', 'vision', 'sueño'].includes(r.tipo))
     cont.innerHTML = !ms.length
-      ? `<div class="vacio"><div class="gran">✧</div><h2>Todavía no sé nada de vos</h2><p>Contáselo a Mastropiero en el chat o en el diario: lo que quiere, lo que soñás, cómo te gusta trabajar. Se va guardando solo.</p></div>`
+      ? `<div class="vacio"><div class="gran">✧</div><h2>Todavía no sé nada de vos</h2><p>Contáselo a Mastropiero en el chat o en el diario: lo que quiere, lo que soñás, cómo te gusta trabajar. Se va guardando solo.</p><button class="btn btn-primario" data-paso-preguntar="Te cuento quién soy: ">Contárselo a Mastropiero</button></div>`
       : `<div class="norte-cols">${HORIZ.map(([k, n, d]) => `<section class="norte-col"><h3>${n}<small>${d}</small></h3>${grandes.filter((r) => r.horizonte === k).map(recuerdo).join('') || '<p class="tenue norte-vacio">—</p>'}</section>`).join('')}</div>
         ${sinUbicar.length ? `<h3 class="sub">Por ubicar</h3><div class="norte-lista">${sinUbicar.map(recuerdo).join('')}</div>` : ''}
         <h3 class="sub">Lo que sé de vos</h3><div class="norte-lista">${saber.map(recuerdo).join('') || '<p class="tenue">Nada todavía.</p>'}</div>`
@@ -157,7 +157,7 @@ async function traerMisiones() {
     misFirma = JSON.stringify(E.hoy)
     const prim = (m) => {
       const [ico, est] = ESTADO_PRIM[m.estado] ?? ['·', m.estado]
-      return `<article class="mis-prim ${m.estado}" data-mid="${m.id}" style="--c:${colorCategoria(m.categoria)}">
+      return `<article class="naipe mis-prim ${m.estado}" data-madurez="${{ sugerida: 'proto', activa: 'pesado', hecha: 'nucleo' }[m.estado] ?? ''}" data-mid="${m.id}" style="--c:${colorCategoria(m.categoria)}">
         <div class="mp-top"><span class="mp-estado" title="${esc(est)}">${ico} ${esc(est.split(':')[0])}</span>${m.categoria ? `<span class="tipo-chip">${esc(m.categoria)}</span>` : ''}${m.ayudantes?.length ? `<span class="mp-ayu" title="Ayudantes de la liga">✦ ${m.ayudantes.length}</span>` : ''}</div>
         <h4 title="${esc(m.detalle ?? m.titulo)}">${esc(m.titulo)}</h4>
         ${m.estado === 'sugerida'
@@ -187,7 +187,7 @@ async function traerMisiones() {
             <button class="btn btn-chico btn-icono" data-sem="${d.anterior}" title="Semana anterior">‹</button>
             <h2>Semana ${esc(d.semana.split('-W')[1])} <small>${esc(fmtSemana(d))}</small></h2>
             <button class="btn btn-chico btn-icono" data-sem="${d.siguiente}" title="Semana siguiente">›</button>
-            <span style="flex:1"></span>
+            <span class="f1"></span>
             ${d.primarias.some((m) => m.ayudantes?.length) ? '<button class="btn btn-chico" id="mi-aportes" title="Cada ayudante deja un aporte ahora (gasta tokens, dentro del tope)">Pedir aportes</button>' : ''}
             <button class="btn btn-chico" id="mi-reporte">Reporte de la semana</button>
           </div>
@@ -372,7 +372,7 @@ function modalMision(m, luego) {
       <label class="campo">Categoría<input id="mm-cat" value="${esc(m.categoria ?? '')}" placeholder="proyecto, salud, plata…"></label>
       <label class="campo">Proyecto o persona<input id="mm-ent" placeholder="nombre exacto (opcional)"></label>
     </div>
-    <div class="fila" style="margin-top:12px"><button class="btn btn-primario" id="mm-guardar">Guardar</button></div>`)
+    <div class="fila mt-3"><button class="btn btn-primario" id="mm-guardar">Guardar</button></div>`)
   $('#mm-guardar').onclick = async () => {
     const cuerpo = { titulo: $('#mm-titulo').value.trim(), detalle: $('#mm-detalle').value.trim() || null, categoria: $('#mm-cat').value.trim() || null }
     try {
@@ -444,7 +444,7 @@ async function montarBitacora(cont) {
     <div id="bit-lista">${d.entradas.map((e) => `
       <div class="seccion bit" data-id="${e.id}">
         <div class="fila"><b>${esc(e.fecha)}</b>${e.animo ? `<span>${['😞', '😕', '😐', '🙂', '😄'][e.animo - 1]}</span>` : ''}${e.cifrada ? '<span class="chip">🔒 cifrada</span>' : ''}${e.compartida ? '<span class="chip">compartida</span>' : ''}
-          <span style="flex:1"></span>${e.cifrada ? '' : `<button class="btn btn-chico" data-compartir="${e.compartida ? 0 : 1}">${e.compartida ? 'Dejar de compartir' : 'Compartir'}</button>`}<button class="btn btn-chico" data-borrar title="Borrar para siempre">✕</button></div>
+          <span class="f1"></span>${e.cifrada ? '' : `<button class="btn btn-chico" data-compartir="${e.compartida ? 0 : 1}">${e.compartida ? 'Dejar de compartir' : 'Compartir'}</button>`}<button class="btn btn-chico" data-borrar title="Borrar para siempre">✕</button></div>
         <div class="md">${e.texto == null ? '<span class="tenue">(cifrada)</span>' : esc(e.texto).replace(/\n/g, '<br>')}</div>
       </div>`).join('') || '<p class="vacio">Todavía nada. Arriba tenés una pregunta por si no sabés por dónde empezar.</p>'}</div>`
   const f = $('#bit-form')
@@ -509,15 +509,15 @@ async function montarPlata(cont) {
     ${d.porProyecto?.length ? `<div class="seccion"><h3>Por proyecto</h3><div class="tarjetas">${d.porProyecto.map((p) => `<article class="tarjeta"><h4>${esc(p.nombre)}</h4>
       <p>${p.ingresos ? `entró ${eur(p.ingresos)} · ` : ''}${p.gastos ? `salió ${eur(p.gastos)} · ` : ''}${p.movimientos} movimiento${p.movimientos === 1 ? '' : 's'}</p>
       <b style="color:${p.neto >= 0 ? 'var(--ok, #6c6)' : 'inherit'}">${p.neto >= 0 ? '+' : ''}${eur(p.neto)}</b></article>`).join('')}</div></div>` : ''}
-    ${cats.length ? `<div class="seccion"><h3>En qué se fue</h3>${cats.map(([k, v]) => `<div class="fila"><span style="width:9em">${esc(k)}</span><span class="barrita" style="flex:1"><b style="width:${Math.round((v / max) * 100)}%"></b></span><span>${eur(v)}</span></div>`).join('')}</div>` : ''}
+    ${cats.length ? `<div class="seccion"><h3>En qué se fue</h3>${cats.map(([k, v]) => `<div class="fila"><span style="width:9em">${esc(k)}</span><span class="barrita f1"><b style="width:${Math.round((v / max) * 100)}%"></b></span><span>${eur(v)}</span></div>`).join('')}</div>` : ''}
     ${d.sugeridos?.length ? `<div class="seccion pl-sugeridos"><h3>Lo que contaste · ${d.sugeridos.length}</h3><p class="tenue">Montos que dijiste charlando. Aceptalos y entran a Finanzas.</p>
       ${d.sugeridos.map((x) => `<div class="fila item" data-sug="${x.id}"><span class="tenue">${esc(x.fecha)}</span><span style="flex:1" title="${esc(x.dicho ?? '')}">${esc(x.descripcion)}${x.dicho ? `<small class="tenue"> · «${esc(x.dicho.slice(0, 80))}»</small>` : ''}</span>
         <b style="color:${x.monto > 0 ? 'var(--ok, #6c6)' : 'inherit'}">${eur(x.monto)}</b><button class="btn btn-chico btn-primario" data-sug-si>✓ Anotar</button><button class="btn btn-chico" data-sug-no title="No era un movimiento">✕</button></div>`).join('')}</div>` : ''}
     <div class="seccion"><h3>Anotar</h3>
-      <form class="fila" id="pl-form"><input name="monto" type="number" step="0.01" placeholder="-20 o 800" required style="width:8em"><input name="descripcion" placeholder="En qué" required style="flex:1"><input name="fecha" type="date"><button class="btn">Anotar</button></form>
+      <form class="fila" id="pl-form"><input name="monto" type="number" step="0.01" placeholder="-20 o 800" required style="width:8em"><input name="descripcion" placeholder="En qué" required class="f1"><input name="fecha" type="date"><button class="btn">Anotar</button></form>
       <p class="tenue">O contáselo a Mastropiero en el chat («gasté 20 en el súper»), o subí el extracto del banco: <label class="btn btn-chico">CSV del banco<input type="file" accept=".csv,.txt,text/csv" hidden id="pl-csv"></label></p></div>
     <div class="seccion"><h3>Movimientos (${d.movimientos.length})</h3>
-      ${d.movimientos.length ? d.movimientos.map((m) => `<div class="fila item"><span class="tenue">${esc(m.fecha)}</span>${m.foto ? `<a href="${esc(m.foto)}" target="_blank" title="El ticket"><img src="${esc(m.foto)}${String(m.foto).startsWith('/adjuntos/') ? '?ancho=240' : ''}" alt="" class="pl-ticket" loading="lazy" decoding="async"></a>` : ''}<span style="flex:1">${esc(m.descripcion)}</span><span class="chip">${esc(m.categoria)}</span>
+      ${d.movimientos.length ? d.movimientos.map((m) => `<div class="fila item"><span class="tenue">${esc(m.fecha)}</span>${m.foto ? `<a href="${esc(m.foto)}" target="_blank" title="El ticket"><img src="${esc(m.foto)}${String(m.foto).startsWith('/adjuntos/') ? '?ancho=240' : ''}" alt="" class="pl-ticket" loading="lazy" decoding="async"></a>` : ''}<span class="f1">${esc(m.descripcion)}</span><span class="chip">${esc(m.categoria)}</span>
         <select class="pl-proy" data-proy="${m.id}" title="De qué proyecto o persona es"><option value="">— proyecto —</option>${opciones.map((e) => `<option value="${e.id}" ${m.entidadId === e.id ? 'selected' : ''}>${esc(e.nombre)}</option>`).join('')}</select>
         <b style="color:${m.monto > 0 ? 'var(--ok, #6c6)' : 'inherit'}">${eur(m.monto)}</b><button class="btn btn-chico" data-borrar="${m.id}" title="Borrar">✕</button></div>`).join('') : '<p class="vacio">Nada este mes todavía.</p>'}
     </div>`
@@ -576,7 +576,7 @@ async function fichaPersonaje(cont, clave, { tabs = ['misiones', 'historia', 'in
         <div class="fila"><button class="btn btn-chico btn-primario" data-hist="aceptar">Aceptar</button><button class="btn btn-chico" data-hist="descartar">Descartar</button></div></div>` : ''}
       ${h.texto ? `<div class="historia">${md(h.texto)}</div>` : h.derivada ? `<p class="tenue historia-derivada">${esc(h.derivada)}</p>` : `<p class="tenue">Sin historia todavía.${clave === 'jugador' ? ' «Procesarme» propone una a partir de lo que sabe de vos.' : ''}</p>`}
       ${elementosHTML(h.elementos)}
-      <div class="fila" style="margin-top:8px"><button class="btn btn-chico" data-hist-editar>✎ Escribirla</button></div></div>`,
+      <div class="fila mt-2"><button class="btn btn-chico" data-hist-editar>✎ Escribirla</button></div></div>`,
     inventario: () => {
       const porTipo = Object.keys(TIPO_INV).map((t) => [t, [...f.inventario.filter((i) => i.tipo === t), ...f.derivado.filter((i) => i.tipo === t).map((i) => ({ ...i, derivado: true }))]]).filter(([, xs]) => xs.length)
       return `<div class="ficha-sec">
@@ -603,7 +603,7 @@ async function fichaPersonaje(cont, clave, { tabs = ['misiones', 'historia', 'in
         ${f.encargos?.length ? `<h3 class="sub">Encargos en el bus</h3>${f.encargos.slice(0, 6).map((t) => `<div class="sq"><span><a href="#" data-ver-tarea="${t.id}">#${t.id}</a> ${esc(JSON.parse(t.payload || '{}').texto?.slice(0, 90) ?? t.tipo)}<small>${esc(t.estado)}</small></span></div>`).join('')}` : ''}
         ${f.asignadasPorEl?.length ? `<h3 class="sub">Encargó a otros</h3>${f.asignadasPorEl.map((m) => `<div class="sq"><span><b>${esc(m.quien)}</b>: ${esc(m.titulo)}</span></div>`).join('')}` : ''}
         ${f.personaje.tipo === 'jugador' ? '' : `<div class="form-sq"><input class="campo-suelto" id="fm-titulo" placeholder="${f.personaje.tipo === 'entidad' && f.personaje.subtipo === 'persona' ? 'Qué tiene que hacer (se la encargás vos)' : 'Nueva misión'}"><input class="campo-suelto" id="fm-vence" type="date" title="Vence"><button class="btn btn-chico" id="fm-agregar">Agregar</button></div>`}
-        ${f.personaje.tipo !== 'agente' && f.personaje.tipo !== 'jugador' ? `<div class="fila" style="margin-top:6px"><button class="btn btn-chico" id="fm-principal">${p ? 'Cambiar su misión principal' : 'Fijar su misión principal'}</button></div>` : ''}
+        ${f.personaje.tipo !== 'agente' && f.personaje.tipo !== 'jugador' ? `<div class="fila mt-2"><button class="btn btn-chico" id="fm-principal">${p ? 'Cambiar su misión principal' : 'Fijar su misión principal'}</button></div>` : ''}
       </div>`
     },
   }
@@ -621,7 +621,7 @@ async function fichaPersonaje(cont, clave, { tabs = ['misiones', 'historia', 'in
     abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Historia de ${esc(f.personaje.nombre)}</h2>
       <label class="campo">Trasfondo y origen<textarea id="hi-texto" rows="9">${esc(h.texto ?? h.sugerencia?.texto ?? '')}</textarea></label>
       <label class="campo">Elementos base (separados por coma)<input id="hi-elem" value="${esc((h.elementos ?? []).join(', '))}"></label>
-      <div class="fila" style="margin-top:12px"><button class="btn btn-primario" id="hi-guardar">Guardar</button></div>`)
+      <div class="fila mt-3"><button class="btn btn-primario" id="hi-guardar">Guardar</button></div>`)
     $('#hi-guardar').onclick = () => accion(async () => {
       await api(`/personajes/${k}/historia`, { texto: $('#hi-texto').value, elementos: $('#hi-elem').value.split(',').map((x) => x.trim()).filter(Boolean) })
       cerrarModal()

@@ -219,7 +219,7 @@ function widgetAgenda() {
 
 function widgetCuerpo() {
   const s = hudDatos?.salud
-  if (!s) return '<p class="hud-texto">Cargando…</p>'
+  if (!s) return '<p class="hud-texto" role="status">Trayendo lo de tu cuerpo de hoy…</p>'
   const m = s.metas
   const habitos = hudDatos.plan?.habitos ?? []
   return `<div class="hud-anillos">${anilloHud(s.kcal, m.kcal ?? s.kcal ?? 1, `${s.kcal}`, m.kcal ? `de ${m.kcal} kcal` : 'kcal')}${anilloHud(s.proteina, m.proteina ?? s.proteina ?? 1, `${s.proteina}g`, m.proteina ? `de ${m.proteina} g prot.` : 'proteína', 'verde')}</div>

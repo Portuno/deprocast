@@ -14,7 +14,7 @@ function montarLinea() {
       <select class="campo-suelto" id="lin-tipo"><option value="">Todo</option><option value="pasado">Lo que pasó</option><option value="futuro">Lo que iba a pasar</option><option value="grabacion">Grabaciones</option></select>
       ${lin.entidad || lin.tema || lin.tipo ? '<button class="btn btn-chico" id="lin-limpiar">Limpiar</button>' : ''}
     </div>
-    <div id="lin-cuerpo"><p class="tenue">Cargando…</p></div>`
+    <div id="lin-cuerpo"><p class="tenue" role="status">Armando tu línea del tiempo…</p></div>`
   $('#lin-tipo').value = lin.tipo
   $('#lin-tipo').onchange = (e) => { lin.tipo = e.target.value; refrescarLinea() }
   let t

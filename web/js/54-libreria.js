@@ -24,7 +24,7 @@ function montarLibreria() {
         <form class="fila" id="lib-nueva"><input name="titulo" placeholder="Título" required autocomplete="off" style="flex:2;min-width:12em"><input name="autor" placeholder="Autor" autocomplete="off" style="flex:1;min-width:8em"><input name="anio" placeholder="Año" style="width:5em"><button class="btn btn-primario">＋ Sumar</button></form>
         <div class="fila"><input id="lib-q" placeholder="Buscar…" value="${esc(libFiltro)}" style="width:11em">
           <select id="lib-estado"><option value="">Todos los estados</option>${ESTADOS_LIB.map(([k, n]) => `<option value="${k}" ${libEstado === k ? 'selected' : ''}>${n}</option>`).join('')}</select>
-          <label class="tenue" style="font-size:12.5px"><input type="checkbox" id="lib-revisar" ${libSoloRevisar ? 'checked' : ''}> solo por revisar</label></div>
+          <label class="tenue chico"><input type="checkbox" id="lib-revisar" ${libSoloRevisar ? 'checked' : ''}> solo por revisar</label></div>
       </div>
       <div class="lib-envoltura"><table class="lib-tabla" id="lib-tabla"></table></div>
     </section>`

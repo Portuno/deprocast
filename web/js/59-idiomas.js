@@ -38,7 +38,7 @@ function tarjetaIdioma(i) {
   const n = i.temario.length
   const proximo = n ? i.temaIdx % n : -1
   const empezar = i.enCurso ? `▶ Seguir: ${esc(i.enCurso.tema)}` : i.proxima ? `▶ Empezar: ${esc(i.proxima.tema)}` : '▶ Empezar'
-  return `<article class="tarjeta idi-tarjeta">
+  return `<article class="naipe tarjeta idi-tarjeta">
     <header class="idi-cab"><h3>${esc(i.nombre)}</h3><span class="chip">${esc(i.nivel ?? 'A0')}${i.objetivo ? ` → ${esc(i.objetivo)}` : ''}</span>${i.diasMes ? `<span class="idi-racha" title="Días que practicaste este mes (no se pierde nada por un día sin practicar)">${i.diasMes} día${i.diasMes === 1 ? '' : 's'} este mes</span>` : ''}</header>
     ${i.porQue ? `<p class="idi-porque">«${esc(i.porQue)}»</p>` : ''}
     <button class="btn btn-primario idi-empezar" data-idi-empezar="${i.aprendizajeId}">${empezar}</button>

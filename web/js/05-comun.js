@@ -25,12 +25,12 @@ function cargarScript(nombre) {
   return p
 }
 
-/** Los stubs: misma firma, devuelven una promesa. Montar una vista muestra «Cargando…» mientras baja su archivo. */
+/** Los stubs: misma firma, devuelven una promesa. Montar una vista dice cuál está abriendo mientras baja su archivo. */
 for (const [archivo, info] of Object.entries(window.PEREZOSOS ?? {})) {
   for (const fn of info.funciones) {
     if (fn in window) continue
     const stub = function (...args) {
-      if (fn.startsWith('montar') && $('#principal') && !document.querySelector(`script[src^="/js/${archivo}"]`)) $('#principal').innerHTML = '<p class="tenue cargando-vista">Cargando…</p>'
+      if (fn.startsWith('montar') && $('#principal') && !document.querySelector(`script[src^="/js/${archivo}"]`)) $('#principal').innerHTML = `<p class="tenue cargando-vista" role="status">Abriendo ${esc(typeof nombreDeVista === 'function' ? nombreDeVista(VISTA_PADRE?.[vista] ?? vista) : '')}…</p>`
       return cargarScript(archivo).then(() => {
         if (window[fn] === stub) throw new Error(`${fn} no está en ${archivo}`)
         return window[fn](...args)

@@ -167,7 +167,7 @@ function pintarPiezas() {
   }
   cont.innerHTML = corpusLista.piezas.map(piezaHTML).join('')
   $('#c-mas').innerHTML = corpusLista.piezas.length < corpusLista.total
-    ? `<button class="btn" id="c-mas-btn" style="width:100%">Ver más (${corpusLista.total - corpusLista.piezas.length} restantes)</button>` : ''
+    ? `<button class="btn w-full" id="c-mas-btn">Ver más (${corpusLista.total - corpusLista.piezas.length} restantes)</button>` : ''
   const m = $('#c-mas-btn')
   if (m) m.onclick = () => { filtroCorpus.desde = corpusLista.piezas.length; traerPiezas(true) }
 }
@@ -179,13 +179,13 @@ async function modalPieza(id) {
     const meta = p.meta ? Object.entries(p.meta).filter(([, v]) => v != null && v !== '' && !(Array.isArray(v) && !v.length)) : []
     abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button>
       <div class="p-top">${nivelBadge(p.nivel)}<span>${esc(fuente?.nombre ?? p.fuente)}</span><span class="tipo-chip">${p.tipo}</span><span>#${p.id} · ${esc(p.estado)}</span></div>
-      <h2 style="margin-top:8px">${esc(p.titulo)}</h2>
+      <h2 class="mt-2">${esc(p.titulo)}</h2>
       ${p.autor || p.fecha ? `<p class="tenue">${esc(p.autor ?? '')} ${esc(String(p.fecha ?? '').slice(0, 10))}</p>` : ''}
       ${p.url ? `<p><a href="${esc(p.url)}" target="_blank" rel="noopener" style="color:var(--oro-2)">${esc(p.url)}</a></p>` : ''}
-      <div class="fila" style="margin:6px 0"><a class="btn btn-chico" href="/api/corpus/${p.id}.md" download title="Bajar esta pieza como Markdown">📄 MD</a>${['youtube', 'web'].includes(p.fuente) || p.meta?.youtube || p.meta?.recomendadoPor ? '<button class="btn btn-chico" id="p-recordar" title="Primero recordás, después mirás lo que plantea">🧠 ¿Qué te acordás?</button>' : ''}</div>
-      ${p.tipo === 'enlace' && p.estado === 'pendiente' ? `<div class="fila" style="margin:10px 0"><button class="btn btn-primario" id="p-crawl">≋ Mandar a un crawler</button></div>` : ''}
-      ${entidades.length ? `<div class="tags" style="margin:8px 0">${entidades.map((e) => `<span class="ent">${esc(e.tipo)} · ${esc(e.nombre)}</span>`).join('')}</div>` : ''}
-      ${p.etiquetas.length ? `<div class="tags" style="margin:8px 0">${p.etiquetas.map((t) => `<span>${esc(t)}</span>`).join('')}</div>` : ''}
+      <div class="fila my-2"><a class="btn btn-chico" href="/api/corpus/${p.id}.md" download title="Bajar esta pieza como Markdown">📄 MD</a>${['youtube', 'web'].includes(p.fuente) || p.meta?.youtube || p.meta?.recomendadoPor ? '<button class="btn btn-chico" id="p-recordar" title="Primero recordás, después mirás lo que plantea">🧠 ¿Qué te acordás?</button>' : ''}</div>
+      ${p.tipo === 'enlace' && p.estado === 'pendiente' ? `<div class="fila my-3"><button class="btn btn-primario" id="p-crawl">≋ Mandar a un crawler</button></div>` : ''}
+      ${entidades.length ? `<div class="tags my-2">${entidades.map((e) => `<span class="ent">${esc(e.tipo)} · ${esc(e.nombre)}</span>`).join('')}</div>` : ''}
+      ${p.etiquetas.length ? `<div class="tags my-2">${p.etiquetas.map((t) => `<span>${esc(t)}</span>`).join('')}</div>` : ''}
       <div class="respuesta" style="max-height:42vh;overflow:auto;margin-top:12px">${esc(p.contenido)}</div>
       <h3 class="sub">Quántomos de esta pieza (${quantomos.length})</h3>
       ${quantomos.length ? `<div class="q-lista">${quantomos.map(quantomoHTML).join('')}</div>` : '<p class="tenue">Ninguno. Si pasa por la pipeline, el extractor propone proto-quántomos.</p>'}
@@ -205,8 +205,8 @@ async function modalPieza(id) {
 }
 
 function modalFuentes() {
-  const fila = (f) => `<tr><td>${f.padreId ? '  └ ' : ''}<b>${esc(f.nombre)}</b><div class="tenue" style="font-size:12px">${esc(f.descripcion ?? '')}</div></td>
-    <td>${nivelBadge(f.nivel)}</td><td style="font:12px var(--mono)">${f.piezas.toLocaleString('es-AR')}</td><td style="font:11px var(--mono);color:var(--tenue)">${esc(f.id)}${f.sistema ? ' · fábrica' : ''}</td></tr>`
+  const fila = (f) => `<tr><td>${f.padreId ? '  └ ' : ''}<b>${esc(f.nombre)}</b><div class="tenue chico">${esc(f.descripcion ?? '')}</div></td>
+    <td>${nivelBadge(f.nivel)}</td><td class="mono-chico">${f.piezas.toLocaleString('es-AR')}</td><td style="font:11px var(--mono);color:var(--tenue)">${esc(f.id)}${f.sistema ? ' · fábrica' : ''}</td></tr>`
   const raiz = E.fuentes.filter((f) => !f.padreId)
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Fuentes</h2>
     <p class="tenue">Cada fuente tiene un nivel por defecto; cada pieza puede tener el suyo. El corpus tiene que poder comer de muchas más: sumá las que quieras.</p>
@@ -244,7 +244,7 @@ function modalIngesta(nivel = null) {
       <div class="ingesta-niveles">${NIVEL_ORDEN.map((n) => `
         <button class="nivel-tile" style="--n:var(--nivel-${n})" data-ing="${n}"><span class="nt-glifo">${NIVEL_GLIFO[n]}</span><span class="nt-num">${META.niveles[n].numero}</span>
           <b>${esc(INGESTA[n].titulo)}</b><small>${esc(INGESTA[n].ayuda)}</small></button>`).join('')}</div>
-      <form class="fila ing-link" id="ing-link"><input id="ing-url" type="url" placeholder="O pegá un link: lo leo, lo guardo en Markdown y, si es un sitio, lo rastreo" style="flex:1"><button class="btn btn-primario">Guardar link</button></form>
+      <form class="fila ing-link" id="ing-link"><input id="ing-url" type="url" placeholder="O pegá un link: lo leo, lo guardo en Markdown y, si es un sitio, lo rastreo" class="f1"><button class="btn btn-primario">Guardar link</button></form>
       <label class="soltar" id="soltar">
         <input type="file" id="ing-archivo" hidden>
         <b>⇪ Subir un archivo</b>
@@ -310,9 +310,9 @@ function modalIngesta(nivel = null) {
   }
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button>
     <div class="p-top"><a href="#" id="i-volver" class="tenue">← niveles</a>${nivelBadge(nivel)}</div>
-    <h2 style="margin-top:8px">${esc(INGESTA[nivel].titulo)}</h2><p class="tenue">${esc(INGESTA[nivel].ayuda)}</p>
+    <h2 class="mt-2">${esc(INGESTA[nivel].titulo)}</h2><p class="tenue">${esc(INGESTA[nivel].ayuda)}</p>
     ${cuerpo}
-    <div class="fila" style="margin-top:16px"><button class="btn btn-primario" id="i-enviar">Ingerir</button></div>`)
+    <div class="fila mt-4"><button class="btn btn-primario" id="i-enviar">Ingerir</button></div>`)
   $('#i-volver').onclick = (e) => { e.preventDefault(); modalIngesta() }
   $$('#modal select[id$="fuente"]').forEach((s) => engancharFuente(s, () => nivel))
   let panel = 'url'
@@ -378,9 +378,9 @@ async function modalCarga(id) {
           <div><strong>${r.piezas.toLocaleString('es-AR')}</strong><small>piezas</small></div><div><strong>${r.quantomos.toLocaleString('es-AR')}</strong><small>quántomos</small></div>
           <div><strong>${r.entidades.toLocaleString('es-AR')}</strong><small>entidades</small></div><div><strong>${r.repetidas.toLocaleString('es-AR')}</strong><small>ya estaban</small></div>
           <div><strong>${r.tareas.toLocaleString('es-AR')}</strong><small>misiones</small></div></div>
-          <table class="log">${a.segmentos.filter((s) => r.porSegmento[s.id]).map((s) => `<tr><td>${s.nivel ? nivelBadge(s.nivel) : '→'}</td><td>${esc(s.nombre)}</td><td style="font:12px var(--mono)">${r.porSegmento[s.id]}</td></tr>`).join('')}</table>
+          <table class="log">${a.segmentos.filter((s) => r.porSegmento[s.id]).map((s) => `<tr><td>${s.nivel ? nivelBadge(s.nivel) : '→'}</td><td>${esc(s.nombre)}</td><td class="mono-chico">${r.porSegmento[s.id]}</td></tr>`).join('')}</table>
           <p class="tenue">Pipeline: ${esc(r.pipeline)} · ${r.segundos} s</p>` : ''}
-        <div class="fila" style="margin-top:14px">
+        <div class="fila mt-3">
           ${c.estado === 'hecha' ? `<button class="btn" id="cg-ver">Ver sus piezas</button><button class="btn" id="cg-reetiquetar" title="Vuelve a calcular entidades y etiquetas con el importador actual. No toca piezas ni quántomos.">Recalcular etiquetas</button><button class="btn btn-peligro" id="cg-deshacer">Deshacer la carga</button>` : ''}
         </div>`)
       const ver = $('#cg-ver')
@@ -406,14 +406,14 @@ async function modalCarga(id) {
     const opcFuente = (existe || !a.fuente.id ? '' : `<option value="${esc(a.fuente.id)}" selected>(nueva) ${esc(a.fuente.nombre)} · ${META.niveles[a.fuente.nivel].numero}</option>`) + opcionesFuente(existe ? a.fuente.id : '', { vacia: a.fuente.id ? '' : '— elegí una fuente —' })
     abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button>
       <div class="p-top"><span>Carga #${c.id}</span><span class="tipo-chip">${esc(c.importador)}</span><span>${esc(c.archivo)} · ${(c.bytes / 1024 / 1024).toFixed(1)} MB</span></div>
-      <h2 style="margin-top:8px">${esc(a.titulo)}</h2><p class="tenue">${esc(a.descripcion)}</p>
+      <h2 class="mt-2">${esc(a.titulo)}</h2><p class="tenue">${esc(a.descripcion)}</p>
       ${a.avisos.map((x) => `<div class="aviso">! ${esc(x)}</div>`).join('')}
       <h3 class="sub">Segmentos · elegí qué entra</h3>
       <div class="segmentos">${a.segmentos.map((s) => `
         <label class="segmento ${s.cantidad ? '' : 'vacio-seg'}"><input type="checkbox" value="${s.id}" ${s.porDefecto && s.cantidad ? 'checked' : ''} ${s.cantidad ? '' : 'disabled'}>
           <div><div class="seg-top"><b>${esc(s.nombre)}</b><span class="seg-n">${s.cantidad.toLocaleString('es-AR')}</span>${s.nivel ? nivelBadge(s.nivel) : `<span class="tipo-chip">→ ${s.destino}</span>`}</div>
           <small>${esc(s.descripcion)}</small>${s.nota ? `<small class="seg-nota">${esc(s.nota)}</small>` : ''}</div></label>`).join('')}</div>
-      <div class="form-ing" style="margin-top:14px">
+      <div class="form-ing mt-3">
         <label class="campo">Fuente<select id="cg-fuente">${opcFuente}</select></label>
         ${a.nivelEditable ? `<label class="campo">Nivel de las piezas<select id="cg-nivel">${NIVEL_ORDEN.map((n) => `<option value="${n}" ${n === a.segmentos[0]?.nivel ? 'selected' : ''}>${META.niveles[n].numero} · ${esc(META.niveles[n].nombre)}</option>`).join('')}</select></label>` : ''}
         ${a.umbralPeso ? `<label class="campo">Peso mínimo de la criba: <b id="cg-umbral-v">${a.umbralPeso}</b><input type="range" id="cg-umbral" min="1" max="12" value="${a.umbralPeso}"></label>` : ''}
@@ -424,7 +424,7 @@ async function modalCarga(id) {
         <label><input type="radio" name="cg-pipe" value="vectorizar"><b>Solo vectorizar</b><small id="cg-est-v"></small></label>
         <label><input type="radio" name="cg-pipe" value="completa"><b>Completa</b><small id="cg-est-c"></small></label>
       </div>
-      <div class="fila" style="margin-top:16px"><button class="btn btn-primario" id="cg-ejecutar">Cargar</button><button class="btn" id="cg-descartar">Descartar</button></div>`)
+      <div class="fila mt-4"><button class="btn btn-primario" id="cg-ejecutar">Cargar</button><button class="btn" id="cg-descartar">Descartar</button></div>`)
     const estimar = () => {
       const n = a.segmentos.filter((s) => s.destino === 'corpus' && s.id !== 'enlaces' && $(`.segmentos input[value="${s.id}"]`)?.checked).reduce((t, s) => t + s.cantidad, 0)
       $('#cg-est-v').textContent = `≈ ${n.toLocaleString('es-AR')} llamadas de embedding (una por pieza).`
@@ -464,9 +464,11 @@ function pesoHTML(q) {
     `<i class="${i < p ? 'on' : ''}" ${sellable ? `data-sellar="${q.id}" data-peso="${i + 1}"` : ''}></i>`).join('')}<b>${p || '—'}</b></span>`
 }
 
+/** La madurez de un quántomo, para el filete de su carta: proto → propuesto (pesándose) → sellado. */
+const MADUREZ_Q = { proto: 'proto', propuesta: 'pesado', sellado: 'sellado' }
 function quantomoHTML(q) {
   const haiku = q.facetas?.find((f) => f.tipo === 'haiku' && f.cara) ?? q.facetas?.find((f) => f.tipo === 'haiku')
-  return `<div class="quantomo ${q.etapa}" data-q="${q.id}">
+  return `<div class="naipe quantomo ${q.etapa}" data-madurez="${MADUREZ_Q[q.etapa] ?? ''}" data-q="${q.id}">
     <div class="q-top"><span class="pill ${q.etapa === 'sellado' ? 'activo' : q.etapa === 'propuesta' ? 'prueba' : 'banca'}">${q.etapa}</span>
       ${q.version > 1 ? `<span class="tipo-chip">v${q.version}</span>` : ''}${q.universo ? `<span class="tipo-chip">${esc(q.universo)}</span>` : ''}
       ${q.l72 ? `<span class="tipo-chip" title="sello L72 de la 0.7.1">L72</span>` : ''}${q.novedad ? `<span class="q-nov ${q.novedad}" title="${q.novedadSim != null ? `parecido ${Math.round(q.novedadSim * 100)} %` : 'nada parecido antes'}">${q.novedad === 'nueva' ? '✦ nueva' : `${q.novedad === 'repetida' ? '↻ repetida' : '≈ variación'} de #${q.novedadDe}`}</span>` : ''}<span class="tenue">#${q.id}${q.procedencia ? ` · ${esc(q.procedencia.slice(0, 60))}` : ''}</span></div>
@@ -595,7 +597,7 @@ async function traerQuantomos(mas = false) {
     cont.innerHTML = qLista.quantomos.length ? qLista.quantomos.map(quantomoHTML).join('')
       : `<div class="vacio"><div class="gran">⚛</div><h2>Sin quántomos${filtroQ.etapa ? ' en esta etapa' : ''}</h2><p>Nacen cuando el extractor destila una pieza o cuando cargás un respaldo que los trae.</p></div>`
     engancharQuantomos(cont, () => traerQuantomos())
-    $('#q-mas').innerHTML = qLista.quantomos.length < qLista.total ? `<button class="btn" id="q-mas-btn" style="width:100%">Ver más</button>` : ''
+    $('#q-mas').innerHTML = qLista.quantomos.length < qLista.total ? `<button class="btn w-full" id="q-mas-btn">Ver más</button>` : ''
     const m = $('#q-mas-btn')
     if (m) m.onclick = () => { filtroQ.desde = qLista.quantomos.length; traerQuantomos(true) }
   } catch (e) { error(e) }
@@ -745,7 +747,7 @@ async function modalEspacio(id) {
   $('#esp').innerHTML = `<h2>🧪 ${esc(d.entidad.nombre)}</h2>
     ${d.entidad.notas ? `<p class="tenue">${esc(d.entidad.notas)}</p>` : ''}
     <p class="tenue chico">${d.liga ? `En la liga como «${esc(d.liga.nombre)}»` : 'Todavía no está en la liga: el sandbox lo crea con su gerente.'} · ${d.corpus.total} piezas · ${d.misiones.length} misiones abiertas${d.plata.movimientos ? ` · entró ${d.plata.entro} € y salió ${d.plata.salio} €` : ''}</p>
-    <div class="fila" style="margin:8px 0"><button class="btn btn-primario" id="esp-sandbox">🧪 Armar sandbox</button><button class="btn" id="esp-preguntar">☿ ¿En qué está?</button></div>
+    <div class="fila my-2"><button class="btn btn-primario" id="esp-sandbox">🧪 Armar sandbox</button><button class="btn" id="esp-preguntar">☿ ¿En qué está?</button></div>
     <div id="esp-sb"></div>
     ${d.historia ? `<details><summary><b>Su historia en el archivo</b> <span class="tenue">${esc(d.historia.fecha ?? '')}</span></summary><div class="md">${md(d.historia.texto)}</div></details>` : ''}
     ${sec('Misiones abiertas', lista(d.misiones, (m) => `<small class="tipo-chip">${esc(m.nivel)}</small> ${esc(m.titulo)}`))}
@@ -762,7 +764,7 @@ async function modalEspacio(id) {
     b.textContent = 'Mastropiero está leyendo el proyecto…'
     try {
       const s = await api(`/proyectos/sandbox/${id}`, {})
-      $('#esp-sb').innerHTML = `<div class="panel" style="margin:8px 0">${s.resumen ? `<p>${esc(s.resumen)}</p>` : ''}
+      $('#esp-sb').innerHTML = `<div class="panel my-2">${s.resumen ? `<p>${esc(s.resumen)}</p>` : ''}
         ${s.agentes.length ? `<h3 class="sub">Agentes que le faltan</h3>${s.agentes.map((a, i) => `<div class="sq"><span><b>${esc(a.clase)}</b> · ${esc(a.instrucciones)}<small>${esc(a.porQue)}</small></span><button class="btn btn-chico" data-forjar="${i}">Forjar</button></div>`).join('')}` : '<p class="tenue">No le falta ningún agente.</p>'}
         ${s.encargos.length ? `<h3 class="sub">Encargos listos</h3>${s.encargos.map((x, i) => `<div class="sq"><span>${esc(x.texto)}<small>${esc(x.clase)} · ${esc(x.porQue)}</small></span><button class="btn btn-chico" data-publicar="${i}">Publicar</button></div>`).join('')}` : ''}</div>`
       $$('#esp-sb [data-forjar]').forEach((x) => (x.onclick = async () => {
@@ -786,7 +788,7 @@ function modalAnotaciones() {
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>📝 Anotaciones</h2>
     <p class="tenue">Pegá tus notas o ideas tal cual (si vienen marcadas [Confirmado] o [Inferido], mejor). Quedan como tuyas en el corpus, y de ahí salen recuerdos, propuestas para La Fragua (como diseño: nada se hace solo), personas y proyectos, e ideas para pesar.</p>
     <textarea class="campo-suelto" id="an-texto" rows="12" placeholder="Pegá acá…"></textarea>
-    <div class="fila"><label class="tenue chico">De cuándo son <input type="date" id="an-fecha" class="campo-suelto" style="width:auto;margin:0"></label><span class="espacio"></span><button class="btn btn-primario" id="an-ir">Procesar</button></div>
+    <div class="fila"><label class="tenue chico">De cuándo son <input type="date" id="an-fecha" class="campo-suelto w-auto m-0"></label><span class="espacio"></span><button class="btn btn-primario" id="an-ir">Procesar</button></div>
     <div id="an-resultado"></div>`)
   $('#an-ir').onclick = async () => {
     const texto = $('#an-texto').value.trim()

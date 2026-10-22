@@ -31,7 +31,7 @@ async function montarEstudio() {
       const a = o.ultima
       const mini = a.archivos.includes('miniatura.jpg') ? `<img src="/taller/${a.id}/miniatura.jpg" alt="">` : `<video src="/taller/${a.meta?.proyecto?.fuente?.artefacto ?? a.id}/fuente.mp4#t=1" muted preload="metadata"></video>`
       return `<button class="tl-obra" data-es="${o.raiz}"><div class="tl-mini">${mini}</div><span class="tl-obra-txt"><span class="tipo-chip">🎬 ${esc(a.meta?.proyecto?.formato ?? '')}</span><b>${esc(a.titulo)}</b><small>${o.versiones.length > 1 ? `${o.versiones.length - 1} exportaciones · ` : ''}${new Date(a.creadoEn).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}</small></span></button>`
-    }).join('')}</div>` : '<p class="vacio">Todavía no posprodujiste nada.</p>'}
+    }).join('')}</div>` : '<div class="vacio"><p>Todavía no posprodujiste nada.</p><button class="btn" data-paso-ir="taller">Ir al Taller</button></div>'}
     <h3 class="tl-h" style="margin-top:22px">Plantillas (tu kit de marca)</h3>
     <div class="es-plantillas">${b.plantillas.map((p) => `<span class="sq"><span><b>${esc(p.nombre)}</b><small>${p.capas.length} capas${p.marca ? ` · ${esc(p.marca.slice(0, 80))}` : ''}</small></span><a class="btn btn-chico" href="/api/estudio/plantillas/${p.id}.zip">⇩ zip</a></span>`).join('') || '<p class="tenue chico">Guardá las capas de un proyecto como plantilla y aplicalas a cualquier video.</p>'}
       <label class="btn btn-chico">⇪ Importar plantilla (.zip)<input type="file" accept=".zip" hidden id="es-importar"></label></div>`

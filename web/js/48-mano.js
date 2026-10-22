@@ -22,13 +22,13 @@ function montarMano() {
     <div class="mano-mesa">
       <div class="mano">
         <div class="mano-tira" id="mn-tira"></div>
-        <div class="criba-carta mano-carta" id="mn-carta"></div>
+        <div class="naipe criba-carta mano-carta" id="mn-carta"></div>
         <div class="criba-pesos" id="mn-pesos">
           <button class="btn" data-gesto="descartar" title="Descartar (x)">✕</button>
           ${Array.from({ length: 12 }, (_, i) => `<button class="btn" data-peso="${i + 1}" title="Tecla ${i + 1 === 10 ? '0' : i + 1 === 11 ? 'q' : i + 1 === 12 ? 'w' : i + 1}">${i + 1}</button>`).join('')}
         </div>
         <div class="mano-prediccion" id="mn-pred" hidden><span>🎯 ¿Conecta con algo que ya pesaste?</span>${PREDICCIONES.map(([k, p, n]) => `<button class="btn btn-chico" data-pred="${p}" title="${k}">${n} <small class="tenue">${Math.round(p * 100)} %</small></button>`).join('')}</div>
-        <div class="fila" style="justify-content:center"><button class="btn btn-chico" id="mn-predecir" title="a">🎯 Predecir antes de ver</button><button class="btn btn-chico" data-gesto="choca" title="c">⚡ Choca con lo que ya sabía</button><button class="btn btn-chico" id="mn-pasar" title="Espacio">Pasar</button><button class="btn btn-chico" id="mn-deshacer" title="z">Deshacer</button></div>
+        <div class="fila centro"><button class="btn btn-chico" id="mn-predecir" title="a">🎯 Predecir antes de ver</button><button class="btn btn-chico" data-gesto="choca" title="c">⚡ Choca con lo que ya sabía</button><button class="btn btn-chico" id="mn-pasar" title="Espacio">Pasar</button><button class="btn btn-chico" id="mn-deshacer" title="z">Deshacer</button></div>
         <input class="campo-suelto" id="mn-porque" placeholder="¿Por qué? (opcional: una línea, viaja con la carta)">
       </div>
       <aside class="mano-caida" id="mn-caida"><p class="tenue">Jugá una carta: acá aparece con qué conecta de lo que ya sabías.</p></aside>
@@ -251,7 +251,7 @@ function pintarMano() {
   const c = manoCartas[manoActiva]
   const el = $('#mn-carta')
   if (!c) {
-    el.innerHTML = '<p class="vacio">No quedan afirmaciones sin pesar. Cuando Procesar destile más, vuelven a aparecer acá.</p>'
+    el.innerHTML = '<div class="vacio"><p>No quedan afirmaciones sin pesar. Cuando Procesar destile más, vuelven a aparecer acá.</p><button class="btn" data-paso-ir="corpus">Ir al Corpus a procesar</button></div>'
     return
   }
   const nov = NOVEDAD[c.novedad]

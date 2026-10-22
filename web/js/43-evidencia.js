@@ -10,7 +10,7 @@ async function montarEvidencia(cont) {
   const xs = d.identidades
   cont.innerHTML = `
     <p class="tenue">La identidad se vota con hechos. Elegí hasta tres frases de quién querés ser y atalas a lo que ya hacés (primarias, hábitos, aprendizajes, categorías de bandas o palabras): cada cosa que cae ahí suma una línea, sola. El domingo te llega una pregunta para mirarlo contra tu historia vieja.</p>
-    ${xs.length < 3 ? '<div class="fila" style="margin:10px 0"><button class="btn btn-primario" id="ev-nueva">＋ Quién quiero ser</button></div>' : ''}
+    ${xs.length < 3 ? '<div class="fila my-3"><button class="btn btn-primario" id="ev-nueva">＋ Quién quiero ser</button></div>' : ''}
     ${xs.length ? `<div class="tarjetas">${xs.map((i) => `<article class="tarjeta ev-id">
         <h3>${esc(i.frase)}</h3>
         ${i.historiaVieja ? `<p class="ev-vieja">Historia vieja: <s>${esc(i.historiaVieja)}</s></p>` : ''}

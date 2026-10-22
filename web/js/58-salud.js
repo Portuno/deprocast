@@ -9,7 +9,7 @@ const CALIDAD = ['', 'mal', 'bien', 'muy bien']
 
 function barraMeta(etiqueta, valor, meta, unidad) {
   const pct = meta ? Math.min(100, Math.round((valor / meta) * 100)) : 0
-  return `<div class="sal-barra"><div class="fila" style="justify-content:space-between"><span>${etiqueta}</span><b>${valor}${unidad}${meta ? ` <small class="tenue">de ${meta}${unidad}</small>` : ''}</b></div>
+  return `<div class="sal-barra"><div class="fila entre"><span>${etiqueta}</span><b>${valor}${unidad}${meta ? ` <small class="tenue">de ${meta}${unidad}</small>` : ''}</b></div>
     ${meta ? `<div class="sal-pista"><i style="width:${pct}%" class="${pct >= 100 ? 'lleno' : ''}"></i></div>` : ''}</div>`
 }
 
@@ -20,7 +20,7 @@ function montarSalud() {
       <div class="fila"><button class="btn" id="sal-metas">Metas</button></div></div>
     <section class="seccion">
       <div class="fila sal-alta">
-        <form class="fila" id="sal-texto" style="flex:1;min-width:16em"><input name="texto" placeholder="Contalo: «almorcé milanesa con puré», «corrí 5 km», «dormí 7 h», «peso 82,4»" autocomplete="off" style="flex:1"><button class="btn btn-primario">Anotar</button></form>
+        <form class="fila" id="sal-texto" style="flex:1;min-width:16em"><input name="texto" placeholder="Contalo: «almorcé milanesa con puré», «corrí 5 km», «dormí 7 h», «peso 82,4»" autocomplete="off" class="f1"><button class="btn btn-primario">Anotar</button></form>
         <label class="btn" title="Una foto de la comida, la balanza o la app del reloj">📷 Foto<input type="file" accept="image/*" id="sal-foto" hidden></label>
       </div>
       <p class="pensando" id="sal-trabajando" hidden></p>

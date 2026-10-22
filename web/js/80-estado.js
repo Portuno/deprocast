@@ -7,7 +7,7 @@ function modalEstado() {
       <h3>Exportar todo</h3>
       <p class="tenue">Un solo JSON con todo: corpus, memoria, misiones, runs, chats, personas, plata, bitácora (lo cifrado sigue cifrado), agentes, ajustes y rutinas. Con los archivos, también lo que subiste y lo del Taller. No lleva tu <code>.env</code> (las claves): copialo a mano.</p>
       <label><input type="checkbox" id="es-archivos" checked> incluir archivos (cargas y Taller; pesa más)</label>
-      <div class="fila" style="margin-top:8px"><button class="btn btn-primario" id="es-exportar">⇩ Exportar</button></div>
+      <div class="fila mt-2"><button class="btn btn-primario" id="es-exportar">⇩ Exportar</button></div>
     </div>
     <div class="seccion">
       <h3>Importar</h3>

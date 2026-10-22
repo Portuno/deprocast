@@ -13,8 +13,8 @@ function montarFragua() {
     <div class="pasos"><span><b>1</b>Propuesta o pedido</span><span><b>2</b>Elige archivos y arma un plan</span><span><b>3</b>Escribe en una rama aparte</span><span><b>4</b>Typecheck y tests (si falla, se corrige hasta 2 veces)</span><span><b>5</b>Vos lo aplicás y reiniciás el servidor</span></div>
     <form class="seccion" id="fr-pedir">
       <h3>Pedir una mejora</h3>
-      <textarea name="pedido" rows="2" placeholder="Qué querés que cambie, con el detalle que tengas («que en la Criba la tecla d también descarte»). O forjá una de las propuestas de abajo." style="width:100%"></textarea>
-      <div class="fila" style="margin-top:8px"><span class="tenue" style="flex:1;font-size:12.5px">Mejor si es algo concreto y chico: un cambio por forja.</span><button class="btn btn-primario">⚒ Forjar</button></div>
+      <textarea name="pedido" rows="2" placeholder="Qué querés que cambie, con el detalle que tengas («que en la Criba la tecla d también descarte»). O forjá una de las propuestas de abajo." class="w-full"></textarea>
+      <div class="fila mt-2"><span class="tenue" style="flex:1;font-size:12.5px">Mejor si es algo concreto y chico: un cambio por forja.</span><button class="btn btn-primario">⚒ Forjar</button></div>
     </form>
     <div id="fr-cuerpo"></div>`
   $('#fr-pedir').onsubmit = async (e) => {
@@ -84,7 +84,7 @@ async function verForja(id, rama) {
     ${f.archivos.length ? `<p class="tenue">Toca: ${f.archivos.map((a) => `<code>${esc(a)}</code>`).join(' ')} · rama <code>${esc(f.rama)}</code></p>` : ''}
     ${f.diff ? `<div class="fr-diff">${pintarDiff(f.diff)}</div>` : ''}
     ${f.salida ? `<details ${f.estado !== 'lista' ? 'open' : ''}><summary class="tenue">Salida de la verificación</summary><pre class="fr-diff">${esc(f.salida)}</pre></details>` : ''}
-    <div class="fila" style="margin-top:12px">${f.estado === 'lista' ? `<button class="btn btn-primario" id="fr-aplicar">Aplicar a ${esc(rama ?? 'la rama actual')}</button>` : ''}${['lista', 'rota', 'fallo'].includes(f.estado) ? '<button class="btn" id="fr-descartar">Descartar</button>' : ''}</div>`)
+    <div class="fila mt-3">${f.estado === 'lista' ? `<button class="btn btn-primario" id="fr-aplicar">Aplicar a ${esc(rama ?? 'la rama actual')}</button>` : ''}${['lista', 'rota', 'fallo'].includes(f.estado) ? '<button class="btn" id="fr-descartar">Descartar</button>' : ''}</div>`)
   if ($('#fr-aplicar')) $('#fr-aplicar').onclick = async () => {
     if (!(await confirmar(`¿Aplicar este cambio al código (rama ${rama ?? 'actual'})?`, { detalle: 'Después hay que reiniciar el servidor.', si: 'Aplicar el cambio' }))) return
     try { await api(`/fragua/${id}/aplicar`, {}); cerrarModal(); toast('Aplicada<small>Reiniciá el servidor para que corra lo nuevo.</small>'); refrescarFragua() } catch (e) { error(e) }

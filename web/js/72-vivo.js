@@ -154,7 +154,7 @@ function modalBloque() {
       <label class="campo">En qué<input id="bq-tema" placeholder="el informe, el mail al cliente…"></label>
       <label class="campo">Minutos<input id="bq-min" type="number" min="5" max="180" placeholder="su meta de bloque"></label>
     </div>
-    <div class="fila" style="margin-top:12px"><button class="btn btn-primario" id="bq-ir">⏱ Arrancar</button><button class="btn" data-bq="25">25′</button><button class="btn" data-bq="50">50′</button></div>`)
+    <div class="fila mt-3"><button class="btn btn-primario" id="bq-ir">⏱ Arrancar</button><button class="btn" data-bq="25">25′</button><button class="btn" data-bq="50">50′</button></div>`)
   const ir = async (min) => {
     try {
       await api('/bloque', { minutos: min || Number($('#bq-min').value) || null, tema: $('#bq-tema').value.trim() || null })

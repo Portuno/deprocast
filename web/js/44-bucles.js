@@ -75,13 +75,13 @@ async function recordarPiezaUI(id) {
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>🧠 ¿Qué te acordás?</h2>
     <p class="tenue">De «${esc(d.titulo)}». Antes de mirar: ¿qué plantea?, ¿con qué lo sostiene?, ¿qué te llevás para hacer?</p>
     <textarea class="campo-suelto" id="rp-mio" rows="4" placeholder="Lo que recordás, con tus palabras (aunque sea poco: recordar es lo que fija)"></textarea>
-    <div class="fila" style="margin-top:10px"><button class="btn btn-primario" id="rp-ver">👀 Ver lo que plantea</button></div>
+    <div class="fila mt-3"><button class="btn btn-primario" id="rp-ver">👀 Ver lo que plantea</button></div>
     <div id="rp-resp" hidden>
       ${d.tesis ? `<h3 class="sub">Qué plantea</h3><p>${esc(d.tesis)}</p>` : ''}
       ${d.resumen ? `<h3 class="sub">Resumen</h3><p class="tenue">${esc(d.resumen)}</p>` : ''}
       ${!d.tesis && !d.resumen ? '<p class="tenue">Todavía no está destilada: el Procesar la lee en la nube.</p>' : ''}
       <h3 class="sub">Sus tarjetas (${d.tarjetas.length})</h3>
-      ${d.tarjetas.length ? `${d.tarjetas.map((t) => `<details class="rp-tj"><summary>${esc(t.frente)}</summary><p>${esc(t.dorso)}</p></details>`).join('')}<div class="fila" style="margin-top:8px"><button class="btn btn-chico" id="rp-repasar">🃏 Repasar las que tocan</button></div>`
+      ${d.tarjetas.length ? `${d.tarjetas.map((t) => `<details class="rp-tj"><summary>${esc(t.frente)}</summary><p>${esc(t.dorso)}</p></details>`).join('')}<div class="fila mt-2"><button class="btn btn-chico" id="rp-repasar">🃏 Repasar las que tocan</button></div>`
         : '<p class="tenue chico">Sin tarjetas todavía.</p><button class="btn btn-chico" id="rp-armar">Armar tarjetas (en la nube)</button>'}
     </div>`)
   $('#rp-ver').onclick = () => { $('#rp-resp').hidden = false; $('#rp-ver').hidden = true }

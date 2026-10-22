@@ -499,7 +499,7 @@ function textoConImagenes(texto) {
 
 /** Una imagen del chat, grande, con lo que Mastropiero vio en ella. */
 function verImagenChat(url, desc) {
-  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><div class="visor-img"><img src="${esc(url)}" alt="${esc(desc)}"></div>${desc && desc !== 'sin descripción' ? `<p class="tenue chico" style="margin-top:10px"><b>Lo que vio Mastropiero:</b> ${esc(desc)}</p>` : ''}<p class="chico"><a href="${esc(url)}" target="_blank" rel="noopener">Abrir el original ↗</a></p>`)
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><div class="visor-img"><img src="${esc(url)}" alt="${esc(desc)}"></div>${desc && desc !== 'sin descripción' ? `<p class="tenue chico mt-3"><b>Lo que vio Mastropiero:</b> ${esc(desc)}</p>` : ''}<p class="chico"><a href="${esc(url)}" target="_blank" rel="noopener">Abrir el original ↗</a></p>`)
 }
 document.addEventListener('click', (e) => {
   const b = e.target.closest?.('[data-ver-img]')

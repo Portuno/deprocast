@@ -23,7 +23,7 @@ async function montarDiscovery() {
   let d
   try { d = await api('/encargos') } catch (e) { return error(e) }
   $('#dsc-lista').innerHTML = d.encargos.length ? `<div class="tarjetas">${d.encargos.map((e) => `<article class="tarjeta dsc-enc" data-dsc="${e.id}">
-      <header class="fila" style="justify-content:space-between"><h3>${esc(e.cliente)}</h3><span class="chip dsc-estado ${esc(e.estado)}">${esc(e.estado)}</span></header>
+      <header class="fila entre"><h3>${esc(e.cliente)}</h3><span class="chip dsc-estado ${esc(e.estado)}">${esc(e.estado)}</span></header>
       <p>${esc(e.nombre)}</p>
       <small class="tenue">${e.departamento ? `Empieza por ${esc(e.departamento)} · ` : ''}${e.entrevistas} entrevistas · ${e.logs} logs · ${e.procesos} procesos</small>
     </article>`).join('')}</div>` : '<div class="vacio"><div class="gran">◇</div><h2>Todavía no hay encargos</h2><p>Abrí uno por cliente: después sumás sus áreas, entrevistas, documentos y logs.</p></div>'
@@ -61,7 +61,7 @@ async function montarEncargo(id) {
   const { encargo: e } = dscDatos
   $('#principal').innerHTML = `
     <div class="cabecera"><div class="cabecera-texto"><p><a href="#" id="dsc-volver">‹ Encargos</a></p><h1>${esc(e.cliente)}</h1><p>${esc(e.nombre)}${e.departamento ? ` · empieza por <b>${esc(e.departamento)}</b>` : ''}</p></div>
-      <div class="fila"><select class="campo-suelto" id="dsc-estado" style="margin:0">${['discovery', 'diseño', 'sombra', 'vivo', 'cerrado'].map((x) => `<option ${x === e.estado ? 'selected' : ''}>${x}</option>`).join('')}</select></div></div>
+      <div class="fila"><select class="campo-suelto m-0" id="dsc-estado">${['discovery', 'diseño', 'sombra', 'vivo', 'cerrado'].map((x) => `<option ${x === e.estado ? 'selected' : ''}>${x}</option>`).join('')}</select></div></div>
     <div class="tabs" id="dsc-tabs">${[['areas', 'Áreas'], ['entrevistas', 'Entrevistas'], ['logs', 'Logs'], ['procesos', 'As-is y to-be'], ['valor', 'Valor'], ['sombra', 'Sombra'], ['personas', 'Personas']].map(([k, n]) => `<button data-tab="${k}" class="${dscTab === k ? 'on' : ''}">${n}</button>`).join('')}</div>
     ${dscDatos.enLaNube ? '' : '<p class="tenue chico">Esta es la copia de la compu: la guía, el as-is, el to-be y los KPIs los arma Mastropiero en la nube.</p>'}
     <div id="dsc-cuerpo"></div>`
@@ -210,10 +210,10 @@ function dscPersonas(cont, id) {
   const champs = xs.filter((p) => p.rol === 'champion')
   cont.innerHTML = `<p class="tenue">El sponsor decide y lleva la hoja al directorio. Los champions (5 a 10 % de la gente) ya usan IA para trabajar mejor: un día de formación, un tablero de minutos ahorrados (no de tokens) y construyen los agentes del área siguiente.</p>
     ${xs.map((p) => `<div class="sq"><span><b>${esc(p.nombre)}</b><small>${esc(p.rol)}</small></span></div>`).join('') || '<p class="tenue chico">Nadie todavía.</p>'}
-    <form class="fila" id="dsc-persona" style="margin-top:10px"><input class="campo-suelto" name="nombre" placeholder="Nombre" required style="margin:0"><select class="campo-suelto" name="rol" style="margin:0;max-width:160px"><option value="champion">Champion</option><option value="sponsor">Sponsor</option></select><button class="btn">Sumar</button></form>
+    <form class="fila mt-3" id="dsc-persona"><input class="campo-suelto m-0" name="nombre" placeholder="Nombre" required><select class="campo-suelto" name="rol" style="margin:0;max-width:160px"><option value="champion">Champion</option><option value="sponsor">Sponsor</option></select><button class="btn">Sumar</button></form>
     ${champs.length ? `<section class="seccion"><h3>Tablero de los champions <small class="tenue">minutos ahorrados, no tokens</small></h3>
       ${tablero.length ? `<table class="dsc-tabla"><thead><tr><th>#</th><th>Quién</th><th>Últimas 4 semanas</th><th>Total</th></tr></thead><tbody>${tablero.map((t, i) => `<tr><td>${i + 1}</td><td><b>${esc(t.nombre)}</b></td><td>${t.minutos4} min</td><td>${t.total} min</td></tr>`).join('')}</tbody></table>` : '<p class="tenue chico">Todavía nadie reportó minutos.</p>'}
-      <form class="fila" id="dsc-ahorro"><select class="campo-suelto" name="personaId" style="margin:0;max-width:200px">${champs.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</select><input class="campo-suelto" name="minutos" type="number" min="1" placeholder="Minutos" required style="margin:0;max-width:110px"><input class="campo-suelto" name="que" placeholder="Con qué (su skill, su agente…)" style="margin:0"><button class="btn">Anotar</button></form></section>` : ''}`
+      <form class="fila" id="dsc-ahorro"><select class="campo-suelto" name="personaId" style="margin:0;max-width:200px">${champs.map((p) => `<option value="${p.id}">${esc(p.nombre)}</option>`).join('')}</select><input class="campo-suelto" name="minutos" type="number" min="1" placeholder="Minutos" required style="margin:0;max-width:110px"><input class="campo-suelto m-0" name="que" placeholder="Con qué (su skill, su agente…)"><button class="btn">Anotar</button></form></section>` : ''}`
   if ($('#dsc-ahorro')) $('#dsc-ahorro').onsubmit = async (ev) => { ev.preventDefault(); try { await api(`/encargos/${id}/ahorros`, Object.fromEntries(new FormData(ev.target))); recargarEncargo(id) } catch (e) { error(e) } }
   $('#dsc-persona').onsubmit = async (ev) => { ev.preventDefault(); try { await api(`/encargos/${id}/personas`, Object.fromEntries(new FormData(ev.target))); recargarEncargo(id) } catch (e) { error(e) } }
 }

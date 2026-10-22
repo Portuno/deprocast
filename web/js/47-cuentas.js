@@ -68,7 +68,7 @@ async function traerCuentas() {
     const otras = d.cuentas.filter((c) => !redes.some((r) => deLaRed(c, r)))
     cont.innerHTML = `${redes.map((r) => {
       const ag = d.cuentas.filter((c) => deLaRed(c, r))
-      return `<section class="red-red"><div class="fila"><h3>${esc(r.nombre)}</h3><span class="tipo-chip">${r.oficio === 'creador' ? 'creador' : 'operador'}</span><span style="flex:1"></span><button class="btn btn-chico" data-red="${esc(r.id)}">+</button></div>
+      return `<section class="red-red"><div class="fila"><h3>${esc(r.nombre)}</h3><span class="tipo-chip">${r.oficio === 'creador' ? 'creador' : 'operador'}</span><span class="f1"></span><button class="btn btn-chico" data-red="${esc(r.id)}">+</button></div>
         ${ag.map(tarjeta).join('') || '<p class="tenue chico">Ningún agente.</p>'}</section>`
     }).join('')}${otras.length ? `<section class="red-red"><h3>Otras</h3>${otras.map(tarjeta).join('')}</section>` : ''}`
     $$('[data-red]', cont).forEach((b) => (b.onclick = () => modalCuenta(null, b.dataset.red)))
@@ -134,16 +134,16 @@ async function modalCuenta(c = null, redId = null) {
       <label class="campo">Correo<input id="cu-correo" value="${esc(full?.correo ?? '')}" placeholder="correo@…"></label>
       <label class="campo">Modo<select id="cu-modo">${(cuentasDatos?.modos ?? ['lectura', 'redacta', 'libre']).map((m) => `<option value="${m}" ${(full?.modo ?? 'redacta') === m ? 'selected' : ''}>${MODO_TXT[m]}</option>`).join('')}</select></label>
       <label class="campo">Publica por<select id="cu-conector">${Object.entries(cuentasDatos?.conectores ?? { manual: 'Manual' }).map(([k, v]) => `<option value="${k}" ${full?.conector === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
-      <label class="campo fila" style="gap:6px"><input type="checkbox" id="cu-activa" ${full?.activa === false ? '' : 'checked'}> Activa</label>
+      <label class="campo fila g-2"><input type="checkbox" id="cu-activa" ${full?.activa === false ? '' : 'checked'}> Activa</label>
       <label class="campo campo-ancho">Temas<input id="cu-temas" value="${esc(full?.reglas?.temas ?? '')}" placeholder="De qué habla este agente"></label>
       <label class="campo">Tono<input id="cu-tono" value="${esc(full?.reglas?.tono ?? '')}" placeholder="irónico, cercano, técnico…"></label>
       <label class="campo">Horas (libre)<input id="cu-horas" value="${esc((full?.reglas?.horas ?? [10, 19]).join(','))}"></label>
       <label class="campo">Chat del canal (Telegram)<input id="cu-chat" value="${esc(full?.reglas?.chatId ?? '')}" placeholder="@micanal o -100…"></label>
       <div class="campo campo-ancho"><span>Tipos y cantidades</span><div class="cu-cupos" id="cu-cupos">${htmlCupos(cupos)}</div>
-        <button type="button" class="btn btn-chico" id="cu-sumar" style="margin-top:6px">+ tipo</button></div>
+        <button type="button" class="btn btn-chico mt-2" id="cu-sumar">+ tipo</button></div>
       <label class="campo campo-ancho">Contexto (.md)<textarea id="cu-md" class="cu-md" placeholder="# Voz&#10;De qué habla, qué no dice, a quién le contesta.">${esc(full?.markdown ?? '')}</textarea></label>
     </div>
-    <div class="fila" style="margin-top:12px"><button class="btn btn-primario" id="cu-guardar">Guardar</button></div>`)
+    <div class="fila mt-3"><button class="btn btn-primario" id="cu-guardar">Guardar</button></div>`)
   const engancharQuitar = () => $$('#cu-cupos [data-quitar]').forEach((b) => (b.onclick = () => b.closest('.cu-cupo').remove()))
   engancharQuitar()
   $('#cu-sumar').onclick = () => {

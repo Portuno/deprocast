@@ -150,7 +150,7 @@ async function montarCuaderno(id) {
     cuImport.entidad = entId
     const box = $('#cu-res')
     if (!box) return
-    box.innerHTML = '<p class="tenue">Cargando…</p>'
+    box.innerHTML = '<p class="tenue" role="status">Trayendo el cuaderno…</p>'
     let d
     try { d = await api(`/entidades/${entId}/componentes`) } catch (e) { cuImport.entidad = null; return error(e) }
     if (cuImport.entidad !== entId || !$('#cu-res')) return

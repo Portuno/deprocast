@@ -255,6 +255,7 @@ body.nav-mini .nav-espacios button { justify-content: center; }
 .vacio h2 { color: var(--texto); font-size: var(--t-6); font-weight: 600; margin: 6px 0; }
 .vacio .gran { font-size: var(--t-8); color: var(--debil); }
 .vacio p { max-width: 520px; margin: 6px auto; }
+.vacio > .btn { margin-top: var(--e-3); } /* el paso siguiente */
 .panel { background: var(--panel); border: 1px solid var(--linea); border-radius: var(--r-m); padding: 16px; }
 .panel h3, h3.sub { margin: 0 0 10px; font-size: var(--t-1); font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--tenue); }
 h3.sub { margin: 20px 0 8px; }
@@ -302,6 +303,17 @@ h3.sub { margin: 20px 0 8px; }
 .atajos td:first-child { width: 40%; white-space: nowrap; }
 .atajos kbd { margin-right: 2px; }
 @media (max-width: 720px) { .paleta-velo { padding: var(--e-2); } .paleta { max-height: 85vh; } .paleta-pie { display: none; } }
+
+/* ─── Utilidades de la escala (plan v22): en vez de style="" sueltos en el JS. Ganan como ganaba el style. ─── */
+.f1 { flex: 1 !important; }
+.m-0 { margin: 0 !important; }
+.mt-1 { margin-top: var(--e-1) !important; } .mt-2 { margin-top: var(--e-2) !important; } .mt-3 { margin-top: var(--e-3) !important; } .mt-4 { margin-top: var(--e-4) !important; }
+.my-2 { margin-top: var(--e-2) !important; margin-bottom: var(--e-2) !important; } .my-3 { margin-top: var(--e-3) !important; margin-bottom: var(--e-3) !important; }
+.g-1 { gap: var(--e-1) !important; } .g-2 { gap: var(--e-2) !important; }
+.w-full { width: 100% !important; } .w-auto { width: auto !important; }
+.entre { justify-content: space-between !important; } .centro { justify-content: center !important; }
+.mono-chico { font: var(--t-2) var(--mono) !important; }
+.acento-texto { color: var(--acento-texto) !important; }
 
 /* ─── Tabla base: cabecera fija, filas de 36 px, números a la derecha (.n) ─── */
 .tabla { width: 100%; border-collapse: collapse; font-size: var(--t-3); }
@@ -2563,3 +2575,13 @@ span.ej-chip { cursor: default; }
   .bj-decidir kbd, .bj-teclas { display: none; }
   .bj-lista { max-height: none; }
 }
+
+/* ─── El naipe (plan v22): una sola forma de carta para quántomos, La Mano, primarias e idiomas ───
+   Va al final para mandar sobre el marco de cada una; su contenido sigue siendo el de cada vista. El filete de la
+   izquierda dice la madurez: proto (gris), pesándose (ámbar), sellada (oro), núcleo (verde). */
+.naipe { --madurez: transparent; border: 1px solid var(--linea); border-radius: var(--r-m); box-shadow: inset 3px 0 0 var(--madurez); transition: border-color .15s, transform .15s; }
+.naipe:hover { border-color: var(--linea-2); }
+.naipe[data-madurez='proto'] { --madurez: var(--linea-2); }
+.naipe[data-madurez='pesado'] { --madurez: var(--aviso); }
+.naipe[data-madurez='sellado'] { --madurez: var(--acento); }
+.naipe[data-madurez='nucleo'] { --madurez: var(--ok); }

@@ -20,7 +20,7 @@ async function pintarSuenos() {
   let d
   try { d = await api('/suenos') } catch (e) { return error(e) }
   if (!d.total) {
-    cont.innerHTML = '<div class="vacio"><div class="gran">🌙</div><h2>Todavía no anotaste sueños</h2><p>Lo mejor: apenas te despertás, un audio de un minuto por Telegram que empiece con «soñé…».</p></div>'
+    cont.innerHTML = '<div class="vacio"><div class="gran">🌙</div><h2>Todavía no anotaste sueños</h2><p>Lo mejor: apenas te despertás, un audio de un minuto por Telegram que empiece con «soñé…».</p><button class="btn btn-primario" data-paso-hacer="sueno">Anotar un sueño</button></div>'
     return
   }
   const maxSem = Math.max(1, ...d.semanas.map((s) => s.suenos))
@@ -54,7 +54,7 @@ function modalSueno() {
         <label class="campo">Hora<input name="despertar" type="time"></label>
         <label class="campo">Emociones (separadas por coma)<input name="emociones" placeholder="miedo, alivio"></label></div>
       <label class="fila" style="gap:6px;margin-top:8px"><input type="checkbox" name="lucido"> Me di cuenta de que soñaba (lúcido)</label>
-      <button class="btn btn-primario" style="margin-top:10px">Guardar</button>
+      <button class="btn btn-primario mt-3">Guardar</button>
     </form>`)
   $('#sn-form').onsubmit = async (ev) => {
     ev.preventDefault()
@@ -74,7 +74,7 @@ async function modalApps() {
     ${d.apps.length ? d.apps.map((a) => `<div class="fila app-fila ${a.revocadaEn ? 'revocada' : ''}"><b>${esc(a.nombre)}</b><code>${esc(a.prefijo)}…</code><small class="tenue">${a.permisos.join(', ')} · ${a.usos} usos · último ${fecha(a.ultimaVez)}${a.revocadaEn ? ' · revocada' : ''}</small>${a.revocadaEn ? '' : `<button class="btn btn-chico btn-peligro" data-app-revocar="${a.id}">Revocar</button>`}</div>`).join('') : '<p class="tenue chico">Ninguna todavía.</p>'}
     <form id="app-form" class="seccion"><h3 class="sub">Una app nueva</h3>
       <div class="fila"><label class="campo">Nombre<input name="nombre" value="${d.apps.some((a) => a.nombre === 'Morpheon' && !a.revocadaEn) ? '' : 'Morpheon'}" required></label>
-        ${d.permisos.map((p) => `<label class="fila" style="gap:4px"><input type="checkbox" name="permisos" value="${p}" ${p === 'suenos' ? 'checked' : ''}> ${p}</label>`).join('')}</div>
+        ${d.permisos.map((p) => `<label class="fila g-1"><input type="checkbox" name="permisos" value="${p}" ${p === 'suenos' ? 'checked' : ''}> ${p}</label>`).join('')}</div>
       <button class="btn btn-primario">Crear y ver el token</button>
     </form>
     <div id="app-token"></div>`)

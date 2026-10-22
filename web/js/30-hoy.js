@@ -814,10 +814,10 @@ function modalRun(pre = {}) {
         <label class="campo">Formato<input id="r-formato" placeholder="verbos al principio, con pausas…"></label>
         <label class="campo campo-ancho">Meter proyectos o personas<input id="r-incluir-q" placeholder="Buscá una entidad, o escribí un nombre nuevo…" autocomplete="off"></label>
         <div class="campo-ancho"><div class="r-sugerencias" id="r-sug"></div><div class="tags" id="r-incluidos"></div></div>
-        <label class="campo fila" style="gap:6px"><input id="r-sub" type="checkbox" checked> Con subdescripción</label>
+        <label class="campo fila g-2"><input id="r-sub" type="checkbox" checked> Con subdescripción</label>
       </div>
     </details>
-    <div class="fila" style="margin-top:14px">
+    <div class="fila mt-3">
       <button class="btn btn-primario" id="r-armar">Armar</button>
       <button class="btn btn-chico" id="r-guardar">Guardar como plantilla</button>
     </div>`)
@@ -901,7 +901,7 @@ function modalAjustesHoy() {
       <label class="campo">Tope diario de lo que corre solo (tokens, 0 = sin tope)<input id="aj-tope" type="number" min="0" step="500000" value="${esc(hoyDatos.ajustes.tokens_dia_max ?? 5000000)}"></label>
       <label class="campo">Runs: foco y descanso (minutos, «90/20»; 0 = sin ciclos)<input id="aj-ciclo" value="${esc(hoyDatos.ajustes.ciclo_bandas ?? '90/20')}" placeholder="90/20"></label>
       <label class="campo">La Fragua forja por noche (propuestas, 0 = ninguna)<input id="aj-fragua" type="number" min="0" max="10" value="${esc(hoyDatos.ajustes.fragua_por_noche ?? 3)}"></label>
-      <label class="fila" style="gap:6px"><input type="checkbox" id="aj-directo" ${hoyDatos.ajustes.directo_auto !== '0' ? 'checked' : ''}> Del Directo, las ideas y lo que miraste entran solas (tareas, personas y conexiones esperan tu ok)</label>
+      <label class="fila g-2"><input type="checkbox" id="aj-directo" ${hoyDatos.ajustes.directo_auto !== '0' ? 'checked' : ''}> Del Directo, las ideas y lo que miraste entran solas (tareas, personas y conexiones esperan tu ok)</label>
       <label class="campo">Mastropiero piensa solo cada (horas, 0 = nunca)<input id="aj-pensar" type="number" min="0" max="24" value="${esc(hoyDatos.ajustes.pensar_cada_horas ?? 3)}"></label>
       <label class="campo">Tu horario fijo (las runs no ponen nada encima; vacío = sin horario)<input id="aj-horario" placeholder="L-J 08:30-17:30 Trabajo; V 08:30-14:30 Trabajo" value="${esc(hoyDatos.ajustes.horario_fijo ?? '')}"></label></div>
     <h3 class="sub">Directo y voz</h3>
@@ -912,11 +912,11 @@ function modalAjustesHoy() {
       <label class="campo">Tecla para hablarle desde cualquier pantalla (mantener)<select id="aj-tecla">${['Alt', 'Control', 'F8', 'F9', 'ninguna'].map((t) => `<option ${teclaVoz() === t ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
     </div>
     <h3 class="sub">Rutinas</h3>
-    ${r.map((x) => `<div class="fila" style="margin:6px 0"><label class="fila" style="gap:6px;min-width:260px"><input type="checkbox" data-rut-activa="${x.id}" ${x.activa ? 'checked' : ''}> ${esc(x.nombre)}</label>
+    ${r.map((x) => `<div class="fila my-2"><label class="fila" style="gap:6px;min-width:260px"><input type="checkbox" data-rut-activa="${x.id}" ${x.activa ? 'checked' : ''}> ${esc(x.nombre)}</label>
       <input class="campo-suelto" type="time" data-rut-hora="${x.id}" value="${esc(x.hora)}" style="width:120px;margin:0"><small class="tenue">${x.dias === '0123456' ? 'todos los días' : x.dias.split('').map((d) => ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'][d]).join(', ')}</small></div>`).join('')}
     <h3 class="sub">Plantillas de run</h3>
     ${ps.map((p) => `<div class="fila" style="margin:4px 0"><span style="min-width:200px">${esc(p.nombre)}</span><small class="tenue">${esc(JSON.stringify(p.pedido))}</small>${p.sistema ? '' : `<button class="btn btn-chico btn-peligro" data-borrar-p="${p.id}">Borrar</button>`}</div>`).join('')}
-    <div class="fila" style="margin-top:16px"><button class="btn btn-primario" id="aj-guardar">Guardar</button><button class="btn" id="aj-apps" title="Morpheon y otras apps tuyas que le hablan a Deprocast">🔌 Apps conectadas</button><button class="btn" id="aj-velocidad" title="Cuánto tarda cada ruta y cuánto se traba el servidor">⏱ Velocidad</button></div>`)
+    <div class="fila mt-4"><button class="btn btn-primario" id="aj-guardar">Guardar</button><button class="btn" id="aj-apps" title="Morpheon y otras apps tuyas que le hablan a Deprocast">🔌 Apps conectadas</button><button class="btn" id="aj-velocidad" title="Cuánto tarda cada ruta y cuánto se traba el servidor">⏱ Velocidad</button></div>`)
   api('/voz').then((v) => {
     $('#aj-voz').innerHTML = Object.entries(v.voces).map(([k, n]) => `<option value="${esc(k)}" ${v.voz === k ? 'selected' : ''}>${esc(n)}</option>`).join('')
   }).catch(() => {})

@@ -14,17 +14,17 @@ function montarCriba() {
   cribaOrden = pref.leer('mastro-criba-orden', 'auto')
   $('#principal').innerHTML = `
     <div class="titulo"><h1>Criba</h1>
-      <div class="fila"><select class="campo-suelto" style="width:auto;margin:0" id="cr-nivel"><option value="">Todo</option><option value="propia">Lo mío</option><option value="primaria">Fuentes primarias</option><option value="investigacion">Investigación</option></select>
-        <select class="campo-suelto" style="width:auto;margin:0" id="cr-orden" title="En qué orden salen">${ORDENES_CRIBA.map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></div></div>
+      <div class="fila"><select class="campo-suelto w-auto m-0" id="cr-nivel"><option value="">Todo</option><option value="propia">Lo mío</option><option value="primaria">Fuentes primarias</option><option value="investigacion">Investigación</option></select>
+        <select class="campo-suelto w-auto m-0" id="cr-orden" title="En qué orden salen">${ORDENES_CRIBA.map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></div></div>
     <div class="criba-mesa">
       <div class="criba">
         <div class="criba-marcador" id="cr-marcador"></div>
-        <div class="criba-carta" id="cr-carta"></div>
+        <div class="naipe criba-carta" id="cr-carta"></div>
         <div class="criba-pesos" id="cr-pesos">
           <button class="btn" data-peso="0" title="Descartar (x)">✕</button>
           ${Array.from({ length: 12 }, (_, i) => `<button class="btn" data-peso="${i + 1}" title="Tecla ${i + 1 === 10 ? '0' : i + 1 === 11 ? 'q' : i + 1 === 12 ? 'w' : i + 1}">${i + 1}</button>`).join('')}
         </div>
-        <div class="fila" style="justify-content:center"><button class="btn btn-chico" id="cr-saltear" title="Espacio">Saltear</button><button class="btn btn-chico" id="cr-deshacer" title="z">Deshacer</button></div>
+        <div class="fila centro"><button class="btn btn-chico" id="cr-saltear" title="Espacio">Saltear</button><button class="btn btn-chico" id="cr-deshacer" title="z">Deshacer</button></div>
       </div>
       <aside class="criba-nota">
         <textarea id="cr-nota" placeholder="Anotá algo sobre esto… (@ para nombrar a alguien o un proyecto)"></textarea>
@@ -58,7 +58,7 @@ function pintarCarta(p) {
   cribaPieza = p
   const c = $('#cr-carta')
   if (!c) return
-  if (!p) { c.innerHTML = '<p class="vacio">No queda nada sin pesar acá. 🎉</p>'; pintarNotas([]); return }
+  if (!p) { c.innerHTML = '<div class="vacio"><p>No queda nada sin pesar acá. 🎉</p><button class="btn" data-paso-ir="mano">Jugar La Mano</button></div>'; pintarNotas([]); return }
   c.innerHTML = `<div class="p-top"><span>#${p.id}</span>${nivelBadge(p.nivel)}${p.fecha ? `<span>${esc(String(p.fecha).slice(0, 10))}</span>` : ''}${p.tipo !== 'materia' ? `<span class="tipo-chip">${esc(p.tipo)}</span>` : ''}</div>
     <h2 title="${esc(p.tituloOriginal ?? p.titulo)}">${esc(p.titulo)}</h2>
     ${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">${esc(p.url.slice(0, 90))}</a>` : ''}

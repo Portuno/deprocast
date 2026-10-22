@@ -8,9 +8,9 @@ async function montarModelos(cont) {
   const xs = d.modelos
   cont.innerHTML = `
     <p class="tenue">Hasta tres personas que tomás de modelo. Mastropiero arma el manual operativo de cada una con lo que hay de ella en tu corpus (y la web): principios, su vara, cómo decide, lo que evita. Mandale links, videos o libros suyos para que el manual sea mejor.</p>
-    ${xs.length < 3 ? `<form class="fila" id="mo-sumar" style="margin:10px 0"><input class="campo-suelto" name="nombre" placeholder="Nombre de la persona" style="flex:1;margin:0"><button class="btn btn-primario">＋ Sumar al consejo</button></form>` : ''}
+    ${xs.length < 3 ? `<form class="fila my-3" id="mo-sumar"><input class="campo-suelto f1 m-0" name="nombre" placeholder="Nombre de la persona"><button class="btn btn-primario">＋ Sumar al consejo</button></form>` : ''}
     ${xs.length ? `<div class="tarjetas">${xs.map((m) => `<article class="tarjeta mo-mod">
-        <header class="fila" style="justify-content:space-between"><h3>♛ ${esc(m.nombre)}</h3><button class="btn btn-chico" data-mo-quitar="${m.id}" title="Sacar del consejo">✕</button></header>
+        <header class="fila entre"><h3>♛ ${esc(m.nombre)}</h3><button class="btn btn-chico" data-mo-quitar="${m.id}" title="Sacar del consejo">✕</button></header>
         ${m.manual ? `<p>${esc(m.manual.resumen)}</p><ul class="mo-principios">${m.manual.principios.slice(0, 5).map((p) => `<li><b>${esc(p.principio)}</b> <span class="tenue">${esc(p.en_la_practica)}</span></li>`).join('')}</ul>
           <small class="tenue">Manual del ${new Date(m.manualEn).toLocaleDateString('es-AR')}${m.manualPieza ? ` · <a href="#" class="ref" data-mo-pieza="${m.manualPieza}">verlo entero</a>` : ''}</small>`
           : '<p class="tenue chico">Todavía sin manual.</p>'}

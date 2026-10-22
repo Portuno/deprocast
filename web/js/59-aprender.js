@@ -23,7 +23,7 @@ async function pintarAprender() {
   try {
     if (['dia', 'cien', 'frentes'].includes(aprTab)) {
       const d = await api(`/cien?fecha=${aprFecha}`)
-      if (!d.plan) { cont.innerHTML = '<div class="vacio"><div class="gran">◷</div><h2>Todavía no hay un plan con fecha</h2><p>Pedile a Mastropiero que importe tus Cien Días.</p></div>'; return }
+      if (!d.plan) { cont.innerHTML = '<div class="vacio"><div class="gran">◷</div><h2>Todavía no hay un plan con fecha</h2><p>Pedile a Mastropiero que importe tus Cien Días.</p><button class="btn btn-primario" data-paso-preguntar="Importá mis Cien Días al plan.">Pedírselo a Mastropiero</button></div>'; return }
       if (aprTab === 'dia') pintarDiaPlan(cont, d)
       else if (aprTab === 'cien') pintarCien(cont, d)
       else pintarFrentes(cont, d)
@@ -63,7 +63,7 @@ function pintarDiaPlan(cont, d) {
     </div>
     <section class="seccion"><h3>Tareas del día</h3>${d.tareas.length ? d.tareas.map(filaTarea).join('') : '<p class="tenue">Nada agendado para este día.</p>'}</section>
     ${d.atrasadas.length ? `<section class="seccion"><h3>Atrasadas (reubicalas o hacelas)</h3>${d.atrasadas.map(filaTarea).join('')}</section>` : ''}
-    <section class="seccion"><h3>Nota del día</h3><form class="fila" id="apr-nota"><textarea name="nota" rows="2" style="flex:1" placeholder="Qué pasó, qué aprendiste">${esc(d.dia.nota ?? '')}</textarea><button class="btn btn-chico">Guardar</button></form></section>`
+    <section class="seccion"><h3>Nota del día</h3><form class="fila" id="apr-nota"><textarea name="nota" rows="2" class="f1" placeholder="Qué pasó, qué aprendiste">${esc(d.dia.nota ?? '')}</textarea><button class="btn btn-chico">Guardar</button></form></section>`
   $$('[data-dia]', cont).forEach((b) => (b.onclick = () => { aprFecha = b.dataset.dia === 'hoy' ? hoyISO() : corrDia(aprFecha, Number(b.dataset.dia)); pintarAprender() }))
   $$('[data-verbo]', cont).forEach((b) => (b.onclick = async () => { try { await api('/cien/voto', { fecha: aprFecha, verbo: b.dataset.verbo }); pintarAprender() } catch (e) { error(e) } }))
   $$('[data-hab]', cont).forEach((c) => (c.onchange = async () => { try { await api('/cien/habito', { fecha: aprFecha, id: c.dataset.hab, valor: c.checked }); pintarAprender() } catch (e) { error(e) } }))
@@ -96,7 +96,7 @@ function pintarTemas(cont, d) {
       <h4>${esc(a.tema)} ${a.estado !== 'activo' ? `<small class="tenue">(${esc(a.estado)})</small>` : ''}</h4>
       <p>${a.practicas ? `${a.minutosSemana} min esta semana · ${a.minutos} en total · ${a.diasMes} día${a.diasMes === 1 ? '' : 's'} este mes · última ${esc(a.ultima)}` : 'Todavía sin práctica anotada.'}</p>
       ${a.nivelObjetivo ? `<p>Objetivo: ${esc(a.nivelObjetivo)}</p>` : ''}
-      <form class="fila" data-practica="${a.id}"><input name="minutos" type="number" min="1" placeholder="min" style="width:5em"><input name="que" placeholder="Qué practicaste" style="flex:1"><button class="btn btn-chico">Anotar</button></form>
+      <form class="fila" data-practica="${a.id}"><input name="minutos" type="number" min="1" placeholder="min" style="width:5em"><input name="que" placeholder="Qué practicaste" class="f1"><button class="btn btn-chico">Anotar</button></form>
       <div class="fila"><button class="btn btn-chico" data-recursos="${a.id}">Recursos</button><button class="btn btn-chico" data-estado="${a.id}" data-a="${a.estado === 'activo' ? 'pausado' : 'activo'}">${a.estado === 'activo' ? 'Pausar' : 'Reactivar'}</button></div>
       <div class="apr-recursos" id="apr-rec-${a.id}"></div></article>`).join('')}</div>` : '<p class="tenue">Todavía no anotaste nada para aprender.</p>'}`
   $('#apr-nuevo').onsubmit = async (ev) => { ev.preventDefault(); try { await api('/aprender', Object.fromEntries(new FormData(ev.target))); pintarAprender() } catch (e) { error(e) } }
@@ -121,8 +121,8 @@ function pintarRepaso(cont, d) {
   cont.innerHTML = `
     <section class="seccion"><h3>Para repasar ahora (${tocan.length})</h3>
       ${tocan.length ? tocan.map((p) => `<form class="apr-rep" data-rep="${p.id}"><b>${esc(p.texto)}</b><small class="tenue">${esc(p.porQue ?? '')} · vuelta ${p.vuelta + 1} de 4</small>
-        <div class="fila"><input name="respuesta" placeholder="De memoria…" style="flex:1"><button class="btn btn-chico btn-primario">Responder</button><button class="btn btn-chico" type="button" data-saltar="${p.id}">Mañana</button></div></form>`).join('') : '<p class="tenue">Nada para repasar ahora.</p>'}</section>
-    ${vienen.length ? `<section class="seccion"><h3>Vienen</h3>${vienen.map((p) => `<div class="fila item"><span style="flex:1">${esc(p.texto)}</span><small class="tenue">${new Date(p.vuelveEn).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}</small></div>`).join('')}</section>` : ''}`
+        <div class="fila"><input name="respuesta" placeholder="De memoria…" class="f1"><button class="btn btn-chico btn-primario">Responder</button><button class="btn btn-chico" type="button" data-saltar="${p.id}">Mañana</button></div></form>`).join('') : '<p class="tenue">Nada para repasar ahora.</p>'}</section>
+    ${vienen.length ? `<section class="seccion"><h3>Vienen</h3>${vienen.map((p) => `<div class="fila item"><span class="f1">${esc(p.texto)}</span><small class="tenue">${new Date(p.vuelveEn).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}</small></div>`).join('')}</section>` : ''}`
   $$('[data-rep]', cont).forEach((f) => (f.onsubmit = async (ev) => { ev.preventDefault(); try { await api(`/repaso/${f.dataset.rep}`, { respuesta: f.respuesta.value }); toast('Bien. Vuelve más adelante.', 'suave'); pintarAprender() } catch (e) { error(e) } }))
   $$('[data-saltar]', cont).forEach((b) => (b.onclick = async () => { try { await api(`/repaso/${b.dataset.saltar}`, { respuesta: null }); pintarAprender() } catch (e) { error(e) } }))
 }

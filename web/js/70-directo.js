@@ -24,13 +24,13 @@ async function modalDirecto() {
     <p class="tenue">Mastropiero mira tu pantalla y te escucha mientras trabajás. Al apagarlo te deja un resumen y una bandeja: tareas, entidades, conexiones, ideas y lo que miraste. Nada de eso entra solo; lo aceptás o lo descartás. Lo que decís en voz alta sí queda, porque es tuyo. Las capturas no se guardan.</p>
     ${huerfano ? `<p class="aviso">Hay un Directo abierto desde las ${new Date(huerfano.inicio).toTimeString().slice(0, 5)} sin señal (se recargó la página). Prendelo de nuevo para retomarlo, o cerralo.</p>` : ''}
     <div class="form-ing">
-      <label class="campo fila" style="gap:6px"><input type="checkbox" id="d-pantalla" checked> Pantalla</label>
-      <label class="campo fila" style="gap:6px"><input type="checkbox" id="d-mic" checked> Micrófono (tu voz)</label>
-      <label class="campo fila" style="gap:6px"><input type="checkbox" id="d-audio" checked> Audio de la pantalla (videos, música)</label>
+      <label class="campo fila g-2"><input type="checkbox" id="d-pantalla" checked> Pantalla</label>
+      <label class="campo fila g-2"><input type="checkbox" id="d-mic" checked> Micrófono (tu voz)</label>
+      <label class="campo fila g-2"><input type="checkbox" id="d-audio" checked> Audio de la pantalla (videos, música)</label>
       <label class="campo">Mirar cada<select id="d-cada"><option value="15">15 s</option><option value="30" selected>30 s</option><option value="60">1 min</option><option value="120">2 min</option></select></label>
     </div>
     <p class="hoy-nota">Al prender, el navegador te pide qué compartir: para el audio de videos y música elegí <b>la pantalla completa</b> (o la pestaña) y marcá «compartir audio». Funciona en Chrome o Edge abriendo <code>http://localhost:7272</code>; en el panel de Claude puede no andar.</p>
-    <div class="fila" style="margin-top:12px"><button class="btn btn-primario" id="d-prender">● Prender</button>${huerfano ? '<button class="btn" id="d-cerrar-viejo">Cerrar el que quedó abierto</button>' : ''}</div>`)
+    <div class="fila mt-3"><button class="btn btn-primario" id="d-prender">● Prender</button>${huerfano ? '<button class="btn" id="d-cerrar-viejo">Cerrar el que quedó abierto</button>' : ''}</div>`)
   $('#d-prender').onclick = () => {
     const op = { pantalla: $('#d-pantalla').checked, mic: $('#d-mic').checked, audio: $('#d-audio').checked, cada: Number($('#d-cada').value) }
     cerrarModal()
@@ -367,7 +367,7 @@ async function montarDirecto() {
       ${d.sesiones.length ? d.sesiones.map((s) => {
         const r = resumenSesion(s)
         return `<details class="run-pasada" ${r.n ? 'open' : ''}><summary><b>${esc(r.cuando)}</b>${r.mins ? ` · ${esc(r.mins)}` : ''}${r.n ? ` <em class="dir-pend" data-pend-sesion="${s.id}">${r.n} para revisar</em>` : ''}</summary>${cuerpo(s)}</details>`
-      }).join('') : '<div class="vacio"><div class="gran">◎</div><h2>Todavía no prendiste el Directo</h2><p>Prendelo cuando trabajes. Al cerrarlo, aceptás o descartás lo que Mastropiero creyó ver.</p></div>'}`
+      }).join('') : '<div class="vacio"><div class="gran">◎</div><h2>Todavía no prendiste el Directo</h2><p>Prendelo cuando trabajes. Al cerrarlo, aceptás o descartás lo que Mastropiero creyó ver.</p><button class="btn btn-primario" data-paso-hacer="directo">● Prender el Directo</button></div>'}`
     engancharTablero($('#dv'))
   } catch (e) { error(e) }
 }

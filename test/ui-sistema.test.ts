@@ -16,7 +16,7 @@ const TOPES = {
   confirm: 0,
   prompt: 0,
   coloresFijos: 49,
-  styleEnJs: 253,
+  styleEnJs: 157, // los que quedan llevan valores vivos (anchos en %, colores de categoría)
   letraSinToken: 3, // los glifos gigantes decorativos (84 px, 140 px, el clamp de la portada)
 }
 

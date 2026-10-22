@@ -143,7 +143,7 @@ function diaDelCalendario(dia, items, estado, recargar) {
   const xs = items.filter((x) => x.fecha === dia && !x.fondo)
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>${esc(aFecha(dia).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</h2>
     ${xs.length ? `<div class="cal-agenda">${xs.map((it) => { const x = CAPAS_CAL_UI[it.capa] ?? { color: '#999', icono: '·' }; return `<button class="cal-ag-item" data-item="${esc(it.id)}" style="--c:${x.color}"><span class="cal-ag-hora">${it.todoElDia || !it.hora ? 'todo el día' : esc(it.hora)}</span><span><b>${esc(it.titulo)}</b></span><small style="color:${x.color}">${x.icono} ${esc(x.nombre)}</small></button>` }).join('')}</div>` : '<p class="tenue">Nada este día.</p>'}
-    ${estado.conectado ? '<div class="fila" style="margin-top:12px"><button class="btn btn-primario" id="cal-nuevo-dia">＋ Nuevo evento este día</button></div>' : ''}`)
+    ${estado.conectado ? '<div class="fila mt-3"><button class="btn btn-primario" id="cal-nuevo-dia">＋ Nuevo evento este día</button></div>' : ''}`)
   $$('.velo [data-item], .modal [data-item]').forEach((b) => (b.onclick = () => { const it = xs.find((x) => x.id === b.dataset.item); if (it) detalleItem(it, estado, recargar) }))
   const n = $('#cal-nuevo-dia')
   if (n) n.onclick = () => formularioEvento(null, dia, recargar)
@@ -156,7 +156,7 @@ function detalleItem(it, estado, recargar) {
   const origenLlevable = { oportunidad: 'oportunidad', evento: 'evento', mision: 'mision' }[origen]
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button>
     <p class="chico" style="color:${x.color};margin:0">${x.icono} ${esc(x.nombre)}${it.google && it.capa !== 'google' ? ' · también en tu calendario' : ''}</p>
-    <h2 style="margin-top:4px">${esc(it.titulo)}</h2>
+    <h2 class="mt-1">${esc(it.titulo)}</h2>
     <p><b>${esc(aFecha(it.fecha).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</b>${it.hora && !it.todoElDia ? ` · ${esc(it.hora)}${it.fin ? `–${esc(it.fin)}` : ''}` : ' · todo el día'}</p>
     ${it.lugar ? `<p>${lugarHTML(it.lugar)}</p>` : ''}
     ${it.detalle ? `<p class="tenue" style="white-space:pre-wrap">${esc(it.detalle)}</p>` : ''}
@@ -223,6 +223,6 @@ function formularioEvento(it, fecha, recargar) {
 async function montarCalendario() {
   $('#principal').innerHTML = `
     <div class="titulo"><h1>Calendario</h1><p>Tu Google Calendar y lo que Deprocast sabe con fecha: lo que viene en tu Línea, las fechas del Radar (y cuándo cierran), las misiones que vencen, las tareas de los Cien Días y tu horario fijo. Lo de Deprocast lo podés llevar a tu calendario con un toque.</p></div>
-    <div class="panel" id="cal-principal"><p class="tenue">Cargando…</p></div>`
+    <div class="panel" id="cal-principal"><p class="tenue" role="status">Trayendo tu calendario…</p></div>`
   await pintarCalendario($('#cal-principal'))
 }

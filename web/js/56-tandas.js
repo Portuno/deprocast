@@ -12,7 +12,7 @@ function modalTandas(tipo = 'audio') {
       : 'Fotos o escaneos de las páginas, en orden. Cada una se lee con visión (texto, listas, flechas y dibujos) y entra como «Cuaderno · hoja N». Un PDF, exportalo como imágenes primero.'}</p>
     ${audio ? '' : `<div class="fila"><label>Cuaderno <input id="ta-cuaderno" list="ta-cuadernos" placeholder="El Castillo" style="width:14em"></label><datalist id="ta-cuadernos"></datalist>
       <label>Primera hoja <input id="ta-hoja" type="number" min="1" style="width:6em" placeholder="auto"></label></div>`}
-    <div class="fila" style="margin:10px 0">
+    <div class="fila my-3">
       <label class="btn btn-primario">Elegir ${audio ? 'audios' : 'páginas'}<input type="file" id="ta-archivos" multiple accept="${audio ? 'audio/*,.m4a,.mp3,.ogg,.opus,.wav,.webm,.aac,.amr' : 'image/*'}" hidden></label>
       ${audio ? '<label class="btn">Elegir carpeta<input type="file" id="ta-carpeta" webkitdirectory hidden></label>' : ''}
     </div>
@@ -91,8 +91,8 @@ async function modalTakeout() {
       <p class="tenue chico">Videos o canales enteros, uno por línea. Cada video entra con su transcripción y se analiza solo: qué plantea, si el título cumple, ideas (protoquántomos) y las fuentes que recomienda, que también se leen. También podés mandarlos por el chat.</p>
       <textarea id="yt-links" class="campo" rows="3" placeholder="https://www.youtube.com/watch?v=…&#10;https://www.youtube.com/@canal"></textarea>
       <div class="fila"><label class="chico">Videos por canal <input id="yt-max" class="campo-suelto" type="number" min="1" max="5000" value="50" style="width:90px"></label><button class="btn btn-primario" id="yt-importar">Importar</button></div>
-      <div id="yt-estado"><p class="tenue">Cargando…</p></div></div>
-    <h3>Google Takeout, ChatGPT y carpetas</h3><div id="tk-cuerpo"><p class="tenue">Cargando…</p></div>`)
+      <div id="yt-estado"><p class="tenue" role="status">Viendo cómo va YouTube…</p></div></div>
+    <h3>Google Takeout, ChatGPT y carpetas</h3><div id="tk-cuerpo"><p class="tenue" role="status">Viendo cómo van las importaciones…</p></div>`)
   $('#yt-importar').onclick = async () => {
     const texto = $('#yt-links').value
     if (!texto.trim()) return toast('Pegá uno o más links de YouTube')
@@ -122,7 +122,7 @@ async function modalTakeout() {
       ? `<p>Todavía no importaste nada. Desde la compu, con la carpeta del Takeout (los zips) o la de la exportación de ChatGPT:</p><pre>npm run mastro -- takeout "C:\ruta\a\la\carpeta" ${esc(location.origin)}</pre><p class="tenue">La compu solo lee los zips y achica los medios; escuchar, mirar, destilar y armar la historia de cada proyecto lo hace Deprocast acá, sin gastar tu tope.</p>`
       : `<p><b>${esc(l.id)}</b> · ${esc(ESTADO_LOTE[l.estado] ?? l.estado)}${l.error ? ` · <span class="mal">${esc(l.error)}</span>` : ''}${d.trabajando ? ' · <span class="tenue">trabajando ahora</span>' : ''}</p>
         <div class="hud-fichas">${medios}<span class="hud-ficha"><small>🧪 Destilado</small><b>${dh}/${dt}</b><em>${n(d.destilado, (x) => x.estado === 'fallo') ? `${n(d.destilado, (x) => x.estado === 'fallo')} fallaron` : ''}</em></span></div>
-        ${dt ? `<span class="hud-barra" style="margin:8px 0"><i style="width:${Math.round((dh / dt) * 100)}%"></i></span>` : ''}
+        ${dt ? `<span class="hud-barra my-2"><i style="width:${Math.round((dh / dt) * 100)}%"></i></span>` : ''}
         <p class="tenue chico">${Object.entries(l.resumen ?? {}).filter(([k]) => k.startsWith('ingesta_')).map(([k, v]) => `${v} ${k.slice(8).replace('_', ' ')}`).join(' · ')}${d.archivosEnEspera ? ` · ${d.archivosEnEspera} archivos esperando (se borran al procesarlos)` : ''}</p>
         ${d.errores.length ? `<details><summary>${d.errores.length} con error</summary>${d.errores.map((e) => `<p class="chico"><b>${esc(e.que)}</b> ${esc(e.titulo ?? '')}: ${esc(e.error ?? '')}</p>`).join('')}<button class="btn btn-chico" id="tk-reintentar">Reintentar lo que falló</button></details>` : ''}`
       + (d.temas.length ? `<h3>Los temas que más volvieron</h3><div class="hud-chips">${d.temas.map((t) => `<span class="tipo-chip" title="${esc(t.primera ?? '')} → ${esc(t.ultima ?? '')}">${esc(t.tema)} · ${t.veces}</span>`).join(' ')}</div>` : '')
@@ -158,7 +158,7 @@ async function modalTakeout() {
 async function modalReproceso() {
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>⚙ Procesar</h2>
     <p class="tenue">Pasa tu corpus por los modelos de NaN, en la nube y de fondo: lo corta en pasajes para buscar, lo destila y saca eventos para tu <a href="#" id="rp-linea">Línea</a> y relaciones para el grafo. Lo que importás se procesa solo al subirlo.</p>
-    <div id="rp-cuerpo"><p class="tenue">Cargando…</p></div>`)
+    <div id="rp-cuerpo"><p class="tenue" role="status">Viendo qué falta procesar…</p></div>`)
   $('#rp-linea').onclick = (e) => { e.preventDefault(); cerrarModal(); irA('linea') }
   const mill = (n) => (n >= 1e6 ? `${(n / 1e6).toLocaleString('es-AR', { maximumFractionDigits: 1 })} M` : n >= 1e3 ? `${Math.round(n / 1e3)} mil` : String(n))
   const pintar = async () => {
@@ -244,7 +244,7 @@ async function modalReproceso() {
         ${d.bucles?.abierto ? `<div><b>${fmt(d.bucles.abierto)}</b><span>cosas que siguen volviendo</span></div>` : ''}
         <div><b>${mill(d.tokens.hoy)}</b><span>tokens de NaN hoy · ${mill(d.tokens.total)} en total</span></div>
       </div>
-      <div class="fila" style="margin-top:12px">${d.activo ? '<button class="btn" data-rp="pausar">Pausar</button>' : `<button class="btn btn-primario" data-rp="empezar" ${d.enLaNube ? '' : 'disabled title="Corre en la nube: prendelo desde tu Deprocast en la nube"'}>${d.destilado.hechos ? 'Procesar lo pendiente' : 'Procesar'}</button>`}
+      <div class="fila mt-3">${d.activo ? '<button class="btn" data-rp="pausar">Pausar</button>' : `<button class="btn btn-primario" data-rp="empezar" ${d.enLaNube ? '' : 'disabled title="Corre en la nube: prendelo desde tu Deprocast en la nube"'}>${d.destilado.hechos ? 'Procesar lo pendiente' : 'Procesar'}</button>`}
         ${d.destilado.fallos || d.pasajes.fallos || d.cronicasFallidas ? '<button class="btn" data-rp="reintentar">Reintentar lo que falló</button>' : ''}</div>
       ${d.enLaNube ? '' : '<p class="tenue chico">Esta es la copia de la compu: acá no se gasta nada. Se procesa desde la nube.</p>'}
       ${d.ultimos.length ? `<h3 class="rp-h">Lo último que destiló</h3>${d.ultimos.map((u) => `<div class="sq"><span><a href="#" class="ref" data-pieza="${u.id}"><b>${esc(u.titulo.slice(0, 80))}</b></a><small>${esc(u.resumen)}</small></span></div>`).join('')}` : ''}`

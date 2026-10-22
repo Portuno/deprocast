@@ -248,3 +248,17 @@ document.addEventListener('keydown', (e) => {
   }
   if (e.key === 'g' && vista !== 'mano' && vista !== 'criba') esperandoG = Date.now()
 }, true)
+
+/**
+ * El paso siguiente de un estado vacío (o de cualquier botón suelto), sin enganchar nada en cada vista:
+ * data-paso-ir="corpus" va a esa sección, data-paso-hacer="sueno" corre esa acción de la paleta, data-paso-preguntar="…" se lo deja
+ * escrito a Mastropiero en el chat.
+ */
+document.addEventListener('click', (e) => {
+  const b = e.target.closest?.('[data-paso-ir], [data-paso-hacer], [data-paso-preguntar]')
+  if (!b || b.closest('#paleta')) return
+  e.preventDefault()
+  if (b.dataset.pasoIr) { cerrarModal(); return irA(b.dataset.pasoIr) }
+  if (b.dataset.pasoHacer) return ACCIONES_PALETA.find((a) => a.id === b.dataset.pasoHacer)?.hacer()
+  preguntarAMastropiero(b.dataset.pasoPreguntar)
+})

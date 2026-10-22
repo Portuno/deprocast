@@ -45,7 +45,7 @@ function refrescarLiga() {
   }
   const proys = E.liga.proyectos.map((p) => {
     const g = r.find((f) => f.clase === 'gerente' && f.proyectoId === p.id)
-    return `<div class="proyecto"><b>${esc(p.nombre)}</b><span style="color:var(--tenue)">${g ? `♛ ${esc(g.nombre ?? g.id)}` : 'sin gerente'}</span></div>`
+    return `<div class="proyecto"><b>${esc(p.nombre)}</b><span class="tenue">${g ? `♛ ${esc(g.nombre ?? g.id)}` : 'sin gerente'}</span></div>`
   }).join('')
   const porClase = META.clases.map((c) => {
     const n = r.filter((f) => f.clase === c.id).length
@@ -72,9 +72,9 @@ async function cargarEjemplo() {
 
 function modalProyecto() {
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Nuevo proyecto</h2>
-    <p style="color:var(--tenue)">Cada proyecto nace con su gerente: el entrenador que reparte sus misiones.</p>
+    <p class="tenue">Cada proyecto nace con su gerente: el entrenador que reparte sus misiones.</p>
     <label class="campo">Nombre<input id="p-nombre" placeholder="Ulpianito, Corruptopolis, Studianta…" autofocus></label>
-    <div class="fila" style="margin-top:16px"><button class="btn btn-primario" id="p-crear">Crear con gerente</button></div>`)
+    <div class="fila mt-4"><button class="btn btn-primario" id="p-crear">Crear con gerente</button></div>`)
   const crear = async () => {
     try {
       const r = await api('/proyectos', { nombre: $('#p-nombre').value })
@@ -188,7 +188,7 @@ async function forjar() {
     abrirModal(`<div style="display:grid;grid-template-columns:240px 1fr;gap:22px;align-items:center">
       ${cartaHTML(f)}
       <div><h2>¡${esc(f.id)} fue forjado!</h2>
-        <p style="color:var(--tenue)">Entra en <b>prueba</b>. Necesita ${R.PRUEBA_EXITOS} misiones cumplidas para ganarse el roster. Si en ${R.DIAS_SIN_CORRER} días no corre, se borra.</p>
+        <p class="tenue">Entra en <b>prueba</b>. Necesita ${R.PRUEBA_EXITOS} misiones cumplidas para ganarse el roster. Si en ${R.DIAS_SIN_CORRER} días no corre, se borra.</p>
         <div class="fila"><button class="btn" data-cerrar id="otra">Forjar otro</button><button class="btn" id="encargar">Encargarle algo</button><button class="btn btn-primario" id="a-liga">Ir a la liga</button></div></div></div>`)
     $('#otra').onclick = () => { cerrarModal(); montarForja() }
     $('#a-liga').onclick = () => { cerrarModal(); nuevas.add(f.id); irA('liga') }
@@ -264,7 +264,7 @@ function refrescarTablero() {
         const txt = t.payload?.texto || t.payload?.titulo || t.payload?.url || t.tipo
         return `<div class="mision" style="--c:${colorDe(t.clase)}" data-tarea="${t.id}">
           <div class="m-top"><span>#${t.id} ${c.glifo} ${esc(c.nombre)}</span><span>${esc(t.asignadaA ?? '')}</span></div>
-          <div class="m-txt">${t.pipeline ? `<b style="color:var(--tenue)">ingesta ${t.etapa + 1}/3 ·</b> ` : ''}${esc(txt)}</div>
+          <div class="m-txt">${t.pipeline ? `<b class="tenue">ingesta ${t.etapa + 1}/3 ·</b> ` : ''}${esc(txt)}</div>
           ${t.error ? `<div class="m-err">✗ ${esc(t.error)}</div>` : ''}
         </div>`
       }).join('')}</div>`
@@ -277,13 +277,13 @@ async function modalTarea(id) {
     const c = claseDe(t.clase)
     const r = t.resultado
     let destacado = ''
-    if (r?.respuesta) destacado = `<div class="respuesta">${esc(r.respuesta)}</div><p style="color:var(--tenue)">Citas: ${(r.citas ?? []).map((x) => `<b>[${x}]</b>`).join(' ')}</p>`
+    if (r?.respuesta) destacado = `<div class="respuesta">${esc(r.respuesta)}</div><p class="tenue">Citas: ${(r.citas ?? []).map((x) => `<b>[${x}]</b>`).join(' ')}</p>`
     else if (r?.texto) destacado = `<div class="respuesta">${esc(r.texto)}</div>`
     else if (r?.hallazgos) destacado = `<div class="respuesta"><b>${esc(r.veredicto)}</b>\n${r.hallazgos.map((h) => '• ' + esc(h)).join('\n')}</div>`
     else if (r?.efecto) destacado = `<div class="respuesta">${esc(r.efecto)}</div>`
     abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button>
       <h2 style="color:${colorDe(t.clase)}">${c.glifo} Misión #${t.id}</h2>
-      <p style="color:var(--tenue)">${esc(c.nombre)} · ${esc(t.estado)} · ${t.intentos} intento(s) · publicada por ${esc(t.publicadaPor)}
+      <p class="tenue">${esc(c.nombre)} · ${esc(t.estado)} · ${t.intentos} intento(s) · publicada por ${esc(t.publicadaPor)}
         ${t.asignadaA ? ` · corrida por <a href="#" data-ver-agente="${esc(t.asignadaA)}" style="color:var(--oro-2)">${esc(t.asignadaA)}</a>` : ''}
         ${t.asignadaPor ? ` (asignó ${esc(t.asignadaPor)})` : ''}</p>
       ${t.error ? `<div class="respuesta" style="background:#2a1111;border-color:#5b2a2a">✗ ${esc(t.error)}</div>` : ''}
@@ -321,15 +321,15 @@ function montarMatriz() {
     const ocupan = E.roster.filter((f) => f.celda === n)
     if (ocupan.length === 1) return modalAgente(ocupan[0].id)
     abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Celda ${String(n).padStart(2, '0')}</h2>
-      <p style="color:var(--tenue)">${esc(c.title)}</p>
+      <p class="tenue">${esc(c.title)}</p>
       ${ocupan.length ? `<div class="mazo">${ocupan.map(cartaHTML).join('')}</div>` : '<p>Celda vacía: hay geometría, no hay acto.</p>'}
-      <div class="fila" style="margin-top:16px"><button class="btn btn-primario" id="forjar-aqui">⚒ Forjar en esta celda</button></div>`)
+      <div class="fila mt-4"><button class="btn btn-primario" id="forjar-aqui">⚒ Forjar en esta celda</button></div>`)
     $('#forjar-aqui').onclick = () => { forja.celda = n; cerrarModal(); irA('forja') }
   }))
 }
 
 function modalMatriz(alElegir) {
-  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Elegí la celda</h2><p style="color:var(--tenue)">Es geometría de presentación: no cambia el contrato de la clase.</p>${matrizHTML(true, forja.celda)}`)
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Elegí la celda</h2><p class="tenue">Es geometría de presentación: no cambia el contrato de la clase.</p>${matrizHTML(true, forja.celda)}`)
   $$('#modal [data-celda]').forEach((c) => (c.onclick = () => { alElegir(Number(c.dataset.celda)); cerrarModal() }))
 }
 
@@ -342,8 +342,8 @@ function montarCementerio() {
     ${l.length ? `<div class="lapidas">${l.map((x) => {
       const c = claseDe(x.clase)
       return `<div class="lapida"><div class="cruz">✝</div><b>${esc(x.nombre ?? x.id)}</b>
-        <div style="font:12px var(--mono)">${c.glifo} ${esc(c.nombre)} · ${x.xp} XP</div>
-        <div style="font-size:12px">${esc(x.especializacion ?? 'sin especialidad')}</div>
+        <div class="mono-chico">${c.glifo} ${esc(c.nombre)} · ${x.xp} XP</div>
+        <div class="chico">${esc(x.especializacion ?? 'sin especialidad')}</div>
         <div class="causa">${esc(x.causa)}</div>
         <div style="font:11px var(--mono);margin-top:6px">${new Date(x.retirado_en).toLocaleDateString('es-AR')}</div></div>`
     }).join('')}</div>` : `<div class="vacio"><div class="gran">✝</div><h2>Nadie cayó todavía</h2><p>Los reclutas que fallan ${R.PRUEBA_FALLOS} veces en prueba, y los que pasan ${R.DIAS_SIN_CORRER} días sin correr, terminan acá.</p></div>`}`
@@ -366,7 +366,7 @@ async function modalAgente(id) {
             ${f.celdaInfo ? `<br>Celda <b>${f.celdaInfo.etiqueta} · ${esc(f.celdaInfo.dominio)} · ${esc(f.celdaInfo.ipo)}·${esc(f.celdaInfo.cma)}</b>` : ''}</p>
           <p style="font-size:13px;color:var(--tenue);font-style:italic">“${esc(f.instrucciones)}”</p>
           ${f.puedeBautizar ? `<div class="bautismo-box"><b>★ Se ganó un nombre.</b> Es único en la historia de la liga.
-            <div class="fila" style="margin-top:8px"><input class="campo-suelto" id="a-nombre" placeholder="Nombre…" style="flex:1;margin:0"><button class="btn btn-primario" id="a-bautizar">Bautizar</button></div></div>` : ''}
+            <div class="fila mt-2"><input class="campo-suelto f1 m-0" id="a-nombre" placeholder="Nombre…"><button class="btn btn-primario" id="a-bautizar">Bautizar</button></div></div>` : ''}
           <div class="acciones-agente">
             ${f.estado === 'activo' ? '<button class="btn btn-peligro" data-estado="banca">⇣ Mandar a la banca</button>' : ''}
             ${f.estado === 'banca' ? '<button class="btn" data-estado="activo">⇡ Volver a jugar</button>' : ''}
@@ -379,7 +379,7 @@ async function modalAgente(id) {
           <h3 style="color:var(--tenue);font-size:12px;letter-spacing:.12em;margin-bottom:0">BITÁCORA DEL AUDITOR</h3>
           ${log.length ? `<table class="log">${log.map((a) => `<tr><td class="${a.ok ? 'ok' : 'mal'}">${a.ok ? '✓' : '✗'}</td>
             <td style="font:11px var(--mono);color:var(--tenue);white-space:nowrap">${a.tareaId ? `<a href="#" data-ver-tarea="${a.tareaId}" style="color:var(--tenue)">#${a.tareaId}</a>` : 'asigna'}</td>
-            <td>${esc(a.decision ?? '')}</td></tr>`).join('')}</table>` : '<p style="color:var(--tenue)">Todavía no corrió.</p>'}
+            <td>${esc(a.decision ?? '')}</td></tr>`).join('')}</table>` : '<p class="tenue">Todavía no corrió.</p>'}
         </div>
       </div>`)
     fichaPersonaje($('#a-ficha'), `agente:${f.id}`)
