@@ -8,7 +8,7 @@ import { buscar } from './corpus.ts'
 import { pedirJson } from './modelo.ts'
 import { asegurarPorNombre } from './entidades.ts'
 
-export type Aprendizaje = { id: number; tema: string; porQue: string | null; nivelActual: string | null; nivelObjetivo: string | null; estado: 'activo' | 'pausado' | 'logrado'; frenteId: string | null; creadoEn: number }
+export type Aprendizaje = { id: number; tema: string; porQue: string | null; nivelActual: string | null; nivelObjetivo: string | null; estado: 'activo' | 'pausado' | 'logrado' | 'sugerido' | 'descartado'; frenteId: string | null; creadoEn: number }
 export type Practica = { id: number; aprendizajeId: number; fecha: string; minutos: number | null; que: string | null; notas: string | null; fuente: string }
 
 const deFila = (r: any): Aprendizaje => ({ id: r.id, tema: r.tema, porQue: r.por_que, nivelActual: r.nivel_actual, nivelObjetivo: r.nivel_objetivo, estado: r.estado, frenteId: r.frente_id, creadoEn: r.creado_en })
@@ -50,7 +50,7 @@ export function editarAprendizaje(db: Db, id: number, c: { porQue?: string; nive
   set('por_que', c.porQue)
   set('nivel_actual', c.nivelActual)
   set('nivel_objetivo', c.nivelObjetivo)
-  if (c.estado && ['activo', 'pausado', 'logrado'].includes(c.estado)) set('estado', c.estado)
+  if (c.estado && ['activo', 'pausado', 'logrado', 'sugerido', 'descartado'].includes(c.estado)) set('estado', c.estado)
   return leerAprendizaje(db, id)
 }
 
@@ -74,7 +74,7 @@ export function practicasDe(db: Db, id: number, limite = 30): Practica[] {
 export function listarAprendizajes(db: Db, f: { estado?: string } = {}, ahora = Date.now()) {
   const hoy = fechaLocal(ahora)
   const hace = (n: number) => fechaLocal(ahora - n * 86_400_000)
-  const filas = (f.estado ? db.prepare('SELECT * FROM aprendizajes WHERE estado = ? ORDER BY creado_en').all(f.estado) : db.prepare(`SELECT * FROM aprendizajes ORDER BY CASE estado WHEN 'activo' THEN 0 WHEN 'pausado' THEN 1 ELSE 2 END, creado_en`).all()).map(deFila)
+  const filas = (f.estado ? db.prepare('SELECT * FROM aprendizajes WHERE estado = ? ORDER BY creado_en').all(f.estado) : db.prepare(`SELECT * FROM aprendizajes WHERE estado NOT IN ('sugerido', 'descartado') ORDER BY CASE estado WHEN 'activo' THEN 0 WHEN 'pausado' THEN 1 ELSE 2 END, creado_en`).all()).map(deFila)
   return filas.map((a) => {
     const ps = practicasDe(db, a.id, 400)
     const dias = new Set(ps.map((p) => p.fecha))

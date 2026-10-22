@@ -24,6 +24,7 @@ import { bloqueParaPrompt } from '../bloques.ts'
 import { finanzasParaPrompt } from '../finanzas.ts'
 import { saludParaPrompt } from '../salud.ts'
 import { aprenderParaPrompt } from '../aprender.ts'
+import { academiaParaPrompt } from '../academia.ts'
 import { personasParaPrompt } from '../personas.ts'
 import { libreriaParaPrompt } from '../libreria.ts'
 import { leerEntidad as leerEnt } from '../entidades.ts'
@@ -304,6 +305,7 @@ ${bloqueParaPrompt(db)}
 ${finanzasParaPrompt(db)}
 ${saludParaPrompt(db)}
 ${aprenderParaPrompt(db)}
+${academiaParaPrompt(db)}
 ${personasParaPrompt(db)}
 ${libreriaParaPrompt(db)}
 ${mencionado(db, mensaje)}

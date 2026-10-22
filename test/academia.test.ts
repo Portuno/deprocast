@@ -1,0 +1,107 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+
+process.env.TZ = 'Europe/Madrid'
+process.env.NAN_API_KEY = 'test'
+
+const { abrir } = await import('../src/db.ts')
+const ac = await import('../src/academia.ts')
+
+const T = new Date(2026, 9, 22, 10).getTime()
+const MIN = 60_000
+
+/** El modelo falso: temario, clase (con su visual), examen y devoluciones que aprueban si la respuesta dice «bien». */
+const pedidos: string[] = []
+const visuales: { tipo: string; prioridad: number }[] = []
+ac._probarAcademia({
+  nube: () => false,
+  alPedirVisual: (_db, s, prioridad) => visuales.push({ tipo: s.paquete.visual!.tipo, prioridad }),
+  modelo: async (_db, sistema, usuario) => {
+    pedidos.push(sistema)
+    if (/temario/.test(sistema)) return { temario: ['Qué es la corriente', 'Resistencia y ley de Ohm', 'Circuitos en serie'] }
+    if (/Corregís UNA respuesta/.test(sistema)) return { correcto: /bien/.test(usuario.split('Respuesta del alumno:')[1]), devolucion: 'Devolución.' }
+    if (/examen/i.test(sistema)) return { tema: 'Examen del nivel 1', explicacion: 'Cinco preguntas.', preguntas: Array.from({ length: 5 }, (_, i) => ({ pregunta: `P${i}`, clave: 'k' })) }
+    const tema = /Tema de la clase: (.+)/.exec(usuario)?.[1] ?? '?'
+    return {
+      tema, explicacion: `Explicación de ${tema}.`, ejemplos: ['Una linterna'], ideas: ['La corriente es carga que se mueve.'],
+      preguntas: [{ pregunta: '¿Qué es la corriente?', clave: 'carga en movimiento' }, { pregunta: '¿Qué la empuja?', clave: 'el voltaje' }],
+      tarjetas: [{ frente: '¿Unidad de corriente?', dorso: 'Ampere' }, { frente: '¿Qué mide el voltaje?', dorso: 'La diferencia de potencial' }],
+      visual: { tipo: 'diagrama', pedido: 'Un circuito con pila, cable y lámpara; tocar cada pieza la explica.' },
+    }
+  },
+})
+
+async function clase(db: any, id: number, respuestas: string[], ahora: number) {
+  const s = await ac.abrirSesionTutor(db, id, { ahora })
+  for (const [i, r] of respuestas.entries()) await ac.responderTutor(db, s.id, i, r, ahora + MIN)
+  return ac.cerrarSesionTutor(db, s.id, ahora + 20 * MIN)
+}
+
+test('Una clase del tutor: temario del nivel, la clase con su visual, devolución, y al cerrar pieza, quántomo, tarjetas y práctica', async () => {
+  const db = abrir(':memory:')
+  const d = ac.sumarDominio(db, { tema: 'Electricidad', porQue: 'Armar el drone del evento de defensa' }, T)
+  assert.equal(d.tutorNivel, 1)
+  const s = await ac.abrirSesionTutor(db, d.id, { ahora: T })
+  assert.equal(s.tema, 'Qué es la corriente', 'empieza por el primer tema del temario que armó')
+  assert.equal(s.estado, 'en_curso')
+  assert.deepEqual(visuales.at(-1), { tipo: 'diagrama', prioridad: 9 }, 'pide su visual al Taller, con prioridad (la está mirando)')
+  assert.match(pedidos[1], /UNA clase del nivel 1 \(Niño de 10\)/)
+
+  const r = await ac.responderTutor(db, s.id, 0, 'está bien: carga que se mueve', T + MIN)
+  assert.equal(r.correcto, true)
+  await ac.responderTutor(db, s.id, 1, 'no sé', T + 2 * MIN)
+  const c = ac.cerrarSesionTutor(db, s.id, T + 15 * MIN)
+  assert.equal(c.puntaje, 0.5)
+  assert.equal(c.quantomos, 1)
+  assert.equal(c.tarjetas, 2)
+
+  const pieza = db.prepare('SELECT titulo, nivel, contenido FROM corpus WHERE id = ?').get(c.piezaId) as any
+  assert.equal(pieza.nivel, 'propia')
+  assert.match(pieza.contenido, /Respondí: está bien: carga que se mueve\n  - ✓ Devolución\./)
+  assert.equal((db.prepare(`SELECT etapa FROM quantomos WHERE pieza_id = ?`).get(c.piezaId) as any).etapa, 'proto', 'La Mano lo toma')
+  assert.equal((db.prepare(`SELECT COUNT(*) AS n FROM tarjetas WHERE mazo = ?`).get(`aprender:${d.id}`) as any).n, 2)
+  const p = db.prepare(`SELECT minutos, fuente FROM practicas WHERE aprendizaje_id = ?`).get(d.id) as any
+  assert.deepEqual([p.minutos, p.fuente], [15, 'academia'])
+  assert.equal(ac.leerDominio(db, d.id)!.temaIdx, 1, 'el temario avanza')
+  assert.throws(() => ac.cerrarSesionTutor(db, s.id), /ya se cerró/)
+})
+
+test('Subir de nivel: el examen se habilita con dos clases seguidas de 80 % o más, y solo aprobarlo sube', async () => {
+  const db = abrir(':memory:')
+  const d = ac.sumarDominio(db, { tema: 'Electricidad' }, T)
+  await assert.rejects(ac.abrirSesionTutor(db, d.id, { examen: true, ahora: T }), /se habilita con dos clases/)
+  await clase(db, d.id, ['bien', 'bien'], T)
+  assert.equal(ac.examenHabilitado(db, d.id), false, 'con una sola, todavía no')
+  const c2 = await clase(db, d.id, ['bien', 'bien'], T + 60 * MIN)
+  assert.equal(c2.examen, true)
+  assert.match(ac.academiaParaPrompt(db), /Electricidad en nivel 1 \(Niño de 10\), con el examen habilitado/)
+
+  const ex = await ac.abrirSesionTutor(db, d.id, { examen: true, ahora: T + 120 * MIN })
+  assert.equal(ex.tipo, 'examen')
+  for (const i of [0, 1, 2]) await ac.responderTutor(db, ex.id, i, 'bien', T + 121 * MIN)
+  for (const i of [3, 4]) await ac.responderTutor(db, ex.id, i, 'ni idea', T + 121 * MIN)
+  const mal = ac.cerrarSesionTutor(db, ex.id, T + 130 * MIN)
+  assert.deepEqual([mal.subio, mal.nivel, mal.repasar], [false, 1, ['P3', 'P4']], '3 de 5 no alcanza: dice qué repasar')
+
+  await clase(db, d.id, ['bien', 'bien'], T + 200 * MIN)
+  const ex2 = await ac.abrirSesionTutor(db, d.id, { examen: true, ahora: T + 300 * MIN })
+  for (const i of [0, 1, 2, 3, 4]) await ac.responderTutor(db, ex2.id, i, i === 4 ? 'no' : 'bien', T + 301 * MIN)
+  const ok = ac.cerrarSesionTutor(db, ex2.id, T + 310 * MIN)
+  assert.deepEqual([ok.subio, ok.nivel], [true, 2], '4 de 5: nivel 2 (Instituto)')
+  assert.equal(ac.leerDominio(db, d.id)!.temaIdx, 0, 'el nivel nuevo arranca su temario')
+  const s3 = await ac.abrirSesionTutor(db, d.id, { ahora: T + 400 * MIN })
+  assert.equal(s3.nivel, 2)
+  assert.ok(pedidos.some((x) => /UNA clase del nivel 2 \(Instituto\)/.test(x)))
+})
+
+test('Los dominios de la Academia: Idiomas aparece marcado, lo sugerido y lo descartado no se mezclan', async () => {
+  const db = abrir(':memory:')
+  ac.sumarDominio(db, { tema: 'Electricidad' }, T)
+  db.prepare(`INSERT INTO aprendizajes (tema, estado, creado_en) VALUES ('Drones', 'sugerido', ?), ('Cocina', 'descartado', ?)`).run(T, T)
+  const fr = ac.sumarDominio(db, { tema: 'Idioma · Francés' }, T)
+  db.prepare(`INSERT INTO idiomas (aprendizaje_id, nombre, codigo, nivel, creado_en) VALUES (?, 'Francés', 'fr', 'A1', ?)`).run(fr.id, T)
+  const ds = ac.listarDominios(db, T)
+  assert.deepEqual(ds.map((d) => [d.tema, d.idioma]), [['Electricidad', false], ['Idioma · Francés', true]])
+  const dr = ac.sumarDominio(db, { tema: 'Drones', porQue: 'Para el evento' }, T)
+  assert.equal(dr.estado, 'activo', 'sumar lo sugerido lo activa')
+})

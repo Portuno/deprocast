@@ -727,6 +727,34 @@ const rutas: [string, RegExp, Ruta][] = [
     return r
   }],
   ['POST', /^\/api\/repaso\/(\d+)$/, async (b, [p]) => responderPregunta(db, id(p), b.respuesta ?? null)],
+  // La Academia (plan v23): los dominios con su tutor de 6 niveles, las sugeridas, y cada sesión (clase o examen).
+  ['GET', /^\/api\/academia$/, async () => {
+    const a = await import('./academia.ts')
+    return {
+      dominios: a.listarDominios(db), niveles: a.NIVELES_TUTOR.map(({ n, nombre }) => ({ n, nombre })),
+      sugeridos: (db.prepare(`SELECT id FROM aprendizajes WHERE estado = 'sugerido' ORDER BY creado_en DESC`).all() as { id: number }[]).map((r) => a.leerDominio(db, r.id)),
+    }
+  }],
+  ['POST', /^\/api\/academia$/, async (b) => (await import('./academia.ts')).sumarDominio(db, { tema: String(b.tema ?? ''), porQue: b.porQue ?? null })],
+  ['GET', /^\/api\/academia\/(\d+)$/, async (_, [a]) => {
+    const ac = await import('./academia.ts')
+    const d = ac.leerDominio(db, id(a))
+    if (!d) throw new Error(`No existe el dominio ${a}`)
+    return { dominio: { ...d, nivelNombre: ac.nombreNivel(d.tutorNivel) }, examen: ac.examenHabilitado(db, d.id), sesiones: ac.sesionesDe(db, d.id).map(({ paquete, ...s }) => ({ ...s, preguntas: paquete?.preguntas.length ?? 0, visual: paquete?.visual?.tipo ?? null })), recursos: recursosDe(db, d.tema), practicas: practicasDe(db, d.id, 10) }
+  }],
+  ['POST', /^\/api\/academia\/(\d+)\/sesion$/, async (b, [a]) => {
+    const ac = await import('./academia.ts')
+    const s = await ac.abrirSesionTutor(db, id(a), { examen: !!b.examen })
+    return { sesion: s, turnos: ac.turnosDe(db, s.id) }
+  }],
+  ['GET', /^\/api\/academia\/sesion\/(\d+)$/, async (_, [s]) => {
+    const ac = await import('./academia.ts')
+    const x = ac.leerSesionTutor(db, id(s))
+    if (!x) throw new Error(`No existe la sesión ${s}`)
+    return { sesion: x, turnos: ac.turnosDe(db, x.id) }
+  }],
+  ['POST', /^\/api\/academia\/sesion\/(\d+)\/responder$/, async (b, [s]) => (await import('./academia.ts')).responderTutor(db, id(s), Number(b.i), String(b.respuesta ?? ''))],
+  ['POST', /^\/api\/academia\/sesion\/(\d+)\/cerrar$/, async (_, [s]) => (await import('./academia.ts')).cerrarSesionTutor(db, id(s))],
   // YouTube: la cola (videos y canales), importar varios, y lo que lee la compu (la nube no puede leer YouTube).
   ['GET', /^\/api\/youtube$/, async () => (await import('./youtube.ts')).estadoYoutube(db)],
   ['POST', /^\/api\/youtube\/importar$/, async (b) => (await import('./youtube.ts')).importarYoutube(db, String(b.texto ?? ''), { max: Number(b.max) || null })],

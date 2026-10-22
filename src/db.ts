@@ -1276,7 +1276,7 @@ CREATE TABLE IF NOT EXISTS aprendizajes (
   por_que TEXT,
   nivel_actual TEXT,
   nivel_objetivo TEXT,
-  estado TEXT NOT NULL DEFAULT 'activo', -- activo | pausado | logrado
+  estado TEXT NOT NULL DEFAULT 'activo', -- activo | pausado | logrado | sugerido (lo propuso la Academia) | descartado
   frente_id TEXT,
   creado_en INTEGER NOT NULL
 );
@@ -1291,6 +1291,34 @@ CREATE TABLE IF NOT EXISTS practicas (
   creado_en INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS practicas_aprendizaje ON practicas(aprendizaje_id, fecha);
+-- La Academia (plan v23): cada dominio con su tutor de seis niveles. Una sesión es una clase (explicación, ejemplos,
+-- preguntas y el visual que le sirve) o un examen para subir de nivel; los turnos son sus respuestas con la devolución.
+CREATE TABLE IF NOT EXISTS tutor_sesiones (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  aprendizaje_id INTEGER NOT NULL,
+  nivel INTEGER NOT NULL,
+  tipo TEXT NOT NULL DEFAULT 'clase',  -- clase | examen
+  tema TEXT NOT NULL,
+  paquete TEXT NOT NULL,               -- JSON: explicación, ejemplos, preguntas, ideas, tarjetas, visual
+  estado TEXT NOT NULL DEFAULT 'lista', -- lista | en_curso | hecha
+  puntaje REAL,
+  pieza_id INTEGER,
+  visual_id INTEGER,                   -- el artefacto del Taller que la acompaña
+  creada_en INTEGER NOT NULL,
+  empezada_en INTEGER,
+  cerrada_en INTEGER
+);
+CREATE INDEX IF NOT EXISTS tutor_sesiones_ap ON tutor_sesiones(aprendizaje_id, estado);
+CREATE TABLE IF NOT EXISTS tutor_turnos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sesion_id INTEGER NOT NULL,
+  i INTEGER NOT NULL,                  -- qué pregunta del paquete
+  respuesta TEXT NOT NULL,
+  correcto INTEGER NOT NULL DEFAULT 0,
+  devolucion TEXT,
+  en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS tutor_turnos_sesion ON tutor_turnos(sesion_id, i);
 
 -- Lo que se rompió (errores del servidor, rutas que no existen): la materia de la autocrítica. Uno por texto y día.
 CREATE TABLE IF NOT EXISTS errores (
@@ -1331,6 +1359,9 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   mano_jugadas: [['pesquisa_id', 'INTEGER'], ['prediccion', 'REAL'], ['resultado', 'INTEGER']],
   // Idiomas por sesiones: el temario, lo personal mínimo y a qué sesión pertenece cada vuelta.
   idiomas: [['temario', 'TEXT'], ['tema_idx', 'INTEGER NOT NULL DEFAULT 0'], ['sobre_mi', 'TEXT'], ['intereses', 'TEXT']],
+  // La Academia: el nivel del tutor (1 niño de 10 … 6 frontera), el temario de cada nivel, por dónde va, la sugerencia
+  // que lo trajo (por qué, horizonte, para qué evento) y cuándo se buscaron fuentes por última vez.
+  aprendizajes: [['tutor_nivel', 'INTEGER NOT NULL DEFAULT 1'], ['temario', 'TEXT'], ['tema_idx', 'INTEGER NOT NULL DEFAULT 0'], ['sugerencia', 'TEXT'], ['fuentes_en', 'INTEGER']],
   idioma_turnos: [['sesion_id', 'INTEGER']],
   misiones: [
     ['armado', 'TEXT'], // bien | mal: si la banda estuvo bien armada
