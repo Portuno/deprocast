@@ -71,13 +71,12 @@ export const textoYaEmpezaste = (ps: Previo[]) => ps.length ? `Ya empezaste: ${p
 
 // ─── identidades ────────────────────────────────────────────────────────
 
-export type Ataduras = { primarias: number[]; habitos: string[]; aprendizajes: number[]; categorias: string[]; palabras: string[] }
+export type Ataduras = { primarias: number[]; aprendizajes: number[]; categorias: string[]; palabras: string[] }
 export type Identidad = { id: number; frase: string; historiaVieja: string | null; ataduras: Ataduras; estado: string; creadaEn: number }
 export type Evidencia = { tipo: 'banda' | 'mision' | 'habito' | 'practica' | 'anotada'; texto: string; fecha: string }
 
 const limpiarAtaduras = (a: any): Ataduras => ({
   primarias: [...new Set<number>((Array.isArray(a?.primarias) ? a.primarias : []).map(Number).filter((n: number) => n > 0))],
-  habitos: [...new Set<string>((Array.isArray(a?.habitos) ? a.habitos : []).map(String).filter(Boolean))],
   aprendizajes: [...new Set<number>((Array.isArray(a?.aprendizajes) ? a.aprendizajes : []).map(Number).filter((n: number) => n > 0))],
   categorias: [...new Set<string>((Array.isArray(a?.categorias) ? a.categorias : String(a?.categorias ?? '').split(',')).map((x: unknown) => norm(String(x))).filter(Boolean))],
   palabras: [...new Set<string>((Array.isArray(a?.palabras) ? a.palabras : String(a?.palabras ?? '').split(',')).map((x: unknown) => norm(String(x))).filter((x: string) => x.length >= 3))],
@@ -127,13 +126,6 @@ export function evidenciasDe(db: Db, i: Identidad, desde: string): Evidencia[] {
   for (const m of ms) {
     if (m.nivel === 'secundaria' ? toca(m.titulo, m.categoria, m.padre_id) : a.primarias.includes(m.id) || toca(m.titulo, m.categoria, m.padre_id)) {
       out.push({ tipo: m.nivel === 'secundaria' ? 'banda' : 'mision', texto: m.titulo, fecha: fechaLocal(m.cerrada_en) })
-    }
-  }
-  if (a.habitos.length) {
-    const nombres = new Map((db.prepare('SELECT id, titulo FROM habitos').all() as { id: string; titulo: string }[]).map((h) => [h.id, h.titulo]))
-    for (const d of db.prepare('SELECT fecha, habitos FROM plan_dias WHERE fecha >= ?').all(desde) as { fecha: string; habitos: string }[]) {
-      const hs = json<Record<string, boolean>>(d.habitos, {}) ?? {}
-      for (const h of a.habitos) if (hs[h]) out.push({ tipo: 'habito', texto: nombres.get(h) ?? h, fecha: d.fecha })
     }
   }
   if (a.aprendizajes.length) {

@@ -7,7 +7,6 @@ const CAPAS_CAL_UI = {
   linea: { nombre: 'Línea', color: '#7aa2d6', icono: '⟿' },
   radar: { nombre: 'Radar', color: '#e0a64f', icono: '◍' },
   mision: { nombre: 'Misiones', color: '#86c08a', icono: '⚔' },
-  plan: { nombre: 'Cien Días', color: '#5fb3a8', icono: '◷' },
   horario: { nombre: 'Horario fijo', color: '#8a8a8a', icono: '▭' },
 }
 const DIAS_SEM = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
@@ -222,7 +221,7 @@ function formularioEvento(it, fecha, recargar) {
 
 async function montarCalendario() {
   $('#principal').innerHTML = `
-    <div class="titulo"><h1>Calendario</h1><p>Tu Google Calendar y lo que Deprocast sabe con fecha: lo que viene en tu Línea, las fechas del Radar (y cuándo cierran), las misiones que vencen, las tareas de los Cien Días y tu horario fijo. Lo de Deprocast lo podés llevar a tu calendario con un toque.</p></div>
+    <div class="titulo"><h1>Calendario</h1><p>Tu Google Calendar y lo que Deprocast sabe con fecha: lo que viene en tu Línea, las fechas del Radar (y cuándo cierran), las misiones que vencen y tu horario fijo. Lo de Deprocast lo podés llevar a tu calendario con un toque.</p></div>
     <div class="panel" id="cal-principal"><p class="tenue" role="status">Trayendo tu calendario…</p></div>`
   await pintarCalendario($('#cal-principal'))
 }

@@ -998,7 +998,7 @@ CREATE TABLE IF NOT EXISTS identidades (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   frase TEXT NOT NULL,
   historia_vieja TEXT,
-  ataduras TEXT NOT NULL DEFAULT '{}', -- JSON {primarias: [id], habitos: [id], aprendizajes: [id], categorias: [str], palabras: [str]}
+  ataduras TEXT NOT NULL DEFAULT '{}', -- JSON {primarias: [id], aprendizajes: [id], categorias: [str], palabras: [str]}
   estado TEXT NOT NULL DEFAULT 'activa', -- activa | archivada
   creada_en INTEGER NOT NULL
 );
@@ -1269,59 +1269,6 @@ CREATE TABLE IF NOT EXISTS salud (
 );
 CREATE INDEX IF NOT EXISTS salud_fecha ON salud(fecha, tipo);
 
--- Un plan con fecha (los Cien Días): frentes («qué significa ganar»), hábitos con su ritmo semanal, y cada día los
--- seis verbos votados, los hábitos hechos, el WOOP, el peso y una nota. Sus tareas viven como side quests (misiones).
-CREATE TABLE IF NOT EXISTS planes (
-  id TEXT PRIMARY KEY,
-  nombre TEXT NOT NULL,
-  desde TEXT NOT NULL,                -- YYYY-MM-DD
-  hasta TEXT NOT NULL,
-  semana0 TEXT NOT NULL,              -- el lunes de la semana 0
-  creado_en INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS frentes (
-  id TEXT PRIMARY KEY,
-  plan_id TEXT NOT NULL,
-  nombre TEXT NOT NULL,
-  corto TEXT,
-  ganar TEXT,                         -- qué significa ganar al final del plan
-  principio TEXT,
-  orden INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS habitos (
-  id TEXT PRIMARY KEY,
-  plan_id TEXT,
-  titulo TEXT NOT NULL,
-  frente_id TEXT,
-  por_semana INTEGER NOT NULL DEFAULT 7,
-  dias TEXT NOT NULL DEFAULT '[]',    -- JSON: días ISO (1 lunes … 7 domingo); vacío = cualquiera
-  orden INTEGER NOT NULL DEFAULT 0,
-  activo INTEGER NOT NULL DEFAULT 1
-);
-CREATE TABLE IF NOT EXISTS plan_dias (
-  fecha TEXT PRIMARY KEY,
-  verbos TEXT NOT NULL DEFAULT '{}',  -- JSON {estudio, trabajo, entreno, ensenio, construyo, disenio}: boolean
-  habitos TEXT NOT NULL DEFAULT '{}', -- JSON {habito_id: boolean}
-  woop TEXT,                          -- JSON {w, o, ob, p}
-  peso REAL,
-  nota TEXT,
-  actualizado_en INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS plan_semanas (
-  plan_id TEXT NOT NULL,
-  n INTEGER NOT NULL,
-  foco TEXT NOT NULL,
-  PRIMARY KEY (plan_id, n)
-);
-CREATE TABLE IF NOT EXISTS plan_tareas (
-  origen TEXT PRIMARY KEY,            -- id de la tarea en el plan original (para reimportar sin duplicar)
-  plan_id TEXT NOT NULL,
-  mision_id INTEGER NOT NULL,
-  frente_id TEXT,
-  obligatoria INTEGER NOT NULL DEFAULT 0,
-  hito INTEGER NOT NULL DEFAULT 0
-);
-
 -- Lo que quiere aprender (temas o habilidades) y lo que practica de cada uno.
 CREATE TABLE IF NOT EXISTS aprendizajes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1464,7 +1411,6 @@ const RUTINAS_SISTEMA = [
   { id: 'fragua', nombre: 'La Fragua forja las propuestas abiertas', hora: '03:00', dias: '0123456', accion: 'fragua' },
   { id: 'lectura', nombre: 'Lectura nocturna: expandir la Librería', hora: '04:00', dias: '0123456', accion: 'lectura' },
   { id: 'matinal', nombre: 'El audio de la mañana', hora: '07:50', dias: '0123456', accion: 'matinal' },
-  { id: 'voto', nombre: 'El voto de los seis verbos (plan en curso)', hora: '22:15', dias: '0123456', accion: 'voto' },
   { id: 'cronica', nombre: 'La crónica del día entra al corpus', hora: '23:55', dias: '0123456', accion: 'cronica' },
   { id: 'gnosis', nombre: 'Síntesis de la semana: patrones como quántomos', hora: '21:30', dias: '0', accion: 'gnosis' },
 ]

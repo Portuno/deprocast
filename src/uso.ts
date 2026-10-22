@@ -14,7 +14,6 @@ const RASTRO: [string, string, string, 'ms' | 'fecha'][] = [
   ['Runs', 'runs', 'creada_en', 'ms'],
   ['Salud (registros)', 'salud', 'creado_en', 'ms'],
   ['Plata (movimientos)', 'movimientos', 'creado_en', 'ms'],
-  ['Plan (días votados)', 'plan_dias', 'actualizado_en', 'ms'],
   ['Aprender (prácticas)', 'practicas', 'creado_en', 'ms'],
   ['Directo (sesiones)', 'directo_sesiones', 'inicio', 'ms'],
   ['Cargas', 'cargas', 'creada_en', 'ms'],

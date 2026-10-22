@@ -11,9 +11,8 @@ import { leerJson, pedirJson } from './modelo.ts'
 import { borrarSalud, metasSalud, registrarSalud, resumenDia } from './salud.ts'
 import { registrarMovimiento, CATEGORIAS } from './finanzas.ts'
 import { prepararRepaso, registrarPractica } from './aprender.ts'
-import { guardarWoop, leerDia, marcarPorCaptura } from './cien.ts'
 
-export const TIPOS_CAPTURA = ['comida', 'ejercicio', 'sueno', 'medida', 'gasto', 'ingreso', 'aprendizaje', 'woop', 'otro'] as const
+export const TIPOS_CAPTURA = ['comida', 'ejercicio', 'sueno', 'medida', 'gasto', 'ingreso', 'aprendizaje', 'otro'] as const
 export type Captura = {
   tipo: (typeof TIPOS_CAPTURA)[number]
   confianza: number
@@ -33,7 +32,6 @@ const SISTEMA = `Clasificás lo que el jugador le manda a su asistente (una foto
   medida (su peso, una balanza, medidas del cuerpo),
   gasto (un ticket, una factura, «gasté», «pagué»), ingreso («cobré», «me pagaron», una transferencia recibida),
   aprendizaje (lo que estudió o practicó: «estudié 30 min de X», apuntes de una clase),
-  woop (su WOOP del día: deseo, resultado, obstáculo interno y plan si-entonces, aunque lo diga suelto o de a partes),
   otro (cualquier otra cosa: una charla, una pregunta, un pedido, una foto que no es un registro).
 - confianza: 0 a 1. Si dudás entre registro y charla, «otro».
 - fecha: YYYY-MM-DD solo si la dice o se lee («ayer», la fecha del ticket); si no, null. hora: HH:MM si la dice o se lee; si no, null.
@@ -46,7 +44,6 @@ const SISTEMA = `Clasificás lo que el jugador le manda a su asistente (una foto
   medida: {"peso": number|null, "grasa_corporal": number|null, "cintura": number|null}
   gasto o ingreso: {"monto": number (positivo), "moneda": "EUR"|"USD"|"ARS"|…, "comercio": string, "categoria": una de ${CATEGORIAS.join(', ')}, "proyecto": string|null (si dice para qué proyecto o persona)}
   aprendizaje: {"tema": string (el tema o habilidad, corto: «Francés», «Teórico de conducir»), "minutos": number|null, "que": string (qué practicó, concreto)}
-  woop: {"w": string (deseo), "o": string (resultado), "ob": string (obstáculo interno), "p": string (plan si-entonces)} — lo que no dijo, vacío
   otro: {}
 Forma: {"tipo": string, "confianza": number, "fecha": string|null, "hora": string|null, "titulo": string, "descripcion": string, "datos": object}`
 
@@ -69,7 +66,7 @@ export function _probarCaptura(f: typeof modelo) {
 }
 
 /** Texto que parece un registro (comida, ejercicio, sueño, peso, plata, estudio): solo esos pasan por el clasificador. */
-export const PARECE_REGISTRO = /\b(woop|mi deseo|obst[aá]culo|si .{3,40} entonces|aprend[ií]|repas[eé]|tuve clase|com[ií]|almorc[eé]|cen[eé]|desayun[eé]|merend[eé]|me com[ií]|entren[eé]|corr[ií]|nad[eé]|gym|gimnasio|camin[eé]|pedale[eé]|bici|dorm[ií]|me despert[eé]|peso\b|pes[eé]|kg\b|kcal|gast[eé]|pagu[eé]|cobr[eé]|me pagaron|me transfirieron|€|euros?\b|d[oó]lares|estudi[eé]|practiqu[eé]|le[ií] \d+)/i
+export const PARECE_REGISTRO = /\b(aprend[ií]|repas[eé]|tuve clase|com[ií]|almorc[eé]|cen[eé]|desayun[eé]|merend[eé]|me com[ií]|entren[eé]|corr[ií]|nad[eé]|gym|gimnasio|camin[eé]|pedale[eé]|bici|dorm[ií]|me despert[eé]|peso\b|pes[eé]|kg\b|kcal|gast[eé]|pagu[eé]|cobr[eé]|me pagaron|me transfirieron|€|euros?\b|d[oó]lares|estudi[eé]|practiqu[eé]|le[ií] \d+)/i
 
 /** Clasifica una foto y/o un texto. */
 export async function clasificar(db: Db, o: { imagen?: { datos: Buffer; mime: string }; texto?: string | null }): Promise<Captura> {
@@ -84,7 +81,7 @@ export async function clasificar(db: Db, o: { imagen?: { datos: Buffer; mime: st
   }
 }
 
-export type Registrado = { tipo: Captura['tipo']; tabla: 'salud' | 'movimientos' | 'practicas' | 'woop'; id: number | string; resumen: string }
+export type Registrado = { tipo: Captura['tipo']; tabla: 'salud' | 'movimientos' | 'practicas'; id: number | string; resumen: string }
 
 const n0 = (v: unknown) => Math.round(Number(v) || 0)
 
@@ -105,13 +102,12 @@ function registrarCapturaSola(db: Db, c: Captura, o: { foto?: string | null; fue
     if (c.tipo === 'sueno' && c.datos.horas == null && c.datos.calidad == null) return null
     if (c.tipo === 'medida' && c.datos.peso == null && c.datos.grasa_corporal == null && c.datos.cintura == null) return null
     const r = registrarSalud(db, { tipo: c.tipo, titulo: c.titulo, fecha: c.fecha, hora: c.hora, datos: c.datos, foto: o.foto, fuente }, ahora)
-    const habitos = marcarPorCaptura(db, r.fecha, c.tipo, r.titulo, ahora)
     const dia = resumenDia(db, r.fecha)
     const m = metasSalud(db)
     const resumen = c.tipo === 'comida'
       ? `🍽 ${r.titulo}: ~${n0(r.datos.kcal)} kcal · ${n0(r.datos.proteina)} g prot. ${r.fecha === fechaLocal(ahora) ? 'Hoy llevás' : `El ${r.fecha} van`} ${dia.kcal}${m.kcal ? ` de ${m.kcal}` : ''} kcal y ${dia.proteina}${m.proteina ? ` de ${m.proteina}` : ''} g de proteína.`
       : c.tipo === 'ejercicio'
-        ? `💪 ${r.titulo}${r.datos.minutos ? `: ${r.datos.minutos} min` : ''}${r.datos.distancia_km ? ` · ${r.datos.distancia_km} km` : ''}. Anotado.${habitos.length ? ` Marqué «${habitos.join('», «')}».` : ''}`
+        ? `💪 ${r.titulo}${r.datos.minutos ? `: ${r.datos.minutos} min` : ''}${r.datos.distancia_km ? ` · ${r.datos.distancia_km} km` : ''}. Anotado.`
         : c.tipo === 'sueno'
           ? `😴 ${r.titulo}${r.datos.calidad ? ` (${['', 'mal', 'bien', 'muy bien'][r.datos.calidad]})` : ''}. Anotado.`
           : `⚖ ${r.datos.peso != null ? `${r.datos.peso} kg` : r.titulo}${m.peso && r.datos.peso != null ? ` (objetivo ${m.peso})` : ''}. Anotado.`
@@ -128,7 +124,6 @@ function registrarCapturaSola(db: Db, c: Captura, o: { foto?: string | null; fue
       proyecto: typeof c.datos.proyecto === 'string' ? c.datos.proyecto : null, foto: o.foto ?? null,
     }, ahora)
     if (!m) return null // ya estaba (mismo día, monto y descripción)
-    marcarPorCaptura(db, m.fecha, c.tipo, descripcion, ahora)
     return { tipo: c.tipo, tabla: 'movimientos', id: m.id, resumen: `${c.tipo === 'gasto' ? '💸' : '💰'} ${descripcion}: ${c.tipo === 'gasto' ? '-' : '+'}${monto} ${m.moneda} (${m.categoria}${m.entidad ? ` · ${m.entidad}` : ''}). Anotado.${m.entidad ? '' : ' Si es de un proyecto, respondé con cuál.'}` }
   }
   if (c.tipo === 'aprendizaje') {
@@ -137,14 +132,6 @@ function registrarCapturaSola(db: Db, c: Captura, o: { foto?: string | null; fue
     const { practica, aprendizaje } = registrarPractica(db, { tema, fecha: c.fecha, minutos: c.datos.minutos, que: c.datos.que || c.titulo, fuente }, ahora)
     void prepararRepaso(db, aprendizaje, practica, ahora).catch(() => {}) // las preguntas de repaso, de fondo
     return { tipo: c.tipo, tabla: 'practicas', id: practica.id, resumen: `📚 ${aprendizaje.tema}${practica.minutos ? `: ${practica.minutos} min` : ''}${practica.que ? ` · ${practica.que}` : ''}. Anotado; mañana te repregunto algo.` }
-  }
-  if (c.tipo === 'woop') {
-    const w = { w: c.datos.w, o: c.datos.o, ob: c.datos.ob, p: c.datos.p }
-    if (!Object.values(w).some((v) => typeof v === 'string' && v.trim())) return null
-    const fecha = c.fecha ?? fechaLocal(ahora)
-    const d = guardarWoop(db, fecha, w, ahora)
-    const falta = [['w', 'deseo'], ['o', 'resultado'], ['ob', 'obstáculo'], ['p', 'plan si-entonces']].filter(([k]) => !d.woop?.[k as 'w']).map(([, n]) => n)
-    return { tipo: c.tipo, tabla: 'woop', id: fecha, resumen: `🎯 WOOP de hoy guardado${d.woop?.w ? `: «${d.woop.w}»` : ''}.${falta.length ? ` Falta: ${falta.join(', ')}.` : ''}` }
   }
   return null
 }
@@ -155,5 +142,4 @@ export function deshacerCaptura(db: Db, tabla: string, id: number | string, acci
   if (tabla === 'salud') borrarSalud(db, Number(id))
   else if (tabla === 'movimientos') db.prepare('DELETE FROM movimientos WHERE id = ?').run(Number(id))
   else if (tabla === 'practicas') db.prepare('DELETE FROM practicas WHERE id = ?').run(Number(id))
-  else if (tabla === 'woop' && leerDia(db, String(id)).woop) db.prepare('UPDATE plan_dias SET woop = NULL WHERE fecha = ?').run(String(id))
 }

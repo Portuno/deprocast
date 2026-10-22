@@ -43,20 +43,18 @@ test('Arranque al 20 %: lo que ya hizo hacia una primaria se encuentra, se muest
   assert.deepEqual(await ev.buscarPrevios(db, 'aprendizaje', ap.id, 'Soldadura de estaño. Arreglar mis pedales', T), [])
 })
 
-test('Libro de evidencia: hasta tres identidades; bandas, misiones, hábitos y prácticas atadas se cuentan solas; el domingo, una pregunta', () => {
+test('Libro de evidencia: hasta tres identidades; bandas, misiones y prácticas atadas se cuentan solas; el domingo, una pregunta', () => {
   const db = abrir(':memory:')
   const prim = crearMision(db, { nivel: 'primaria', titulo: 'Terminar el corto', estado: 'activa' }, { ahora: T - 10 * DIA })
   const b1 = crearMision(db, { nivel: 'secundaria', titulo: 'Editar la escena 3', padreId: prim.id, estado: 'activa' }, { ahora: T - 3 * DIA })
   const b2 = crearMision(db, { nivel: 'secundaria', titulo: 'Sesión de escritura', categoria: 'Escritura', estado: 'activa' }, { ahora: T - 2 * DIA })
   const b3 = crearMision(db, { nivel: 'secundaria', titulo: 'Responder mails', estado: 'activa' }, { ahora: T - 2 * DIA })
   for (const [b, d] of [[b1, 3], [b2, 2], [b3, 2]] as const) actualizarMision(db, b.id, { estado: 'hecha' }, { ahora: T - d * DIA })
-  db.prepare(`INSERT INTO habitos (id, titulo) VALUES ('entreno', 'Entrenar')`).run()
-  db.prepare(`INSERT INTO plan_dias (fecha, habitos, actualizado_en) VALUES (?, '{"entreno": true}', 1), (?, '{"entreno": false}', 1)`).run(fechaLocal(T - DIA), fechaLocal(T - 40 * DIA))
   const ap = crearAprendizaje(db, { tema: 'Montaje' }, T - 20 * DIA)
   registrarPractica(db, { aprendizajeId: ap.id, minutos: 30, que: 'Cortes en J', fecha: fechaLocal(T - 5 * DIA), fuente: 'manual' }, T)
 
   assert.throws(() => ev.crearIdentidad(db, { frase: 'Yo' }), /frase de identidad/)
-  const i = ev.crearIdentidad(db, { frase: 'Soy alguien que termina lo que empieza', historiaVieja: 'Arranco mil cosas y no termino ninguna', ataduras: { primarias: [prim.id], habitos: ['entreno'], aprendizajes: [ap.id], categorias: 'escritura' as any } }, T)
+  const i = ev.crearIdentidad(db, { frase: 'Soy alguien que termina lo que empieza', historiaVieja: 'Arranco mil cosas y no termino ninguna', ataduras: { primarias: [prim.id], aprendizajes: [ap.id], categorias: 'escritura' as any } }, T)
   ev.crearIdentidad(db, { frase: 'Soy alguien que cuida su cuerpo' }, T)
   ev.crearIdentidad(db, { frase: 'Soy alguien que aprende en público' }, T)
   assert.throws(() => ev.crearIdentidad(db, { frase: 'Soy alguien que tiene una cuarta' }), /Hasta tres/)
@@ -64,15 +62,15 @@ test('Libro de evidencia: hasta tres identidades; bandas, misiones, hábitos y p
 
   const [libro] = ev.libroDeEvidencia(db, T)
   assert.equal(libro.frase, 'Soy alguien que termina lo que empieza')
-  assert.deepEqual(libro.ultimas.map((e) => e.tipo).sort(), ['anotada', 'banda', 'banda', 'habito', 'practica'], 'la banda de mails no vota; el hábito de hace 40 días tampoco')
-  assert.equal(libro.dias30, 5)
-  assert.equal(libro.semana, 5)
-  assert.deepEqual(libro.semanas, [0, 0, 0, 5])
+  assert.deepEqual(libro.ultimas.map((e) => e.tipo).sort(), ['anotada', 'banda', 'banda', 'practica'], 'la banda de mails no vota')
+  assert.equal(libro.dias30, 4)
+  assert.equal(libro.semana, 4)
+  assert.deepEqual(libro.semanas, [0, 0, 0, 4])
   assert.equal(libro.hoy, 1)
 
   assert.equal(ev.preguntasDeEvidencia(db, T), 3)
   const q = db.prepare(`SELECT texto FROM preguntas WHERE origen = 'identidad' ORDER BY id`).all() as { texto: string }[]
-  assert.match(q[0].texto, /juntaste 5 evidencias de «Soy alguien que termina lo que empieza», contra tu historia vieja/)
+  assert.match(q[0].texto, /juntaste 4 evidencias de «Soy alguien que termina lo que empieza», contra tu historia vieja/)
   assert.match(q[1].texto, /no hubo evidencia de «Soy alguien que cuida su cuerpo»/)
 
   ev.editarIdentidad(db, i.id, { estado: 'archivada' })

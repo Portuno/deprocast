@@ -5,8 +5,7 @@
 // el chat; Mastropiero sabe qué pestaña estás mirando cuando le preguntás «¿cómo voy?».
 
 const HUD_MODOS = [['dia', 'Día', 'calendar'], ['cuerpo', 'Cuerpo', 'heart'], ['numeros', 'Números', 'activity'], ['oraculo', 'Oráculo', 'sparkles']]
-const HUD_ACCIONES = [['tarea', '＋', 'Tarea', 'N'], ['run', '⚡', 'Run', 'R'], ['anotar', '◉', 'Anotar', 'A'], ['voto', '☑', 'Voto', 'V'], ['foco', '◎', 'Foco', 'F']]
-const VERBOS_HUD = [['estudio', 'Estudio'], ['trabajo', 'Trabajo'], ['entreno', 'Entreno'], ['ensenio', 'Enseño'], ['construyo', 'Construyo'], ['disenio', 'Diseño']]
+const HUD_ACCIONES = [['tarea', '＋', 'Tarea', 'N'], ['run', '⚡', 'Run', 'R'], ['anotar', '◉', 'Anotar', 'A'], ['foco', '◎', 'Foco', 'F']]
 let hudDatos = null
 let hudPop = null
 
@@ -186,12 +185,10 @@ window.pintarAhora = pintarAhora
 
 function widgetQuests() {
   const prims = (hoyDatos.primarias ?? []).filter((m) => m.estado !== 'descartada').slice(0, 4)
-  const tareas = hudDatos?.plan?.tareas ?? []
   const lado = (hoyDatos.terciarias ?? []).filter((m) => m.estado === 'activa').slice(0, 3)
   return `<div class="hud-hero hud-norte"><small class="hud-etq">✦ North Star</small><h3 class="hud-titulo">${esc(hoyDatos.principal?.titulo ?? 'Sin fijar')}</h3></div>
     <small class="hud-etq">Primarias de la semana</small>
     ${prims.length ? `<div class="hud-prims">${prims.map((m) => `<div class="hud-prim ${m.estado}"><div class="hud-fila"><span>${m.estado === 'hecha' ? '●' : m.estado === 'sugerida' ? '○' : '◐'} ${esc(corto(m.titulo, 40))}</span><span class="hud-num">${m.avance.progreso}%</span></div>${barraHud(m.avance.progreso, 100)}</div>`).join('')}</div>` : '<p class="hud-texto">Sin primarias esta semana.</p>'}
-    ${tareas.length ? `<small class="hud-etq">Para hoy</small>${tareas.slice(0, 3).map((t) => `<label class="hud-check"><input type="checkbox" data-hud-tarea="${t.id}" ${t.estado === 'hecha' ? 'checked' : ''}> ${t.hito ? '◆ ' : ''}${esc(corto(t.titulo, 44))}</label>`).join('')}` : ''}
     ${lado.length ? `<small class="hud-etq">Side quests</small>${lado.map((m) => `<div class="hud-fila hud-sq"><span>⚑ ${esc(corto(m.titulo, 36))}</span><button class="btn-link" data-hud-hecha="${m.id}" title="Cumplida">✓</button></div>`).join('')}` : ''}
     ${hudDatos?.bucles?.length ? `<small class="hud-etq">🔁 Sigue volviendo</small>${hudDatos.bucles.map((b) => filaBucle(b, true)).join('')}` : ''}
     ${pieHud('¿En qué primaria me conviene meter foco hoy?', 'misiones', 'Misiones')}`
@@ -221,10 +218,8 @@ function widgetCuerpo() {
   const s = hudDatos?.salud
   if (!s) return '<p class="hud-texto" role="status">Trayendo lo de tu cuerpo de hoy…</p>'
   const m = s.metas
-  const habitos = hudDatos.plan?.habitos ?? []
   return `<div class="hud-anillos">${anilloHud(s.kcal, m.kcal ?? s.kcal ?? 1, `${s.kcal}`, m.kcal ? `de ${m.kcal} kcal` : 'kcal')}${anilloHud(s.proteina, m.proteina ?? s.proteina ?? 1, `${s.proteina}g`, m.proteina ? `de ${m.proteina} g prot.` : 'proteína', 'verde')}</div>
     <div class="hud-fichas">${fichaHud('Sueño', s.sueno?.horas != null ? `${s.sueno.horas}h` : '—', s.sueno?.calidad ? ['', 'mal', 'bien', 'muy bien'][s.sueno.calidad] : '')}${fichaHud('Entrenos', `${s.entrenosSemana}${m.entrenos ? `/${m.entrenos}` : ''}`, 'esta semana')}${fichaHud('Peso', s.peso ? `${s.peso.peso}` : '—', s.peso ? 'kg' : '')}</div>
-    ${habitos.length ? `<small class="hud-etq">Hábitos de hoy</small>${habitos.slice(0, 5).map((h) => `<label class="hud-check"><input type="checkbox" data-hud-habito="${esc(h.id)}" ${h.hecho ? 'checked' : ''}> ${esc(corto(h.titulo, 40))} <em>${h.enSemana}/${h.porSemana}</em></label>`).join('')}` : ''}
     ${pieHud('¿Cómo viene mi cuerpo hoy?', 'salud', 'Salud')}`
 }
 
@@ -280,14 +275,8 @@ function engancharWidgetHud(cont) {
     try { await api(`/misiones/${m.id}/marcar`, { estado }); await listo(estado === 'activa' ? null : `${MARCA[estado]} banda «${m.titulo}» ${estado === 'parcial' ? 'a medias' : estado === 'no' ? 'no salió' : 'hecha'}`) } catch (e) { error(e) }
   }))
   if (hudDatos?.bucles?.length) engancharBucles(cont, hudDatos.bucles, () => traerHud(true))
-  $$('[data-hud-tarea]', cont).forEach((c) => (c.onchange = async () => {
-    try { const m = await api(`/cien/tarea/${c.dataset.hudTarea}`, { hecha: c.checked }); await listo(c.checked ? `✓ ${m.titulo}` : null) } catch (e) { error(e) }
-  }))
   $$('[data-hud-hecha]', cont).forEach((b) => (b.onclick = async () => {
     try { const m = await api(`/misiones/${b.dataset.hudHecha}`, { estado: 'hecha' }); await listo(`✓ side quest «${m.titulo ?? ''}»`) } catch (e) { error(e) }
-  }))
-  $$('[data-hud-habito]', cont).forEach((c) => (c.onchange = async () => {
-    try { await api('/cien/habito', { fecha: hoyDatos.fecha, id: c.dataset.hudHabito, valor: c.checked }); await registrarHud(c.checked ? `☑ ${c.closest('label').textContent.trim().replace(/\s+\d+\/\d+$/, '')}` : ''); traerHud(true) } catch (e) { error(e) }
   }))
   $$('[data-plantilla]', cont).forEach((b) => (b.onclick = () => trabajando(b, 'Armando…', async () => {
     const r = await api('/runs/preparar', { pedido: { plantilla: Number(b.dataset.plantilla) } })
@@ -347,19 +336,6 @@ function accionHud(cual) {
         await anotado(r)
       } catch (err) { error(err) }
     }
-  }
-  if (cual === 'voto') {
-    const verbos = hudDatos?.plan?.verbos ?? {}
-    p.innerHTML = `<div class="hud-votos">${VERBOS_HUD.map(([k, n]) => `<button data-voto="${k}" class="${verbos[k] ? 'on' : ''}">${n}</button>`).join('')}</div>`
-    $$('[data-voto]', p).forEach((b) => (b.onclick = async () => {
-      try {
-        const d = await api('/cien/voto', { fecha: hoyDatos.fecha, verbo: b.dataset.voto })
-        const on = !!d.verbos[b.dataset.voto]
-        b.classList.toggle('on', on)
-        if (hudDatos?.plan) hudDatos.plan.verbos = d.verbos
-        if (on) registrarHud(`🗳 votó ${b.textContent}`)
-      } catch (err) { error(err) }
-    }))
   }
   $('#hp-t', p)?.focus()
 }

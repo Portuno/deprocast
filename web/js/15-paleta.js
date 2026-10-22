@@ -7,7 +7,7 @@
 const paleta = { abierta: false, items: [], i: 0, q: '', misiones: [], pedido: 0, otra: false, timer: null }
 const normP = (s) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
 
-/** Lo que vive en el panel de Hoy (los popovers de tarea, anotar, voto): va a Hoy y espera a que esté armado. */
+/** Lo que vive en el panel de Hoy (los popovers de tarea y anotar): va a Hoy y espera a que esté armado. */
 async function enHoy(f) {
   if (vista !== 'hoy') irA('hoy')
   for (let i = 0; i < 50 && !$('#hud-pop'); i++) await dormir(100)
@@ -23,7 +23,6 @@ const ACCIONES_PALETA = [
   { id: 'consejo', titulo: '¿Qué me decís de este momento?', ico: 'lightbulb', claves: 'consejo copiloto como voy que hago ahora', hacer: () => enHoy(() => pedirConsejo()) },
   { id: 'charla', titulo: 'Charla en vivo', ico: 'headphones', claves: 'voz hablar charla vivo microfono escuchar', hacer: () => alternarCharlaEnVivo() },
   { id: 'anotar', titulo: 'Anotar algo (nota, idea, foto)', ico: 'pencil', claves: 'anotar nota idea foto capturar', hacer: () => enHoy(() => accionHud('anotar')) },
-  { id: 'voto', titulo: 'Votar el día', ico: 'check', claves: 'voto votar verbos dia', hacer: () => enHoy(() => accionHud('voto')) },
   { id: 'cierre', titulo: 'Cerrar el día hablando', ico: 'moon', claves: 'cierre noche terminar diario', hacer: () => enHoy(() => cerrarDiaHablando()) },
   { id: 'persona', titulo: 'Nueva persona', ico: 'user-plus', claves: 'persona contacto agregar gente', hacer: () => cargarScript('42-personas.js').then(() => modalNuevaPersona()) },
   { id: 'sueno', titulo: 'Anotar un sueño', ico: 'moon', claves: 'sueño soñe dormir noche', hacer: () => cargarScript('59-suenos.js').then(() => modalSueno()) },
@@ -223,7 +222,7 @@ function mostrarAtajos() {
       [`${teclaVoz()} (mantener)`, 'Hablarle a Mastropiero desde cualquier pantalla'],
       ...ESPACIOS.map((e) => [`g ${e.tecla}`, `Ir a ${e.nombre}`]),
     ])}
-    ${grupo('Hoy', [['Alt 1…6', 'Cambiar el panel (Run, Quests, Agenda, Cuerpo, Stats, Oráculo)'], ['Alt N', 'Nueva tarea'], ['Alt R', 'Armar una run'], ['Alt A', 'Anotar'], ['Alt V', 'Votar el día'], ['Alt F', 'Pantalla de foco'], ['Enter', 'Mandar (Shift Enter: otra línea)']])}
+    ${grupo('Hoy', [['Alt 1…6', 'Cambiar el panel (Run, Quests, Agenda, Cuerpo, Stats, Oráculo)'], ['Alt N', 'Nueva tarea'], ['Alt R', 'Armar una run'], ['Alt A', 'Anotar'], ['Alt F', 'Pantalla de foco'], ['Enter', 'Mandar (Shift Enter: otra línea)']])}
     ${grupo('La Mano', [['1…9 0 q w', 'Pesar la carta (1 a 12)'], ['x', 'Descartar'], ['c', 'Choca con lo que creías'], ['a', 'Predecir antes de jugar'], ['j k l', 'Conecta seguro · puede · seguro que no'], ['Espacio →', 'Pasar'], ['←', 'Volver'], ['z', 'Deshacer'], ['r', 'Robar otra mano'], ['p', 'Escribir el por qué']])}
     ${grupo('Criba', [['1…9 0 q w', 'Pesar el pasaje (1 a 12)'], ['x', 'Sin peso'], ['Espacio', 'Saltear'], ['z', 'Deshacer']])}`)
 }

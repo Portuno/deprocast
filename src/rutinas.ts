@@ -15,8 +15,7 @@ import { forjarPendientes } from './fragua.ts'
 import { expandirTanda, paraExpandir } from './libreria.ts'
 import { guionMatinal } from './matinal.ts'
 import { sintetizar } from './taller.ts'
-import { decir, mandarAudio, mandarVotoNoche, preguntarSueno, telegramActivo } from './telegram.ts'
-import { diaDelPlan } from './cien.ts'
+import { decir, mandarAudio, preguntarSueno, telegramActivo } from './telegram.ts'
 import { listarAprendizajes } from './aprender.ts'
 import { escribirCronica, sintesisSemanal } from './gnosis.ts'
 import { calificarDia, predecirDia, textoDeCalificacion } from './gemelo.ts'
@@ -120,13 +119,6 @@ export const ACCIONES: Acciones = {
     if (!r.nuevas.length) return r.aviso ? `El radar no pudo salir: ${r.aviso}` : null
     return `El radar encontró ${r.nuevas.length} oportunidad${r.nuevas.length > 1 ? 'es' : ''}: ${r.nuevas.slice(0, 5).map((o) => o.titulo).join(' · ')}. Están en Radar, con por qué te sirven; si una te interesa, te armo el borrador.`
   },
-  /** A la noche, si hay un plan en curso: el voto de los seis verbos y los hábitos del día (botones por Telegram). */
-  async voto(db, fecha) {
-    const d = diaDelPlan(db, fecha)
-    if (!d || fecha < d.plan.desde || fecha > d.plan.hasta) return null
-    await mandarVotoNoche(db, fecha).catch(() => {})
-    return null
-  },
   /** El lunes: primarias sugeridas para la semana (si no las tiene ya), y una práctica para lo que quiere aprender y quedó quieto. */
   async semana(db, _fecha, ahora) {
     for (const a of listarAprendizajes(db, { estado: 'activo' }, ahora).filter((x) => x.diasSinPracticar == null || x.diasSinPracticar >= 7)) {
@@ -220,7 +212,7 @@ export const ACCIONES: Acciones = {
     await preguntarSueno(db, ahora).catch(() => {})
     return null
   },
-  /** Antes de medianoche: lo vivido hoy (cuerpo, plata, plan, aprendizaje, trabajo) entra al corpus como crónica propia. */
+  /** Antes de medianoche: lo vivido hoy (cuerpo, plata, aprendizaje, trabajo) entra al corpus como crónica propia. */
   async cronica(db, fecha, ahora) {
     escribirCronica(db, fecha, ahora)
     return null

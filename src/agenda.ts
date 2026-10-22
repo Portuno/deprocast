@@ -1,7 +1,7 @@
 /**
  * El calendario de Deprocast: su Google Calendar (ida y vuelta, si está conectado; si no, en solo lectura por iCal) y lo
  * que Deprocast sabe con fecha, por capas: la Línea, el Radar (fecha del evento y fecha de cierre), las misiones que
- * vencen, las tareas de los Cien Días y su horario fijo.
+ * vencen y su horario fijo.
  * Lo de Deprocast se puede «llevar a mi calendario»: queda atado a su evento de Google (calendario_vinculos), así no se
  * duplica y un cambio de fecha acá se edita allá.
  */
@@ -10,7 +10,7 @@ import { bloquesDelDia } from './horario.ts'
 import { eventosIcsDelRango, urlsCalendario } from './calendario.ts'
 import { borrarGoogle, crearGoogle, editarGoogle, googleConectado, listarGoogle, mailDeLaCuenta, type DatosEvento, type EventoGoogle } from './google-calendario.ts'
 
-export const CAPAS_CAL = ['google', 'linea', 'radar', 'mision', 'plan', 'horario'] as const
+export const CAPAS_CAL = ['google', 'linea', 'radar', 'mision', 'horario'] as const
 export type ItemCal = {
   id: string; capa: string; titulo: string; fecha: string; hora: string | null; fin: string | null; todoElDia: boolean; lugar: string | null; detalle: string | null
   url: string | null; ref: { tipo: string; id: number | string } | null
@@ -83,12 +83,9 @@ export async function itemsDelCalendario(db: Db, desde: string, hasta: string, c
       if (o.cierre && o.cierre >= desde && o.cierre <= hasta && o.cierre !== o.fecha) items.push({ id: `cierre:${o.id}`, capa: 'radar', titulo: `Cierra: ${o.titulo}`, fecha: o.cierre, hora: null, fin: null, todoElDia: true, lugar: null, detalle: o.por_que, url: o.url, ref: { tipo: 'oportunidad', id: o.id }, google: null, editable: false, llevable: false, cierre: true })
     }
   }
-  if (capas.has('mision') || capas.has('plan')) {
-    const delPlan = new Set((db.prepare('SELECT mision_id FROM plan_tareas').all() as { mision_id: number }[]).map((r) => r.mision_id))
+  if (capas.has('mision')) {
     for (const m of db.prepare(`SELECT id, titulo, detalle, vence, inicio, fin, nivel FROM misiones WHERE vence BETWEEN ? AND ? AND estado NOT IN ('hecha', 'descartada', 'no') AND personaje = 'jugador'`).all(desde, hasta) as any[]) {
-      const capa = delPlan.has(m.id) ? 'plan' : 'mision'
-      if (!capas.has(capa)) continue
-      items.push({ id: `mision:${m.id}`, capa, titulo: m.titulo, fecha: m.vence, hora: m.inicio ?? null, fin: m.fin ?? null, todoElDia: !m.inicio, lugar: null, detalle: m.detalle, url: null, ref: { tipo: 'mision', id: m.id }, google: enGoogle('mision', m.id), editable: false, llevable: true })
+      items.push({ id: `mision:${m.id}`, capa: 'mision', titulo: m.titulo, fecha: m.vence, hora: m.inicio ?? null, fin: m.fin ?? null, todoElDia: !m.inicio, lugar: null, detalle: m.detalle, url: null, ref: { tipo: 'mision', id: m.id }, google: enGoogle('mision', m.id), editable: false, llevable: true })
     }
   }
   if (capas.has('horario')) {

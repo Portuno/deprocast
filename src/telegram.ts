@@ -25,7 +25,6 @@ import { clasificar, deshacerCaptura, PARECE_REGISTRO, registrarCaptura, type Ca
 import { guardarFoto, leerFoto } from './chat/adjuntos.ts'
 import { registrarSalud, resumenDia } from './salud.ts'
 import { registrarError } from './autocritica.ts'
-import { diaDelPlan, marcarHabito, VERBOS, votar } from './cien.ts'
 import { cribar, marcador, siguiente } from './criba.ts'
 import { jugar, robar, type Jugada } from './mano.ts'
 import { responderPregunta, siguientePregunta } from './preguntas.ts'
@@ -188,8 +187,8 @@ async function editar(mensajeId: number, texto: string, botones?: Botones) {
 
 /** mensaje de Telegram → lo que se registró, para que responder «a ese mensaje» lo corrija. */
 const capturasEnviadas = new Map<number, { tabla: string; id: number | string; texto: string; foto: string | null }>()
-const LETRA: Record<string, string> = { salud: 's', movimientos: 'm', practicas: 'p', woop: 'w' }
-const TABLA: Record<string, string> = { s: 'salud', m: 'movimientos', p: 'practicas', w: 'woop' }
+const LETRA: Record<string, string> = { salud: 's', movimientos: 'm', practicas: 'p' }
+const TABLA: Record<string, string> = { s: 'salud', m: 'movimientos', p: 'practicas' }
 
 /** Si lo clasificado es un registro, lo anota y contesta con una línea (y ↩ para deshacer). false = no era un registro. */
 async function registrarYContar(db: Db, c: Captura | null, o: { foto?: string | null; texto: string; umbral?: number }): Promise<boolean> {
@@ -218,29 +217,6 @@ export async function preguntarSueno(db: Db, ahora = Date.now()) {
     [{ texto: '≤5 h', dato: 'z:h:5' }, { texto: '6 h', dato: 'z:h:6' }, { texto: '7 h', dato: 'z:h:7' }, { texto: '8 h', dato: 'z:h:8' }, { texto: '9+ h', dato: 'z:h:9' }],
     [{ texto: '😩 Mal', dato: 'z:c:1' }, { texto: '🙂 Bien', dato: 'z:c:2' }, { texto: '💪 Muy bien', dato: 'z:c:3' }],
   ])
-}
-
-/** El voto de la noche: los seis verbos y los hábitos de hoy, como botones que se prenden y se apagan. */
-function tarjetaVoto(db: Db, fecha: string): { texto: string; botones: Botones } | null {
-  const d = diaDelPlan(db, fecha)
-  if (!d) return null
-  const v = (k: string, n: string) => ({ texto: `${d.dia.verbos[k] ? '✓ ' : ''}${n}`, dato: `v:${fecha}:${k}` })
-  const hs = d.habitos.filter((h) => h.toca)
-  return {
-    texto: `🗳 **Día ${d.n} de ${d.total}.** ¿Qué verbos votaste hoy con hechos? Con 3 o 4 reales ya es un buen día.${hs.length ? '\nY los hábitos de hoy:' : ''}`,
-    botones: [
-      [v(VERBOS[0][0], VERBOS[0][1]), v(VERBOS[1][0], VERBOS[1][1]), v(VERBOS[2][0], VERBOS[2][1])],
-      [v(VERBOS[3][0], VERBOS[3][1]), v(VERBOS[4][0], VERBOS[4][1]), v(VERBOS[5][0], VERBOS[5][1])],
-      ...hs.map((h) => [{ texto: `${h.hecho ? '✓' : '○'} ${h.titulo.slice(0, 40)} (${h.enSemana}/${h.porSemana})`, dato: `g:${fecha}:${h.id}` }]),
-      [{ texto: 'Listo', dato: `l:${fecha}` }],
-    ],
-  }
-}
-
-export async function mandarVotoNoche(db: Db, fecha = fechaLocal()) {
-  if (!telegramActivo() || !suChat()) return
-  const t = tarjetaVoto(db, fecha)
-  if (t) await decir(t.texto, t.botones)
 }
 
 // ─── links: leer, guardar y bajar en .md ─────────────────────────────────
@@ -639,19 +615,6 @@ async function boton(db: Db, q: any) {
     deshacerCaptura(db, TABLA[a] ?? 'salud', b)
     if (mensajeId) capturasEnviadas.delete(mensajeId)
     return mensajeId ? editar(mensajeId, '↩ Deshecho: no quedó anotado.') : decir('↩ Deshecho.')
-  }
-  if (k === 'v' || k === 'g') {
-    // El botón trae la fecha: «v:2026-10-14:entreno» (los guiones de la fecha no son ':').
-    const [, fecha, cual] = String(q.data).split(':')
-    if (k === 'v') votar(db, fecha, cual)
-    else marcarHabito(db, fecha, cual)
-    const t = tarjetaVoto(db, fecha)
-    return t && mensajeId ? editar(mensajeId, t.texto, t.botones) : undefined
-  }
-  if (k === 'l') {
-    const d = diaDelPlan(db, a)
-    const votados = d ? VERBOS.filter(([v]) => d.dia.verbos[v]).map(([, n]) => n) : []
-    return mensajeId ? editar(mensajeId, `🗳 ${votados.length ? `Votaste ${votados.join(', ')}` : 'Hoy sin verbos votados'}. ${d ? `Intensidad del día: ${'●'.repeat(d.intensidad)}${'○'.repeat(4 - d.intensidad)}.` : ''}`) : undefined
   }
   if (k === 'z') {
     const r = registrarSalud(db, { tipo: 'sueno', datos: a === 'h' ? { horas: Number(b) } : { calidad: Number(b) }, fuente: 'telegram' })

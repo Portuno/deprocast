@@ -18,7 +18,6 @@ import { resolverPropuesta } from './index.ts'
 import { lineaParaHerramienta } from '../linea.ts'
 import { agenteDeCapas } from '../estudio.ts'
 import { procesarAnotaciones } from '../anotaciones.ts'
-import { diaDelPlan, guardarWoop, habitos as listarHabitos, marcarHabito, VERBOS, votar } from '../cien.ts'
 import { crearAprendizaje, listarAprendizajes, prepararRepaso, recursosDe, registrarPractica } from '../aprender.ts'
 import { CATEGORIAS, listarMovimientos, registrarMovimiento, resumenMes, resumenPorProyecto, ritmoMeta } from '../finanzas.ts'
 import { CLASES_PERSONA, desvincularDeProyecto, ESTADOS_PERSONA, grafoPersonas, guardarRelacion, leerPersona, nuevaPersona, personas, VINCULOS, vincularAProyecto } from '../personas.ts'
@@ -789,31 +788,6 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (_, r) => (r?.deshechas?.length ? `deshizo: ${recorte(r.deshechas.join(' · '), 60)}` : 'no había nada para deshacer'),
   },
   {
-    nombre: 'votar_dia', familia: 'accion',
-    descripcion: 'Anota en su plan (los Cien Días) los verbos que votó con hechos (Estudio, Trabajo, Entreno, Enseño, Construyo, Diseño) y los hábitos que hizo, cuando te lo cuenta.',
-    parametros: S({ fecha: str('YYYY-MM-DD; vacío = hoy'), verbos: { type: 'array', items: { type: 'string', enum: VERBOS.map(([k]) => k) } }, habitos: { type: 'array', items: { type: 'string' }, description: 'Títulos o ids de los hábitos que hizo' } }),
-    ejecutar: (a, { db }) => {
-      const fecha = a.fecha || fechaLocal()
-      for (const v of a.verbos ?? []) votar(db, fecha, v, true)
-      const hs = listarHabitos(db)
-      const hechos: string[] = []
-      for (const h of a.habitos ?? []) {
-        const x = hs.find((y) => y.id === h || y.titulo.toLowerCase().includes(String(h).toLowerCase()))
-        if (x) { marcarHabito(db, fecha, x.id, true); hechos.push(x.titulo) }
-      }
-      const d = diaDelPlan(db, fecha)
-      return { fecha, verbos: d?.dia.verbos, habitos: hechos, intensidad: d?.intensidad }
-    },
-    resumen: (a) => `anotó en el plan ${[...(a.verbos ?? []), ...(a.habitos ?? [])].join(', ') || 'el día'}`,
-  },
-  {
-    nombre: 'guardar_woop', familia: 'accion',
-    descripcion: 'Guarda su WOOP del día: deseo (w), resultado (o), obstáculo interno (ob) y plan si-entonces (p). Lo que no dijo, vacío.',
-    parametros: S({ fecha: str('YYYY-MM-DD; vacío = hoy'), w: str('Deseo'), o: str('Resultado'), ob: str('Obstáculo interno'), p: str('Plan si-entonces') }),
-    ejecutar: (a, { db }) => guardarWoop(db, a.fecha || fechaLocal(), a).woop,
-    resumen: () => 'guardó el WOOP',
-  },
-  {
     nombre: 'crear_aprendizaje', familia: 'accion',
     descripcion: 'Anota algo que quiere aprender (un tema o una habilidad), con por qué y hasta dónde quiere llegar.',
     parametros: S({ tema: str('Corto: «Francés», «SQL», «Teórico de conducir»'), por_que: str('Para qué'), nivel_actual: str('Dónde está hoy'), nivel_objetivo: str('Hasta dónde quiere llegar') }, ['tema']),
@@ -1210,16 +1184,6 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `llevó ${a.origen} #${a.id} a su calendario`,
   },
   {
-    nombre: 'ver_plan', familia: 'lectura',
-    descripcion: 'Su plan con fecha (los Cien Días): el día (número, semana, foco), frentes, hábitos de hoy y de la semana, verbos votados, WOOP, tareas del día y obligatorias atrasadas.',
-    parametros: S({ fecha: str('YYYY-MM-DD; vacío = hoy') }),
-    ejecutar: (a, { db }) => {
-      const d = diaDelPlan(db, a.fecha || fechaLocal())
-      if (!d) return { plan: null }
-      return { ...d, tareas: d.tareas.map((t) => ({ id: t.id, titulo: t.titulo, estado: t.estado, obligatoria: t.obligatoria, hito: t.hito })), atrasadas: d.atrasadas.map((t) => ({ id: t.id, titulo: t.titulo, vence: t.vence, obligatoria: t.obligatoria })) }
-    },
-  },
-  {
     nombre: 'ver_aprendizajes', familia: 'lectura',
     descripcion: 'Lo que quiere aprender: cada tema con minutos, días practicados este mes y última práctica; con un tema, también sus recursos (Librería y corpus).',
     parametros: S({ tema: str('Un tema, para ver sus recursos') }),
@@ -1585,13 +1549,13 @@ export const HERRAMIENTAS: Herramienta[] = [
 export const NUCLEO = [
   'pedir_herramientas', 'que_puede_deprocast', 'ver_dia', 'ver_agenda', 'ver_linea', 'fijar_horario', 'ver_uso', 'buscar_corpus', 'leer_pieza', 'leer_memoria', 'recordar',
   'corregir_memoria', 'listar_entidades', 'ver_entidad', 'ver_misiones', 'crear_mision', 'actualizar_mision', 'anotar_side_quest', 'ver_run', 'preparar_run',
-  'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'votar_dia', 'ver_plan', 'proponer_mejora', 'deshacer_ultima_accion', 'ver_para_validar', 'validar', 'arrancar_bloque', 'terminar_bloque',
+  'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'proponer_mejora', 'deshacer_ultima_accion', 'ver_para_validar', 'validar', 'arrancar_bloque', 'terminar_bloque',
 ]
 export const GRUPOS: Record<string, string[]> = {
   liga: ['ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'guardar_woop', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
+  vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   web: ['buscar_web', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   crear: ['ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }

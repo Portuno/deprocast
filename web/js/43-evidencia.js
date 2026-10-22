@@ -2,14 +2,14 @@
 // El libro de evidencia (en Jugador): quién querés ser, tu historia vieja y los hechos que lo votan. Y el foco (en el
 // Directo y en Hoy): cuánto sostenés la atención, cuánto se va en apps de estímulo y la meta de bloque.
 
-const TIPO_EVID = { banda: '⚔', mision: '◆', habito: '✓', practica: '◷', anotada: '✎' }
+const TIPO_EVID = { banda: '⚔', mision: '◆', practica: '◷', anotada: '✎' }
 
 async function montarEvidencia(cont) {
   let d
   try { d = await api('/identidades') } catch (e) { return error(e) }
   const xs = d.identidades
   cont.innerHTML = `
-    <p class="tenue">La identidad se vota con hechos. Elegí hasta tres frases de quién querés ser y atalas a lo que ya hacés (primarias, hábitos, aprendizajes, categorías de bandas o palabras): cada cosa que cae ahí suma una línea, sola. El domingo te llega una pregunta para mirarlo contra tu historia vieja.</p>
+    <p class="tenue">La identidad se vota con hechos. Elegí hasta tres frases de quién querés ser y atalas a lo que ya hacés (primarias, aprendizajes, categorías de bandas o palabras): cada cosa que cae ahí suma una línea, sola. El domingo te llega una pregunta para mirarlo contra tu historia vieja.</p>
     ${xs.length < 3 ? '<div class="fila my-3"><button class="btn btn-primario" id="ev-nueva">＋ Quién quiero ser</button></div>' : ''}
     ${xs.length ? `<div class="tarjetas">${xs.map((i) => `<article class="tarjeta ev-id">
         <h3>${esc(i.frase)}</h3>
@@ -32,7 +32,7 @@ async function montarEvidencia(cont) {
 }
 
 function modalIdentidad(i, op, alTerminar) {
-  const a = i?.ataduras ?? { primarias: [], habitos: [], aprendizajes: [], categorias: [], palabras: [] }
+  const a = i?.ataduras ?? { primarias: [], aprendizajes: [], categorias: [], palabras: [] }
   const checks = (nombre, xs, sel, etq) => xs.length ? `<fieldset class="ev-checks"><legend>${etq}</legend>${xs.map((x) => `<label><input type="checkbox" name="${nombre}" value="${esc(x.id)}" ${sel.map(String).includes(String(x.id)) ? 'checked' : ''}> ${esc(x.titulo ?? x.tema)}</label>`).join('')}</fieldset>` : ''
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>${i ? 'Tu identidad' : 'Quién querés ser'}</h2>
     <form id="ev-form">
@@ -40,7 +40,6 @@ function modalIdentidad(i, op, alTerminar) {
       <label class="campo">La historia vieja (la que querés dejar atrás)<input name="historiaVieja" value="${esc(i?.historiaVieja ?? '')}" placeholder="Arranco mil cosas y no termino ninguna"></label>
       <p class="tenue chico">¿Qué hechos la votan? Lo que marques suma solo.</p>
       ${checks('primarias', op.primarias, a.primarias, 'Primarias activas')}
-      ${checks('habitos', op.habitos, a.habitos, 'Hábitos')}
       ${checks('aprendizajes', op.aprendizajes, a.aprendizajes, 'Aprendizajes')}
       <div class="fila"><label class="campo">Categorías de bandas (separadas por coma)<input name="categorias" value="${esc(a.categorias.join(', '))}" placeholder="escritura, entreno"></label>
         <label class="campo">Palabras en el título (separadas por coma)<input name="palabras" value="${esc(a.palabras.join(', '))}" placeholder="terminar, publicar"></label></div>
@@ -49,7 +48,7 @@ function modalIdentidad(i, op, alTerminar) {
   $('#ev-form').onsubmit = async (ev) => {
     ev.preventDefault()
     const f = new FormData(ev.target)
-    const ataduras = { primarias: f.getAll('primarias').map(Number), habitos: f.getAll('habitos').map(String), aprendizajes: f.getAll('aprendizajes').map(Number), categorias: String(f.get('categorias') ?? ''), palabras: String(f.get('palabras') ?? '') }
+    const ataduras = { primarias: f.getAll('primarias').map(Number), aprendizajes: f.getAll('aprendizajes').map(Number), categorias: String(f.get('categorias') ?? ''), palabras: String(f.get('palabras') ?? '') }
     try {
       if (i) await api(`/identidades/${i.id}`, { frase: f.get('frase'), historiaVieja: f.get('historiaVieja'), ataduras })
       else await api('/identidades', { frase: f.get('frase'), historiaVieja: f.get('historiaVieja'), ataduras })

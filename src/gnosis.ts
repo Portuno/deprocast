@@ -1,5 +1,5 @@
 /**
- * La gnosis: lo que vive (cuerpo, plata, plan, aprendizaje, trabajo, Directo) no queda en tablas sueltas: entra al
+ * La gnosis: lo que vive (cuerpo, plata, aprendizaje, trabajo, Directo) no queda en tablas sueltas: entra al
  * núcleo de conocimiento, el mismo de siempre (corpus → quántomos → memoria → entidades).
  * - Cada noche, la crónica del día: una pieza propia (nivel I, «Mía») con todo lo que registró, armada sin modelo.
  *   Queda buscable, con sus entidades, y es materia para el escriba, los quántomos y las respuestas.
@@ -15,11 +15,10 @@ import { pedirJson } from './modelo.ts'
 import { encolarPregunta } from './preguntas.ts'
 import { resumenDia, listarSalud } from './salud.ts'
 import { listarMovimientos } from './finanzas.ts'
-import { diaDelPlan, VERBOS } from './cien.ts'
 import { progreso } from './jornada.ts'
 import { vozPara } from './personalidad.ts'
 
-const FUENTE = { id: 'vida', nombre: 'Mi vida (registros)', nivel: 'propia', descripcion: 'La crónica de cada día: cuerpo, plata, plan, aprendizaje y trabajo, armada con lo que registró.' }
+const FUENTE = { id: 'vida', nombre: 'Mi vida (registros)', nivel: 'propia', descripcion: 'La crónica de cada día: cuerpo, plata, aprendizaje y trabajo, armada con lo que registró.' }
 const FUENTE_SINTESIS = { id: 'gnosis', nombre: 'Gnosis (síntesis)', nivel: 'investigacion', descripcion: 'Lo que Mastropiero destila de sus semanas: patrones que cruzan dominios.' }
 
 const dia = (fecha: string) => { const d = new Date(`${fecha}T00:00:00`).getTime(); return [d, d + 86_400_000] as const }
@@ -29,19 +28,6 @@ export function cronicaDelDia(db: Db, fecha: string): { texto: string; entidades
   const [desde, hasta] = dia(fecha)
   const partes: string[] = []
   const entidades = new Set<number>()
-
-  const plan = diaDelPlan(db, fecha)
-  if (plan && fecha >= plan.plan.desde && fecha <= plan.plan.hasta) {
-    const votados = VERBOS.filter(([k]) => plan.dia.verbos[k]).map(([, n]) => n)
-    const hechos = plan.habitos.filter((h) => h.hecho).map((h) => h.titulo)
-    const lineas = [
-      votados.length ? `Verbos votados: ${votados.join(', ')}.` : '',
-      hechos.length ? `Hábitos hechos: ${hechos.join('; ')}.` : '',
-      plan.dia.woop?.w ? `WOOP — deseo: ${plan.dia.woop.w}${plan.dia.woop.ob ? `; obstáculo: ${plan.dia.woop.ob}` : ''}${plan.dia.woop.p ? `; plan: ${plan.dia.woop.p}` : ''}.` : '',
-      plan.dia.nota ? `Nota: ${plan.dia.nota}` : '',
-    ].filter(Boolean)
-    if (lineas.length) partes.push(`## ${plan.plan.nombre}, día ${plan.n} de ${plan.total}\n${lineas.join('\n')}`)
-  }
 
   const cerradas = db.prepare(`SELECT titulo, entidad_id, nivel FROM misiones WHERE personaje = 'jugador' AND estado = 'hecha' AND cerrada_en >= ? AND cerrada_en < ?`).all(desde, hasta) as { titulo: string; entidad_id: number | null; nivel: string }[]
   const p = progreso(db, fecha)
@@ -97,7 +83,7 @@ export function escribirCronica(db: Db, fecha: string, ahora = Date.now()): numb
 
 // ─── la síntesis de la semana ───────────────────────────────────────────
 
-const SISTEMA = `Sos Mastropiero y destilás la semana del jugador: leés sus crónicas diarias (cuerpo, plata, plan, aprendizaje, trabajo) y lo que ya sabés de él, y encontrás lo que él no ve día a día.
+const SISTEMA = `Sos Mastropiero y destilás la semana del jugador: leés sus crónicas diarias (cuerpo, plata, aprendizaje, trabajo) y lo que ya sabés de él, y encontrás lo que él no ve día a día.
 - «patrones»: de 2 a 5 afirmaciones atómicas y verificables que CRUZAN dominios o se repiten en la semana («Los tres días que entrenó votó al menos tres verbos», «El gasto en comida fuera sube los días de oficina», «Practica francés cuando camina»). Cada una con su evidencia (días o números). Nada genérico ni de autoayuda. Si no hay patrón real, menos o ninguno.
 - «texto»: la carta de la semana en dos o tres párrafos cortos, tratándolo de usted, directa: qué se movió, qué se trabó, qué conviene la semana que viene.
 - «preguntas»: 1 o 2 preguntas concretas cuya respuesta te haría entenderlo mejor (lo que los datos no dicen).

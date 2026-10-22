@@ -9,6 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { ATRIBUTO_MAX, ATRIBUTOS, CLASE_IDS, CLASES, PUNTOS_LIBRES } from './clases.ts'
 import { abrir, ajuste, fechaLocal, fijarAjuste, resolverRuta, type Db } from './db.ts'
+import { migrarCien } from './migrar-cien.ts'
 import { leerJornada, progreso, semana } from './jornada.ts'
 import {
   actualizarMision, ajustarMinutos, anotarSideQuest, arrancarRun, asignarMision, borrarPlantilla, cerrarRun, comentarRun, conAvance, crearMision, descartarRun, enCurso, guardarPlantilla,
@@ -23,7 +24,6 @@ import { CONECTORES, guardarCuenta, leerAgente, listarCuentas, listarPublicacion
 import { decir as decirPorTelegram, escucharTelegram, estadoTelegram, latidoTelegram, telegramActivo, telegramConfigurado } from './telegram.ts'
 import { borrarSalud, editarSalud, fijarMetasSalud, registrarSalud, resumenDia, resumenSemana } from './salud.ts'
 import { clasificar, registrarCaptura } from './captura.ts'
-import { diaDelPlan, guardarNota, guardarWoop, mapaDelPlan, marcarHabito, marcarTarea, votar } from './cien.ts'
 import { crearAprendizaje, editarAprendizaje, leerAprendizaje, listarAprendizajes, practicasDe, prepararRepaso, recursosDe, registrarPractica } from './aprender.ts'
 import { guardarFoto } from './chat/adjuntos.ts'
 import { aplicarBaseEntrante, recibirArchivo, recibirBase } from './mudanza.ts'
@@ -134,6 +134,11 @@ if (mudanza) console.log(`  ⇣ Arranco con la base que llegó por mudanza${muda
 const db = abrir()
 // La hora del operador, no la del servidor (la nube corre en UTC): antes de que nada formatee una hora.
 const zona = aplicarZona(db)
+// Adiós a los Cien Días (plan v23): una sola vez, su conocimiento al corpus, respaldo y fuera sus tablas.
+try {
+  const m = migrarCien(db, { respaldos: path.join(path.dirname(resolverRuta()), 'respaldos') })
+  if (m) console.log(`  ✦ Los Cien Días pasaron al corpus: ${m.piezas} piezas, ${m.dominios} dominios; respaldo en ${m.respaldo}`)
+} catch (e) { console.error('  migración de los Cien Días:', e instanceof Error ? e.message : e) }
 alGuardar(() => { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)') } catch { /* todavía no */ } })
 
 function vista(db: Db, f: Ficha) {
@@ -353,8 +358,6 @@ const rutas: [string, RegExp, Ruta][] = [
     const ahora = new Date()
     const hhmm = ahora.toTimeString().slice(0, 5)
     const { eventos } = await agendaDelDia(fecha).catch(() => ({ eventos: [] as { titulo: string; inicio: number; fin: number; todoElDia: boolean }[] }))
-    const plan = diaDelPlan(db, fecha)
-    const enPlan = plan && fecha >= plan.plan.desde && fecha <= plan.plan.hasta
     const salud = resumenDia(db, fecha)
     return {
       agenda: eventos.map((e) => ({ titulo: e.titulo, inicio: e.inicio, fin: e.fin, todoElDia: e.todoElDia })),
@@ -363,7 +366,6 @@ const rutas: [string, RegExp, Ruta][] = [
       foco: await (async () => { const f = await import('./foco.ts'); return { hoy: f.focoDelDia(db, fecha), meta: f.metaDeBloque(db) } })(),
       rutinas: listarRutinas(db).filter((r) => r.activa && r.dias.includes(String(ahora.getDay())) && r.hora > hhmm).map((r) => ({ nombre: r.nombre, hora: r.hora })).slice(0, 4),
       salud: { kcal: salud.kcal, proteina: salud.proteina, comidas: salud.comidas, ejercicio: salud.ejercicio, sueno: salud.sueno, peso: salud.peso, metas: salud.metas, entrenosSemana: resumenSemana(db, fecha).entrenos },
-      plan: enPlan ? { habitos: plan.habitos.filter((h) => h.toca), verbos: plan.dia.verbos, tareas: plan.tareas.map((t) => ({ id: t.id, titulo: t.titulo, estado: t.estado, hito: t.hito, obligatoria: t.obligatoria })) } : null,
       plata: { resumen: resumenMes(db), ritmo: ritmoMeta(db) },
       teConozco: curva(db, fecha, 21).total,
       gasto: { ...tokensHoy(db), tope: topeDiario(db) },
@@ -614,17 +616,6 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/salud$/, (b) => registrarSalud(db, { ...b, fuente: 'pantalla' })],
   ['POST', /^\/api\/salud\/metas$/, (b) => fijarMetasSalud(db, b)],
   ['POST', /^\/api\/salud\/(\d+)$/, (b, [r]) => (b.borrar ? (borrarSalud(db, id(r)), { ok: true }) : editarSalud(db, id(r), b))],
-  // Los Cien Días: el día (verbos, hábitos, WOOP, tareas), el mapa y lo que se marca
-  ['GET', /^\/api\/cien$/, (_, __, q) => {
-    const d = diaDelPlan(db, /^\d{4}-\d{2}-\d{2}$/.test(q.get('fecha') ?? '') ? q.get('fecha')! : fechaLocal())
-    return d ? { ...d, mapa: mapaDelPlan(db, d.plan) } : { plan: null }
-  }],
-  ['POST', /^\/api\/cien\/voto$/, (b) => votar(db, String(b.fecha), String(b.verbo), typeof b.valor === 'boolean' ? b.valor : undefined)],
-  ['POST', /^\/api\/cien\/habito$/, (b) => marcarHabito(db, String(b.fecha), String(b.id), typeof b.valor === 'boolean' ? b.valor : undefined)],
-  ['POST', /^\/api\/cien\/woop$/, (b) => guardarWoop(db, String(b.fecha), b)],
-  ['POST', /^\/api\/cien\/nota$/, (b) => guardarNota(db, String(b.fecha), { nota: b.nota, peso: b.peso === '' ? null : b.peso })],
-  ['POST', /^\/api\/cien\/tarea\/(\d+)$/, (b, [m]) => marcarTarea(db, id(m), !!b.hecha)],
-  // Quiero aprender: temas, prácticas, recursos y el repaso espaciado
   ['GET', /^\/api\/aprender$/, () => ({
     aprendizajes: listarAprendizajes(db),
     repaso: (db.prepare(`SELECT id, texto, por_que, tema, vuelve_en, repaso FROM preguntas WHERE origen = 'repaso' AND estado = 'pendiente' ORDER BY vuelve_en`).all() as any[])
@@ -639,7 +630,6 @@ const rutas: [string, RegExp, Ruta][] = [
   // El libro de evidencia: quién quiere ser y los hechos que lo votan; y el foco (del Directo).
   ['GET', /^\/api\/identidades$/, async () => ({ identidades: (await import('./evidencia.ts')).libroDeEvidencia(db), opciones: {
     primarias: listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', estados: ['activa'], limite: 30 }).map((m) => ({ id: m.id, titulo: m.titulo })),
-    habitos: db.prepare('SELECT id, titulo FROM habitos WHERE activo = 1 ORDER BY orden').all(),
     aprendizajes: db.prepare(`SELECT id, tema FROM aprendizajes WHERE estado = 'activo' ORDER BY id`).all(),
   } })],
   ['POST', /^\/api\/identidades$/, async (b) => (await import('./evidencia.ts')).crearIdentidad(db, { frase: b.frase, historiaVieja: b.historiaVieja ?? null, ataduras: b.ataduras ?? {} })],
