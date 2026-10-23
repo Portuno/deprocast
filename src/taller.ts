@@ -165,13 +165,29 @@ export function reservarVisual(db: Db, v: { clase: string; pedido: string; conce
   return leerArtefacto(db, a.id)!
 }
 
-/** Genera el visual reservado: el HTML interactivo según su clase. Con padre, es una versión nueva con la mejora pedida. */
+/**
+ * Genera el visual reservado. Primero por plantilla (el modelo manda los datos y un dibujante fijo los dibuja: barato y
+ * parejo); si el concepto no entra en ninguna, el HTML libre de siempre. Con padre, es una versión nueva con la mejora.
+ */
 export async function crearVisual(db: Db, id: number): Promise<Artefacto> {
   const a = leerArtefacto(db, id)
   if (!a) throw new Error(`No existe el visual ${id}`)
   const padre = a.padreId ? leerArtefacto(db, a.padreId) : null
   try {
-    avance(db, a.id, 'dibujando')
+    avance(db, a.id, 'eligiendo cómo dibujarlo')
+    const { datosVisual, shellVisual } = await import('./visuales.ts')
+    const previoDatos = padre?.meta.plantilla && padre.meta.plantilla !== 'libre' && padre.archivos.includes('datos.json')
+      ? { plantilla: padre.meta.plantilla, datos: JSON.parse(fs.readFileSync(path.join(carpeta(padre.id), 'datos.json'), 'utf8')) } : null
+    if (!padre || previoDatos) {
+      const d = await datosVisual(db, { clase: a.meta.clase, concepto: a.meta.concepto ?? a.titulo, pedido: a.pedido, dominio: a.meta.dominio, nivel: a.meta.nivel }, previoDatos)
+      if (d) {
+        fs.writeFileSync(path.join(carpeta(a.id), 'datos.json'), JSON.stringify(d.datos))
+        fs.writeFileSync(path.join(carpeta(a.id), 'index.html'), shellVisual(d.plantilla, d.datos, a.meta.concepto ?? a.titulo))
+        terminar(db, a.id, ['index.html', 'datos.json'], { modelo: d.modelo, plantilla: d.plantilla })
+        return leerArtefacto(db, a.id)!
+      }
+    }
+    avance(db, a.id, 'dibujando a mano')
     let escritos = 0
     const previo = padre?.archivos.includes('index.html') ? fs.readFileSync(path.join(carpeta(padre.id), 'index.html'), 'utf8') : null
     const r = await llamarModelo({ db, clase: 'mastropiero', agenteId: 'taller' }, {
@@ -189,7 +205,7 @@ export async function crearVisual(db: Db, id: number): Promise<Artefacto> {
     const html = (r.texto.match(/<!doctype html[\s\S]*<\/html>/i)?.[0] ?? r.texto.replace(/^```(?:html)?\s*|\s*```$/g, '')).trim()
     if (!/<html[\s>]/i.test(html)) throw new Error('El modelo no devolvió un HTML')
     fs.writeFileSync(path.join(carpeta(a.id), 'index.html'), html)
-    terminar(db, a.id, ['index.html'], { modelo: r.modelo })
+    terminar(db, a.id, ['index.html'], { modelo: r.modelo, plantilla: 'libre' })
   } catch (e) { fallar(db, a.id, e) }
   return leerArtefacto(db, a.id)!
 }

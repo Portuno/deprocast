@@ -211,7 +211,7 @@ async function fichaObra(raiz, verId = null) {
   if (!o) return toast('Esa obra ya no está', 'error')
   const id = verId ?? o.ultima.id
   const a = id === o.ultima.id ? o.ultima : tl.datos.artefactos.find((x) => x.id === id) ?? o.ultima
-  const meta = [a.meta?.aspecto && `Formato ${a.meta.aspecto}`, a.meta?.formato && `Formato ${a.meta.formato}`, a.meta?.estilo && `Estilo ${tl.datos.estilos?.[a.meta.estilo] ?? a.meta.estilo}`, a.meta?.voz && tl.datos.voces?.[a.meta.voz], a.meta?.escenas && `${a.meta.escenas} escenas`].filter(Boolean)
+  const meta = [a.meta?.aspecto && `Formato ${a.meta.aspecto}`, a.meta?.formato && `Formato ${a.meta.formato}`, a.meta?.estilo && `Estilo ${tl.datos.estilos?.[a.meta.estilo] ?? a.meta.estilo}`, a.meta?.voz && tl.datos.voces?.[a.meta.voz], a.meta?.escenas && `${a.meta.escenas} escenas`, a.meta?.plantilla && (a.meta.plantilla === 'libre' ? 'Dibujado a mano' : `Plantilla: ${a.meta.plantilla}`)].filter(Boolean)
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button>
     <div class="tl-ficha">
       <div class="tl-ficha-vista">${vistaGrande(a)}</div>

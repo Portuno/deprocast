@@ -1,0 +1,43 @@
+/* Los visuales del Taller (plan v24): una sola hoja para los cuatro dibujantes. Corren en un iframe aislado. */
+:root {
+  --fondo: #101216; --panel: #181b21; --linea: #2a2f38; --texto: #e8e6e1; --tenue: #9a9a96; --acento: #d9b45a;
+  --corriente: #f2c94c; --datos: #56ccf2; --energia: #eb5757; --materia: #6fcf97; --mal: #eb5757; --bien: #6fcf97;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--fondo); color: var(--texto); font: 14px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif; }
+#visual { display: flex; flex-direction: column; gap: 10px; padding: 12px; min-height: 100vh; }
+.v-cab h1 { margin: 0; font-size: 17px; font-weight: 600; }
+.v-cab p { margin: 2px 0 0; color: var(--tenue); font-size: 13px; }
+.v-cuerpo { display: grid; grid-template-columns: minmax(0, 1fr) minmax(180px, 32%); gap: 10px; flex: 1; min-height: 0; }
+.v-escenario { position: relative; background: var(--panel); border: 1px solid var(--linea); border-radius: 8px; overflow: hidden; min-height: 260px; touch-action: none; }
+.v-escenario svg, .v-escenario canvas { display: block; width: 100%; height: 100%; }
+.v-panel { background: var(--panel); border: 1px solid var(--linea); border-radius: 8px; padding: 10px 12px; overflow: auto; max-height: 70vh; }
+.v-panel h2 { margin: 0 0 4px; font-size: 15px; color: var(--acento); }
+.v-panel p { margin: 4px 0; }
+.v-panel ul { margin: 4px 0; padding-left: 18px; }
+.v-tenue { color: var(--tenue); }
+.v-controles { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.v-controles button, .v-panel button { background: #22262e; color: var(--texto); border: 1px solid var(--linea); border-radius: 6px; padding: 6px 10px; font: inherit; cursor: pointer; }
+.v-controles button:hover, .v-panel button:hover { border-color: var(--acento); }
+.v-controles button.on, .v-panel button.on { background: var(--acento); color: #15130e; border-color: var(--acento); }
+.v-desl { display: inline-flex; align-items: center; gap: 6px; background: #1c1f26; border: 1px solid var(--linea); border-radius: 6px; padding: 4px 8px; }
+.v-desl span { color: var(--tenue); font-size: 12px; }
+.v-desl input { width: 120px; accent-color: var(--acento); }
+.v-desl output { min-width: 4.5em; font-variant-numeric: tabular-nums; }
+.v-salida { padding: 4px 8px; border-radius: 6px; background: #1c1f26; border: 1px solid var(--linea); font-variant-numeric: tabular-nums; }
+.v-sep { flex: 1; }
+.v-error { color: var(--mal); padding: 20px; }
+.v-nodo { cursor: pointer; }
+.v-nodo .v-cuerpo-nodo { transition: opacity .2s; }
+.v-atenuado { opacity: .25; }
+.v-elegido .v-marca { stroke: var(--acento); stroke-width: 2.5; }
+.v-flujo { stroke-dasharray: 6 10; animation: v-fluir 1s linear infinite; }
+@keyframes v-fluir { to { stroke-dashoffset: -16; } }
+@media (prefers-reduced-motion: reduce) { .v-flujo { animation: none; } }
+@media (max-width: 600px) {
+  .v-cuerpo { grid-template-columns: 1fr; }
+  .v-panel { max-height: none; }
+  .v-escenario { min-height: 240px; }
+  .v-desl input { width: 90px; }
+}
