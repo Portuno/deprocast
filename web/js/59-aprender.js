@@ -126,7 +126,8 @@ async function pintarDominio(id) {
     ${!r.examen && d.estado === 'activo' ? '<p class="tenue chico">El examen se habilita con dos clases seguidas del nivel resueltas con 80 % o más.</p>' : ''}
     <section class="seccion"><h3>Clases</h3>${hechas.length ? hechas.map((s) => `<div class="fila item"><span class="f1">${s.tipo === 'examen' ? '📝 ' : ''}${esc(s.tema)}</span><small class="tenue">nivel ${s.nivel}${s.puntaje != null ? ` · ${Math.round(s.puntaje * 100)} %` : ''} · ${new Date(s.cerradaEn ?? s.creadaEn).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}</small>${s.piezaId ? `<a href="#" class="ref" data-pieza="${s.piezaId}">pieza</a>` : ''}</div>`).join('') : '<p class="tenue">Todavía ninguna.</p>'}</section>
     <section class="seccion"><h3>Visuales</h3>${r.visuales.length ? `<div class="aca-visuales">${r.visuales.map((a) => `<button class="aca-vis ${a.estado}" data-vis="${a.id}"><b>${esc(a.titulo)}</b><small>${esc(a.meta.clase ?? '')}${a.meta.valoracion ? ` · ${'★'.repeat(a.meta.valoracion)}` : ''}${a.meta.sellado ? ' · sellado' : ''}${a.estado === 'haciendo' ? ' · en el horno' : a.estado === 'fallo' ? ' · no salió' : ''}</small></button>`).join('')}</div>` : '<p class="tenue">Cuando una clase pide un dibujo, el Taller lo hace y queda acá.</p>'}</section>
-    <section class="seccion"><h3>Fuentes</h3>${fuentesHTML(r.recursos)}</section>
+    <section class="seccion"><div class="aca-sec-cab"><h3>Material</h3><button class="btn btn-chico" id="aca-material">＋ Material</button></div>${materialHTML(r.recursos.material)}</section>
+    <section class="seccion"><h3>Relacionado en tu archivo</h3>${fuentesHTML(r.recursos)}</section>
   </div>`
   $('#aca-volver', cont).onclick = () => { aca.dominio = null; pintarAprender() }
   $$('[data-aca-clase]', cont).forEach((b) => (b.onclick = () => abrirClase(d.id, !!b.dataset.examen)))
@@ -137,12 +138,82 @@ async function pintarDominio(id) {
     try { const f = await api(`/academia/${d.id}/fuentes`, {}); toast(f.nuevas.length ? `${f.nuevas.length} fuente${f.nuevas.length === 1 ? '' : 's'} nueva${f.nuevas.length === 1 ? '' : 's'} al corpus` : (f.aviso ?? 'Nada nuevo esta vez'), 'suave'); pintarDominio(d.id) } catch (e) { error(e) } finally { b.disabled = false }
   }
   $$('[data-pieza]', cont).forEach((x) => (x.onclick = (e) => { e.preventDefault(); modalPieza(Number(x.dataset.pieza)) }))
+  $('#aca-material', cont).onclick = () => modalMaterial(d)
+  $$('[data-mat]', cont).forEach((b) => (b.onclick = async () => {
+    const cuerpo = b.dataset.accion === 'quitar' ? { quitar: true } : { util: Number(b.dataset.accion) }
+    try { await api(`/academia/${d.id}/material/${b.dataset.mat}`, cuerpo); pintarDominio(d.id) } catch (e) { error(e) }
+  }))
   $$('[data-vis]', cont).forEach((b) => (b.onclick = () => fichaVisual(r.visuales.find((a) => a.id === Number(b.dataset.vis)), () => pintarDominio(d.id))))
 }
 
 function fuentesHTML(rec) {
-  const lista = [...rec.obras.map((o) => `📖 ${esc(o.titulo)}${o.autor ? ` — ${esc(o.autor)}` : ''} <small class="tenue">(${esc(o.estado)})</small>`), ...rec.piezas.map((p) => `<a href="#" class="ref" data-pieza="${p.id}">${esc(p.titulo)}</a>`)]
-  return lista.length ? `<ul class="aca-fuentes">${lista.map((x) => `<li>${x}</li>`).join('')}</ul>` : '<p class="tenue">Nada todavía en tu Librería ni en el corpus. «Buscar fuentes» sale a buscar material a tu nivel.</p>'
+  const lista = [...rec.obras.map((o) => `📖 ${esc(o.titulo)}${o.autor ? ` — ${esc(o.autor)}` : ''} <small class="tenue">(${esc(o.estado)})</small>`), ...rec.piezas.map((p) => `<a href="#" class="ref" data-pieza="${p.id}">${esc(p.titulo)}</a>${p.por?.includes('sentido') ? ' <small class="tenue">por sentido</small>' : ''}`)]
+  return lista.length ? `<ul class="aca-fuentes">${lista.map((x) => `<li>${x}</li>`).join('')}</ul>` : '<p class="tenue">Nada que hable de esto en tu Librería ni en el corpus.</p>'
+}
+
+const ORIGEN_MAT = { operador: 'tuyo', libro: 'libro', busqueda: 'búsqueda' }
+
+/** El material del dominio: lo que sumaste y lo que encontró la búsqueda, con 👍/👎 (lo que no sirve, el tutor no lo usa). */
+function materialHTML(ms) {
+  if (!ms?.length) return '<p class="tenue">Sumale libros, textos, links o archivos: el tutor arma las clases sobre eso y cita de dónde sale. «Buscar fuentes» trae material a tu nivel.</p>'
+  return `<ul class="aca-material">${ms.map((m) => `<li class="${m.util === -1 ? 'no-sirve' : ''}">
+    <span class="chip">${ORIGEN_MAT[m.origen] ?? esc(m.origen)}</span>
+    ${m.piezaId ? `<a href="#" class="ref f1" data-pieza="${m.piezaId}">${esc(m.titulo)}</a>` : `<span class="f1">📖 ${esc(m.titulo)}</span>`}
+    ${m.palabras ? `<small class="tenue">${m.palabras.toLocaleString('es-AR')} palabras</small>` : ''}
+    <button class="btn btn-chico btn-icono ${m.util === 1 ? 'on' : ''}" data-mat="${m.id}" data-accion="${m.util === 1 ? 0 : 1}" title="Sirve">👍</button>
+    <button class="btn btn-chico btn-icono ${m.util === -1 ? 'on' : ''}" data-mat="${m.id}" data-accion="${m.util === -1 ? 0 : -1}" title="No sirve (el tutor no lo usa)">👎</button>
+    <button class="btn btn-chico btn-icono" data-mat="${m.id}" data-accion="quitar" title="Quitar del dominio (sigue en tu corpus)">✕</button></li>`).join('')}</ul>`
+}
+
+/** Sumar material: un link, un texto, un archivo (PDF, Word…) o una obra de tu Librería. */
+function modalMaterial(d) {
+  let modo = 'link'
+  const pintar = () => {
+    abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Material para ${esc(d.tema)}</h2>
+      <p class="tenue">El tutor arma las clases sobre esto (si es un libro, sigue su enfoque) y cita de dónde sale.</p>
+      <div class="tabs">${[['link', 'Link'], ['texto', 'Texto'], ['archivo', 'Archivo'], ['obra', 'De tu Librería']].map(([k, n]) => `<button data-modo="${k}" class="${modo === k ? 'on' : ''}">${n}</button>`).join('')}</div>
+      <form id="aca-mat-form" class="mt-3">
+        ${modo === 'link' ? '<label class="campo">Link (una página, un video, un Google Doc, un PDF en la web)<input name="url" type="url" required placeholder="https://…"></label>'
+          : modo === 'texto' ? '<label class="campo">Título<input name="titulo" placeholder="Apuntes de…"></label><label class="campo">Texto<textarea name="texto" rows="8" required minlength="40" placeholder="Pegá el texto acá"></textarea></label>'
+          : modo === 'archivo' ? '<label class="campo">Archivo (PDF, Word, texto; hasta 30 MB)<input name="archivo" type="file" required accept=".pdf,.docx,.txt,.md,.pptx,.xlsx,.csv"></label>'
+          : '<label class="campo">Buscá en tu Librería<input name="q" id="aca-obra-q" placeholder="Título o autor" data-sin-menciones></label><div id="aca-obras" class="aca-obras"></div>'}
+        ${modo === 'obra' ? '' : '<button class="btn btn-primario">Sumar</button>'}
+      </form>`)
+    $$('[data-modo]').forEach((b) => (b.onclick = () => { modo = b.dataset.modo; pintar() }))
+    const listo = (m) => { cerrarModal(); toast(`Sumado<small>${m.length} cosa${m.length === 1 ? '' : 's'} en el material de ${esc(d.tema)}</small>`, 'suave'); pintarDominio(d.id) }
+    $('#aca-mat-form').onsubmit = async (ev) => {
+      ev.preventDefault()
+      const f = ev.target
+      const b = $('button.btn-primario', f)
+      if (b) b.disabled = true
+      try {
+        let cuerpo
+        if (modo === 'archivo') {
+          const archivo = f.archivo.files[0]
+          const sub = await fetch(`/api/chat/archivo?nombre=${encodeURIComponent(archivo.name)}`, { method: 'POST', body: archivo }).then((r) => r.json())
+          if (sub.error) throw new Error(sub.error)
+          cuerpo = { archivo: sub.url, nombre: sub.nombre }
+        } else cuerpo = Object.fromEntries(new FormData(f))
+        listo((await api(`/academia/${d.id}/material`, cuerpo)).material)
+      } catch (e) { error(e) } finally { if (b) b.disabled = false }
+    }
+    const q = $('#aca-obra-q')
+    if (q) {
+      let t
+      const buscarObras = async () => {
+        try {
+          const r = await api(`/libreria?q=${encodeURIComponent(q.value.trim())}`)
+          const obras = (r.obras ?? []).slice(0, 12)
+          $('#aca-obras').innerHTML = obras.length ? obras.map((o) => `<button type="button" class="aca-obra" data-obra="${o.id}"><b>${esc(o.titulo)}</b><small class="tenue">${esc([o.tipo, o.autor].filter(Boolean).join(' · '))}</small></button>`).join('') : '<p class="tenue chico">Nada con eso en tu Librería.</p>'
+          $$('[data-obra]').forEach((x) => (x.onclick = async () => { try { listo((await api(`/academia/${d.id}/material`, { obraId: Number(x.dataset.obra) })).material) } catch (e) { error(e) } }))
+        } catch (e) { error(e) }
+      }
+      q.oninput = () => { clearTimeout(t); t = setTimeout(buscarObras, 250) }
+      buscarObras()
+      q.focus()
+    }
+  }
+  pintar()
 }
 
 // ─── el visual: verlo, valorarlo y mejorarlo ────────────────────────────
@@ -186,6 +257,9 @@ function fichaVisual(a, luego) {
 
 // ─── la clase ───────────────────────────────────────────────────────────
 
+/** Las citas del tutor ([#123]) como links a la pieza (el texto ya viene escapado). */
+const citas = (html) => html.replace(/\[#(\d+)\]/g, '<a href="#" class="ref" data-pieza="$1">[#$1]</a>')
+
 /** Abre la clase (o el examen): si estaba lista, al instante; si no, el tutor la arma (unos segundos). */
 async function abrirClase(id, examen = false) {
   aca.dominio = id
@@ -207,7 +281,8 @@ function pintarClase(r) {
   cont.innerHTML = `<div class="aca-clase">
     <header class="aca-dom-cab"><button class="btn btn-chico" id="aca-volver">←</button><div class="f1"><h2>${s.tipo === 'examen' ? '📝 ' : ''}${esc(p.tema)}</h2><small class="tenue">Nivel ${s.nivel}${s.tipo === 'examen' ? ' · aprobás con 4 de 5' : ''}</small></div></header>
     <div class="aca-clase-cuerpo ${r.visual ? 'con-visual' : ''}">
-      <section class="aca-expl">${(p.explicacion || '').split(/\n{2,}/).map((x) => `<p>${esc(x)}</p>`).join('')}
+      <section class="aca-expl">${(p.explicacion || '').split(/\n{2,}/).map((x) => `<p>${citas(esc(x))}</p>`).join('')}
+        ${p.fuentes?.length ? `<p class="tenue chico">Sale de: ${p.fuentes.map((id) => `<a href="#" class="ref" data-pieza="${id}">#${id}</a>`).join(' · ')}</p>` : ''}
         ${p.ejemplos?.length ? `<h4>Ejemplos</h4><ul>${p.ejemplos.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</section>
       ${r.visual ? `<aside class="aca-visual" id="aca-visual">${visualHTML(r.visual)}</aside>` : ''}
     </div>
@@ -221,6 +296,7 @@ function pintarClase(r) {
     <div id="aca-cierre"></div>
   </div>`
   $('#aca-volver').onclick = () => { clearTimeout(aca.sondeo); pintarDominio(s.aprendizajeId) }
+  $$('[data-pieza]', cont).forEach((x) => (x.onclick = (e) => { e.preventDefault(); modalPieza(Number(x.dataset.pieza)) }))
   if (r.visual?.estado === 'listo') engancharVisual($('#aca-visual'), r.visual.artefactoId, () => refrescarVisual(s.id))
   if (r.visual?.estado === 'haciendo') esperarVisual(s.id)
   $$('.aca-pregunta', cont).forEach((f) => (f.onsubmit = async (ev) => {

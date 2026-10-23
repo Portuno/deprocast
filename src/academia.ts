@@ -5,9 +5,11 @@
  * Mano), tarjetas SM-2 en el mazo del dominio y la práctica anotada. Para subir de nivel hay un examen: se habilita con
  * dos clases seguidas bien resueltas y nunca sube solo. Idiomas sigue con su propio tutor (es un dominio especial).
  */
+import crypto from 'node:crypto'
 import { fechaLocal, json, type Db } from './db.ts'
 import { pedirJson } from './modelo.ts'
-import { asegurarFuente, buscar, insertar } from './corpus.ts'
+import { asegurarFuente, buscar, insertar, leerPieza, type Pieza } from './corpus.ts'
+import { buscarHibrido, cercanas, type PiezaHallada } from './semantica.ts'
 import { crearQuantomo } from './quantomos.ts'
 import { crearTarjeta, paraRepasar } from './tarjetas.ts'
 import { crearAprendizaje, leerAprendizaje, listarAprendizajes, recursosDe, registrarPractica, type Aprendizaje } from './aprender.ts'
@@ -28,7 +30,7 @@ export const nombreNivel = (n: number) => NIVELES_TUTOR[Math.max(1, Math.min(6, 
 export const VISUALES = ['diagrama', 'simulacion', 'movimiento', 'ninguno'] as const
 export type Visual = { tipo: (typeof VISUALES)[number]; pedido: string; degradado?: string | null } | null
 export type Pregunta = { pregunta: string; clave: string }
-export type Paquete = { tema: string; explicacion: string; ejemplos: string[]; preguntas: Pregunta[]; ideas: string[]; tarjetas: { frente: string; dorso: string }[]; visual: Visual }
+export type Paquete = { tema: string; explicacion: string; ejemplos: string[]; preguntas: Pregunta[]; ideas: string[]; tarjetas: { frente: string; dorso: string }[]; visual: Visual; fuentes?: number[] }
 export type SesionTutor = {
   id: number; aprendizajeId: number; nivel: number; tipo: 'clase' | 'examen'; tema: string; paquete: Paquete; estado: 'lista' | 'en_curso' | 'hecha'
   puntaje: number | null; piezaId: number | null; visualId: number | null; creadaEn: number; empezadaEn: number | null; cerradaEn: number | null
@@ -133,6 +135,7 @@ Preparás UNA clase del nivel ${n} (${nombreNivel(n)}) sobre el tema que se te d
 - ideas: 1 o 2 afirmaciones centrales de la clase, cada una en una oración que se sostiene sola (quedan como quántomos).
 - tarjetas: 3 a 5 para repasar (frente: una pregunta corta; dorso: la respuesta).
 - visual: {"tipo": "diagrama"|"simulacion"|"movimiento"|"ninguno", "pedido": string}.
+- Si viene «Material», la clase se arma sobre él (es lo que él eligió para aprender): seguí su enfoque, su orden y su notación, y citá [#id] donde lo uses. No inventes citas ni contradigas el material sin decirlo.
 Forma: {"tema": string, "explicacion": string, "ejemplos": [string], "preguntas": [{"pregunta": string, "clave": string}], "ideas": [string], "tarjetas": [{"frente": string, "dorso": string}], "visual": {"tipo": string, "pedido": string}}`
 
 const SISTEMA_EXAMEN = (n: number) => `${REGLAS}
@@ -162,8 +165,7 @@ function contexto(db: Db, d: Dominio, extra: string[] = []): string {
   const sabe = (db.prepare(`SELECT frente FROM tarjetas WHERE mazo = ? AND estado = 'activa' ORDER BY id DESC LIMIT 20`).all(mazoDe(d.id)) as { frente: string }[]).map((t) => t.frente)
   const r = recursosDe(db, d.tema)
   const otros = d.tutorNivel >= 6 ? listarAprendizajes(db, { estado: 'activo' }).filter((x) => x.id !== d.id).map((x) => x.tema) : []
-  let archivo: string[] = []
-  try { archivo = buscar(db, d.tema, 5).map((p) => `${p.titulo}: ${String(p.contenido ?? '').replace(/\s+/g, ' ').slice(0, 300)}`) } catch { /* consulta rara para FTS */ }
+  const material = materialDe(db, d.id).filter((m) => m.util !== -1 && m.origen !== 'busqueda').map((m) => m.titulo)
   return [
     `Dominio: ${d.tema}`,
     d.porQue ? `Para qué lo quiere aprender: ${d.porQue}` : '',
@@ -171,7 +173,7 @@ function contexto(db: Db, d: Dominio, extra: string[] = []): string {
     vistos.length ? `Temas que ya vio: ${vistos.join(' · ')}` : 'Todavía no vio ningún tema.',
     sabe.length ? `Lo que ya está repasando: ${sabe.join(' · ')}` : '',
     r.obras.length ? `Obras suyas sobre esto: ${r.obras.map((o) => o.titulo).join(' · ')}` : '',
-    archivo.length ? `De su archivo (usalo si sirve; si no, ignoralo):\n${archivo.join('\n')}` : '',
+    material.length ? `El material que sumó para esto: ${material.slice(0, 12).join(' · ')}` : '',
     otros.length ? `Sus otros dominios (para los puentes del nivel frontera): ${otros.join(' · ')}` : '',
     ...extra,
   ].filter(Boolean).join('\n')
@@ -202,8 +204,10 @@ export function prepararSesionTutor(db: Db, id: number, o: { tema?: string | nul
     }
     const idx = (leerDominio(db, id)!.temaIdx) % Math.max(1, temas.length)
     const tema = o.examen ? `Examen del nivel ${n}` : o.tema || temas[idx]
-    const datos = await modelo(db, o.examen ? SISTEMA_EXAMEN(n) : SISTEMA_CLASE(n), contexto(db, d, [o.examen ? `Temas del nivel: ${temas.join(' · ')}` : `Tema de la clase: ${tema}`]))
+    const mat = o.examen ? null : await materialParaClase(db, d, tema)
+    const datos = await modelo(db, o.examen ? SISTEMA_EXAMEN(n) : SISTEMA_CLASE(n), contexto(db, d, [o.examen ? `Temas del nivel: ${temas.join(' · ')}` : `Tema de la clase: ${tema}`, mat?.texto ? `Material (basate en esto; citá [#id] donde lo uses):\n${mat.texto}` : '']))
     const paquete = paqueteDe(datos, tema)
+    if (mat?.ids.length) paquete.fuentes = mat.ids
     if (!paquete.explicacion && !paquete.preguntas.length) throw new Error('El tutor no armó la clase: probá de nuevo')
     const sid = Number(db.prepare('INSERT INTO tutor_sesiones (aprendizaje_id, nivel, tipo, tema, paquete, estado, creada_en) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(id, n, o.examen ? 'examen' : 'clase', paquete.tema, JSON.stringify(paquete), 'lista', ahora).lastInsertRowid)
@@ -477,6 +481,7 @@ export async function buscarFuentes(db: Db, id: number, o: { ahora?: number } = 
     if (nuevas.length >= MAX_FUENTES) break
     try {
       const g = await guardador(db, x.url, `Fuente para aprender ${d.tema} (nivel ${d.tutorNivel}, ${nombreNivel(d.tutorNivel)})`, ahora)
+      atarFuente(db, id, { piezaId: g.piezaId, origen: 'busqueda' }, ahora)
       if (g.nueva) nuevas.push({ piezaId: g.piezaId, titulo: x.titulo, url: x.url })
     } catch { /* una página que no se deja leer: la siguiente */ }
   }
@@ -496,4 +501,141 @@ export function dominioParaFuentes(db: Db, ahora = Date.now()): Dominio | null {
   const idiomas = `SELECT aprendizaje_id FROM idiomas`
   const r = db.prepare(`SELECT id FROM aprendizajes WHERE estado = 'activo' AND id NOT IN (${idiomas}) AND (fuentes_en IS NULL OR fuentes_en < ?) ORDER BY fuentes_en IS NOT NULL, fuentes_en, id LIMIT 1`).get(ahora - 6 * 86_400_000) as { id: number } | undefined
   return r ? leerDominio(db, r.id) : null
+}
+
+// ─── el material de cada dominio (plan v24): atado a él y leído por sentido ─
+
+const FUENTE_MATERIAL = { id: 'material', nombre: 'Material para aprender', nivel: 'primaria' as const, descripcion: 'Libros, textos, links y archivos que sumó a un dominio de su Academia.' }
+
+export type Material = { id: number; piezaId: number | null; obraId: number | null; origen: string; util: number | null; titulo: string; url: string | null; palabras: number | null; en: number }
+
+/** Ata una pieza (o una obra) a un dominio. Lo mismo dos veces no se duplica. */
+export function atarFuente(db: Db, aprendizajeId: number, f: { piezaId?: number | null; obraId?: number | null; origen: 'busqueda' | 'operador' | 'libro' }, ahora = Date.now()) {
+  if (!f.piezaId && !f.obraId) return
+  db.prepare('INSERT OR IGNORE INTO dominio_fuentes (aprendizaje_id, pieza_id, obra_id, origen, en) VALUES (?, ?, ?, ?, ?)').run(aprendizajeId, f.piezaId ?? null, f.piezaId ? null : f.obraId ?? null, f.origen, ahora)
+}
+
+/** El material de un dominio: lo suyo primero, después lo que encontró la búsqueda; lo que no sirve, al final. */
+export function materialDe(db: Db, id: number): Material[] {
+  return (db.prepare(`SELECT f.id, f.pieza_id, f.obra_id, f.origen, f.util, f.en, COALESCE(c.titulo, o.titulo, '(sin título)') AS titulo, COALESCE(c.url, o.url) AS url,
+      CASE WHEN c.contenido IS NULL THEN NULL ELSE (LENGTH(c.contenido) - LENGTH(REPLACE(c.contenido, ' ', '')) + 1) END AS palabras
+    FROM dominio_fuentes f LEFT JOIN corpus c ON c.id = f.pieza_id LEFT JOIN obras o ON o.id = f.obra_id
+    WHERE f.aprendizaje_id = ? ORDER BY COALESCE(f.util, 0) = -1, f.origen = 'busqueda', f.en DESC`).all(id) as any[])
+    .map((r) => ({ id: r.id, piezaId: r.pieza_id, obraId: r.obra_id, origen: r.origen, util: r.util, titulo: r.titulo, url: r.url, palabras: r.palabras, en: r.en }))
+}
+
+/**
+ * Él suma material a un dominio: un link (se lee entero), un texto pegado, un archivo ya subido (PDF, Word…) o una obra de
+ * su Librería. Entra al corpus como material (nivel primaria: no es su voz) y queda atado al dominio; el Reproceso lo
+ * corta en pasajes con vector y el tutor lo usa en las clases.
+ */
+export async function sumarMaterial(db: Db, id: number, m: { url?: string | null; texto?: string | null; titulo?: string | null; archivo?: string | null; nombre?: string | null; obraId?: number | null }, ahora = Date.now()): Promise<Material[]> {
+  const d = leerDominio(db, id)
+  if (!d) throw new Error(`No existe el dominio ${id}`)
+  const nota = `Material para aprender ${d.tema}`
+  if (m.url?.trim()) {
+    if (!/^https?:\/\//i.test(m.url.trim())) throw new Error('Eso no parece un link')
+    const g = await guardador(db, m.url.trim(), nota, ahora)
+    atarFuente(db, id, { piezaId: g.piezaId, origen: 'operador' }, ahora)
+  } else if (m.obraId) {
+    const o = db.prepare('SELECT id, piezas FROM obras WHERE id = ?').get(m.obraId) as { id: number; piezas: string | null } | undefined
+    if (!o) throw new Error('Esa obra ya no está en tu Librería')
+    const piezas = json<number[]>(o.piezas, []) ?? []
+    for (const p of piezas) atarFuente(db, id, { piezaId: p, origen: 'libro' }, ahora)
+    if (!piezas.length) atarFuente(db, id, { obraId: o.id, origen: 'libro' }, ahora)
+  } else {
+    let texto = m.texto?.trim() ?? ''
+    let titulo = m.titulo?.trim() || ''
+    if (m.archivo) {
+      const { textoDeArchivo } = await import('./chat/adjuntos.ts')
+      texto = textoDeArchivo(m.archivo).trim()
+      titulo ||= (m.nombre ?? 'Archivo').replace(/\.[a-z0-9]+$/i, '')
+      if (!texto) throw new Error('Ese archivo no trae texto (¿es un escaneo?): pasalo como imagen al chat o buscá una versión con texto')
+    }
+    if (texto.length < 40) throw new Error('Pegá un poco más de texto (o un link, o un archivo)')
+    asegurarFuente(db, FUENTE_MATERIAL)
+    const origenId = `material:${crypto.createHash('sha1').update(texto).digest('hex').slice(0, 16)}`
+    const nueva = insertar(db, {
+      fuente: FUENTE_MATERIAL.id, nivel: 'primaria', titulo: (titulo || texto.split('\n')[0]).slice(0, 160), contenido: texto, estado: 'disponible', url: m.archivo ?? null,
+      fecha: fechaLocal(ahora), origenId, etiquetas: ['aprendizaje', d.tema], meta: { tipo: 'material', dominio: d.id, nota },
+    }, ahora)
+    const piezaId = nueva ?? (db.prepare('SELECT id FROM corpus WHERE origen_id = ?').get(origenId) as { id: number }).id
+    atarFuente(db, id, { piezaId, origen: m.archivo ? 'libro' : 'operador' }, ahora)
+  }
+  return materialDe(db, id)
+}
+
+/** Sirve (1), no sirve (−1) o sin opinión (0); o quitarlo del dominio (la pieza sigue en el corpus). */
+export function marcarMaterial(db: Db, id: number, fid: number, c: { util?: number; quitar?: boolean }) {
+  if (c.quitar) db.prepare('DELETE FROM dominio_fuentes WHERE id = ? AND aprendizaje_id = ?').run(fid, id)
+  else db.prepare('UPDATE dominio_fuentes SET util = ? WHERE id = ? AND aprendizaje_id = ?').run(c.util ? Math.sign(c.util) : null, fid, id)
+  return materialDe(db, id)
+}
+
+const significativas = (s: string) => normTema(s).split(' ').filter((w) => w.length >= 4 && !/^(para|como|sobre|desde|entre|nivel|prueba)$/.test(w))
+
+/**
+ * Lo relacionado del resto del corpus: por sentido (vectores) si hay; si no, solo lo que nombra TODAS las palabras
+ * importantes del tema (la búsqueda por palabras sola trae «Pruebas cosmológicas» para «Electricidad (prueba)»).
+ */
+async function relacionadas(db: Db, consulta: string, tema: string, excluir: Set<number>, limite: number): Promise<PiezaHallada[]> {
+  const sirve = (p: Pieza | null): p is Pieza => !!p && !excluir.has(p.id) && p.nivel !== 'generada' && p.contenido.length >= 200 && !String((p.meta as any)?.tipo ?? '').startsWith('academia')
+  // Por sentido: solo lo de verdad cerca (con 0,25 entra cualquier cuaderno); el corte también es relativo al mejor.
+  let cerca: { id: number; sim: number; desde?: number; hasta?: number }[] = []
+  try { cerca = await cercanas(db, consulta.replace(/\([^)]*\)/g, ' ').trim(), limite * 6) } catch { /* sin red */ }
+  const porSentido: PiezaHallada[] = []
+  let tope = 0
+  for (const x of cerca.filter((c) => c.sim >= UMBRAL_SENTIDO)) {
+    const p = leerPieza(db, x.id)
+    if (sirve(p)) tope ||= x.sim
+    if (sirve(p) && x.sim >= tope * 0.93) porSentido.push({ ...p, por: 'sentido', sim: +x.sim.toFixed(3), fragmento: x.desde ? p.contenido.slice(x.desde, x.hasta) : undefined } as PiezaHallada)
+  }
+  // Por palabras: solo lo que nombra TODAS las palabras importantes del tema.
+  const palabras = significativas(tema)
+  let porPalabras: Pieza[] = []
+  if (palabras.length) { try { porPalabras = buscar(db, palabras.join(' '), limite * 4) } catch { /* consulta rara */ } }
+  porPalabras = porPalabras.filter((p) => sirve(p) && palabras.every((w) => normTema(`${p.titulo} ${p.contenido.slice(0, 4000)}`).includes(w)))
+  const vistos = new Set<number>()
+  return [...porSentido, ...porPalabras.map((p) => ({ ...p, por: 'palabras' }))].filter((p) => !vistos.has(p.id) && vistos.add(p.id)).slice(0, limite)
+}
+
+/**
+ * Desde qué parecido (coseno, qwen3) algo del archivo «habla de lo mismo» que el tema. Medido sobre un archivo real, con
+ * el tema solo como consulta: lo ajeno ronda 0,48-0,52 y lo relacionado 0,53-0,56 (una palabra sola da poca señal; el
+ * material propio del dominio es lo que de verdad guía). Las hojas casi vacías se parecen a todo: se piden 200 caracteres.
+ */
+export const UMBRAL_SENTIDO = 0.53
+
+/** Los recursos de un dominio, para la pantalla: su material, las obras de la Librería y lo relacionado del corpus. */
+export async function recursosDominio(db: Db, d: Dominio) {
+  const material = materialDe(db, d.id)
+  const atadas = new Set(material.map((m) => m.piezaId).filter((x): x is number => x != null))
+  const piezas = (await relacionadas(db, d.tema, d.tema, atadas, 6)).map((p) => ({ id: p.id, titulo: p.titulo, nivel: p.nivel, por: p.por ?? 'palabras', sim: (p as any).sim ?? null, largo: p.contenido.length }))
+  return { material, obras: recursosDe(db, d.tema).obras, piezas }
+}
+
+/**
+ * El material para una clase: los pasajes más cercanos al tema, primero de lo atado al dominio (sin lo marcado «no
+ * sirve») y después del resto del corpus (solo por sentido). Cada uno con su [#id] para que el tutor cite.
+ */
+export async function materialParaClase(db: Db, d: Dominio, tema: string): Promise<{ texto: string; ids: number[] }> {
+  const material = materialDe(db, d.id)
+  const atadas = new Set(material.filter((m) => m.piezaId != null && m.util !== -1).map((m) => m.piezaId!))
+  const malas = new Set(material.filter((m) => m.util === -1 && m.piezaId != null).map((m) => m.piezaId!))
+  const consulta = `${tema} — ${d.tema}`
+  let hall: PiezaHallada[] = []
+  try { hall = await buscarHibrido(db, consulta, 24) } catch { /* consulta rara para FTS */ }
+  hall = hall.filter((p) => !malas.has(p.id) && p.nivel !== 'generada')
+  const propias: PiezaHallada[] = hall.filter((p) => atadas.has(p.id)).slice(0, 3)
+  if (!propias.length && atadas.size) {
+    // Sin vectores todavía (recién sumado): lo del material que nombra el tema; si nada, lo último que sumó.
+    let porPalabras: Pieza[] = []
+    try { porPalabras = buscar(db, tema, 40).filter((p) => atadas.has(p.id)) } catch { /* consulta rara */ }
+    const ultima = [...atadas].map((x) => leerPieza(db, x)).find(Boolean)
+    propias.push(...(porPalabras.length ? porPalabras.slice(0, 2) : ultima ? [ultima] : []))
+  }
+  const otras = (await relacionadas(db, consulta, d.tema, new Set([...atadas, ...malas]), 2)).filter((p) => p.por === 'sentido')
+  const bloque = (p: PiezaHallada, de: string) => `[#${p.id}] ${p.titulo} (${de})\n${(p.fragmento ?? p.contenido).replace(/\s+/g, ' ').slice(0, 1400)}`
+  const partes = [...propias.map((p) => bloque(p, 'su material')), ...otras.map((p) => bloque(p, 'su archivo'))]
+  return { texto: partes.join('\n\n'), ids: [...propias, ...otras].map((p) => p.id) }
 }

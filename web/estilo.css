@@ -2613,3 +2613,12 @@ span.ej-chip { cursor: default; }
   .aca-visual { position: static; order: -1; }
   .aca-grid { grid-template-columns: 1fr; }
 }
+.aca-sec-cab { display: flex; align-items: center; justify-content: space-between; gap: var(--e-3); }
+.aca-material { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--e-1); }
+.aca-material li { display: flex; align-items: center; gap: var(--e-2); padding: var(--e-1) 0; border-top: 1px solid var(--linea); }
+.aca-material li:first-child { border-top: 0; }
+.aca-material li.no-sirve { opacity: .55; }
+.aca-material .btn-icono.on { border-color: var(--acento); }
+.aca-obras { display: flex; flex-direction: column; gap: var(--e-1); margin-top: var(--e-2); max-height: 40vh; overflow: auto; }
+.aca-obra { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: var(--e-2) var(--e-3); border: 1px solid var(--linea); border-radius: var(--r-m); background: var(--panel); color: inherit; cursor: pointer; text-align: left; }
+.aca-obra:hover { border-color: var(--linea-2); }

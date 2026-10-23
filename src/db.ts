@@ -1339,6 +1339,19 @@ CREATE TABLE IF NOT EXISTS tutor_turnos (
   en INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS tutor_turnos_sesion ON tutor_turnos(sesion_id, i);
+-- El material de cada dominio (plan v24): lo que encontró la búsqueda, lo que él sumó (link, texto, archivo) y sus obras.
+-- util: 1 sirve, -1 no sirve (se baja en la búsqueda y el tutor no lo usa), NULL sin opinión.
+CREATE TABLE IF NOT EXISTS dominio_fuentes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  aprendizaje_id INTEGER NOT NULL,
+  pieza_id INTEGER,
+  obra_id INTEGER,
+  origen TEXT NOT NULL,                -- busqueda | operador | libro
+  util INTEGER,
+  en INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS dominio_fuentes_pieza ON dominio_fuentes(aprendizaje_id, pieza_id) WHERE pieza_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS dominio_fuentes_obra ON dominio_fuentes(aprendizaje_id, obra_id) WHERE obra_id IS NOT NULL AND pieza_id IS NULL;
 
 -- Lo que se rompió (errores del servidor, rutas que no existen): la materia de la autocrítica. Uno por texto y día.
 CREATE TABLE IF NOT EXISTS errores (

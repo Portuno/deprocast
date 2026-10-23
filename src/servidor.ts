@@ -746,6 +746,9 @@ const rutas: [string, RegExp, Ruta][] = [
     }
   }],
   ['POST', /^\/api\/academia\/sugerir$/, async () => { soloNube('Qué te conviene aprender'); return { sugeridos: await (await import('./academia.ts')).sugerirAprendizajes(db) } }],
+  // Su material: un link, un texto, un archivo ya subido (/api/chat/archivo) o una obra; y si sirve o no.
+  ['POST', /^\/api\/academia\/(\d+)\/material$/, async (b, [a]) => ({ material: await (await import('./academia.ts')).sumarMaterial(db, id(a), { url: b.url ?? null, texto: b.texto ?? null, titulo: b.titulo ?? null, archivo: b.archivo ?? null, nombre: b.nombre ?? null, obraId: b.obraId ? Number(b.obraId) : null }) })],
+  ['POST', /^\/api\/academia\/(\d+)\/material\/(\d+)$/, async (b, [a, f]) => ({ material: (await import('./academia.ts')).marcarMaterial(db, id(a), id(f), { util: b.util == null ? undefined : Number(b.util), quitar: !!b.quitar }) })],
   ['POST', /^\/api\/academia\/(\d+)\/fuentes$/, async (_, [a]) => { soloNube('Buscar fuentes'); return (await import('./academia.ts')).buscarFuentes(db, id(a)) }],
   ['POST', /^\/api\/academia\/(\d+)\/aceptar$/, async (_, [a]) => (await import('./academia.ts')).aceptarSugerencia(db, id(a))],
   ['POST', /^\/api\/academia\/(\d+)\/descartar$/, async (_, [a]) => (await import('./academia.ts')).descartarSugerencia(db, id(a))],
@@ -755,7 +758,7 @@ const rutas: [string, RegExp, Ruta][] = [
     const d = ac.leerDominio(db, id(a))
     if (!d) throw new Error(`No existe el dominio ${a}`)
     const visuales = (db.prepare(`SELECT id FROM artefactos WHERE tipo = 'visual' AND json_extract(meta, '$.dominioId') = ? ORDER BY id DESC LIMIT 40`).all(d.id) as { id: number }[]).map((r) => leerArtefacto(db, r.id)!)
-    return { dominio: { ...d, nivelNombre: ac.nombreNivel(d.tutorNivel) }, examen: ac.examenHabilitado(db, d.id), visuales, sesiones: ac.sesionesDe(db, d.id).map(({ paquete, ...s }) => ({ ...s, preguntas: paquete?.preguntas.length ?? 0, visual: paquete?.visual?.tipo ?? null })), recursos: recursosDe(db, d.tema), practicas: practicasDe(db, d.id, 10) }
+    return { dominio: { ...d, nivelNombre: ac.nombreNivel(d.tutorNivel) }, examen: ac.examenHabilitado(db, d.id), visuales, sesiones: ac.sesionesDe(db, d.id).map(({ paquete, ...s }) => ({ ...s, preguntas: paquete?.preguntas.length ?? 0, visual: paquete?.visual?.tipo ?? null })), recursos: await ac.recursosDominio(db, d), practicas: practicasDe(db, d.id, 10) }
   }],
   ['POST', /^\/api\/academia\/(\d+)\/sesion$/, async (b, [a]) => {
     const ac = await import('./academia.ts')
