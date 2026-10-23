@@ -121,6 +121,12 @@ export const ACCIONES: Acciones = {
     if (!xs.length) return null
     return `Para lo que viene, le conviene aprender: ${xs.map((d) => `**${d.tema}** (${ac.textoSugerencia(d)})`).join('; ')}. Están en 📥 Para validar: si acepta, armo el tutor y busco las primeras fuentes.`
   },
+  /** Los domingos (en la nube): dónde no alcanza su información (sus metas y sus dominios contra el archivo), con una idea para cada hueco. */
+  async huecos(db, _fecha, ahora) {
+    if (topeAlcanzado(db, ahora) || !(await import('./reproceso.ts')).enLaNube()) return null
+    const r = await (await import('./academia.ts')).reporteHuecos(db, ahora)
+    return r?.texto ?? null
+  },
   /** De madrugada (en la nube): material nuevo para el dominio que hace más que no busca. Al corpus, sin aviso. */
   async fuentes(db, _fecha, ahora) {
     if (topeAlcanzado(db, ahora) || !(await import('./reproceso.ts')).enLaNube()) return null
@@ -137,7 +143,15 @@ export const ACCIONES: Acciones = {
   },
   /** El lunes: primarias sugeridas para la semana (si no las tiene ya), y una práctica para lo que quiere aprender y quedó quieto. */
   async semana(db, _fecha, ahora) {
-    for (const a of listarAprendizajes(db, { estado: 'activo' }, ahora).filter((x) => x.diasSinPracticar == null || x.diasSinPracticar >= 7)) {
+    // Los dominios con meta: UNA side quest para la semana con las clases que pide el ritmo (vence el domingo).
+    const { listarDominios } = await import('./academia.ts')
+    const conMeta = new Set<number>()
+    for (const d of listarDominios(db, ahora).filter((x) => x.estado === 'activo' && x.ritmo && (x.ritmo.estado === 'al_dia' || x.ritmo.estado === 'atrasado'))) {
+      conMeta.add(d.id)
+      const domingo = new Date(ahora + ((7 - new Date(ahora).getDay()) % 7) * 86_400_000)
+      anotarSideQuest(db, { titulo: `${d.ritmo!.porSemana} clase${d.ritmo!.porSemana === 1 ? '' : 's'} de ${d.tema} esta semana`, detalle: d.ritmo!.texto, vence: fechaLocal(domingo.getTime()), sugerida: true, creadaPor: 'academia' }, ahora)
+    }
+    for (const a of listarAprendizajes(db, { estado: 'activo' }, ahora).filter((x) => !conMeta.has(x.id) && (x.diasSinPracticar == null || x.diasSinPracticar >= 7))) {
       anotarSideQuest(db, { titulo: `Practicar ${a.tema} (20 min)`, detalle: a.ultima ? `La última vez fue el ${a.ultima}.` : 'Todavía no hay práctica anotada.', sugerida: true, creadaPor: 'mastropiero' }, ahora)
     }
     const semana = semanaDe(ahora)

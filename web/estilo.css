@@ -2622,3 +2622,16 @@ span.ej-chip { cursor: default; }
 .aca-obras { display: flex; flex-direction: column; gap: var(--e-1); margin-top: var(--e-2); max-height: 40vh; overflow: auto; }
 .aca-obra { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: var(--e-2) var(--e-3); border: 1px solid var(--linea); border-radius: var(--r-m); background: var(--panel); color: inherit; cursor: pointer; text-align: left; }
 .aca-obra:hover { border-color: var(--linea-2); }
+.aca-ritmo { margin: var(--e-1) 0; }
+.aca-ritmo.atrasado, .aca-ritmo.vencida { color: var(--aviso); }
+.aca-ritmo.lograda { color: var(--ok); }
+.aca-mapa-nivel { margin: var(--e-1) 0; }
+.aca-mapa-nivel summary { cursor: pointer; padding: var(--e-1) 0; }
+.aca-mapa { list-style: none; margin: 0 0 var(--e-2); padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.aca-mapa li { display: flex; align-items: center; gap: var(--e-3); padding: 3px var(--e-2); border-radius: var(--r-s); }
+.aca-mapa li.sigue { background: var(--acento-suave); }
+.aca-barra { flex: 0 0 90px; height: 6px; border-radius: var(--r-pill); background: var(--linea); overflow: hidden; }
+.aca-barra b { display: block; height: 100%; width: 0; background: var(--linea-2); }
+.aca-barra b.medio { background: var(--aviso); }
+.aca-barra b.alto { background: var(--ok); }
+.aca-huecos { margin: var(--e-2) 0; padding-left: 18px; display: flex; flex-direction: column; gap: var(--e-1); }

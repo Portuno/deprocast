@@ -29,7 +29,7 @@ async function pintarAprender() {
   const activos = dominios.filter((d) => d.estado === 'activo')
   const quietos = dominios.filter((d) => d.estado !== 'activo')
   cont.innerHTML = `
-    <div class="fila aca-acciones"><button class="btn btn-primario" id="aca-sumar">＋ Sumar un dominio</button><button class="btn" id="aca-sugerir">💡 ¿Qué me conviene aprender?</button></div>
+    <div class="fila aca-acciones"><button class="btn btn-primario" id="aca-sumar">＋ Sumar un dominio</button><button class="btn" id="aca-sugerir">💡 ¿Qué me conviene aprender?</button><button class="btn" id="aca-faltan" title="Lo que tus metas piden y tu archivo casi no tiene">🕳 Lo que te falta</button></div>
     ${sugeridos.length ? `<section class="seccion"><h3>Sugeridos para vos</h3><div class="aca-grid">${sugeridos.map(naipeSugerido).join('')}</div></section>` : ''}
     ${activos.length ? `<div class="aca-grid">${activos.map(naipeDominio).join('')}</div>` : '<div class="vacio"><div class="gran">🎓</div><h2>Tu Academia está vacía</h2><p>Sumá algo que quieras aprender (y para qué), o pedí que te proponga qué te conviene según lo que viene en tu agenda y tus metas.</p></div>'}
     ${quietos.length ? `<details class="seccion aca-quietos"><summary>En pausa (${quietos.length})</summary><div class="aca-grid">${quietos.map(naipeDominio).join('')}</div></details>` : ''}`
@@ -39,6 +39,8 @@ async function pintarAprender() {
   $$('[data-aca-descartar]', cont).forEach((b) => (b.onclick = async () => { try { await api(`/academia/${b.dataset.acaDescartar}/descartar`, {}); pintarAprender() } catch (e) { error(e) } }))
   $$('[data-aca-abrir]', cont).forEach((b) => (b.onclick = (e) => { e.preventDefault(); aca.dominio = Number(b.dataset.acaAbrir); pintarAprender() }))
   $$('[data-aca-clase]', cont).forEach((b) => (b.onclick = () => abrirClase(Number(b.dataset.acaClase), !!b.dataset.examen)))
+  $$('[data-aca-ubicar]', cont).forEach((b) => (b.onclick = (e) => { e.preventDefault(); abrirClase(Number(b.dataset.acaUbicar), false, true) }))
+  $('#aca-faltan', cont).onclick = modalHuecos
   $$('[data-aca-idioma]', cont).forEach((b) => (b.onclick = () => irA('idiomas')))
   $$('[data-aca-estado]', cont).forEach((b) => (b.onclick = async () => { try { await api(`/aprender/${b.dataset.acaEstado}`, { estado: b.dataset.a }); pintarAprender() } catch (e) { error(e) } }))
 }
@@ -70,8 +72,10 @@ function naipeDominio(d) {
     <header><h3><a href="#" data-aca-abrir="${d.id}">${esc(d.tema)}</a></h3><span class="chip">Nivel ${d.tutorNivel} · ${esc(d.nivelNombre)}</span></header>
     ${escalera(d.tutorNivel)}
     ${d.porQue ? `<p class="aca-porque">«${esc(d.porQue)}»</p>` : ''}
-    <p class="chico">${d.temaSiguiente ? `Sigue: <b>${esc(d.temaSiguiente)}</b>${d.sesionLista ? ' <span class="tenue">(lista)</span>' : ''}` : '<span class="tenue">La primera clase arma el temario del nivel.</span>'}</p>
-    <div class="aca-metricas tenue chico"><span>${d.clases} clase${d.clases === 1 ? '' : 's'}</span>${d.diasSinPracticar != null ? `<span>hace ${d.diasSinPracticar} día${d.diasSinPracticar === 1 ? '' : 's'}</span>` : ''}${d.tarjetasHoy ? `<span>🃏 ${d.tarjetasHoy} para hoy</span>` : ''}</div>
+    <p class="chico">${d.temaSiguiente ? `Sigue: <b>${esc(d.temaSiguiente)}</b>${d.sesionLista ? ' <span class="tenue">(lista)</span>' : ''}` : '<span class="tenue">La primera clase arma el mapa de conceptos.</span>'}</p>
+    ${d.ritmo ? `<p class="chico aca-ritmo ${d.ritmo.estado}">🎯 ${esc(d.ritmo.texto)}</p>` : ''}
+    ${!d.diagnosticado && !d.clases && d.estado === 'activo' ? `<p class="chico"><a href="#" data-aca-ubicar="${d.id}">📏 Ubicarme</a> <span class="tenue">(6 preguntas: arranco en tu nivel)</span></p>` : ''}
+    <div class="aca-metricas tenue chico">${d.mapa ? `<span>${d.mapa.sabidosDelNivel}/${d.mapa.delNivel} del nivel</span>` : ''}<span>${d.clases} clase${d.clases === 1 ? '' : 's'}</span>${d.diasSinPracticar != null ? `<span>hace ${d.diasSinPracticar} día${d.diasSinPracticar === 1 ? '' : 's'}</span>` : ''}${d.tarjetasHoy ? `<span>🃏 ${d.tarjetasHoy} para hoy</span>` : ''}</div>
     <div class="fila">${d.estado === 'activo' ? `<button class="btn btn-primario btn-chico" data-aca-clase="${d.id}">▶ Clase</button>${d.examen ? `<button class="btn btn-chico" data-aca-clase="${d.id}" data-examen="1">📝 Examen</button>` : ''}` : ''}
       <button class="btn btn-chico" data-aca-abrir="${d.id}">Ver dominio</button>
       <button class="btn btn-chico" data-aca-estado="${d.id}" data-a="${d.estado === 'activo' ? 'pausado' : 'activo'}">${d.estado === 'activo' ? 'Pausar' : 'Reactivar'}</button></div>
@@ -118,20 +122,49 @@ async function pintarDominio(id) {
   cont.innerHTML = `<div class="aca-dominio">
     <header class="aca-dom-cab"><button class="btn btn-chico" id="aca-volver">←</button><div class="f1"><h2>${esc(d.tema)}</h2>${d.porQue ? `<small class="tenue">${esc(d.porQue)}</small>` : ''}</div><span class="chip">Nivel ${d.tutorNivel} · ${esc(d.nivelNombre)}</span></header>
     ${escalera(d.tutorNivel)}
+    ${r.ritmo ? `<p class="aca-ritmo ${r.ritmo.estado}">🎯 ${esc(r.ritmo.texto)}</p>` : ''}
     <div class="fila aca-acciones">
       ${d.estado === 'activo' ? `<button class="btn btn-primario" data-aca-clase="${d.id}">▶ Clase</button>${r.examen ? `<button class="btn" data-aca-clase="${d.id}" data-examen="1">📝 Examen del nivel</button>` : ''}` : ''}
+      <button class="btn" id="aca-ubicar" title="Seis preguntas, de la más fácil a la más difícil: arranco en tu nivel">📏 Ubicarme</button>
+      <button class="btn" id="aca-meta">🎯 ${r.ritmo ? 'Cambiar la meta' : 'Una meta con fecha'}</button>
       <button class="btn" id="aca-tarjetas">🃏 Repasar tarjetas</button>
       <button class="btn" id="aca-fuentes" title="Busca material a tu nivel y lo suma al corpus (en la nube)">🔎 Buscar fuentes</button>
     </div>
-    ${!r.examen && d.estado === 'activo' ? '<p class="tenue chico">El examen se habilita con dos clases seguidas del nivel resueltas con 80 % o más.</p>' : ''}
+    ${!r.examen && d.estado === 'activo' ? '<p class="tenue chico">El examen se habilita con dos clases seguidas del nivel resueltas con 80 % o más, o con todo el nivel sabido.</p>' : ''}
+    <section class="seccion"><div class="aca-sec-cab"><h3>Mapa de conceptos</h3><span class="fila"><button class="btn btn-chico" id="aca-huecos" title="Qué conceptos no tienen material en tu archivo y qué falla seguido">🕳 Huecos</button><button class="btn btn-chico" id="aca-rearmar" title="El tutor rehace el mapa siguiendo el índice de tu material (lo que sabés se conserva)">↻ Rearmar desde mi material</button></span></div>
+      <div id="aca-huecos-res"></div>${mapaHTML(r.conceptos, r.sigue, d.tutorNivel)}</section>
     <section class="seccion"><h3>Clases</h3>${hechas.length ? hechas.map((s) => `<div class="fila item"><span class="f1">${s.tipo === 'examen' ? '📝 ' : ''}${esc(s.tema)}</span><small class="tenue">nivel ${s.nivel}${s.puntaje != null ? ` · ${Math.round(s.puntaje * 100)} %` : ''} · ${new Date(s.cerradaEn ?? s.creadaEn).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}</small>${s.piezaId ? `<a href="#" class="ref" data-pieza="${s.piezaId}">pieza</a>` : ''}</div>`).join('') : '<p class="tenue">Todavía ninguna.</p>'}</section>
     <section class="seccion"><h3>Visuales</h3>${r.visuales.length ? `<div class="aca-visuales">${r.visuales.map((a) => `<button class="aca-vis ${a.estado}" data-vis="${a.id}"><b>${esc(a.titulo)}</b><small>${esc(a.meta.clase ?? '')}${a.meta.valoracion ? ` · ${'★'.repeat(a.meta.valoracion)}` : ''}${a.meta.sellado ? ' · sellado' : ''}${a.estado === 'haciendo' ? ' · en el horno' : a.estado === 'fallo' ? ' · no salió' : ''}</small></button>`).join('')}</div>` : '<p class="tenue">Cuando una clase pide un dibujo, el Taller lo hace y queda acá.</p>'}</section>
     <section class="seccion"><div class="aca-sec-cab"><h3>Material</h3><button class="btn btn-chico" id="aca-material">＋ Material</button></div>${materialHTML(r.recursos.material)}</section>
     <section class="seccion"><h3>Relacionado en tu archivo</h3>${fuentesHTML(r.recursos)}</section>
   </div>`
   $('#aca-volver', cont).onclick = () => { aca.dominio = null; pintarAprender() }
+  $$('.aca-barra b', cont).forEach((x) => (x.style.width = `${x.dataset.pct}%`))
   $$('[data-aca-clase]', cont).forEach((b) => (b.onclick = () => abrirClase(d.id, !!b.dataset.examen)))
   $('#aca-tarjetas', cont).onclick = () => repasarTarjetas(`aprender:${d.id}`)
+  $('#aca-ubicar', cont).onclick = () => abrirClase(d.id, false, true)
+  $('#aca-meta', cont).onclick = () => modalMeta(d, r.ritmo)
+  $('#aca-rearmar', cont).onclick = async () => {
+    const b = $('#aca-rearmar', cont)
+    b.disabled = true
+    toast('Rearmando el mapa con tu material…', 'suave')
+    try { await api(`/academia/${d.id}/mapa`, {}); pintarDominio(d.id) } catch (e) { error(e) } finally { b.disabled = false }
+  }
+  $('#aca-huecos', cont).onclick = async () => {
+    const b = $('#aca-huecos', cont)
+    b.disabled = true
+    $('#aca-huecos-res', cont).innerHTML = '<p class="tenue chico">Midiendo tu archivo contra cada concepto…</p>'
+    try {
+      const h = await api(`/academia/${d.id}/huecos`)
+      const lineas = [
+        h.sinMaterial.length ? `<li>🔍 <b>Sin material en tu archivo:</b> ${h.sinMaterial.map((c) => esc(c.nombre)).join(', ')}. «Buscar fuentes» va primero por ${esc(h.sinMaterial[0].nombre)}.</li>` : '',
+        h.flojos.length ? `<li>⚠ <b>Falla seguido:</b> ${h.flojos.map((c) => esc(c.nombre)).join(', ')}.</li>` : '',
+        ...h.bloqueantes.map((x) => `<li>⛔ <b>${esc(x.concepto.nombre)}</b> frena a ${x.frena.map(esc).join(', ')}.</li>`),
+      ].filter(Boolean)
+      $('#aca-huecos-res', cont).innerHTML = lineas.length ? `<ul class="aca-huecos">${lineas.join('')}</ul>` : `<p class="tenue chico">${h.medido ? 'Sin huecos a la vista en tu nivel.' : 'Todavía no se puede medir: tu archivo no tiene vectores (los hace el Reproceso en la nube).'}</p>`
+      if (h.medido) setTimeout(() => pintarDominio(d.id), 4000)
+    } catch (e) { $('#aca-huecos-res', cont).innerHTML = ''; error(e) } finally { b.disabled = false }
+  }
   $('#aca-fuentes').onclick = async () => {
     const b = $('#aca-fuentes')
     b.disabled = true
@@ -144,6 +177,56 @@ async function pintarDominio(id) {
     try { await api(`/academia/${d.id}/material/${b.dataset.mat}`, cuerpo); pintarDominio(d.id) } catch (e) { error(e) }
   }))
   $$('[data-vis]', cont).forEach((b) => (b.onclick = () => fichaVisual(r.visuales.find((a) => a.id === Number(b.dataset.vis)), () => pintarDominio(d.id))))
+}
+
+/** El mapa por niveles: el actual abierto; cada concepto con cuánto lo sabés, lo que sigue y lo que no tiene material. */
+function mapaHTML(cs, sigue, nivel) {
+  if (!cs?.length) return '<p class="tenue">La primera clase arma el mapa (si sumaste un libro o apuntes, sigue su índice).</p>'
+  const niveles = [...new Set(cs.map((c) => c.nivel))].sort((a, b) => a - b)
+  const nombres = Object.fromEntries((aca.datos?.niveles ?? []).map((n) => [n.n, n.nombre]))
+  return niveles.map((n) => {
+    const xs = cs.filter((c) => c.nivel === n)
+    const sabidos = xs.filter((c) => c.dominio >= 0.7).length
+    return `<details class="aca-mapa-nivel" ${n === nivel ? 'open' : ''}><summary>Nivel ${n}${nombres[n] ? ` · ${esc(nombres[n])}` : ''} <small class="tenue">${sabidos}/${xs.length}</small></summary>
+      <ul class="aca-mapa">${xs.map((c) => `<li class="${c.id === sigue ? 'sigue' : ''}" title="${Math.round(c.dominioHoy * 100)} % · ${c.intentos} respuesta${c.intentos === 1 ? '' : 's'}">
+        <span class="f1">${esc(c.nombre)}${c.id === sigue ? ' <span class="chip">sigue</span>' : ''}${c.sinMaterial ? ' <span title="Sin material en tu archivo">🔍</span>' : ''}</span>
+        <i class="aca-barra"><b class="${c.dominioHoy >= 0.7 ? 'alto' : c.dominioHoy >= 0.4 ? 'medio' : ''}" data-pct="${Math.round(c.dominioHoy * 100)}"></b></i></li>`).join('')}</ul></details>`
+  }).join('')
+}
+
+/** La meta: una fecha y el nivel al que querés llegar; la Academia calcula el ritmo. */
+function modalMeta(d, ritmo) {
+  const hoy = new Date().toISOString().slice(0, 10)
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Una meta para ${esc(d.tema)}</h2>
+    <p class="tenue">Para un evento, un examen o un viaje: calculo cuántas clases por semana hacen falta, te aviso si te atrasás y cada lunes te dejo una side quest.</p>
+    <form id="aca-meta-form">
+      <div class="fila"><label class="campo">Para cuándo<input name="fecha" type="date" min="${hoy}" value="${esc(ritmo?.fecha ?? '')}" required></label>
+        <label class="campo">Llegar al nivel<select name="nivel">${(aca.datos?.niveles ?? []).filter((n) => n.n >= d.tutorNivel).map((n) => `<option value="${n.n}" ${n.n === (ritmo?.nivel ?? Math.min(6, d.tutorNivel + 1)) ? 'selected' : ''}>${n.n} · ${esc(n.nombre)}</option>`).join('')}</select></label></div>
+      <div class="fila"><button class="btn btn-primario">Fijar</button>${ritmo ? '<button type="button" class="btn" id="aca-meta-sacar">Sacar la meta</button>' : ''}</div>
+    </form>`)
+  const guardar = async (cuerpo) => { try { const r = await api(`/academia/${d.id}/meta`, cuerpo); cerrarModal(); toast(r.ritmo ? esc(r.ritmo.texto) : 'Sin meta', 'suave'); pintarDominio(d.id) } catch (e) { error(e) } }
+  $('#aca-meta-form').onsubmit = (ev) => { ev.preventDefault(); guardar(Object.fromEntries(new FormData(ev.target))) }
+  const sacar = $('#aca-meta-sacar')
+  if (sacar) sacar.onclick = () => guardar({ fecha: null })
+}
+
+/** Lo que te falta: lo que tus metas, primarias y agenda piden y tu archivo casi no tiene. */
+async function modalHuecos() {
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>🕳 Lo que te falta</h2><p class="tenue">Midiendo tus metas, tus primarias y lo que viene contra tu archivo…</p>`)
+  try {
+    const { huecos } = await api('/academia/huecos')
+    const DE = { meta: 'meta', primaria: 'primaria', agenda: 'agenda' }
+    $('#modal').innerHTML = `<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>🕳 Lo que te falta</h2>
+      ${huecos == null ? '<p class="tenue">Todavía no se puede medir: tu archivo no tiene vectores (los hace el Reproceso en la nube).</p>'
+        : huecos.length ? `<p class="tenue">Lo que pide algo tuyo y tu archivo casi no tiene. Sumá material, aprendelo o preguntá: los domingos te mando ideas para cada uno.</p><ul class="aca-huecos">${huecos.map((h) => `<li><span class="chip">${DE[h.de] ?? esc(h.de)}</span> ${esc(h.texto)}</li>`).join('')}</ul>`
+        : '<p>Nada a la vista: lo que piden tus metas tiene material en tu archivo.</p>'}
+      <div class="fila mt-3"><button class="btn" id="aca-huecos-ideas">💡 Ideas para cada uno (en la nube)</button></div><div id="aca-huecos-txt"></div>`
+    $('#aca-huecos-ideas').onclick = async () => {
+      const b = $('#aca-huecos-ideas')
+      b.disabled = true
+      try { const r = await api('/academia/huecos/reporte', {}); $('#aca-huecos-txt').innerHTML = r.ideas?.length ? `<ul class="aca-huecos">${r.ideas.map((x) => `<li><b>${esc(x.hueco)}</b>: ${esc(x.idea)}</li>`).join('')}</ul>` : '<p class="tenue">Nada para decir.</p>' } catch (e) { error(e) } finally { b.disabled = false }
+    }
+  } catch (e) { cerrarModal(); error(e) }
 }
 
 function fuentesHTML(rec) {
@@ -261,14 +344,14 @@ function fichaVisual(a, luego) {
 const citas = (html) => html.replace(/\[#(\d+)\]/g, '<a href="#" class="ref" data-pieza="$1">[#$1]</a>')
 
 /** Abre la clase (o el examen): si estaba lista, al instante; si no, el tutor la arma (unos segundos). */
-async function abrirClase(id, examen = false) {
+async function abrirClase(id, examen = false, diagnostico = false) {
   aca.dominio = id
   const cont = $('#aca-cuerpo')
   if (!cont) return
   clearTimeout(aca.sondeo)
-  cont.innerHTML = `<div class="aca-preparando"><span class="pensando"><span><i></i><i></i><i></i></span></span><p>${examen ? 'Armando el examen del nivel…' : 'Abriendo tu clase (si no estaba lista, el tutor la arma: unos segundos)…'}</p></div>`
+  cont.innerHTML = `<div class="aca-preparando"><span class="pensando"><span><i></i><i></i><i></i></span></span><p>${diagnostico ? 'Armando seis preguntas para ubicarte…' : examen ? 'Armando el examen del nivel…' : 'Abriendo tu clase (si no estaba lista, el tutor la arma: unos segundos)…'}</p></div>`
   let r
-  try { r = await api(`/academia/${id}/sesion`, examen ? { examen: true } : {}) } catch (e) { error(e); return pintarDominio(id) }
+  try { r = await api(diagnostico ? `/academia/${id}/diagnostico` : `/academia/${id}/sesion`, examen ? { examen: true } : {}) } catch (e) { error(e); return pintarDominio(id) }
   if (aca.dominio === id) pintarClase(r)
 }
 
@@ -279,16 +362,16 @@ function pintarClase(r) {
   const p = s.paquete
   const turno = (i) => [...r.turnos].reverse().find((t) => t.i === i)
   cont.innerHTML = `<div class="aca-clase">
-    <header class="aca-dom-cab"><button class="btn btn-chico" id="aca-volver">←</button><div class="f1"><h2>${s.tipo === 'examen' ? '📝 ' : ''}${esc(p.tema)}</h2><small class="tenue">Nivel ${s.nivel}${s.tipo === 'examen' ? ' · aprobás con 4 de 5' : ''}</small></div></header>
+    <header class="aca-dom-cab"><button class="btn btn-chico" id="aca-volver">←</button><div class="f1"><h2>${s.tipo === 'examen' ? '📝 ' : s.tipo === 'diagnostico' ? '📏 ' : ''}${esc(p.tema)}</h2><small class="tenue">${s.tipo === 'diagnostico' ? 'Una pregunta por nivel' : `Nivel ${s.nivel}${s.tipo === 'examen' ? ' · aprobás con 4 de 5' : ''}`}</small></div></header>
     <div class="aca-clase-cuerpo ${r.visual ? 'con-visual' : ''}">
       <section class="aca-expl">${(p.explicacion || '').split(/\n{2,}/).map((x) => `<p>${citas(esc(x))}</p>`).join('')}
         ${p.fuentes?.length ? `<p class="tenue chico">Sale de: ${p.fuentes.map((id) => `<a href="#" class="ref" data-pieza="${id}">#${id}</a>`).join(' · ')}</p>` : ''}
         ${p.ejemplos?.length ? `<h4>Ejemplos</h4><ul>${p.ejemplos.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</section>
       ${r.visual ? `<aside class="aca-visual" id="aca-visual">${visualHTML(r.visual)}</aside>` : ''}
     </div>
-    <section class="aca-preguntas"><h3>${s.tipo === 'examen' ? 'El examen' : 'Para chequear'}</h3>
+    <section class="aca-preguntas"><h3>${s.tipo === 'examen' ? 'El examen' : s.tipo === 'diagnostico' ? 'Las seis preguntas' : 'Para chequear'}</h3>
       ${p.preguntas.map((q, i) => { const t = turno(i); return `<form class="aca-pregunta ${t ? (t.correcto ? 'bien' : 'mal') : ''}" data-i="${i}">
-        <p><b>${i + 1}.</b> ${esc(q.pregunta)}</p>
+        <p><b>${i + 1}.</b> ${q.nivel && s.tipo === 'diagnostico' ? `<span class="chip">nivel ${q.nivel}</span> ` : ''}${q.repaso ? `<span class="chip" title="Repaso intercalado: algo que ya viste y le toca volver">repaso · ${esc(q.repaso)}</span> ` : ''}${esc(q.pregunta)}</p>
         <div class="fila"><textarea class="campo-suelto f1" name="respuesta" rows="2" placeholder="Con tus palabras…" ${s.estado === 'hecha' ? 'disabled' : ''}>${esc(t?.respuesta ?? '')}</textarea>${s.estado === 'hecha' ? '' : `<button class="btn btn-chico">${t ? 'De nuevo' : 'Responder'}</button>`}</div>
         <div class="aca-devolucion">${t ? `${t.correcto ? '✓' : '✗'} ${esc(t.devolucion)}` : ''}</div></form>` }).join('')}
     </section>
@@ -325,8 +408,8 @@ function pintarClase(r) {
       const c = await api(`/academia/sesion/${s.id}/cerrar`, {})
       clearTimeout(aca.sondeo)
       $('#aca-cierre').innerHTML = `<section class="seccion aca-resumen naipe" data-madurez="${c.subio ? 'nucleo' : 'sellado'}">
-        <h3>${s.tipo === 'examen' ? (c.subio ? `🎉 Subiste al nivel ${c.nivel}` : 'Todavía no') : `Clase cerrada: ${Math.round(c.puntaje * 100)} %`}</h3>
-        <p>${[c.tarjetas ? `${c.tarjetas} tarjeta${c.tarjetas === 1 ? '' : 's'} para repasar` : '', c.quantomos ? `${c.quantomos} quántomo${c.quantomos === 1 ? '' : 's'} para La Mano` : '', 'la pieza en tu corpus'].filter(Boolean).join(' · ')}.</p>
+        <h3>${c.diagnostico ? `📏 Te ubiqué en el nivel ${c.nivel} · ${esc(c.nivelNombre ?? '')}` : s.tipo === 'examen' ? (c.subio ? `🎉 Subiste al nivel ${c.nivel}` : 'Todavía no') : `Clase cerrada: ${Math.round(c.puntaje * 100)} %`}</h3>
+        <p>${c.diagnostico ? 'Lo de los niveles de abajo queda como sabido (vuelve pronto a repaso para confirmarlo). Las clases arrancan acá.' : `${[c.tarjetas ? `${c.tarjetas} tarjeta${c.tarjetas === 1 ? '' : 's'} para repasar` : '', c.quantomos ? `${c.quantomos} quántomo${c.quantomos === 1 ? '' : 's'} para La Mano` : '', 'la pieza en tu corpus'].filter(Boolean).join(' · ')}.`}</p>
         ${c.repasar?.length ? `<p>Para repasar antes de volver a intentarlo:</p><ul>${c.repasar.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
         ${c.examen && s.tipo !== 'examen' ? '<p><b>El examen del nivel está habilitado.</b></p>' : ''}
         <div class="fila"><button class="btn btn-primario" id="aca-otra">▶ Otra clase</button><button class="btn" id="aca-al-dominio">Volver al dominio</button></div></section>`

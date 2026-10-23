@@ -23,7 +23,7 @@ ac._probarAcademia({
   alPedirVisual: () => {},
   modelo: async (_db, sistema, usuario) => {
     pedidos.push(usuario)
-    if (/temario/.test(sistema)) return { temario: ['Ley de Ohm'] }
+    if (/mapa de conceptos/.test(sistema)) return { conceptos: [{ nombre: 'Ley de Ohm', nivel: 1 }] }
     return { tema: 'Ley de Ohm', explicacion: 'V = I·R [#1].', ejemplos: [], ideas: [], tarjetas: [], preguntas: [{ pregunta: '¿?', clave: 'k' }], visual: null }
   },
 })

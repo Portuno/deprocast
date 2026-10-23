@@ -3,7 +3,9 @@
  * del conocimiento. Una sesión se prepara de antemano (explicación, ejemplos, preguntas, las ideas y tarjetas que deja y
  * el visual que le sirve al concepto); al cerrarla queda su pieza en el corpus, uno o dos quántomos proto (los toma La
  * Mano), tarjetas SM-2 en el mazo del dominio y la práctica anotada. Para subir de nivel hay un examen: se habilita con
- * dos clases seguidas bien resueltas y nunca sube solo. Idiomas sigue con su propio tutor (es un dominio especial).
+ * dos clases seguidas bien resueltas (o con todo el nivel sabido) y nunca sube solo. Idiomas sigue con su propio tutor.
+ * Plan v24: cada dominio tiene su mapa de conceptos (conceptos.ts), armado desde su material si lo hay; la clase elige
+ * sola el próximo concepto e intercala repaso; un diagnóstico de seis preguntas lo ubica; el tutor lee su material.
  */
 import crypto from 'node:crypto'
 import { fechaLocal, json, type Db } from './db.ts'
@@ -16,6 +18,7 @@ import { crearAprendizaje, leerAprendizaje, listarAprendizajes, recursosDe, regi
 import { enLaNube } from './reproceso.ts'
 import { pedirVisual } from './taller-cola.ts'
 import { leerArtefacto } from './taller.ts'
+import { anotarRespuesta, conceptoPorNombre, conceptosDe, conceptosParaRepasar, deTemario, dominioHoy, frontera, guardarMapa, leerConcepto, marcarSabidos, nivelSabido, programarRepaso, ritmoDe, SABIDO, type Concepto } from './conceptos.ts'
 
 export const NIVELES_TUTOR = [
   { n: 1, nombre: 'Niño de 10', regla: 'Explicá como a un chico curioso de 10 años: imágenes de la vida diaria, cero jerga (si aparece una palabra técnica, la explicás con algo que conoce), oraciones cortas. Las preguntas se responden con una idea, no con una definición.' },
@@ -29,13 +32,13 @@ export const nombreNivel = (n: number) => NIVELES_TUTOR[Math.max(1, Math.min(6, 
 
 export const VISUALES = ['diagrama', 'simulacion', 'movimiento', 'ninguno'] as const
 export type Visual = { tipo: (typeof VISUALES)[number]; pedido: string; degradado?: string | null } | null
-export type Pregunta = { pregunta: string; clave: string }
+export type Pregunta = { pregunta: string; clave: string; conceptoId?: number | null; repaso?: string | null; nivel?: number | null }
 export type Paquete = { tema: string; explicacion: string; ejemplos: string[]; preguntas: Pregunta[]; ideas: string[]; tarjetas: { frente: string; dorso: string }[]; visual: Visual; fuentes?: number[] }
 export type SesionTutor = {
-  id: number; aprendizajeId: number; nivel: number; tipo: 'clase' | 'examen'; tema: string; paquete: Paquete; estado: 'lista' | 'en_curso' | 'hecha'
-  puntaje: number | null; piezaId: number | null; visualId: number | null; creadaEn: number; empezadaEn: number | null; cerradaEn: number | null
+  id: number; aprendizajeId: number; nivel: number; tipo: 'clase' | 'examen' | 'diagnostico'; tema: string; paquete: Paquete; estado: 'lista' | 'en_curso' | 'hecha'
+  puntaje: number | null; piezaId: number | null; visualId: number | null; conceptoId: number | null; creadaEn: number; empezadaEn: number | null; cerradaEn: number | null
 }
-export type Dominio = Aprendizaje & { tutorNivel: number; temario: Record<string, string[]>; temaIdx: number; sugerencia: Record<string, unknown> | null; fuentesEn: number | null }
+export type Dominio = Aprendizaje & { tutorNivel: number; temario: Record<string, string[]>; temaIdx: number; sugerencia: Record<string, unknown> | null; fuentesEn: number | null; diagnosticoEn: number | null }
 
 const FUENTE = { id: 'academia', nombre: 'La Academia', nivel: 'propia' as const, descripcion: 'Las clases y exámenes de su Academia: lo explicado, lo que respondió y la devolución.' }
 const mazoDe = (id: number) => `aprender:${id}`
@@ -68,13 +71,13 @@ export function _probarAcademia(o: { modelo?: typeof modelo; nube?: () => boolea
 export function leerDominio(db: Db, id: number): Dominio | null {
   const a = leerAprendizaje(db, id)
   if (!a) return null
-  const r = db.prepare('SELECT tutor_nivel, temario, tema_idx, sugerencia, fuentes_en FROM aprendizajes WHERE id = ?').get(id) as any
-  return { ...a, tutorNivel: r.tutor_nivel ?? 1, temario: json<Record<string, string[]>>(r.temario, {}) ?? {}, temaIdx: r.tema_idx ?? 0, sugerencia: json(r.sugerencia, null), fuentesEn: r.fuentes_en ?? null }
+  const r = db.prepare('SELECT tutor_nivel, temario, tema_idx, sugerencia, fuentes_en, diagnostico_en FROM aprendizajes WHERE id = ?').get(id) as any
+  return { ...a, tutorNivel: r.tutor_nivel ?? 1, temario: json<Record<string, string[]>>(r.temario, {}) ?? {}, temaIdx: r.tema_idx ?? 0, sugerencia: json(r.sugerencia, null), fuentesEn: r.fuentes_en ?? null, diagnosticoEn: r.diagnostico_en ?? null }
 }
 
 const deSesion = (r: any): SesionTutor => ({
   id: r.id, aprendizajeId: r.aprendizaje_id, nivel: r.nivel, tipo: r.tipo, tema: r.tema, paquete: json<Paquete>(r.paquete, null as any), estado: r.estado,
-  puntaje: r.puntaje, piezaId: r.pieza_id, visualId: r.visual_id, creadaEn: r.creada_en, empezadaEn: r.empezada_en, cerradaEn: r.cerrada_en,
+  puntaje: r.puntaje, piezaId: r.pieza_id, visualId: r.visual_id, conceptoId: r.concepto_id ?? null, creadaEn: r.creada_en, empezadaEn: r.empezada_en, cerradaEn: r.cerrada_en,
 })
 export function leerSesionTutor(db: Db, sid: number): SesionTutor | null {
   const r = db.prepare('SELECT * FROM tutor_sesiones WHERE id = ?').get(sid)
@@ -82,13 +85,14 @@ export function leerSesionTutor(db: Db, sid: number): SesionTutor | null {
 }
 export const sesionesDe = (db: Db, id: number, limite = 20): SesionTutor[] =>
   db.prepare('SELECT * FROM tutor_sesiones WHERE aprendizaje_id = ? ORDER BY id DESC LIMIT ?').all(id, limite).map(deSesion)
-const sesionLista = (db: Db, id: number, tipo: 'clase' | 'examen' = 'clase') =>
+const sesionLista = (db: Db, id: number, tipo: SesionTutor['tipo'] = 'clase') =>
   (db.prepare(`SELECT * FROM tutor_sesiones WHERE aprendizaje_id = ? AND tipo = ? AND estado IN ('lista', 'en_curso') ORDER BY id DESC LIMIT 1`).get(id, tipo) as any) ?? null
 
-/** Si ya puede rendir el examen del nivel: dos clases seguidas del nivel, cerradas con 80 % o más. */
+/** Si ya puede rendir el examen del nivel: dos clases seguidas del nivel con 80 % o más, o todos sus conceptos sabidos. */
 export function examenHabilitado(db: Db, id: number): boolean {
   const d = leerDominio(db, id)
   if (!d || d.tutorNivel >= 6) return false
+  if (nivelSabido(db, id, d.tutorNivel)) return true
   const ultimas = db.prepare(`SELECT puntaje FROM tutor_sesiones WHERE aprendizaje_id = ? AND nivel = ? AND tipo = 'clase' AND estado = 'hecha' ORDER BY id DESC LIMIT 2`).all(id, d.tutorNivel) as { puntaje: number | null }[]
   return ultimas.length === 2 && ultimas.every((s) => (s.puntaje ?? 0) >= 0.8)
 }
@@ -100,9 +104,12 @@ export function listarDominios(db: Db, ahora = Date.now()) {
     const d = leerDominio(db, a.id)!
     const temas = d.temario[String(d.tutorNivel)] ?? []
     const lista = sesionLista(db, a.id)
+    const cs = conceptosDe(db, a.id)
     return {
       ...a, tutorNivel: d.tutorNivel, nivelNombre: nombreNivel(d.tutorNivel), sugerencia: d.sugerencia, idioma: idiomas.has(a.id),
-      temaSiguiente: lista?.tema ?? temas[d.temaIdx % Math.max(1, temas.length)] ?? null, sesionLista: !!lista,
+      temaSiguiente: lista?.tema ?? frontera(db, a.id, d.tutorNivel, ahora)?.nombre ?? temas[d.temaIdx % Math.max(1, temas.length)] ?? null, sesionLista: !!lista,
+      mapa: cs.length ? { total: cs.length, sabidos: cs.filter((c) => dominioHoy(c, ahora) >= SABIDO).length, delNivel: cs.filter((c) => c.nivel === d.tutorNivel).length, sabidosDelNivel: cs.filter((c) => c.nivel === d.tutorNivel && dominioHoy(c, ahora) >= SABIDO).length } : null,
+      ritmo: ritmoDe(db, d, ahora), diagnosticado: !!d.diagnosticoEn,
       clases: (db.prepare(`SELECT COUNT(*) AS n FROM tutor_sesiones WHERE aprendizaje_id = ? AND estado = 'hecha'`).get(a.id) as { n: number }).n,
       tarjetasHoy: paraRepasar(db, { mazo: mazoDe(a.id), limite: 200 }, ahora).length,
       examen: examenHabilitado(db, a.id),
@@ -114,7 +121,7 @@ export function listarDominios(db: Db, ahora = Date.now()) {
 export function academiaParaPrompt(db: Db): string {
   const xs = listarDominios(db).filter((d) => d.estado === 'activo')
   if (!xs.length) return ''
-  return `Su Academia (lo que está aprendiendo, con un tutor de 6 niveles: ${NIVELES_TUTOR.map((n) => n.nombre).join(' → ')}): ${xs.map((d) => `${d.tema} en nivel ${d.tutorNivel} (${d.nivelNombre})${d.examen ? ', con el examen habilitado' : ''}`).join('; ')}.`
+  return `Su Academia (lo que está aprendiendo, con un tutor de 6 niveles: ${NIVELES_TUTOR.map((n) => n.nombre).join(' → ')}): ${xs.map((d) => `${d.tema} en nivel ${d.tutorNivel} (${d.nivelNombre})${d.examen ? ', con el examen habilitado' : ''}${d.ritmo && d.ritmo.estado !== 'lograda' ? ` — meta: ${d.ritmo.texto}` : ''}`).join('; ')}.`
 }
 
 // ─── preparar ───────────────────────────────────────────────────────────
@@ -123,23 +130,31 @@ const REGLAS = `Sos el tutor de la Academia de Deprocast. Castellano rioplatense
 - Todo lo que afirmás tiene que ser correcto; si algo es discutido o incierto, decilo.
 - El visual: elegí el que de verdad ayuda a entender ESTE concepto. «diagrama» para piezas y relaciones (un circuito, un componente, un proceso, una arquitectura); «simulacion» para algo que se mueve o cambia en el tiempo o en 3D (una proteína que se pliega, una reacción, un campo, un sistema dinámico); «movimiento» para el cuerpo humano (un ejercicio, una postura, una técnica); «ninguno» si un dibujo no suma. El pedido describe en una o dos oraciones qué tiene que mostrar y qué tiene que poder tocar.`
 
-const SISTEMA_TEMARIO = (n: number) => `${REGLAS}
-Armás el temario del nivel ${n} (${nombreNivel(n)}) de un dominio: 10 a 12 temas en orden, del que se apoya en menos al que se apoya en más, guiados por para qué lo quiere aprender.
-Forma: {"temario": [string]}`
+const SISTEMA_MAPA = `${REGLAS}
+Armás el mapa de conceptos de un dominio, de punta a punta en los seis niveles (${NIVELES_TUTOR.map((x) => `${x.n} ${x.nombre}`).join(', ')}).
+- Un concepto es algo que se aprende en UNA clase (ni un capítulo entero ni una palabra suelta).
+- 5 a 8 conceptos por nivel en los niveles 1 a 4; 3 a 5 en el 5 y el 6. Guiado por para qué lo quiere aprender.
+- requisitos: los nombres EXACTOS de los conceptos (de su nivel o de antes) que hay que saber primero. Sin ciclos.
+- Si viene el índice de su material (un libro, apuntes), el mapa lo sigue: los mismos temas, en ese orden, con esos nombres.
+Forma: {"conceptos": [{"nombre": string, "nivel": 1-6, "requisitos": [string]}]}`
 
 const SISTEMA_CLASE = (n: number) => `${REGLAS}
 Preparás UNA clase del nivel ${n} (${nombreNivel(n)}) sobre el tema que se te da. ${NIVELES_TUTOR[n - 1].regla}
 - explicacion: en Markdown, 250 a 600 palabras, con subtítulos si ayudan.
 - ejemplos: 2 o 3, concretos.
-- preguntas: 4 o 5 de chequeo, con la «clave» (lo que tiene que aparecer en una buena respuesta, para corregir).
+- preguntas: 4 o 5 de chequeo, con la «clave» (lo que tiene que aparecer en una buena respuesta, para corregir). Si viene «Repaso intercalado», sumá UNA pregunta corta por cada concepto de ese repaso, con "repaso": el nombre exacto del concepto.
 - ideas: 1 o 2 afirmaciones centrales de la clase, cada una en una oración que se sostiene sola (quedan como quántomos).
 - tarjetas: 3 a 5 para repasar (frente: una pregunta corta; dorso: la respuesta).
 - visual: {"tipo": "diagrama"|"simulacion"|"movimiento"|"ninguno", "pedido": string}.
 - Si viene «Material», la clase se arma sobre él (es lo que él eligió para aprender): seguí su enfoque, su orden y su notación, y citá [#id] donde lo uses. No inventes citas ni contradigas el material sin decirlo.
-Forma: {"tema": string, "explicacion": string, "ejemplos": [string], "preguntas": [{"pregunta": string, "clave": string}], "ideas": [string], "tarjetas": [{"frente": string, "dorso": string}], "visual": {"tipo": string, "pedido": string}}`
+Forma: {"tema": string, "explicacion": string, "ejemplos": [string], "preguntas": [{"pregunta": string, "clave": string, "repaso": string | null}], "ideas": [string], "tarjetas": [{"frente": string, "dorso": string}], "visual": {"tipo": string, "pedido": string}}`
+
+const SISTEMA_DIAGNOSTICO = `${REGLAS}
+Armás un diagnóstico de ubicación: SEIS preguntas sobre el dominio, una por nivel, de la más fácil (nivel 1, ${nombreNivel(1)}) a la más difícil (nivel 6, ${nombreNivel(6)}). Cada una se responde en pocas líneas y discrimina de verdad ese nivel (no es de memoria). Con su «clave».
+Forma: {"preguntas": [{"nivel": 1-6, "pregunta": string, "clave": string}]}`
 
 const SISTEMA_EXAMEN = (n: number) => `${REGLAS}
-Armás el examen para aprobar el nivel ${n} (${nombreNivel(n)}): 5 preguntas mezcladas sobre los temas que vio, que pidan entender y aplicar (no recordar palabras). Cada una con su «clave».
+Armás el examen para aprobar el nivel ${n} (${nombreNivel(n)}): 5 preguntas mezcladas sobre los conceptos del nivel, que pidan entender y aplicar (no recordar palabras). Cada una con su «clave».
 Forma: {"tema": "Examen del nivel ${n}", "explicacion": string (dos líneas: qué evalúa y cómo aprobar: 4 de 5), "ejemplos": [], "preguntas": [{"pregunta": string, "clave": string}], "ideas": [], "tarjetas": [], "visual": {"tipo": "ninguno", "pedido": ""}}`
 
 const SISTEMA_DEVOLUCION = `${REGLAS}
@@ -152,7 +167,7 @@ function paqueteDe(d: any, tema: string): Paquete {
     tema: txt(d?.tema, 120) || tema,
     explicacion: txt(d?.explicacion, 8000),
     ejemplos: (Array.isArray(d?.ejemplos) ? d.ejemplos : []).map((x: unknown) => txt(x, 800)).filter(Boolean).slice(0, 4),
-    preguntas: (Array.isArray(d?.preguntas) ? d.preguntas : []).map((p: any) => ({ pregunta: txt(p?.pregunta, 500), clave: txt(p?.clave, 600) })).filter((p: Pregunta) => p.pregunta).slice(0, 6),
+    preguntas: (Array.isArray(d?.preguntas) ? d.preguntas : []).map((p: any) => ({ pregunta: txt(p?.pregunta, 500), clave: txt(p?.clave, 600), repaso: txt(p?.repaso, 120) || null, nivel: Number(p?.nivel) || null })).filter((p: Pregunta) => p.pregunta).slice(0, 8),
     ideas: (Array.isArray(d?.ideas) ? d.ideas : []).map((x: unknown) => txt(x, 400)).filter(Boolean).slice(0, 2),
     tarjetas: (Array.isArray(d?.tarjetas) ? d.tarjetas : []).map((t: any) => ({ frente: txt(t?.frente, 300), dorso: txt(t?.dorso, 600) })).filter((t: { frente: string; dorso: string }) => t.frente && t.dorso).slice(0, 6),
     visual: v,
@@ -179,11 +194,57 @@ function contexto(db: Db, d: Dominio, extra: string[] = []): string {
   ].filter(Boolean).join('\n')
 }
 
+// ─── el mapa de conceptos ───────────────────────────────────────────────
+
+/** El índice de su material (títulos, capítulos, secciones): lo que guía el mapa cuando sumó un libro o apuntes. */
+export function indiceDeMaterial(db: Db, id: number, max = 80): string {
+  const lineas: string[] = []
+  for (const m of materialDe(db, id).filter((x) => x.piezaId && x.util !== -1 && x.origen !== 'busqueda')) {
+    const p = leerPieza(db, m.piezaId!)
+    if (!p) continue
+    const titulos = p.contenido.split(/\r?\n/).map((l) => l.trim())
+      .filter((l) => /^#{1,3}\s+\S/.test(l) || /^(cap[ií]tulo|chapter|unidad|unit|tema|lecci[oó]n|lesson|parte|part|secci[oó]n|section)\s+[\divxlc]+\b/i.test(l) || /^\d+(\.\d+){0,2}\.?\s+[A-ZÁÉÍÓÚÑ¿][^.]{3,90}$/.test(l))
+      .map((l) => l.replace(/^#+\s*/, '').slice(0, 110))
+    if (titulos.length) lineas.push(`De «${p.titulo}»:`, ...titulos.slice(0, 40).map((t) => `- ${t}`))
+    if (lineas.length >= max) break
+  }
+  return lineas.slice(0, max).join('\n')
+}
+
+/**
+ * Arma (o rearma) el mapa de conceptos del dominio con el modelo, siguiendo el índice de su material si lo hay. Lo que ya
+ * sabía de cada concepto se conserva.
+ */
+export async function armarMapa(db: Db, id: number, ahora = Date.now()): Promise<Concepto[]> {
+  const d = leerDominio(db, id)
+  if (!d) throw new Error(`No existe el dominio ${id}`)
+  const indice = indiceDeMaterial(db, id)
+  const ya = conceptosDe(db, id)
+  const r = await modelo(db, SISTEMA_MAPA, contexto(db, d, [
+    `Hoy está en el nivel ${d.tutorNivel} (${nombreNivel(d.tutorNivel)}).`,
+    indice ? `El índice de su material (seguilo):\n${indice}` : '',
+    ya.length ? `El mapa de antes (conservá los nombres de lo que siga valiendo): ${ya.map((c) => `${c.nombre} [${c.nivel}]`).join(' · ')}` : '',
+  ]))
+  const items = (Array.isArray(r?.conceptos) ? r.conceptos : []).slice(0, 60).map((c: any) => ({ nombre: txt(c?.nombre, 120), nivel: Number(c?.nivel) || 1, requisitos: Array.isArray(c?.requisitos) ? c.requisitos.map((x: unknown) => txt(x, 120)) : [] }))
+  const cs = guardarMapa(db, id, items.length ? items : [{ nombre: `Qué es ${d.tema}`, nivel: 1 }], ahora)
+  db.prepare('UPDATE aprendizajes SET temario = NULL WHERE id = ?').run(id)
+  return cs
+}
+
+/** Que el dominio tenga su mapa: los temarios del v23 pasan solos; si no hay nada, lo arma el modelo. */
+async function asegurarMapa(db: Db, d: Dominio, ahora: number): Promise<Concepto[]> {
+  const cs = conceptosDe(db, d.id)
+  if (cs.length) return cs
+  if (Object.values(d.temario).some((t) => t.length)) return deTemario(db, d.id, d.temario, d.temaIdx, d.tutorNivel, ahora)
+  return armarMapa(db, d.id, ahora)
+}
+
 const preparando = new Map<string, Promise<SesionTutor>>()
 
 /**
- * Prepara la próxima sesión de un dominio (la primera vez del nivel, también su temario) y la deja «lista». Si pide un
- * visual, se encola en el Taller (sin esperarlo). examen: arma el examen del nivel.
+ * Prepara la próxima sesión de un dominio y la deja «lista». Una clase elige sola el concepto (la frontera de su mapa) e
+ * intercala una o dos preguntas de lo que le toca repasar; lee su material. Si pide un visual, se encola en el Taller
+ * (sin esperarlo). examen: el examen del nivel, sobre sus conceptos.
  */
 export function prepararSesionTutor(db: Db, id: number, o: { tema?: string | null; examen?: boolean; ahora?: number; prioridadVisual?: number } = {}): Promise<SesionTutor> {
   const clave = `${id}:${o.examen ? 'examen' : 'clase'}`
@@ -195,22 +256,33 @@ export function prepararSesionTutor(db: Db, id: number, o: { tema?: string | nul
     if (!d) throw new Error(`No existe el dominio ${id}`)
     const n = d.tutorNivel
     if (o.examen && !examenHabilitado(db, id)) throw new Error('El examen se habilita con dos clases seguidas del nivel resueltas con 80 % o más')
-    let temas = d.temario[String(n)] ?? []
-    if (!temas.length && !o.examen) {
-      const t = await modelo(db, SISTEMA_TEMARIO(n), contexto(db, d))
-      temas = (Array.isArray(t?.temario) ? t.temario : []).map((x: unknown) => txt(x, 120)).filter(Boolean).slice(0, 14)
-      if (!temas.length) temas = [`Qué es ${d.tema}`]
-      db.prepare('UPDATE aprendizajes SET temario = ?, tema_idx = 0 WHERE id = ?').run(JSON.stringify({ ...d.temario, [String(n)]: temas }), id)
-    }
-    const idx = (leerDominio(db, id)!.temaIdx) % Math.max(1, temas.length)
-    const tema = o.examen ? `Examen del nivel ${n}` : o.tema || temas[idx]
+    const mapa = await asegurarMapa(db, d, ahora)
+    const delNivel = mapa.filter((c) => c.nivel === n)
+    // El concepto: el que pidió, la frontera o, si ya sabe todo lo del nivel, lo que menos domina (repaso antes del examen).
+    const concepto = o.examen ? null : (o.tema ? conceptoPorNombre(db, id, o.tema) : null) ?? (o.tema ? null : frontera(db, id, n, ahora) ?? [...delNivel].sort((a, b) => dominioHoy(a, ahora) - dominioHoy(b, ahora))[0] ?? null)
+    const tema = o.examen ? `Examen del nivel ${n}` : o.tema || concepto?.nombre || `Qué es ${d.tema}`
+    const repaso = o.examen ? [] : conceptosParaRepasar(db, { aprendizajeId: id, excepto: concepto ? [concepto.id] : [], limite: 2 }, ahora)
+    const porId = new Map(mapa.map((c) => [c.id, c]))
     const mat = o.examen ? null : await materialParaClase(db, d, tema)
-    const datos = await modelo(db, o.examen ? SISTEMA_EXAMEN(n) : SISTEMA_CLASE(n), contexto(db, d, [o.examen ? `Temas del nivel: ${temas.join(' · ')}` : `Tema de la clase: ${tema}`, mat?.texto ? `Material (basate en esto; citá [#id] donde lo uses):\n${mat.texto}` : '']))
+    const extra = o.examen
+      ? [`Conceptos del nivel: ${(delNivel.length ? delNivel.map((c) => c.nombre) : [d.tema]).join(' · ')}`]
+      : [
+        `Tema de la clase: ${tema}`,
+        concepto?.requisitos.length ? `Se apoya en: ${concepto.requisitos.map((r) => porId.get(r)?.nombre).filter(Boolean).join(' · ')}` : '',
+        repaso.length ? `Repaso intercalado (una pregunta de cada uno, con "repaso" = el nombre exacto): ${repaso.map((c) => `${c.nombre}${c.aprendizajeId !== id ? ` (de ${c.dominioTema})` : ''}`).join(' · ')}` : '',
+        mat?.texto ? `Material (basate en esto; citá [#id] donde lo uses):\n${mat.texto}` : '',
+      ]
+    const datos = await modelo(db, o.examen ? SISTEMA_EXAMEN(n) : SISTEMA_CLASE(n), contexto(db, d, extra))
     const paquete = paqueteDe(datos, tema)
     if (mat?.ids.length) paquete.fuentes = mat.ids
+    // Cada pregunta sabe de qué concepto es: las de repaso, del suyo; las demás, del de la clase.
+    for (const q of paquete.preguntas) {
+      const r = q.repaso ? repaso.find((c) => c.nombre.toLowerCase() === q.repaso!.toLowerCase()) : null
+      q.conceptoId = r?.id ?? (q.repaso ? null : concepto?.id ?? null)
+    }
     if (!paquete.explicacion && !paquete.preguntas.length) throw new Error('El tutor no armó la clase: probá de nuevo')
-    const sid = Number(db.prepare('INSERT INTO tutor_sesiones (aprendizaje_id, nivel, tipo, tema, paquete, estado, creada_en) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, n, o.examen ? 'examen' : 'clase', paquete.tema, JSON.stringify(paquete), 'lista', ahora).lastInsertRowid)
+    const sid = Number(db.prepare('INSERT INTO tutor_sesiones (aprendizaje_id, nivel, tipo, tema, paquete, estado, concepto_id, creada_en) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, n, o.examen ? 'examen' : 'clase', paquete.tema, JSON.stringify(paquete), 'lista', concepto?.id ?? null, ahora).lastInsertRowid)
     if (paquete.visual) alPedirVisual(db, leerSesionTutor(db, sid)!, o.prioridadVisual ?? 5)
     return leerSesionTutor(db, sid)!
   })()
@@ -219,6 +291,19 @@ export function prepararSesionTutor(db: Db, id: number, o: { tema?: string | nul
     p.then(() => preparando.delete(clave), () => preparando.delete(clave))
   }
   return p
+}
+
+/** El diagnóstico de ubicación: seis preguntas, una por nivel. Al cerrarlo, el nivel se fija según hasta dónde respondió bien. */
+export async function prepararDiagnostico(db: Db, id: number, ahora = Date.now()): Promise<SesionTutor> {
+  const d = leerDominio(db, id)
+  if (!d) throw new Error(`No existe el dominio ${id}`)
+  const r = await modelo(db, SISTEMA_DIAGNOSTICO, contexto(db, d))
+  const preguntas: Pregunta[] = (Array.isArray(r?.preguntas) ? r.preguntas : []).map((q: any, i: number) => ({ pregunta: txt(q?.pregunta, 500), clave: txt(q?.clave, 600), nivel: Math.max(1, Math.min(6, Number(q?.nivel) || i + 1)), conceptoId: null, repaso: null }))
+    .filter((q: Pregunta) => q.pregunta).sort((a: Pregunta, b: Pregunta) => a.nivel! - b.nivel!).slice(0, 6)
+  if (preguntas.length < 3) throw new Error('El tutor no armó el diagnóstico: probá de nuevo')
+  const paquete: Paquete = { tema: `Ubicación en ${d.tema}`, explicacion: 'Seis preguntas, de la más fácil a la más difícil. Respondé lo que sepas con tus palabras; si no sabés, escribí «no sé» (eso también ubica).', ejemplos: [], preguntas, ideas: [], tarjetas: [], visual: null }
+  const sid = Number(db.prepare(`INSERT INTO tutor_sesiones (aprendizaje_id, nivel, tipo, tema, paquete, estado, creada_en) VALUES (?, ?, 'diagnostico', ?, ?, 'lista', ?)`).run(id, d.tutorNivel, paquete.tema, JSON.stringify(paquete), ahora).lastInsertRowid)
+  return leerSesionTutor(db, sid)!
 }
 
 /** En la nube, la próxima clase se prepara sola (gasta tokens: en la compu, solo cuando la pedís). Su visual, con prioridad baja. */
@@ -230,10 +315,10 @@ export function prepararEnFondo(db: Db, id: number) {
 // ─── la sesión ──────────────────────────────────────────────────────────
 
 /** Abre la sesión lista del dominio (o la prepara en el momento) y la marca en curso. */
-export async function abrirSesionTutor(db: Db, id: number, o: { examen?: boolean; ahora?: number } = {}): Promise<SesionTutor> {
+export async function abrirSesionTutor(db: Db, id: number, o: { examen?: boolean; diagnostico?: boolean; ahora?: number } = {}): Promise<SesionTutor> {
   const ahora = o.ahora ?? Date.now()
-  const lista = sesionLista(db, id, o.examen ? 'examen' : 'clase')
-  const s = lista ? deSesion(lista) : await prepararSesionTutor(db, id, { examen: o.examen, ahora, prioridadVisual: 9 })
+  const lista = sesionLista(db, id, o.diagnostico ? 'diagnostico' : o.examen ? 'examen' : 'clase')
+  const s = lista ? deSesion(lista) : o.diagnostico ? await prepararDiagnostico(db, id, ahora) : await prepararSesionTutor(db, id, { examen: o.examen, ahora, prioridadVisual: 9 })
   if (s.estado === 'lista') db.prepare(`UPDATE tutor_sesiones SET estado = 'en_curso', empezada_en = ? WHERE id = ?`).run(ahora, s.id)
   // Si al prepararla el visual no pudo entrar (cola llena, tope), se intenta de nuevo ahora, con prioridad: la está mirando.
   if (lista && s.paquete?.visual && !s.visualId) alPedirVisual(db, s, 9)
@@ -264,6 +349,9 @@ export async function responderTutor(db: Db, sid: number, i: number, respuesta: 
   const d = await modelo(db, SISTEMA_DEVOLUCION, `Nivel ${s.nivel} (${nombreNivel(s.nivel)}). Tema: ${s.tema}\nPregunta: ${p.pregunta}\nClave: ${p.clave}\nRespuesta del alumno: ${r.slice(0, 2000)}`)
   const correcto = !!d?.correcto
   const devolucion = txt(d?.devolucion, 800) || (correcto ? 'Bien.' : 'No es eso: volvé a la explicación.')
+  // La primera respuesta a cada pregunta mueve lo que sabe de su concepto (los reintentos no: ya vio la devolución).
+  const primera = !db.prepare('SELECT 1 FROM tutor_turnos WHERE sesion_id = ? AND i = ?').get(sid, i)
+  if (primera && p.conceptoId) anotarRespuesta(db, p.conceptoId, correcto, ahora)
   db.prepare('INSERT INTO tutor_turnos (sesion_id, i, respuesta, correcto, devolucion, en) VALUES (?, ?, ?, ?, ?, ?)').run(sid, i, r.slice(0, 4000), correcto ? 1 : 0, devolucion, ahora)
   return { i, correcto, devolucion }
 }
@@ -281,6 +369,7 @@ export function cerrarSesionTutor(db: Db, sid: number, ahora = Date.now()) {
   const respondidas = [...ultimos.values()]
   const puntaje = respondidas.length ? respondidas.filter((t) => t.correcto).length / s.paquete.preguntas.length : 0
   const p = s.paquete
+  if (s.tipo === 'diagnostico') return cerrarDiagnostico(db, s, d, ultimos, puntaje, ahora)
 
   // La pieza: lo que se explicó, lo que respondió y la devolución (es suya: nivel propia).
   asegurarFuente(db, FUENTE)
@@ -307,14 +396,37 @@ export function cerrarSesionTutor(db: Db, sid: number, ahora = Date.now()) {
   if (s.tipo === 'examen') {
     if (puntaje >= 0.8 && d.tutorNivel < 6) {
       db.prepare('UPDATE aprendizajes SET tutor_nivel = ?, tema_idx = 0 WHERE id = ?').run(d.tutorNivel + 1, d.id)
+      marcarSabidos(db, d.id, d.tutorNivel, SABIDO, ahora)
       subio = true
     }
   } else db.prepare('UPDATE aprendizajes SET tema_idx = tema_idx + 1 WHERE id = ?').run(d.id)
+  // Cada concepto que tocó vuelve a repaso cuando le toca (lo que sabe poco, pronto; lo firme, más adelante).
+  for (const c of new Set([s.conceptoId, ...p.preguntas.map((q) => q.conceptoId)].filter((x): x is number => !!x))) programarRepaso(db, c, ahora)
   prepararEnFondo(db, d.id)
   // Al subir de nivel, material del nivel nuevo (más avanzado).
   if (subio) buscarFuentesEnFondo(db, d.id)
   const fallidas = p.preguntas.filter((_, i) => !ultimos.get(i)?.correcto).map((q) => q.pregunta)
   return { puntaje, piezaId, quantomos: quantomos.length, tarjetas, subio, nivel: leerDominio(db, d.id)!.tutorNivel, examen: examenHabilitado(db, d.id), repasar: s.tipo === 'examen' && !subio ? fallidas : [] }
+}
+
+/**
+ * El diagnóstico: el nivel es el de la última pregunta bien respondida antes del segundo error (las que no respondió
+ * cuentan como «no sé»). Lo de abajo queda sabido (y vuelve pronto a repaso para confirmarlo); el tutor arranca ahí.
+ */
+function cerrarDiagnostico(db: Db, s: SesionTutor, d: Dominio, ultimos: Map<number, { correcto: boolean }>, puntaje: number, ahora: number) {
+  let nivel = 0
+  let errores = 0
+  s.paquete.preguntas.forEach((q, i) => {
+    if (errores >= 2) return
+    if (ultimos.get(i)?.correcto) nivel = Math.max(nivel, q.nivel ?? i + 1)
+    else errores++
+  })
+  const nuevo = Math.max(1, Math.min(6, nivel || 1))
+  db.prepare(`UPDATE tutor_sesiones SET estado = 'hecha', puntaje = ?, cerrada_en = ? WHERE id = ?`).run(puntaje, ahora, s.id)
+  db.prepare('UPDATE aprendizajes SET tutor_nivel = ?, tema_idx = 0, diagnostico_en = ? WHERE id = ?').run(nuevo, ahora, d.id)
+  if (nuevo > 1) marcarSabidos(db, d.id, nuevo - 1, SABIDO, ahora)
+  prepararEnFondo(db, d.id)
+  return { puntaje, piezaId: null, quantomos: 0, tarjetas: 0, subio: nuevo > d.tutorNivel, nivel: nuevo, nivelNombre: nombreNivel(nuevo), examen: examenHabilitado(db, d.id), repasar: [] as string[], diagnostico: true }
 }
 
 /** Sumar un dominio a la Academia (si ya estaba sugerido o pausado, se activa). */
@@ -357,6 +469,8 @@ async function contextoSugerir(db: Db, ahora: number): Promise<string> {
   const { memoriaVigente } = await import('./memoria.ts')
   const metas = ['meta', 'vision', 'sueño'].flatMap((tipo) => memoriaVigente(db, { tipo, limite: 25 })).map((r) => `- ${r.horizonte ? `[${HORIZONTE_DE[r.horizonte] ?? r.horizonte} plazo] ` : ''}${r.texto}`)
   const { yoParaPrompt } = await import('./yo.ts')
+  let huecos = ''
+  try { const h = await import('./huecos.ts'); huecos = h.huecosParaPrompt(await h.huecosDeMetas(db, ahora)) } catch { /* sin vectores */ }
   const todos = db.prepare('SELECT tema, estado FROM aprendizajes').all() as { tema: string; estado: string }[]
   const vivos = todos.filter((t) => t.estado !== 'descartado').map((t) => t.tema)
   const descartados = todos.filter((t) => t.estado === 'descartado').map((t) => t.tema)
@@ -368,6 +482,7 @@ async function contextoSugerir(db: Db, ahora: number): Promise<string> {
     yoParaPrompt(db),
     agenda.length ? `Lo que viene en los próximos 100 días:\n${agenda.join('\n')}` : 'No hay nada agendado a 100 días.',
     ops.length ? `Oportunidades del Radar abiertas:\n${ops.join('\n')}` : '',
+    huecos,
     vivos.length ? `Ya está aprendiendo (o se lo propusiste): ${vivos.join(' · ')}` : '',
     descartados.length ? `Descartó (no lo propongas de nuevo): ${descartados.join(' · ')}` : '',
   ].filter(Boolean).join('\n\n')
@@ -415,6 +530,9 @@ export async function aceptarSugerencia(db: Db, id: number, ahora = Date.now()):
   if (!d || d.estado !== 'sugerido') throw new Error('Esa sugerencia ya no está')
   db.prepare(`UPDATE aprendizajes SET estado = 'activo', creado_en = ? WHERE id = ?`).run(ahora, id)
   try { (await import('./entidades.ts')).asegurarPorNombre(db, d.tema, 'dominio', ahora) } catch { /* el grafo es un plus */ }
+  // Si vino con fecha (un evento), queda como meta: llegar al nivel siguiente para ese día.
+  const fecha = (d.sugerencia as any)?.fecha
+  if (typeof fecha === 'string' && fecha >= fechaLocal(ahora)) { try { (await import('./conceptos.ts')).fijarMeta(db, d, { fecha, nivel: d.tutorNivel + 1 }, ahora) } catch { /* una fecha rara: sin meta */ } }
   prepararEnFondo(db, id)
   const activo = leerDominio(db, id)!
   alAceptar(db, activo)
@@ -457,16 +575,18 @@ export const MAX_FUENTES = 5
  * hasta 5 links nuevos (solo URLs que volvieron de la búsqueda, una de cada consulta por vuelta para que haya variedad).
  * Entran al corpus como cualquier link (YouTube va a su cola) y el Reproceso los destila.
  */
-export async function buscarFuentes(db: Db, id: number, o: { ahora?: number } = {}): Promise<{ nuevas: { piezaId: number; titulo: string; url: string }[]; consultas: string[]; aviso: string | null }> {
+export async function buscarFuentes(db: Db, id: number, o: { ahora?: number; concepto?: string | null } = {}): Promise<{ nuevas: { piezaId: number; titulo: string; url: string }[]; consultas: string[]; aviso: string | null; concepto: string | null }> {
   const ahora = o.ahora ?? Date.now()
   const d = leerDominio(db, id)
   if (!d) throw new Error(`No existe el dominio ${id}`)
   const { topeAlcanzado } = await import('./nan.ts')
   const tope = topeAlcanzado(db, ahora)
-  if (tope) return { nuevas: [], consultas: [], aviso: tope }
+  if (tope) return { nuevas: [], consultas: [], aviso: tope, concepto: null }
   const r = recursosDe(db, d.tema)
-  const ya = [...r.obras.map((x) => x.titulo)]
-  const c = await modelo(db, SISTEMA_FUENTES(d.tutorNivel), [`Tema: ${d.tema}`, d.porQue ? `Para qué: ${d.porQue}` : '', ya.length ? `Ya tiene: ${ya.slice(0, 15).join(' · ')}` : ''].filter(Boolean).join('\n'))
+  const ya = [...r.obras.map((x) => x.titulo), ...materialDe(db, id).map((m) => m.titulo)]
+  // Si hay un concepto de su nivel sin material (un hueco), la búsqueda va por ese.
+  const concepto = o.concepto ?? conceptosDe(db, id).find((x) => x.sinMaterial === true && x.nivel >= d.tutorNivel && dominioHoy(x, ahora) < SABIDO)?.nombre ?? null
+  const c = await modelo(db, SISTEMA_FUENTES(d.tutorNivel), [`Tema: ${d.tema}`, concepto ? `Concepto puntual que le falta (buscá material sobre ESTO): ${concepto}` : '', d.porQue ? `Para qué: ${d.porQue}` : '', ya.length ? `Ya tiene: ${ya.slice(0, 15).join(' · ')}` : ''].filter(Boolean).join('\n'))
   const consultas = (Array.isArray(c?.consultas) ? c.consultas : []).map((x: unknown) => txt(x, 160)).filter(Boolean).slice(0, 4) as string[]
   const listas: { titulo: string; url: string }[][] = []
   for (const q of consultas) {
@@ -487,7 +607,8 @@ export async function buscarFuentes(db: Db, id: number, o: { ahora?: number } = 
   }
   db.prepare('UPDATE aprendizajes SET fuentes_en = ? WHERE id = ?').run(ahora, id)
   const { hayBuscadorWeb } = await import('./web.ts')
-  return { nuevas, consultas, aviso: !orden.length ? (hayBuscadorWeb() ? 'La búsqueda no trajo nada.' : 'Sin clave de buscador solo hay Wikipedia.') : null }
+  if (concepto && nuevas.length) db.prepare('UPDATE conceptos SET sin_material = NULL WHERE aprendizaje_id = ? AND nombre = ?').run(id, concepto) // se vuelve a medir
+  return { nuevas, consultas, concepto, aviso: !orden.length ? (hayBuscadorWeb() ? 'La búsqueda no trajo nada.' : 'Sin clave de buscador solo hay Wikipedia.') : null }
 }
 
 /** De fondo y solo en la nube (gasta tokens y cuota del buscador). */
@@ -638,4 +759,27 @@ export async function materialParaClase(db: Db, d: Dominio, tema: string): Promi
   const bloque = (p: PiezaHallada, de: string) => `[#${p.id}] ${p.titulo} (${de})\n${(p.fragmento ?? p.contenido).replace(/\s+/g, ' ').slice(0, 1400)}`
   const partes = [...propias.map((p) => bloque(p, 'su material')), ...otras.map((p) => bloque(p, 'su archivo'))]
   return { texto: partes.join('\n\n'), ids: [...propias, ...otras].map((p) => p.id) }
+}
+
+// ─── el reporte de huecos (semanal, en la nube) ─────────────────────────
+
+const SISTEMA_HUECOS = `Sos Mastropiero mirando dónde no alcanza su información. Te paso los huecos medidos (lo que sus metas y sus dominios piden y su archivo casi no tiene, y lo que falla seguido). Para cada uno, UNA idea concreta de qué hacer: qué material sumar (un libro, un tipo de fuente, una persona a quien preguntar), qué aprender o qué pregunta hacerse. Corto, de usted, sin relleno. Si dos huecos se resuelven juntos, decilo.
+Forma: {"ideas": [{"hueco": string, "idea": string}]}`
+
+/** Lo que te falta: los huecos de sus metas y de sus dominios, con una idea para cada uno. null si no hay nada que decir. */
+export async function reporteHuecos(db: Db, ahora = Date.now()): Promise<{ texto: string; ideas: { hueco: string; idea: string }[] } | null> {
+  const h = await import('./huecos.ts')
+  const metas = (await h.huecosDeMetas(db, ahora)) ?? []
+  const dominios: string[] = []
+  for (const x of listarDominios(db, ahora).filter((y) => y.estado === 'activo' && !y.idioma)) {
+    const r = await h.huecosDeDominio(db, { id: x.id, tema: x.tema, tutorNivel: x.tutorNivel }, ahora)
+    if (r.sinMaterial.length) dominios.push(`[${x.tema}] sin material: ${r.sinMaterial.map((c) => c.nombre).join(', ')}`)
+    if (r.flojos.length) dominios.push(`[${x.tema}] falla seguido: ${r.flojos.map((c) => c.nombre).join(', ')}`)
+    for (const b of r.bloqueantes) dominios.push(`[${x.tema}] «${b.concepto.nombre}» frena a ${b.frena.join(', ')}`)
+  }
+  if (!metas.length && !dominios.length) return null
+  const r = await modelo(db, SISTEMA_HUECOS, [metas.length ? h.huecosParaPrompt(metas) : '', dominios.length ? `En su Academia:\n${dominios.map((x) => `- ${x}`).join('\n')}` : ''].filter(Boolean).join('\n\n'))
+  const ideas = (Array.isArray(r?.ideas) ? r.ideas : []).map((x: any) => ({ hueco: txt(x?.hueco, 200), idea: txt(x?.idea, 400) })).filter((x: { hueco: string; idea: string }) => x.hueco && x.idea).slice(0, 8)
+  const texto = `🕳 **Lo que le falta** (donde su información no alcanza):\n${ideas.length ? ideas.map((x: { hueco: string; idea: string }) => `- **${x.hueco}**: ${x.idea}`).join('\n') : [...metas.map((m) => `- ${m.texto}`), ...dominios.map((x) => `- ${x}`)].slice(0, 10).join('\n')}`
+  return { texto, ideas }
 }

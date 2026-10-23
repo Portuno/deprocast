@@ -1317,7 +1317,7 @@ CREATE TABLE IF NOT EXISTS tutor_sesiones (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   aprendizaje_id INTEGER NOT NULL,
   nivel INTEGER NOT NULL,
-  tipo TEXT NOT NULL DEFAULT 'clase',  -- clase | examen
+  tipo TEXT NOT NULL DEFAULT 'clase',  -- clase | examen | diagnostico
   tema TEXT NOT NULL,
   paquete TEXT NOT NULL,               -- JSON: explicación, ejemplos, preguntas, ideas, tarjetas, visual
   estado TEXT NOT NULL DEFAULT 'lista', -- lista | en_curso | hecha
@@ -1351,6 +1351,24 @@ CREATE TABLE IF NOT EXISTS dominio_fuentes (
   en INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS dominio_fuentes_pieza ON dominio_fuentes(aprendizaje_id, pieza_id) WHERE pieza_id IS NOT NULL;
+-- El mapa de conceptos de cada dominio (plan v24): reemplaza al temario plano. dominio: cuánto lo sabe (0 a 1).
+CREATE TABLE IF NOT EXISTS conceptos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  aprendizaje_id INTEGER NOT NULL,
+  nombre TEXT NOT NULL,
+  nivel INTEGER NOT NULL,              -- 1 a 6
+  orden INTEGER NOT NULL DEFAULT 0,
+  requisitos TEXT NOT NULL DEFAULT '[]', -- JSON: ids de otros conceptos
+  dominio REAL NOT NULL DEFAULT 0,
+  aciertos INTEGER NOT NULL DEFAULT 0,
+  intentos INTEGER NOT NULL DEFAULT 0,
+  visto_en INTEGER,
+  vence_en INTEGER,                    -- cuándo le toca repasarlo
+  sin_material INTEGER,                -- 1: no hay nada cerca en su archivo (un hueco); NULL: no se midió
+  creado_en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS conceptos_apr ON conceptos(aprendizaje_id, nivel, orden);
+CREATE INDEX IF NOT EXISTS conceptos_vence ON conceptos(vence_en);
 CREATE UNIQUE INDEX IF NOT EXISTS dominio_fuentes_obra ON dominio_fuentes(aprendizaje_id, obra_id) WHERE obra_id IS NOT NULL AND pieza_id IS NULL;
 
 -- Lo que se rompió (errores del servidor, rutas que no existen): la materia de la autocrítica. Uno por texto y día.
@@ -1394,7 +1412,12 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   idiomas: [['temario', 'TEXT'], ['tema_idx', 'INTEGER NOT NULL DEFAULT 0'], ['sobre_mi', 'TEXT'], ['intereses', 'TEXT']],
   // La Academia: el nivel del tutor (1 niño de 10 … 6 frontera), el temario de cada nivel, por dónde va, la sugerencia
   // que lo trajo (por qué, horizonte, para qué evento) y cuándo se buscaron fuentes por última vez.
-  aprendizajes: [['tutor_nivel', 'INTEGER NOT NULL DEFAULT 1'], ['temario', 'TEXT'], ['tema_idx', 'INTEGER NOT NULL DEFAULT 0'], ['sugerencia', 'TEXT'], ['fuentes_en', 'INTEGER']],
+  aprendizajes: [
+    ['tutor_nivel', 'INTEGER NOT NULL DEFAULT 1'], ['temario', 'TEXT'], ['tema_idx', 'INTEGER NOT NULL DEFAULT 0'], ['sugerencia', 'TEXT'], ['fuentes_en', 'INTEGER'],
+    // La meta (plan v24): llegar a meta_nivel para meta_fecha; meta_inicial = clases por semana que pedía al fijarla.
+    ['meta_fecha', 'TEXT'], ['meta_nivel', 'INTEGER'], ['meta_inicial', 'INTEGER'], ['diagnostico_en', 'INTEGER'],
+  ],
+  tutor_sesiones: [['concepto_id', 'INTEGER']],
   idioma_turnos: [['sesion_id', 'INTEGER']],
   misiones: [
     ['armado', 'TEXT'], // bien | mal: si la banda estuvo bien armada
@@ -1469,6 +1492,7 @@ const RUTINAS_SISTEMA = [
   { id: 'brujula', nombre: 'La brújula del día', hora: '08:10', dias: '0123456', accion: 'brujula' },
   { id: 'academia', nombre: 'La Academia propone qué te conviene aprender', hora: '08:15', dias: '1', accion: 'academia' },
   { id: 'fuentes', nombre: 'La Academia busca material para un dominio', hora: '05:00', dias: '0123456', accion: 'fuentes' },
+  { id: 'huecos', nombre: 'Lo que te falta: tus metas y tus dominios contra tu archivo', hora: '19:50', dias: '0', accion: 'huecos' },
   { id: 'mentor', nombre: 'El Mentor recomienda qué leer o ver', hora: '08:05', dias: '1', accion: 'mentor' },
   { id: 'puentes', nombre: 'Puentes con tu gente', hora: '11:00', dias: '0', accion: 'puentes' },
   { id: 'temporada', nombre: 'Cierre de temporada de la liga', hora: '07:30', dias: '1', accion: 'temporada' },

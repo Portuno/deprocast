@@ -28,7 +28,10 @@ ac._probarAcademia({
         { tema: 'Cocina', por_que: 'la descartó', horizonte: 'largo', para: null, fecha: 'pronto', primer_paso: '' },
       ] }
     }
-    if (/temario/.test(sistema)) return { temario: ['Qué es la corriente', 'Resistencia y ley de Ohm', 'Circuitos en serie'] }
+    if (/mapa de conceptos/.test(sistema)) return { conceptos: [
+      { nombre: 'Qué es la corriente', nivel: 1 }, { nombre: 'Resistencia y ley de Ohm', nivel: 1, requisitos: ['Qué es la corriente'] }, { nombre: 'Circuitos en serie', nivel: 1, requisitos: ['Resistencia y ley de Ohm'] },
+      { nombre: 'Potencia eléctrica', nivel: 2, requisitos: ['Resistencia y ley de Ohm'] },
+    ] }
     if (/Corregís UNA respuesta/.test(sistema)) return { correcto: /bien/.test(usuario.split('Respuesta del alumno:')[1]), devolucion: 'Devolución.' }
     if (/examen/i.test(sistema)) return { tema: 'Examen del nivel 1', explicacion: 'Cinco preguntas.', preguntas: Array.from({ length: 5 }, (_, i) => ({ pregunta: `P${i}`, clave: 'k' })) }
     const tema = /Tema de la clase: (.+)/.exec(usuario)?.[1] ?? '?'

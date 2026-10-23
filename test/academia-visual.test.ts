@@ -23,7 +23,7 @@ cola._probarCola(async (db, t) => {
 ac._probarAcademia({
   nube: () => false,
   modelo: async (_db, sistema, usuario) => {
-    if (/temario/.test(sistema)) return { temario: ['Ley de Ohm', 'Potencia'] }
+    if (/mapa de conceptos/.test(sistema)) return { conceptos: [{ nombre: 'Ley de Ohm', nivel: 1 }, { nombre: 'Potencia', nivel: 1, requisitos: ['Ley de Ohm'] }] }
     const tema = /Tema de la clase: (.+)/.exec(usuario)?.[1] ?? '?'
     return { tema, explicacion: `Sobre ${tema}.`, ejemplos: [], ideas: [], tarjetas: [], preguntas: [{ pregunta: '¿?', clave: 'k' }], visual: { tipo: 'diagrama', pedido: `Un dibujo de ${tema}` } }
   },
@@ -52,7 +52,7 @@ test('La clase pide su visual al Taller sola: en el horno, después listo; y si 
   // Con la cola llena, la clase sale igual, solo con texto, y dice por qué.
   ac.cerrarSesionTutor(db, s.id)
   for (let i = 0; i < cola.MAX_EN_ESPERA; i++) db.prepare(`INSERT INTO taller_cola (tipo, args, titulo, estado, encolado_en) VALUES ('crear', '{}', 'espera', 'en_cola', 1)`).run()
-  const s2 = await ac.prepararSesionTutor(db, d.id)
+  const s2 = await ac.prepararSesionTutor(db, d.id, { tema: 'Potencia' })
   assert.equal(s2.visualId, null)
   assert.deepEqual([ac.visualDe(db, s2)!.estado, ac.visualDe(db, s2)!.motivo], ['solo_texto', 'la cola del Taller está llena'])
   // Se liberó la cola: al abrirla, el visual se pide de nuevo.

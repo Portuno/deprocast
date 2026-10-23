@@ -749,6 +749,29 @@ const rutas: [string, RegExp, Ruta][] = [
   // Su material: un link, un texto, un archivo ya subido (/api/chat/archivo) o una obra; y si sirve o no.
   ['POST', /^\/api\/academia\/(\d+)\/material$/, async (b, [a]) => ({ material: await (await import('./academia.ts')).sumarMaterial(db, id(a), { url: b.url ?? null, texto: b.texto ?? null, titulo: b.titulo ?? null, archivo: b.archivo ?? null, nombre: b.nombre ?? null, obraId: b.obraId ? Number(b.obraId) : null }) })],
   ['POST', /^\/api\/academia\/(\d+)\/material\/(\d+)$/, async (b, [a, f]) => ({ material: (await import('./academia.ts')).marcarMaterial(db, id(a), id(f), { util: b.util == null ? undefined : Number(b.util), quitar: !!b.quitar }) })],
+  // El mapa de conceptos, el diagnóstico, la meta y los huecos (plan v24).
+  ['POST', /^\/api\/academia\/(\d+)\/mapa$/, async (_, [a]) => ({ conceptos: await (await import('./academia.ts')).armarMapa(db, id(a)) })],
+  ['POST', /^\/api\/academia\/(\d+)\/diagnostico$/, async (_, [a]) => {
+    const ac = await import('./academia.ts')
+    const s = await ac.abrirSesionTutor(db, id(a), { diagnostico: true })
+    return { sesion: s, turnos: ac.turnosDe(db, s.id), visual: null }
+  }],
+  ['POST', /^\/api\/academia\/(\d+)\/meta$/, async (b, [a]) => {
+    const ac = await import('./academia.ts')
+    const co = await import('./conceptos.ts')
+    const d = ac.leerDominio(db, id(a))
+    if (!d) throw new Error(`No existe el dominio ${a}`)
+    co.fijarMeta(db, d, { fecha: b.fecha || null, nivel: b.nivel ? Number(b.nivel) : null })
+    return { ritmo: co.ritmoDe(db, ac.leerDominio(db, d.id)!) }
+  }],
+  ['GET', /^\/api\/academia\/(\d+)\/huecos$/, async (_, [a]) => {
+    const ac = await import('./academia.ts')
+    const d = ac.leerDominio(db, id(a))
+    if (!d) throw new Error(`No existe el dominio ${a}`)
+    return (await import('./huecos.ts')).huecosDeDominio(db, d)
+  }],
+  ['GET', /^\/api\/academia\/huecos$/, async () => ({ huecos: await (await import('./huecos.ts')).huecosDeMetas(db) })],
+  ['POST', /^\/api\/academia\/huecos\/reporte$/, async () => { soloNube('Lo que te falta'); return (await (await import('./academia.ts')).reporteHuecos(db)) ?? { texto: null, ideas: [] } }],
   ['POST', /^\/api\/academia\/(\d+)\/fuentes$/, async (_, [a]) => { soloNube('Buscar fuentes'); return (await import('./academia.ts')).buscarFuentes(db, id(a)) }],
   ['POST', /^\/api\/academia\/(\d+)\/aceptar$/, async (_, [a]) => (await import('./academia.ts')).aceptarSugerencia(db, id(a))],
   ['POST', /^\/api\/academia\/(\d+)\/descartar$/, async (_, [a]) => (await import('./academia.ts')).descartarSugerencia(db, id(a))],
@@ -758,7 +781,10 @@ const rutas: [string, RegExp, Ruta][] = [
     const d = ac.leerDominio(db, id(a))
     if (!d) throw new Error(`No existe el dominio ${a}`)
     const visuales = (db.prepare(`SELECT id FROM artefactos WHERE tipo = 'visual' AND json_extract(meta, '$.dominioId') = ? ORDER BY id DESC LIMIT 40`).all(d.id) as { id: number }[]).map((r) => leerArtefacto(db, r.id)!)
-    return { dominio: { ...d, nivelNombre: ac.nombreNivel(d.tutorNivel) }, examen: ac.examenHabilitado(db, d.id), visuales, sesiones: ac.sesionesDe(db, d.id).map(({ paquete, ...s }) => ({ ...s, preguntas: paquete?.preguntas.length ?? 0, visual: paquete?.visual?.tipo ?? null })), recursos: await ac.recursosDominio(db, d), practicas: practicasDe(db, d.id, 10) }
+    const co = await import('./conceptos.ts')
+    const conceptos = co.conceptosDe(db, d.id).map((c) => ({ ...c, dominioHoy: +co.dominioHoy(c).toFixed(2) }))
+    const sigue = co.frontera(db, d.id, d.tutorNivel)?.id ?? null
+    return { dominio: { ...d, nivelNombre: ac.nombreNivel(d.tutorNivel) }, conceptos, sigue, ritmo: co.ritmoDe(db, d), examen: ac.examenHabilitado(db, d.id), visuales, sesiones: ac.sesionesDe(db, d.id).map(({ paquete, ...s }) => ({ ...s, preguntas: paquete?.preguntas.length ?? 0, visual: paquete?.visual?.tipo ?? null })), recursos: await ac.recursosDominio(db, d), practicas: practicasDe(db, d.id, 10) }
   }],
   ['POST', /^\/api\/academia\/(\d+)\/sesion$/, async (b, [a]) => {
     const ac = await import('./academia.ts')

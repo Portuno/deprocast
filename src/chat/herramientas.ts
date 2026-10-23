@@ -839,6 +839,36 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `sumó material a ${recorte(a.tema, 40)}`,
   },
   {
+    nombre: 'fijar_meta_dominio', familia: 'accion',
+    descripcion: 'Fija la meta de un dominio de su Academia: llegar a un nivel (1 a 6) para una fecha (un evento, un examen, un viaje). Con eso la Academia calcula cuántas clases por semana hacen falta, avisa si se atrasa y cada lunes le deja una side quest. Sin fecha, la saca.',
+    parametros: S({ tema: str('El dominio'), fecha: str('AAAA-MM-DD; vacío = sacar la meta'), nivel: int('Nivel al que quiere llegar (1 a 6); vacío = el siguiente') }, ['tema']),
+    ejecutar: async (a, { db }) => {
+      const ac = await import('../academia.ts')
+      const co = await import('../conceptos.ts')
+      const q = String(a.tema).toLowerCase()
+      const x = ac.listarDominios(db).find((y) => y.tema.toLowerCase() === q) ?? ac.listarDominios(db).find((y) => y.tema.toLowerCase().includes(q))
+      if (!x) return { error: `No hay un dominio «${a.tema}» en su Academia` }
+      co.fijarMeta(db, { id: x.id, tutorNivel: x.tutorNivel }, { fecha: a.fecha || null, nivel: a.nivel ?? null })
+      return { dominio: x.tema, ritmo: co.ritmoDe(db, { id: x.id, tutorNivel: x.tutorNivel, tema: x.tema })?.texto ?? 'sin meta' }
+    },
+    resumen: (a) => (a.fecha ? `fijó la meta de ${recorte(a.tema, 40)} para el ${a.fecha}` : `sacó la meta de ${recorte(a.tema, 40)}`),
+  },
+  {
+    nombre: 'ver_huecos', familia: 'lectura',
+    descripcion: 'Dónde no alcanza su información: con un tema, los huecos de ese dominio de su Academia (conceptos sin material en su archivo, lo que falla seguido, lo que frena a otros); sin tema, lo que sus metas, primarias y agenda piden y su archivo casi no tiene. Sirve para proponer qué sumar, qué aprender o qué preguntar.',
+    parametros: S({ tema: str('Un dominio (opcional)') }),
+    ejecutar: async (a, { db }) => {
+      const h = await import('../huecos.ts')
+      if (!a.tema) return { huecos: (await h.huecosDeMetas(db)) ?? 'sin vectores todavía: no se puede medir (lo hace el Reproceso en la nube)' }
+      const ac = await import('../academia.ts')
+      const q = String(a.tema).toLowerCase()
+      const x = ac.listarDominios(db).find((y) => y.tema.toLowerCase() === q) ?? ac.listarDominios(db).find((y) => y.tema.toLowerCase().includes(q))
+      if (!x) return { error: `No hay un dominio «${a.tema}» en su Academia` }
+      const r = await h.huecosDeDominio(db, { id: x.id, tema: x.tema, tutorNivel: x.tutorNivel })
+      return { dominio: x.tema, sin_material: r.sinMaterial.map((c) => c.nombre), falla_seguido: r.flojos.map((c) => c.nombre), frenan: r.bloqueantes.map((b) => `${b.concepto.nombre} → ${b.frena.join(', ')}`), medido: r.medido }
+    },
+  },
+  {
     nombre: 'registrar_practica', familia: 'accion',
     descripcion: 'Anota lo que estudió o practicó de algo que aprende («30 min de francés: los verbos en pasado»). Después le llegan preguntas de repaso espaciado.',
     parametros: S({ tema: str('El tema'), minutos: int('Minutos'), que: str('Qué practicó, concreto'), fecha: str('YYYY-MM-DD; vacío = hoy') }, ['tema']),
@@ -1616,7 +1646,7 @@ export const GRUPOS: Record<string, string[]> = {
   liga: ['ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
+  vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   web: ['buscar_web', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   crear: ['ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
