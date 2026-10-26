@@ -1640,6 +1640,7 @@ const RUTINAS_SISTEMA = [
   { id: 'misiones_m', nombre: 'Los agentes trabajan sus misiones (mañana)', hora: '10:30', dias: '0123456', accion: 'misiones' },
   { id: 'misiones_t', nombre: 'Los agentes trabajan sus misiones (tarde)', hora: '15:30', dias: '0123456', accion: 'misiones' },
   { id: 'misiones_n', nombre: 'Los agentes trabajan sus misiones (noche)', hora: '21:00', dias: '0123456', accion: 'misiones' },
+  { id: 'misiones_semana', nombre: 'Cómo les fue a tus agentes esta semana (sin tokens)', hora: '20:30', dias: '0', accion: 'misiones_semana' },
   { id: 'grafo_semana', nombre: 'Lo que cambió en tu grafo esta semana (sin tokens)', hora: '20:20', dias: '0', accion: 'grafo_semana' },
   { id: 'mentor', nombre: 'El Mentor recomienda qué leer o ver', hora: '08:05', dias: '1', accion: 'mentor' },
   { id: 'puentes', nombre: 'Puentes con tu gente', hora: '11:00', dias: '0', accion: 'puentes' },

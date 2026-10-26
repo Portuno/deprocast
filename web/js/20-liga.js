@@ -21,7 +21,7 @@ async function pintarEconomia() {
   let e
   try { e = await api('/economia') } catch (err) { return error(err) }
   const t = e.tarifas
-  cont.innerHTML = `<p class="tenue">Temporada ${esc(e.semana)}. Cobran +${t.tarea} por tarea y +${t.aporte} por aporte a una primaria; pagan ${t.fallo} por fallo y ${t.milTokens} cada mil tokens. El lunes: pérdida → banca (dos seguidas → se retira); el mejor de una clase con trabajo acumulado se clona.</p>
+  cont.innerHTML = `<p class="tenue">Temporada ${esc(e.semana)}. Cobran sobre todo por los resultados de sus misiones (Agentes → Temporada), +${t.tarea} por tarea y +${t.aporte} por aporte a una primaria; pagan ${t.fallo} por fallo y ${t.milTokens} cada mil tokens. El lunes: pérdida → banca (dos seguidas → se retira); el mejor de una clase con trabajo acumulado se clona.</p>
     <div class="cu-fuentes">${e.tabla.map((x) => `<div class="cu-fuente" title="${esc(x.detalle.join(' · '))}"><span>${esc(x.nombre)} <small class="tenue">${esc(x.clase)} · ${esc(x.estado)}</small></span><b style="color:${x.temporada < 0 ? 'var(--malo, #d27272)' : 'inherit'}">${x.temporada > 0 ? '+' : ''}${x.temporada}</b><small class="tenue">saldo ${x.saldo}</small></div>`).join('') || '<p class="tenue">Sin agentes que cobren.</p>'}</div>
     ${e.historia.length ? `<p class="tenue">Temporadas: ${e.historia.map((h) => `${esc(h.semana)} (${h.neto > 0 ? '+' : ''}${h.neto})`).join(' · ')}</p>` : ''}`
 }

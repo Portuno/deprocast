@@ -31,7 +31,9 @@ const VISTAS = {
   libreria: { montar: montarLibreria, refrescar: () => {} },
   fragua: { montar: montarFragua, refrescar: refrescarFragua },
   revision: { montar: montarRevision, refrescar: () => {} },
+  agsala: { montar: montarAgSala, refrescar: () => {} },
   agmisiones: { montar: montarAgMisiones, refrescar: () => {} },
+  agtemporada: { montar: montarAgTemporada, refrescar: () => {} },
   agpistas: { montar: montarAgPistas, refrescar: () => {} },
   grafo: { montar: montarGrafo, refrescar: () => {} },
   grafos: { montar: montarGrafos, refrescar: () => {} },
@@ -78,10 +80,10 @@ const ESPACIOS = [
   { id: 'vida', nombre: 'Vida', ico: 'heart-pulse', tecla: 'v', vistas: [['salud', 'Salud'], ['personas', 'Personas'], ['jugador', 'Jugador'], ['suenos', 'Sueños']] },
   { id: 'aprender', nombre: 'Aprender', ico: 'graduation-cap', tecla: 'a', vistas: [['aprender', 'Academia'], ['idiomas', 'Idiomas'], ['mano', 'La Mano'], ['criba', 'Criba']] },
   { id: 'grafo', nombre: 'Grafo', ico: 'waypoints', tecla: 'r', vistas: [['grafo', 'Grafo'], ['grafos', 'Mis grafos'], ['grafosalud', 'Salud']] },
-  { id: 'agentes', nombre: 'Agentes', ico: 'bot', tecla: 'e', vistas: [['agmisiones', 'Misiones'], ['agpistas', 'Pistas']] },
+  { id: 'agentes', nombre: 'Agentes', ico: 'bot', tecla: 'e', vistas: [['agsala', 'Sala'], ['agmisiones', 'Misiones'], ['agpistas', 'Pistas'], ['agtemporada', 'Temporada'], ['liga', 'Roster'], ['forja', 'Forja'], ['encargos', 'Encargos'], ['matriz', 'Matriz 72'], ['cementerio', 'Cementerio']] },
   { id: 'saber', nombre: 'Saber', ico: 'library', tecla: 's', vistas: [['corpus', 'Corpus'], ['cuadernos', 'Cuadernos'], ['libreria', 'Librería'], ['entidades', 'Entidades']] },
   { id: 'afuera', nombre: 'Afuera', ico: 'globe', tecla: 'f', vistas: [['taller', 'Taller'], ['radar', 'Radar'], ['cuentas', 'Cuentas'], ['discovery', 'Discovery']] },
-  { id: 'maquina', nombre: 'La máquina', ico: 'cog', tecla: 'm', vistas: [['fragua', 'La Fragua'], ['revision', 'Revisión'], ['liga', 'Roster'], ['forja', 'Forja'], ['encargos', 'Encargos'], ['matriz', 'Matriz 72'], ['cementerio', 'Cementerio']] },
+  { id: 'maquina', nombre: 'La máquina', ico: 'cog', tecla: 'm', vistas: [['fragua', 'La Fragua'], ['revision', 'Revisión']] },
 ]
 /** Las vistas que viven adentro de otra (se marcan como esa pestaña). */
 const VISTA_PADRE = { quantomos: 'corpus', estudio: 'taller' }

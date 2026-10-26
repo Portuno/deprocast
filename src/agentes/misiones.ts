@@ -260,3 +260,47 @@ export async function trabajarMisiones(db: Db, ahora = Date.now()): Promise<{ se
   }
   return { sesiones: out, frenado: null }
 }
+
+/**
+ * Él le habla al agente de una misión («¿por qué elegiste esas?», «¿qué te falta?»): contesta desde su plan y su diario,
+ * pudiendo leer (no trabaja la misión en esta charla). Lo que él dijo queda como indicación y lo que contestó, en su
+ * diario. Gasta tokens: solo en la nube (lo controla la ruta).
+ */
+export async function hablarConMision(db: Db, id: number, texto: string, ahora = Date.now()): Promise<string> {
+  const m = leerMisionAgente(db, id)
+  if (!m) throw new Error(`No existe la misión ${id}`)
+  const f = leer(db, m.agenteId)
+  if (!f) throw new Error(`El agente ${m.agenteId} ya no está`)
+  const t = String(texto ?? '').trim()
+  if (!t) throw new Error('¿Qué le decís?')
+  await import('./pistas.ts')
+  anotarDiario(db, m, 'instruccion', t, { charla: true }, ahora)
+  const r = await trabajar(db, f, {
+    sistema: `${promptMision(db, f, leerMisionAgente(db, id)!, ahora)}
+
+## Ahora
+El operador te habla. Contestale corto y concreto, desde tu plan, tu diario y tus pistas; podés leer, pero en esta charla no trabajás la misión. Si te indica algo, decí cómo lo vas a aplicar en la próxima sesión.`,
+    mensajes: [{ role: 'user', content: t }], herramientas: herramientasDeAgente(f), pasos: 4, ahora,
+  })
+  const respuesta = r.texto.trim() || (r.cortado === 'tope' ? 'No puedo contestar ahora: se llegó al tope del día.' : 'No me salió la respuesta.')
+  anotarDiario(db, m, 'reflexion', `Le contesté: ${respuesta}`.slice(0, 2000), { charla: true }, Date.now())
+  return respuesta
+}
+
+/** El domingo, en Hoy: cómo le fue a cada misión en la semana (sin tokens). Nada si no hubo misiones con movimiento. */
+export async function informeSemanal(db: Db, ahora = Date.now()): Promise<string | null> {
+  const em = await import('./embudo.ts')
+  const desde = ahora - 7 * 86_400_000
+  const ms = listarMisionesAgente(db).filter((m) => m.actualizadaEn >= desde)
+  if (!ms.length) return null
+  const lineas = ms.map((m) => {
+    const f = leer(db, m.agenteId)
+    const n = (sql: string) => (db.prepare(sql).get(m.id, desde) as { n: number }).n
+    const sesiones = n(`SELECT COUNT(*) AS n FROM agente_diario WHERE mision_id = ? AND tipo = 'sesion' AND en >= ?`)
+    const pistas = n(`SELECT COUNT(*) AS n FROM oportunidades WHERE agente_mision_id = ? AND creada_en >= ?`)
+    const borradores = em.pistasDe(db, { misionId: m.id, etapas: ['borrador'] }).length
+    const pr = em.progreso(db, m)
+    return `**${m.titulo}** (${f ? alias(f) : m.agenteId}, ${m.estado}): ${sesiones} sesión${sesiones === 1 ? '' : 'es'}, ${pistas} pista${pistas === 1 ? '' : 's'} nueva${pistas === 1 ? '' : 's'}${borradores ? `, ${borradores} borrador${borradores === 1 ? '' : 'es'} esperándote en 📥` : ''} · ${pr.logrado} de ${pr.meta} (${m.criterio.texto})`
+  })
+  return [`🤖 **Tus agentes esta semana**`, ...lineas.map((l) => `- ${l}`), 'Lo ves en Agentes → Misiones.'].join('\n')
+}

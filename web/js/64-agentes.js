@@ -4,7 +4,7 @@
 // el criterio, el embudo, el próximo paso y su diario; le podés indicar algo, pausarla o hacerla trabajar ya (en la
 // nube). Pistas: las organizaciones que encontraron, con su etapa y el borrador.
 
-const ag = { mision: null, filtroEtapa: '', filtroMision: '' }
+const ag = { mision: null, filtroEtapa: '', filtroMision: '', timer: null }
 const ESTADO_MISION_AG = { activa: 'Activa', pausada: 'Pausada', cumplida: 'Cumplida', fallida: 'Venció', abandonada: 'Abandonada' }
 const METRICAS_AG = [['clientes', 'Clientes'], ['reuniones', 'Reuniones'], ['respuestas', 'Respuestas'], ['pistas', 'Pistas'], ['otro', 'Otro']]
 const fechaAg = (t) => new Date(t).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
@@ -63,7 +63,7 @@ async function abrirMisionAg(id) {
       ${['activa', 'pausada'].includes(m.estado) ? '<button class="btn" data-ag-estado="cumplida">✓ Cumplida</button><button class="btn" data-ag-estado="abandonada">✕ Abandonar</button>' : ''}
       <button class="btn" id="ag-ver-pistas">Ver sus pistas (${r.pistas.length})</button>
     </div>
-    <section class="seccion"><h3>Indicale algo</h3><div class="fila"><input id="ag-instruir" class="f1" placeholder="«Enfocate en bodas», «nada de agencias grandes»… (manda en su próxima sesión)"><button class="btn" id="ag-instruir-ok">Indicar</button></div></section>
+    <section class="seccion"><h3>Indicale algo o preguntale</h3><div class="fila"><input id="ag-instruir" class="f1" placeholder="«Enfocate en bodas», «¿por qué elegiste esas?»…"><button class="btn" id="ag-instruir-ok" title="Queda en su diario y manda en su próxima sesión">Indicar</button><button class="btn" id="ag-hablar" title="Te contesta ahora, desde su plan y su diario (en la nube)">💬 Preguntarle</button></div><div id="ag-respuesta"></div></section>
     <section class="seccion"><h3>Su plan</h3>${m.plan.length ? `<ul class="ag-plan">${m.plan.map((p) => `<li class="${p.estado}">${p.estado === 'hecho' ? '✓' : p.estado === 'descartado' ? '✕' : '·'} ${esc(p.paso)}</li>`).join('')}</ul>` : '<p class="tenue">Lo arma en su primera sesión.</p>'}${m.proximo ? `<p class="chico">Próximo paso: ${esc(m.proximo)}</p>` : ''}</section>
     <section class="seccion"><h3>El brief</h3><p class="ag-brief">${esc(m.brief)}</p></section>
     <section class="seccion"><h3>Su diario</h3>${r.diario.length ? `<ol class="ag-diario">${r.diario.map((d) => `<li class="ag-d-${d.tipo}"><span>${ICONO[d.tipo] ?? '·'}</span><div class="f1"><small class="tenue">${fechaAg(d.en)} · ${esc(d.tipo)}</small><p>${esc(d.texto)}</p></div>${d.tipo === 'sesion' ? botonesFbAg(`diario:${d.id}`) : ''}</li>`).join('')}</ol>` : '<p class="tenue">Vacío: empieza con su primera sesión.</p>'}</section>
@@ -75,6 +75,18 @@ async function abrirMisionAg(id) {
   const instruir = async () => { const t = $('#ag-instruir').value.trim(); if (!t) return; try { await api(`/agentes/misiones/${m.id}/instruir`, { texto: t }); toast('Anotado: manda en su próxima sesión', 'suave'); abrirMisionAg(m.id) } catch (e) { error(e) } }
   $('#ag-instruir-ok').onclick = instruir
   $('#ag-instruir').onkeydown = (e) => { if (e.key === 'Enter') instruir() }
+  $('#ag-hablar').onclick = async () => {
+    const t = $('#ag-instruir').value.trim(), b = $('#ag-hablar')
+    if (!t) return
+    b.disabled = true
+    $('#ag-respuesta').innerHTML = '<p class="tenue chico">Pensando…</p>'
+    try {
+      const x = await api(`/agentes/misiones/${m.id}/hablar`, { texto: t })
+      await abrirMisionAg(m.id)
+      const r = $('#ag-respuesta')
+      if (r) r.innerHTML = `<blockquote class="ag-dice">${esc(x.respuesta)}</blockquote>`
+    } catch (e) { $('#ag-respuesta').innerHTML = ''; error(e); b.disabled = false }
+  }
   const tr = $('#ag-trabajar')
   if (tr) tr.onclick = async () => {
     tr.disabled = true; tr.textContent = '⏳ Trabajando…'
@@ -149,4 +161,47 @@ async function pintarAgPistas() {
   $$('[data-ag-enviar]', caja).forEach((b) => (b.onclick = async () => { try { await api(`/agentes/pistas/${b.dataset.agEnviar}`, { borrador: 'enviar', texto: texto(b.dataset.agEnviar) }); toast('Marcada como enviada', 'suave'); pintarAgPistas() } catch (e) { error(e) } }))
   engancharFbAg(caja)
   $$('[data-ag-descartar]', caja).forEach((b) => (b.onclick = async () => { try { await api(`/agentes/pistas/${b.dataset.agDescartar}`, { borrador: 'descartar' }); pintarAgPistas() } catch (e) { error(e) } }))
+}
+
+// ─── la sala: quién trabaja ahora y lo último que anotaron ──────────────
+
+async function montarAgSala() {
+  $('#principal').innerHTML = `<div class="titulo"><h1>La sala</h1><p>Quién está trabajando ahora, en qué paso y con qué herramienta; lo último que anotaron en sus diarios y lo que gastaron hoy. Trabajan tres veces por día en la nube (o cuando le das «Trabajar ahora» a una misión).</p></div><div id="ag-sala"><p class="tenue">Juntando…</p></div>`
+  pintarAgSala()
+}
+
+async function pintarAgSala() {
+  clearTimeout(ag.timer)
+  let r, ms
+  try { [r, ms] = await Promise.all([api('/agentes/sala'), api('/agentes/misiones')]) } catch (e) { return error(e) }
+  const caja = $('#ag-sala')
+  if (!caja) return
+  const titulo = new Map(ms.misiones.map((m) => [m.id, m.titulo]))
+  const gasto = new Map(r.gasto.map((g) => [g.agente, g.tokens]))
+  const activas = ms.misiones.filter((m) => m.estado === 'activa')
+  const ICONO = { plan: '🗺', hallazgo: '🔎', paso: '·', reflexion: '💭', pregunta: '❓', instruccion: '🗣', resultado: '✓', sesion: '⏱' }
+  caja.innerHTML = `<section class="seccion"><h3>Ahora</h3>${r.trabajando.length ? `<ul class="ag-ahora">${r.trabajando.map((t) => `<li><b>${esc(t.agenteId)}</b> <span class="tenue">${esc(titulo.get(t.misionId) ?? 'charla')}</span> · paso ${t.paso}${t.herramienta ? ` · <code>${esc(t.herramienta)}</code>` : ' · pensando'}</li>`).join('')}</ul>` : '<p class="tenue">Nadie trabajando en este momento.</p>'}</section>
+    <section class="seccion"><h3>Hoy</h3>${activas.length ? `<div class="ag-hoy">${activas.map((m) => `<button class="tarjeta" data-ag-ir="${m.id}"><b>${esc(nombreAgente(m.agente, m.agenteId))}</b><small class="tenue">${esc(m.titulo)}</small><small>${fmtTokens(gasto.get(m.agenteId) ?? 0)} tokens hoy · ${m.progreso.logrado} de ${m.progreso.meta}</small></button>`).join('')}</div>` : '<p class="tenue">Ninguna misión activa.</p>'}</section>
+    <section class="seccion"><h3>Lo último en sus diarios</h3>${r.diario.length ? `<ol class="ag-diario">${r.diario.map((d) => `<li class="ag-d-${d.tipo}"><span>${ICONO[d.tipo] ?? '·'}</span><div class="f1"><small class="tenue">${fechaAg(d.en)} · ${esc(d.agente)} · ${esc(d.titulo)}</small><p>${esc(d.texto)}</p></div></li>`).join('')}</ol>` : '<p class="tenue">Todavía nada.</p>'}</section>`
+  $$('[data-ag-ir]', caja).forEach((b) => (b.onclick = () => { ag.mision = Number(b.dataset.agIr); irA('agmisiones') }))
+  // Mientras se mira la sala, se actualiza sola (más seguido si alguien está trabajando).
+  if (vista === 'agsala') ag.timer = setTimeout(() => { if (vista === 'agsala') pintarAgSala() }, r.trabajando.length ? 3000 : 15000)
+}
+
+// ─── la temporada: quién cobra y por qué ────────────────────────────────
+
+async function montarAgTemporada() {
+  $('#principal').innerHTML = `<div class="titulo"><h1>La temporada</h1><p>Los agentes cobran por lo que te sirve y pagan lo que gastan. El lunes se cierra la semana: el que dio pérdida va a la banca (dos seguidas, se retira) y el mejor con trabajo esperando se clona.</p></div><div id="ag-temporada"><p class="tenue">Juntando…</p></div>`
+  let e
+  try { e = await api('/economia') } catch (err) { return error(err) }
+  const t = e.tarifas, x = e.resultados
+  const caja = $('#ag-temporada')
+  if (!caja) return
+  caja.innerHTML = `<section class="seccion"><h3>Semana ${esc(e.semana)}</h3>${e.tabla.length ? `<div class="gf-tabla"><table class="rev-tabla"><thead><tr><th>Agente</th><th>Clase</th><th>Estado</th><th>Esta semana</th><th>Saldo</th><th>De dónde</th></tr></thead><tbody>${e.tabla.map((a) => `<tr class="${a.temporada < 0 ? 'ag-pierde' : ''}"><td>${esc(a.nombre)}</td><td>${esc(a.clase)}</td><td>${esc(a.estado)}</td><td><b>${a.temporada > 0 ? '+' : ''}${a.temporada}</b></td><td>${a.saldo}</td><td class="chico">${a.detalle.map(esc).join(' · ') || '—'}</td></tr>`).join('')}</tbody></table></div>` : '<p class="tenue">Sin agentes que cobren.</p>'}</section>
+    <section class="seccion"><h3>Qué paga</h3><ul class="chico ag-tarifas">
+      <li>Una pista que no descartás: +${x.pista}</li><li>Un borrador que mandás: +${x.borradorAceptado} (con cambios: +${x.borradorEditado}; descartado: ${x.borradorRechazado})</li>
+      <li>La primera vez que una pista llega a enviada: +${x.enviada} · respuesta: +${x.respondio} · reunión: +${x.reunion} · cliente: +${x.cliente}</li>
+      <li>Tu 👍: +${x.pulgarArriba} · tu 👎: ${x.pulgarAbajo} · lo suyo que sellás alto en La Mano: lo que pasa del 6</li>
+      <li>Una tarea del bus: +${t.tarea} · un aporte a una primaria: +${t.aporte} · un fallo: ${t.fallo} · cada mil tokens: ${t.milTokens}</li></ul></section>
+    ${e.historia.length ? `<section class="seccion"><h3>Temporadas anteriores</h3><p class="chico">${e.historia.map((h) => `${esc(h.semana)} (${h.neto > 0 ? '+' : ''}${h.neto})`).join(' · ')}</p></section>` : ''}`
 }

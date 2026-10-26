@@ -142,6 +142,10 @@ export const ACCIONES: Acciones = {
     await (await import('./agentes/misiones.ts')).trabajarMisiones(db, ahora)
     return null
   },
+  /** El domingo: cómo le fue a cada misión de los agentes (sesiones, pistas, borradores, progreso). Sin tokens. */
+  async misiones_semana(db, _fecha, ahora) {
+    return (await import('./agentes/misiones.ts')).informeSemanal(db, ahora)
+  },
   /** El domingo: lo que cambió en el grafo de su voz (grupos que nacen o crecen, bisagras que suben, posibles bucles). Sin tokens. */
   async grafo_semana(db, _fecha, ahora) {
     return (await import('./grafo/salud.ts')).avisoSemanal(db, ahora)

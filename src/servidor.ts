@@ -42,7 +42,7 @@ import { acepciones, ejesDe, separarEntidad } from './ejes.ts'
 import { guardarYo, leerYo } from './yo.ts'
 import { cambiarEntrada, disparadorDe, escribir, leerBitacora } from './bitacora.ts'
 import { anotar as anotarEnCriba, anotarSolo, cribar, deshacerUltima, marcador, siguiente } from './criba.ts'
-import { tabla as tablaEconomia, TARIFAS } from './economia.ts'
+import { RESULTADOS, tabla as tablaEconomia, TARIFAS } from './economia.ts'
 import { exportarEstado, importarEstado, importarEstadoArchivo } from './exportacion.ts'
 import { aplicarZona, recibirZona } from './zona.ts'
 import { anotarUso, verUso } from './uso.ts'
@@ -782,7 +782,16 @@ const rutas: [string, RegExp, Ruta][] = [
     if (b.borrador === 'enviar' || b.borrador === 'descartar') return pi.resolverBorrador(db, id(p), b.borrador, { texto: b.texto ?? null })
     return pi.marcarPista(db, id(p), b.etapa, { nota: b.nota ?? null })
   }],
-  ['GET', /^\/api\/agentes\/sala$/, async () => ({ trabajando: (await import('./agentes/motor.ts')).trabajandoAhora() })],
+  ['GET', /^\/api\/agentes\/sala$/, async () => {
+    const hoy = new Date(`${fechaLocal()}T00:00:00`).getTime()
+    const diario = db.prepare(`SELECT d.id, d.tipo, d.texto, d.en, d.agente_id AS agente, m.id AS mision, m.titulo FROM agente_diario d JOIN agente_misiones m ON m.id = d.mision_id ORDER BY d.id DESC LIMIT 30`).all()
+    const gasto = db.prepare(`SELECT l.agente_id AS agente, SUM(COALESCE(l.tokens_in, 0) + COALESCE(l.tokens_out, 0)) AS tokens FROM llamadas l WHERE l.en >= ? AND l.agente_id IN (SELECT agente_id FROM agente_misiones) GROUP BY l.agente_id`).all(hoy)
+    return { trabajando: (await import('./agentes/motor.ts')).trabajandoAhora(), diario, gasto }
+  }],
+  ['POST', /^\/api\/agentes\/misiones\/(\d+)\/hablar$/, async (b, [m]) => {
+    soloNube('Hablar con el agente')
+    return { respuesta: await (await import('./agentes/misiones.ts')).hablarConMision(db, id(m), String(b.texto ?? '')) }
+  }],
   // El Grafo (plan v25): las capas, los grafos propios, sus fotos, recalcular (en el hilo aparte) y el diccionario.
   ['GET', /^\/api\/grafos$/, async () => ({ grafos: (await import('./grafo/index.ts')).listarGrafos(db) })],
   ['POST', /^\/api\/grafos$/, async (b) => (await import('./grafo/index.ts')).crearGrafo(db, { nombre: b.nombre, fuentes: b.fuentes, desde: b.desde, hasta: b.hasta })],
@@ -948,7 +957,7 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/fragua\/(\d+)\/descartar$/, (_, [f]) => descartarForja(db, id(f))],
 
   // Economía de agentes
-  ['GET', /^\/api\/economia$/, (_, __, q) => ({ semana: q.get('semana') || semanaDe(), tarifas: TARIFAS, tabla: tablaEconomia(db, q.get('semana') || semanaDe()), historia: db.prepare('SELECT semana, COUNT(*) AS agentes, ROUND(SUM(neto), 1) AS neto FROM temporadas GROUP BY semana ORDER BY semana DESC LIMIT 8').all() })],
+  ['GET', /^\/api\/economia$/, (_, __, q) => ({ semana: q.get('semana') || semanaDe(), tarifas: TARIFAS, resultados: RESULTADOS, tabla: tablaEconomia(db, q.get('semana') || semanaDe()), historia: db.prepare('SELECT semana, COUNT(*) AS agentes, ROUND(SUM(neto), 1) AS neto FROM temporadas GROUP BY semana ORDER BY semana DESC LIMIT 8').all() })],
 
   // Cuadernos
   ['GET', /^\/api\/cuadernos$/, () => listarCuadernos(db)],

@@ -2761,3 +2761,9 @@ span.ej-chip { cursor: default; }
 .ag-pista p { margin: 0; }
 .ag-borrador { width: 100%; font: inherit; }
 .ag-fb { gap: 2px; }
+.ag-ahora { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.ag-hoy { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--e-2); }
+.ag-hoy .tarjeta { text-align: left; color: inherit; font: inherit; cursor: pointer; }
+.ag-pierde td b { color: var(--aviso); }
+.ag-tarifas { display: grid; gap: 4px; padding-left: var(--e-3); }
+.ag-dice { margin: var(--e-2) 0 0; padding: var(--e-2) var(--e-3); border-left: 3px solid var(--acento); background: var(--acento-suave); border-radius: var(--r-s); white-space: pre-wrap; }
