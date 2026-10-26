@@ -115,15 +115,18 @@ test('Un cálculo completo: «Vos» en el centro, comunidades legibles y las pre
 
 test('El hilo aparte: el mismo resultado, y el servidor sigue respondiendo mientras calcula', async () => {
   const { calcularEnHilo } = await import('../src/grafo/hilo.ts')
-  const docs = Array.from({ length: 400 }, (_, i) => ({ id: i + 1, texto: Array.from({ length: 80 }, (_, k) => `palabra${(i * 7 + k * 13) % 900}ado`).join(' ') }))
-  let ticks = 0
-  const reloj = setInterval(() => ticks++, 10)
+  const docs = Array.from({ length: 900 }, (_, i) => ({ id: i + 1, texto: Array.from({ length: 120 }, (_, k) => `palabra${(i * 7 + k * 13) % 1500}ado`).join(' ') }))
+  // Lo que tarda en el hilo principal (ahí sí traba todo)...
   const t0 = Date.now()
+  const local = calcular(docs, { semilla: 1 })
+  const enPrincipal = Date.now() - t0
+  // ...contra el hueco más largo del reloj mientras calcula el hilo aparte (bajo carga, sin contar ticks).
+  let ultimo = Date.now(), peorHueco = 0
+  const reloj = setInterval(() => { const ahora = Date.now(); peorHueco = Math.max(peorHueco, ahora - ultimo); ultimo = ahora }, 5)
   const r = await calcularEnHilo({ docs, opciones: { semilla: 1 } })
   clearInterval(reloj)
-  const ms = Date.now() - t0
-  assert.equal(r.documentos, 400)
-  assert.equal(r.resultado.metricas.n, calcular(docs, { semilla: 1 }).metricas.n)
-  assert.ok(ticks >= Math.floor(ms / 10) * 0.5, `el reloj siguió andando (${ticks} ticks en ${ms} ms)`)
+  assert.equal(r.documentos, docs.length)
+  assert.equal(r.resultado.metricas.n, local.metricas.n)
+  assert.ok(peorHueco < Math.max(60, enPrincipal * 0.6), `el reloj no se frenó: su peor hueco fue ${peorHueco} ms; en el hilo principal el cálculo tarda ${enPrincipal} ms`)
   await assert.rejects(calcularEnHilo({ ruta: 'no/existe.db', definicion: { tipo: 'voz' } }))
 })
