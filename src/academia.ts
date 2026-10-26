@@ -873,8 +873,13 @@ export async function reporteHuecos(db: Db, ahora = Date.now()): Promise<{ texto
     if (r.flojos.length) dominios.push(`[${x.tema}] falla seguido: ${r.flojos.map((c) => c.nombre).join(', ')}`)
     for (const b of r.bloqueantes) dominios.push(`[${x.tema}] «${b.concepto.nombre}» frena a ${b.frena.join(', ')}`)
   }
-  if (!metas.length && !dominios.length) return null
-  const r = await modelo(db, SISTEMA_HUECOS, [metas.length ? h.huecosParaPrompt(metas) : '', dominios.length ? `En su Academia:\n${dominios.map((x) => `- ${x}`).join('\n')}` : ''].filter(Boolean).join('\n\n'))
+  // Los huecos estructurales de su grafo (grupos de ideas que casi no se tocan): a los dos primeros, su pregunta.
+  const hg = await import('./grafo/huecos.ts')
+  const voz = db.prepare(`SELECT id FROM grafos WHERE clave = 'voz'`).get() as { id: number } | undefined
+  if (voz) for (const x of hg.huecosDe(db, voz.id).filter((y) => y.estado === 'abierto' && !y.pregunta).slice(0, 2)) { try { await hg.preguntarHueco(db, x.id) } catch { /* sin modelo: queda sin pregunta */ } }
+  const estructurales = hg.huecosParaPrompt(db)
+  if (!metas.length && !dominios.length && !estructurales) return null
+  const r = await modelo(db, SISTEMA_HUECOS, [metas.length ? h.huecosParaPrompt(metas) : '', dominios.length ? `En su Academia:\n${dominios.map((x) => `- ${x}`).join('\n')}` : '', estructurales].filter(Boolean).join('\n\n'))
   const ideas = (Array.isArray(r?.ideas) ? r.ideas : []).map((x: any) => ({ hueco: txt(x?.hueco, 200), idea: txt(x?.idea, 400) })).filter((x: { hueco: string; idea: string }) => x.hueco && x.idea).slice(0, 8)
   const texto = `🕳 **Lo que le falta** (donde su información no alcanza):\n${ideas.length ? ideas.map((x: { hueco: string; idea: string }) => `- **${x.hueco}**: ${x.idea}`).join('\n') : [...metas.map((m) => `- ${m.texto}`), ...dominios.map((x) => `- ${x}`)].slice(0, 10).join('\n')}`
   return { texto, ideas }

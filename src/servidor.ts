@@ -763,7 +763,7 @@ const rutas: [string, RegExp, Ruta][] = [
     if (!x) throw new Error(`No existe el grafo ${g}`)
     // Sin foto todavía: se calcula ahora (en el hilo aparte) y la pantalla espera; con foto, la última (o la pedida).
     const foto = q.get('foto') ? gr.leerFoto(db, Number(q.get('foto'))) : gr.ultimaFoto(db, x.id) ?? await gr.recalcular(db, x.id)
-    return { grafo: x, foto, calculando: gr.estaCalculando(x.id), historia: gr.historia(db, x.id) }
+    return { grafo: x, foto, calculando: gr.estaCalculando(x.id), historia: gr.historia(db, x.id), huecos: (await import('./grafo/huecos.ts')).huecosDe(db, x.id) }
   }],
   ['POST', /^\/api\/grafos\/(\d+)$/, async (b, [g]) => (await import('./grafo/index.ts')).editarGrafo(db, id(g), { nombre: b.nombre, fuentes: b.fuentes, desde: b.desde, hasta: b.hasta, borrar: !!b.borrar })],
   // Leer el grafo: los fragmentos donde aparecen juntos, quitar lo obvio, el diff entre fotos y abrir el grafo de algo.
@@ -776,6 +776,16 @@ const rutas: [string, RegExp, Ruta][] = [
     return (await import('./grafo/leer.ts')).diffFotos(a, b)
   }],
   ['POST', /^\/api\/grafos\/de$/, async (b) => (await import('./grafo/leer.ts')).grafoDe(db, b.fuente, String(b.nombre ?? 'Grafo'))],
+  // Los huecos: la pregunta, responderla, que la investigue un agente, a La Fragua, al Radar, descartar.
+  ['POST', /^\/api\/grafos\/huecos\/(\d+)\/(pregunta|responder|investigar|fragua|radar|descartar)$/, async (b, [h, accion]) => {
+    const hu = await import('./grafo/huecos.ts')
+    if (accion === 'pregunta') return hu.preguntarHueco(db, id(h), { forzar: !!b.forzar })
+    if (accion === 'responder') return hu.responderHueco(db, id(h), String(b.texto ?? ''))
+    if (accion === 'investigar') { soloNube('Que lo investigue un agente'); return hu.investigarHueco(db, id(h)) }
+    if (accion === 'fragua') return hu.aLaFragua(db, id(h))
+    if (accion === 'radar') { soloNube('El Radar'); return hu.alRadar(db, id(h)) }
+    return hu.descartarHueco(db, id(h))
+  }],
   ['POST', /^\/api\/grafos\/(\d+)\/recalcular$/, async (b, [g]) => ({ foto: await (await import('./grafo/index.ts')).recalcular(db, id(g), { forzar: !!b.forzar }) })],
   // Su feedback y la revisión (plan v24): valorar cualquier cosa, las lecciones que salen de eso y las métricas.
   ['POST', /^\/api\/devoluciones$/, async (b) => (await import('./devoluciones.ts')).anotarDevolucion(db, { superficie: String(b.superficie ?? ''), ref: String(b.ref ?? ''), valor: Number(b.valor), nota: b.nota ?? null })],

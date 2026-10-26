@@ -1421,6 +1421,25 @@ CREATE TABLE IF NOT EXISTS grafo_fotos (
   en INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS grafo_fotos_grafo ON grafo_fotos(grafo_id, id);
+-- Los huecos estructurales que se siguen (plan v25): un par de grupos de ideas que casi no se tocan, con su pregunta,
+-- su respuesta, lo que trajo el agente y la historia de su puente (¿se achicó?).
+CREATE TABLE IF NOT EXISTS grafo_huecos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  grafo_id INTEGER NOT NULL,
+  firma TEXT NOT NULL,
+  terminos_a TEXT NOT NULL,
+  terminos_b TEXT NOT NULL,
+  bisagras TEXT,
+  puntaje REAL,
+  puente REAL,
+  estado TEXT NOT NULL DEFAULT 'abierto', -- abierto | en_curso | cerrado | descartado
+  pregunta TEXT, por_que TEXT, puentes TEXT, toca_proyectos INTEGER, consultas TEXT,
+  respuesta_pieza INTEGER, quantomo_id INTEGER, agente TEXT, propuesta_id INTEGER,
+  historia TEXT NOT NULL DEFAULT '[]',
+  creado_en INTEGER NOT NULL,
+  actualizado_en INTEGER NOT NULL,
+  UNIQUE (grafo_id, firma)
+);
 -- Su diccionario del grafo: palabras que frena (stop), que protege (no se cortan ni se sacan) y alias (forma → destino).
 CREATE TABLE IF NOT EXISTS grafo_diccionario (
   forma TEXT PRIMARY KEY,

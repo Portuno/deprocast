@@ -2712,3 +2712,10 @@ span.ej-chip { cursor: default; }
   .gf-lienzo { min-height: 58vh; }
   .gf-panel { overflow: visible; }
 }
+.gf-hueco i.chip { font-style: normal; font-size: var(--t-1); }
+.gf-h-cerrado { border-color: var(--ok); }
+.gf-h-en_curso { border-color: var(--acento); }
+.gf-hueco-lados { display: flex; gap: var(--e-2); align-items: center; margin: 0; font-weight: 500; }
+.gf-hueco-lados span { flex: 1; }
+.gf-pregunta { margin: var(--e-1) 0; padding: var(--e-2) var(--e-3); border-left: 3px solid var(--acento); background: var(--acento-suave); border-radius: var(--r-s); }
+.gf-salidas { flex-wrap: wrap; }

@@ -7,7 +7,7 @@
 
 const gf = {
   grafos: [], actual: null, foto: null, mostrado: null, historia: [], calculando: false,
-  sel: [], hover: null, ocultas: new Set(), resaltar: null, quitados: null, diff: null, titulo: null,
+  sel: [], hover: null, ocultas: new Set(), resaltar: null, quitados: null, diff: null, titulo: null, seguidos: [], hueco: null,
   t: { k: 1, x: 0, y: 0 }, lienzo: null, ctx: null, colores: [], pedido: 0, frags: new Map(),
 }
 const ESTADOS = { sesgado: 'Sesgado: casi sin grupos, la influencia concentrada', enfocado: 'Enfocado: hay grupos, pero uno domina', diversificado: 'Diversificado: varios grupos claros y conectados', disperso: 'Disperso: grupos claros pero sueltos' }
@@ -65,7 +65,7 @@ async function traerGrafo() {
   let r
   try { r = await api(`/grafos/${gf.actual}`) } catch (e) { avisoEstado(''); return error(e) }
   if (pedido !== gf.pedido) return
-  gf.foto = r.foto; gf.mostrado = r.foto; gf.historia = r.historia; gf.calculando = r.calculando
+  gf.foto = r.foto; gf.mostrado = r.foto; gf.historia = r.historia; gf.calculando = r.calculando; gf.seguidos = r.huecos ?? []; gf.hueco = null
   avisoEstado(r.foto ? '' : 'Todavía no hay texto para este grafo.')
   $('#gf-comparar').innerHTML = '<option value="">Comparar con…</option>' + r.historia.filter((h) => h.id !== r.foto?.id).map((h) => `<option value="${h.id}">${new Date(h.en).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${h.metricas?.n ?? '?'} conceptos</option>`).join('')
   encuadrar()
@@ -282,6 +282,7 @@ function pintarPanel() {
       <span>M <b>${m.M}</b></span><span>C1 <b>${Math.round(m.C1 * 100)}%</b></span><span>C2 <b>${Math.round(m.C2 * 100)}%</b></span><span>E <b>${m.E}</b></span></div>
     ${gf.quitados ? `<p class="chico">Sin: ${gf.quitados.map(esc).join(', ')} <a href="#" id="gf-volver-obvio">volver</a></p>` : ''}
   </div>`
+  if (gf.hueco) return void (p.innerHTML = cab + huecoHTML(gf.hueco), engancharHueco(gf.hueco), volverObvio())
   if (gf.diff) return void (p.innerHTML = cab + diffHTML(gf.diff), $('#gf-cerrar-diff').onclick = () => { gf.diff = null; $('#gf-comparar').value = ''; pintarPanel() }, volverObvio())
   if (gf.sel.length === 1) return void (p.innerHTML = cab + nodoHTML(g.nodos[gf.sel[0]]), engancharNodo(g.nodos[gf.sel[0]]), volverObvio())
   if (gf.sel.length === 2) return void (p.innerHTML = cab + caminoHTML(), engancharCamino(), volverObvio())
@@ -291,6 +292,7 @@ function pintarPanel() {
   $$('[data-gf-solo]', p).forEach((b) => (b.onclick = () => { const c = Number(b.dataset.gfSolo); const todas = g.comunidades.map((x) => x.id); const ya = gf.ocultas.size === todas.length - 1 && !gf.ocultas.has(c); gf.ocultas = new Set(ya ? [] : todas.filter((x) => x !== c)); pintarPanel(); dibujar() }))
   $$('[data-gf-nodo]', p).forEach((b) => (b.onclick = (e) => { e.preventDefault(); const n = g.nodos[Number(b.dataset.gfNodo)]; elegir(n.i, false); centrarEn(n) }))
   $$('[data-gf-hueco]', p).forEach((b) => (b.onclick = () => { const h = g.huecos[Number(b.dataset.gfHueco)]; gf.sel = []; gf.camino = null; gf.resaltar = new Set([h.a, h.b]); dibujar() }))
+  $$('[data-gf-seguido]', p).forEach((b) => (b.onclick = () => abrirHueco(gf.seguidos.find((h) => h.id === Number(b.dataset.gfSeguido)))))
 }
 function volverObvio() { const v = $('#gf-volver-obvio'); if (v) v.onclick = (e) => { e.preventDefault(); $('#gf-obvio').value = '0'; quitarObvio(0) } }
 
@@ -300,7 +302,8 @@ function estructuraHTML(g) {
   return `<section><h4>Grupos <small class="tenue">(tocá para apagar; ◎ para ver uno solo)</small></h4><ul class="gf-coms">${g.comunidades.filter((c) => c.tam >= 2).slice(0, 14).map((c) => `<li class="${gf.ocultas.has(c.id) ? 'apagada' : ''}"><button class="gf-color" data-gf-com="${c.id}" data-color="${c.id % 12}" title="Mostrar u ocultar"></button><span class="f1">${c.top.slice(0, 5).map(esc).join(', ')}</span><small class="tenue">${c.tam}</small><button class="btn btn-chico btn-icono" data-gf-solo="${c.id}" title="Ver solo este grupo">◎</button></li>`).join('')}</ul></section>
     <section><h4>Bisagras <small class="tenue">(unen tus áreas)</small></h4><p class="gf-lista">${bisagras.map((n) => `<a href="#" data-gf-nodo="${n.i}">${esc(n.forma)}</a>`).join(' · ')}</p></section>
     ${entradas.length ? `<section><h4>Puntos de entrada <small class="tenue">(aparecen poco, conectan mucho)</small></h4><p class="gf-lista">${entradas.map((n) => `<a href="#" data-gf-nodo="${n.i}">${esc(n.forma)}</a>`).join(' · ')}</p></section>` : ''}
-    ${g.huecos?.length ? `<section><h4>Huecos <small class="tenue">(grupos que casi no se tocan: ahí viven ideas nuevas)</small></h4><ul class="gf-huecos">${g.huecos.slice(0, 5).map((h, k) => `<li><button class="gf-hueco" data-gf-hueco="${k}"><span>${h.terminosA.slice(0, 3).map(esc).join(', ')}</span><b>↔</b><span>${h.terminosB.slice(0, 3).map(esc).join(', ')}</span></button>${h.bisagras.length ? `<small class="tenue">hoy los une: ${h.bisagras.slice(0, 3).map(esc).join(', ')}</small>` : '<small class="tenue">nada los une todavía</small>'}</li>`).join('')}</ul></section>` : ''}
+    ${gf.seguidos.length && !gf.quitados && gf.mostrado === gf.foto ? `<section><h4>Huecos <small class="tenue">(grupos que casi no se tocan: ahí viven ideas nuevas)</small></h4><ul class="gf-huecos">${gf.seguidos.slice(0, 6).map((h) => `<li><button class="gf-hueco" data-gf-seguido="${h.id}"><span>${h.terminosA.slice(0, 3).map(esc).join(', ')}</span><b>↔</b><span>${h.terminosB.slice(0, 3).map(esc).join(', ')}</span><i class="chip gf-h-${h.estado}">${ESTADO_HUECO[h.estado] ?? h.estado}</i></button>${h.pregunta ? `<small>${esc(h.pregunta)}</small>` : h.bisagras.length ? `<small class="tenue">hoy los une apenas: ${h.bisagras.slice(0, 3).map(esc).join(', ')}</small>` : '<small class="tenue">nada los une todavía</small>'}</li>`).join('')}</ul></section>`
+      : g.huecos?.length ? `<section><h4>Huecos <small class="tenue">(grupos que casi no se tocan)</small></h4><ul class="gf-huecos">${g.huecos.slice(0, 5).map((h, k) => `<li><button class="gf-hueco" data-gf-hueco="${k}"><span>${h.terminosA.slice(0, 3).map(esc).join(', ')}</span><b>↔</b><span>${h.terminosB.slice(0, 3).map(esc).join(', ')}</span></button></li>`).join('')}</ul></section>` : ''}
     ${g.automaticas?.length ? `<section><h4>Aparecen en casi todo</h4><p class="chico tenue">Si no son concepto para vos, frenalas en Mis grafos → Diccionario: ${g.automaticas.slice(0, 8).map(esc).join(', ')}</p></section>` : ''}
     <p class="chico tenue">Arrastrá para moverte, rueda o pellizco para acercar, doble toque para ver todo. Tocá un concepto; con Shift (o Ctrl) tocá otro para ver el camino entre los dos.</p>`
 }
@@ -355,6 +358,64 @@ async function traerFragmentos(a, b, caja) {
     $$('[data-pieza]', caja).forEach((x) => (x.onclick = (e) => { e.preventDefault(); modalPieza(Number(x.dataset.pieza)) }))
     $$('[data-quantomo]', caja).forEach((x) => (x.onclick = (e) => { e.preventDefault(); irA('quantomos') }))
   } catch (e) { caja.innerHTML = ''; error(e) }
+}
+
+// ─── un hueco: la pregunta y sus tres salidas ───────────────────────────
+
+const ESTADO_HUECO = { abierto: 'abierto', en_curso: 'en curso', cerrado: 'cerrado ✓', descartado: 'descartado' }
+
+/** Las comunidades de la foto donde viven los términos de un hueco (para resaltarlas en el lienzo). */
+function comunidadesDe(h) {
+  const g = gf.mostrado
+  const com = (ts) => { const c = new Map(); for (const t of ts) { const n = g.nodos.find((x) => sinTildesG(x.forma) === sinTildesG(t)); if (n && n.com >= 0) c.set(n.com, (c.get(n.com) ?? 0) + 1) } return [...c].sort((a, b) => b[1] - a[1])[0]?.[0] }
+  return new Set([com(h.terminosA), com(h.terminosB)].filter((x) => x != null))
+}
+
+function abrirHueco(h) {
+  if (!h) return
+  gf.hueco = h; gf.sel = []; gf.camino = null
+  gf.resaltar = comunidadesDe(h)
+  pintarPanel(); dibujar()
+}
+
+function huecoHTML(h) {
+  const hist = h.historia.filter((x) => x.puente != null)
+  return `<section><div class="aca-sec-cab"><h3>Un hueco</h3><button class="btn btn-chico" id="gfh-cerrar">✕</button></div>
+    <p class="gf-hueco-lados"><span>${h.terminosA.slice(0, 5).map(esc).join(', ')}</span><b>↔</b><span>${h.terminosB.slice(0, 5).map(esc).join(', ')}</span></p>
+    <p class="chico tenue">${h.bisagras.length ? `Hoy los une apenas: ${h.bisagras.map(esc).join(', ')}.` : 'Hoy nada los une.'} Estado: ${ESTADO_HUECO[h.estado] ?? h.estado}${hist.length > 1 ? ` · puente ${hist[0].puente} → ${hist.at(-1).puente}` : ''}</p>
+    ${h.pregunta ? `<blockquote class="gf-pregunta">${esc(h.pregunta)}</blockquote>${h.porQue ? `<p class="chico tenue">${esc(h.porQue)}</p>` : ''}${h.puentes.length ? `<p class="chico">Posibles puentes: ${h.puentes.map(esc).join(' · ')}</p>` : ''}`
+      : '<div class="fila"><button class="btn btn-primario btn-chico" id="gfh-pregunta">💡 Proponer la pregunta que los une</button></div>'}
+    ${h.pregunta && h.estado !== 'cerrado' ? `<form id="gfh-resp"><textarea class="campo-suelto" name="texto" rows="4" placeholder="Tu respuesta (queda como pieza tuya y como quántomo para La Mano)" required></textarea><div class="fila"><button class="btn btn-primario btn-chico">Responder</button></div></form>` : ''}
+    ${h.respuestaPieza ? `<p class="chico">✓ Respondiste: <a href="#" data-pieza="${h.respuestaPieza}">tu respuesta</a>${h.quantomoId ? ' (el quántomo espera en La Mano)' : ''}.</p>` : ''}
+    <div class="fila gf-salidas">
+      <button class="btn btn-chico" id="gfh-agente" title="En la nube: busca material que una los dos grupos y lo trae a tu corpus">🔎 Que lo investigue un agente</button>
+      <button class="btn btn-chico" id="gfh-fragua" ${h.propuestaId ? 'disabled' : ''} title="Si toca el sistema o tus proyectos: una propuesta abierta">${h.propuestaId ? '✓ En La Fragua' : '→ La Fragua'}</button>
+      <button class="btn btn-chico" id="gfh-radar" title="En la nube: el Radar busca oportunidades con esta pregunta">→ Radar</button>
+    </div>
+    ${h.agente?.urls?.length ? `<p class="chico">El agente trajo ${h.agente.urls.length}: ${h.agente.urls.map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(new URL(u).hostname)}</a>`).join(' · ')}</p>` : ''}
+    <div class="fila"><span class="tenue chico">¿Sirve este hueco?</span><button class="btn btn-chico btn-icono" data-gfh-fb="1">👍</button><button class="btn btn-chico btn-icono" data-gfh-fb="-1">👎</button><button class="btn btn-chico" id="gfh-descartar">Descartar</button></div></section>`
+}
+
+function engancharHueco(h) {
+  const p = $('#gf-panel')
+  const recargar = async (nuevo) => { if (nuevo?.id) { const i = gf.seguidos.findIndex((x) => x.id === nuevo.id); if (i >= 0) gf.seguidos[i] = nuevo; gf.hueco = nuevo } pintarPanel() }
+  const accion = async (b, ruta, cuerpo = {}, msj) => { b.disabled = true; try { const r = await api(ruta, cuerpo); if (msj) toast(msj(r), 'suave'); await recargar(r.id ? r : await refrescarHueco(h.id)) } catch (e) { error(e) } finally { b.disabled = false } }
+  $('#gfh-cerrar').onclick = () => { gf.hueco = null; gf.resaltar = null; pintarPanel(); dibujar() }
+  const pr = $('#gfh-pregunta', p); if (pr) pr.onclick = () => accion(pr, `/grafos/huecos/${h.id}/pregunta`)
+  const f = $('#gfh-resp', p)
+  if (f) f.onsubmit = (e) => { e.preventDefault(); accion($('button', f), `/grafos/huecos/${h.id}/responder`, { texto: f.texto.value }, () => 'Guardada: tu respuesta es pieza tuya y quántomo para La Mano') }
+  $('#gfh-agente').onclick = (e) => accion(e.target, `/grafos/huecos/${h.id}/investigar`, {}, (r) => r.guardadas?.length ? `El agente trajo ${r.guardadas.length} fuente${r.guardadas.length === 1 ? '' : 's'} al corpus` : (r.aviso ?? 'Nada nuevo'))
+  $('#gfh-fragua').onclick = (e) => accion(e.target, `/grafos/huecos/${h.id}/fragua`, {}, () => 'Quedó como propuesta en La Fragua')
+  $('#gfh-radar').onclick = (e) => accion(e.target, `/grafos/huecos/${h.id}/radar`, {}, (r) => r.nuevas?.length ? `El Radar encontró ${r.nuevas.length}: ${r.nuevas.slice(0, 3).join(' · ')}` : (r.aviso ?? 'El Radar no encontró nada nuevo'))
+  $('#gfh-descartar').onclick = async () => { try { await api(`/grafos/huecos/${h.id}/descartar`, {}); gf.seguidos = gf.seguidos.filter((x) => x.id !== h.id); gf.hueco = null; gf.resaltar = null; pintarPanel(); dibujar() } catch (e) { error(e) } }
+  $$('[data-gfh-fb]', p).forEach((b) => (b.onclick = async () => { try { await api('/devoluciones', { superficie: 'grafo', ref: h.id, valor: Number(b.dataset.gfhFb), nota: `${h.terminosA.slice(0, 3).join(', ')} ↔ ${h.terminosB.slice(0, 3).join(', ')}${h.pregunta ? ` — ${h.pregunta}` : ''}` }); $$('[data-gfh-fb]', p).forEach((x) => x.classList.toggle('on', x === b)); toast('Anotado', 'suave') } catch (e) { error(e) } }))
+  $$('[data-pieza]', p).forEach((x) => (x.onclick = (e) => { e.preventDefault(); modalPieza(Number(x.dataset.pieza)) }))
+}
+
+async function refrescarHueco(id) {
+  const r = await api(`/grafos/${gf.actual}`)
+  gf.seguidos = r.huecos ?? []
+  return gf.seguidos.find((x) => x.id === id) ?? null
 }
 
 // ─── quitar lo obvio, comparar, exportar ────────────────────────────────

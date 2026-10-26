@@ -133,6 +133,8 @@ export function recalcular(db: Db, id: number, o: { forzar?: boolean; ahora?: nu
     const ahora = o.ahora ?? Date.now()
     const fid = Number(db.prepare('INSERT INTO grafo_fotos (grafo_id, firma, documentos, datos, en) VALUES (?, ?, ?, ?, ?)').run(id, r.firma, r.documentos, JSON.stringify(r.resultado), ahora).lastInsertRowid)
     db.prepare(`DELETE FROM grafo_fotos WHERE grafo_id = ? AND id NOT IN (SELECT id FROM grafo_fotos WHERE grafo_id = ? ORDER BY id DESC LIMIT ${FOTOS_POR_GRAFO})`).run(id, id)
+    // Los huecos de esta foto entran a seguimiento; los que ya se seguían, ¿se achicaron?
+    try { (await import('./huecos.ts')).sincronizarHuecos(db, id, fid, ahora) } catch (e) { console.error('  grafo huecos:', e instanceof Error ? e.message : e) }
     return leerFoto(db, fid)
   })()
   calculandoAhora.set(id, p)
