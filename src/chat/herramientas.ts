@@ -327,7 +327,7 @@ export const HERRAMIENTAS: Herramienta[] = [
   {
     nombre: 'pedir_herramientas', familia: 'lectura',
     descripcion: 'Suma herramientas para este turno. Tenés a mano lo de todos los días; para lo demás pedí el grupo: liga (agentes, encargos, ticks, propuestas, La Fragua), corpus (fuentes, cargas, quántomos, entidades, ingerir), misiones (primarias, runs, reportes, ayudantes, personajes, inventario), vida (personas, plata, salud, plan, aprendizaje, bitácora, gemelo, brújula, preguntas), web (buscar en internet, leer y guardar links, radar), crear (cuadernos, librería, taller, cuentas, Directo).',
-    parametros: S({ grupos: { type: 'array', items: { type: 'string', enum: ['liga', 'corpus', 'misiones', 'vida', 'web', 'crear'] }, description: 'Uno o varios grupos' } }, ['grupos']),
+    parametros: S({ grupos: { type: 'array', items: { type: 'string', enum: ['liga', 'corpus', 'misiones', 'vida', 'web', 'crear', 'grafo'] }, description: 'Uno o varios grupos' } }, ['grupos']),
     ejecutar: (a, ctx) => ({ activadas: ctx.activar?.(Array.isArray(a.grupos) ? a.grupos.map(String) : []) ?? [] }),
     resumen: (a) => `sumó herramientas de ${Array.isArray(a.grupos) ? a.grupos.join(', ') : '…'}`,
   },
@@ -892,6 +892,27 @@ export const HERRAMIENTAS: Herramienta[] = [
       const r = await h.huecosDeDominio(db, { id: x.id, tema: x.tema, tutorNivel: x.tutorNivel })
       return { dominio: x.tema, sin_material: r.sinMaterial.map((c) => c.nombre), falla_seguido: r.flojos.map((c) => c.nombre), frenan: r.bloqueantes.map((b) => `${b.concepto.nombre} → ${b.frena.join(', ')}`), medido: r.medido }
     },
+  },
+  {
+    nombre: 'ver_grafo', familia: 'lectura',
+    descripcion: 'El grafo de su memoria (qué conceptos aparecen juntos en sus textos): el estado de su discurso (sesgado, enfocado, diversificado, disperso), las zonas (grupos de ideas, con su resumen si ya lo tiene), las bisagras que unen sus áreas, los puntos de entrada y los huecos (grupos que casi no se tocan). Por defecto «Tu voz» (sus textos y lo sellado); también «todo» o uno de sus grafos por nombre.',
+    parametros: S({ grafo: str('voz (por defecto), todo, o el nombre de uno de sus grafos') }),
+    ejecutar: async (a, { db }) => (await import('../grafo/mapa.ts')).verGrafo(db, a.grafo),
+    resumen: (a) => `miró el grafo${a.grafo ? ` «${a.grafo}»` : ''}`,
+  },
+  {
+    nombre: 'conectar_conceptos', familia: 'lectura',
+    descripcion: 'Qué conecta dos ideas en su grafo: el camino más corto entre los dos conceptos, si viven en el mismo grupo y los pasajes de sus textos donde se tocan (con [#pieza]). Si no hay camino, es un hueco.',
+    parametros: S({ a: str('Un concepto (una palabra: «miedo», «deprocast»)'), b: str('El otro'), grafo: str('voz (por defecto), todo, o el nombre de uno de sus grafos') }, ['a', 'b']),
+    ejecutar: async (a, { db }) => (await import('../grafo/mapa.ts')).conectarConceptos(db, String(a.a ?? ''), String(a.b ?? ''), a.grafo),
+    resumen: (a) => `buscó qué conecta «${recorte(a.a, 20)}» con «${recorte(a.b, 20)}»`,
+  },
+  {
+    nombre: 'preguntar_al_corpus', familia: 'lectura',
+    descripcion: 'Para las preguntas globales sobre su memoria que una búsqueda no responde («¿cuáles son mis temas?», «¿qué conecta mis proyectos?», «¿dónde me repito?», «¿de qué hablo cuando hablo de X?»): devuelve las zonas de su grafo con su resumen, ordenadas por lo que tocan de la pregunta, cada una con pasajes ancla. Respondé juntando zonas y citando pasajes.',
+    parametros: S({ pregunta: str('La pregunta, tal cual'), grafo: str('voz (por defecto), todo, o el nombre de uno de sus grafos') }, ['pregunta']),
+    ejecutar: async (a, { db }) => (await import('../grafo/mapa.ts')).preguntarAlCorpus(db, String(a.pregunta ?? ''), a.grafo),
+    resumen: (a) => `leyó su grafo por zonas: «${recorte(a.pregunta, 50)}»`,
   },
   {
     nombre: 'registrar_practica', familia: 'accion',
@@ -1673,6 +1694,7 @@ export const GRUPOS: Record<string, string[]> = {
   misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   web: ['buscar_web', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
+  grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus'],
   crear: ['ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
 
@@ -1686,6 +1708,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')
   if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal/.test(t)) g.push('web')
   if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo/.test(t)) g.push('crear')
+  if (/grafo|mis temas|de qu[eé] hablo|qu[eé] conecta|me repito|mis zonas|zonas de mi|bisagra|hueco/.test(t)) g.push('grafo')
   return g
 }
 

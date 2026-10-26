@@ -14,6 +14,7 @@ import { pedirJson } from './modelo.ts'
 import { crearTarjeta } from './tarjetas.ts'
 import { brier, conocimiento } from './gemelo.ts'
 import { enLaNube } from './reproceso.ts'
+import { enTuGrafo, type EnTuGrafo } from './grafo/mapa.ts'
 
 export type Gesto = 'peso' | 'descartar' | 'choca'
 export type Fuente = { piezaId: number; titulo: string; fecha: string | null; nivel: string | null }
@@ -36,6 +37,8 @@ export type Carta = {
   desafio?: boolean
   /** En una Pesquisa: cuánto tiene que ver con la pregunta. */
   relevancia?: number
+  /** Qué hace en su grafo (Tu voz): nuevo, refuerza un grupo, une dos o cierra un hueco. */
+  grafo?: EnTuGrafo | null
 }
 export type Vecino = { id: number; texto: string; peso: number | null; sim: number; fecha: string | null }
 
@@ -76,12 +79,16 @@ export function tocaDe(db: Db, piezaId: number | null): Toca {
   return { entidades, primaria, principal }
 }
 
+function grafoDeCarta(db: Db, texto: string): EnTuGrafo | null {
+  try { return enTuGrafo(db, texto) } catch { return null }
+}
+
 function carta(db: Db, q: Quantomo): Carta {
   const de = q.novedadDe ? (db.prepare('SELECT id, texto FROM quantomos WHERE id = ?').get(q.novedadDe) as { id: number; texto: string } | undefined) : undefined
   return {
     id: q.id, texto: q.texto, titulo: q.titulo, novedad: q.novedad,
     parecidaA: de && q.novedad !== 'nueva' ? { ...de, sim: q.novedadSim ?? 0 } : null,
-    fuente: fuenteDe(db, q.piezaId), toca: tocaDe(db, q.piezaId),
+    fuente: fuenteDe(db, q.piezaId), toca: tocaDe(db, q.piezaId), grafo: grafoDeCarta(db, q.texto),
   }
 }
 

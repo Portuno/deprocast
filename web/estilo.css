@@ -1446,6 +1446,8 @@ details.puentes > summary { cursor: pointer; padding: 6px 0; }
 .mano-novedad { font: 600 var(--t-2) var(--mono); }
 .mano-nueva { color: var(--acento); }
 .mano-toca { font-size: var(--t-3); border-top: 1px dashed var(--linea); padding-top: 8px; }
+.mano-grafo { color: var(--debil); }
+.mano-grafo-une, .mano-grafo-cierra { color: var(--acento); }
 .mano-caida { border: 1px solid var(--linea); border-radius: var(--r-l); padding: 14px; display: grid; gap: 8px; position: sticky; top: 12px; }
 .mano-caida h3 { margin: 0; font-size: var(--t-5); }
 .mano-caida ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
@@ -2628,6 +2630,8 @@ span.ej-chip { cursor: default; }
 .aca-obra:hover { border-color: var(--linea-2); }
 .aca-ritmo { margin: var(--e-1) 0; }
 .aca-ritmo.atrasado, .aca-ritmo.vencida { color: var(--aviso); }
+.aca-grafo-dom { margin: var(--e-1) 0; display: grid; gap: 4px; }
+.aca-grafo-dom p { margin: 0; }
 .aca-ritmo.lograda { color: var(--ok); }
 .aca-mapa-nivel { margin: var(--e-1) 0; }
 .aca-mapa-nivel summary { cursor: pointer; padding: var(--e-1) 0; }

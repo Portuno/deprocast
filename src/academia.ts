@@ -282,6 +282,8 @@ export function prepararSesionTutor(db: Db, id: number, o: { tema?: string | nul
     const repaso = o.examen ? [] : conceptosParaRepasar(db, { aprendizajeId: id, excepto: concepto ? [concepto.id] : [], limite: 2 }, ahora)
     const porId = new Map(mapa.map((c) => [c.id, c]))
     const mat = o.examen ? null : await materialParaClase(db, d, tema)
+    // En la frontera, «qué falta saber» sale también de los huecos del grafo de su material (lo que sus fuentes no unen).
+    const frontera6 = n >= 6 && !o.examen ? await (await import('./grafo/mapa.ts')).fronteraDelDominio(db, d).catch(() => '') : ''
     const extra = o.examen
       ? [`Conceptos del nivel: ${(delNivel.length ? delNivel.map((c) => c.nombre) : [d.tema]).join(' · ')}`]
       : [
@@ -289,6 +291,7 @@ export function prepararSesionTutor(db: Db, id: number, o: { tema?: string | nul
         concepto?.requisitos.length ? `Se apoya en: ${concepto.requisitos.map((r) => porId.get(r)?.nombre).filter(Boolean).join(' · ')}` : '',
         repaso.length ? `Repaso intercalado (una pregunta de cada uno, con "repaso" = el nombre exacto): ${repaso.map((c) => `${c.nombre}${c.aprendizajeId !== id ? ` (de ${c.dominioTema})` : ''}`).join(' · ')}` : '',
         mat?.texto ? `Material (basate en esto; citá [#id] donde lo uses):\n${mat.texto}` : '',
+        frontera6,
       ]
     const datos = await modelo(db, o.examen ? SISTEMA_EXAMEN(n) : SISTEMA_CLASE(n), contexto(db, d, extra))
     const paquete = paqueteDe(datos, tema)

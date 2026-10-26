@@ -133,7 +133,7 @@ async function pintarDominio(id) {
     </div>
     ${!r.examen && d.estado === 'activo' ? '<p class="tenue chico">El examen se habilita con dos clases seguidas del nivel resueltas con 80 % o más, o con todo el nivel sabido.</p>' : ''}
     <section class="seccion"><div class="aca-sec-cab"><h3>Mapa de conceptos</h3><span class="fila"><button class="btn btn-chico" id="aca-huecos" title="Qué conceptos no tienen material en tu archivo y qué falla seguido">🕳 Huecos</button><button class="btn btn-chico" id="aca-rearmar" title="El tutor rehace el mapa siguiendo el índice de tu material (lo que sabés se conserva)">↻ Rearmar desde mi material</button></span></div>
-      <div id="aca-huecos-res"></div>${mapaHTML(r.conceptos, r.sigue, d.tutorNivel)}</section>
+      <div id="aca-huecos-res"></div>${grafoDominioHTML(r.grafo)}${mapaHTML(r.conceptos, r.sigue, d.tutorNivel)}</section>
     <section class="seccion"><div class="aca-sec-cab"><h3>Proyecto del nivel</h3>${!r.proyecto || r.proyecto.estado === 'propuesto' ? `<button class="btn btn-chico" id="aca-proyecto-nuevo">${r.proyecto ? '↻ Otro' : '💡 Proponeme uno'}</button>` : ''}</div>${proyectoHTML(r.proyecto, r.proyectoObligatorio)}</section>
     <section class="seccion"><h3>Clases</h3>${hechas.length ? hechas.map((s) => `<div class="fila item"><span class="f1">${s.tipo === 'examen' ? '📝 ' : ''}${esc(s.tema)}</span><small class="tenue">nivel ${s.nivel}${s.puntaje != null ? ` · ${Math.round(s.puntaje * 100)} %` : ''} · ${new Date(s.cerradaEn ?? s.creadaEn).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}</small>${s.piezaId ? `<a href="#" class="ref" data-pieza="${s.piezaId}">pieza</a>` : ''}</div>`).join('') : '<p class="tenue">Todavía ninguna.</p>'}</section>
     <section class="seccion"><h3>Visuales</h3>${r.visuales.length ? `<div class="aca-visuales">${r.visuales.map((a) => `<button class="aca-vis ${a.estado}" data-vis="${a.id}"><b>${esc(a.titulo)}</b><small>${esc(a.meta.clase ?? '')}${a.meta.valoracion ? ` · ${'★'.repeat(a.meta.valoracion)}` : ''}${a.meta.sellado ? ' · sellado' : ''}${a.estado === 'haciendo' ? ' · en el horno' : a.estado === 'fallo' ? ' · no salió' : ''}</small></button>`).join('')}</div>` : '<p class="tenue">Cuando una clase pide un dibujo, el Taller lo hace y queda acá.</p>'}</section>
@@ -196,6 +196,12 @@ async function pintarDominio(id) {
 }
 
 /** El mapa por niveles: el actual abierto; cada concepto con cuánto lo sabés, lo que sigue y lo que no tiene material. */
+/** Lo que dice el grafo de su material: por dónde entrar y qué grupos de ideas sus fuentes todavía no unen. */
+function grafoDominioHTML(g) {
+  if (!g || (!g.entradas.length && !g.huecos.length)) return ''
+  return `<div class="aca-grafo-dom chico">${g.entradas.length ? `<p>☍ <b>Por dónde entrar</b> <span class="tenue">(aparecen poco en tu material, conectan mucho)</span>: ${g.entradas.map(esc).join(' · ')}</p>` : ''}${g.huecos.length ? `<p>☍ <b>Lo que tu material no une</b> <span class="tenue">(lo usa el nivel Frontera)</span>: ${g.huecos.map(([a, b]) => `${a.map(esc).join(', ')} ↔ ${b.map(esc).join(', ')}`).join(' · ')}</p>` : ''}</div>`
+}
+
 function mapaHTML(cs, sigue, nivel) {
   if (!cs?.length) return '<p class="tenue">La primera clase arma el mapa (si sumaste un libro o apuntes, sigue su índice).</p>'
   const niveles = [...new Set(cs.map((c) => c.nivel))].sort((a, b) => a - b)

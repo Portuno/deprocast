@@ -59,6 +59,8 @@ export function editarGrafo(db: Db, id: number, c: { nombre?: string; fuentes?: 
   if (c.borrar) {
     if (g.tipo !== 'propio') throw new Error('Las capas de siempre no se borran')
     db.prepare('DELETE FROM grafo_fotos WHERE grafo_id = ?').run(id)
+    db.prepare('DELETE FROM grafo_huecos WHERE grafo_id = ?').run(id)
+    db.prepare('DELETE FROM grafo_resumenes WHERE grafo_id = ?').run(id)
     db.prepare('DELETE FROM grafos WHERE id = ?').run(id)
     return null
   }

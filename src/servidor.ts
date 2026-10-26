@@ -763,7 +763,16 @@ const rutas: [string, RegExp, Ruta][] = [
     if (!x) throw new Error(`No existe el grafo ${g}`)
     // Sin foto todavía: se calcula ahora (en el hilo aparte) y la pantalla espera; con foto, la última (o la pedida).
     const foto = q.get('foto') ? gr.leerFoto(db, Number(q.get('foto'))) : gr.ultimaFoto(db, x.id) ?? await gr.recalcular(db, x.id)
-    return { grafo: x, foto, calculando: gr.estaCalculando(x.id), historia: gr.historia(db, x.id), huecos: (await import('./grafo/huecos.ts')).huecosDe(db, x.id) }
+    return { grafo: x, foto, calculando: gr.estaCalculando(x.id), historia: gr.historia(db, x.id), huecos: (await import('./grafo/huecos.ts')).huecosDe(db, x.id), zonas: foto ? (await import('./grafo/mapa.ts')).zonas(db, x, foto, 30) : [] }
+  }],
+  // De qué va cada grupo (los resúmenes por comunidad): los escribe el modelo, en la nube.
+  ['POST', /^\/api\/grafos\/(\d+)\/zonas$/, async (_, [g]) => {
+    soloNube('De qué va cada grupo')
+    const gr = await import('./grafo/index.ts')
+    const x = gr.leerGrafo(db, id(g)), f = x ? gr.ultimaFoto(db, x.id) : null
+    if (!x || !f) throw new Error('Ese grafo todavía no tiene foto')
+    const r = await (await import('./grafo/mapa.ts')).resumir(db, x, f, { max: 12 })
+    return { ...r, zonas: (await import('./grafo/mapa.ts')).zonas(db, x, f, 30) }
   }],
   ['POST', /^\/api\/grafos\/(\d+)$/, async (b, [g]) => (await import('./grafo/index.ts')).editarGrafo(db, id(g), { nombre: b.nombre, fuentes: b.fuentes, desde: b.desde, hasta: b.hasta, borrar: !!b.borrar })],
   // Leer el grafo: los fragmentos donde aparecen juntos, quitar lo obvio, el diff entre fotos y abrir el grafo de algo.
@@ -779,7 +788,7 @@ const rutas: [string, RegExp, Ruta][] = [
   // Los huecos: la pregunta, responderla, que la investigue un agente, a La Fragua, al Radar, descartar.
   ['POST', /^\/api\/grafos\/huecos\/(\d+)\/(pregunta|responder|investigar|fragua|radar|descartar)$/, async (b, [h, accion]) => {
     const hu = await import('./grafo/huecos.ts')
-    if (accion === 'pregunta') return hu.preguntarHueco(db, id(h), { forzar: !!b.forzar })
+    if (accion === 'pregunta') { soloNube('La pregunta del hueco'); return hu.preguntarHueco(db, id(h), { forzar: !!b.forzar }) }
     if (accion === 'responder') return hu.responderHueco(db, id(h), String(b.texto ?? ''))
     if (accion === 'investigar') { soloNube('Que lo investigue un agente'); return hu.investigarHueco(db, id(h)) }
     if (accion === 'fragua') return hu.aLaFragua(db, id(h))
@@ -830,7 +839,7 @@ const rutas: [string, RegExp, Ruta][] = [
     const co = await import('./conceptos.ts')
     const conceptos = co.conceptosDe(db, d.id).map((c) => ({ ...c, dominioHoy: +co.dominioHoy(c).toFixed(2) }))
     const sigue = co.frontera(db, d.id, d.tutorNivel)?.id ?? null
-    return { dominio: { ...d, nivelNombre: ac.nombreNivel(d.tutorNivel) }, conceptos, sigue, ritmo: co.ritmoDe(db, d), proyecto: ac.proyectoDe(db, d.id, d.tutorNivel), proyectoObligatorio: d.tutorNivel >= ac.NIVEL_PROYECTO_OBLIGATORIO, examen: ac.examenHabilitado(db, d.id), visuales, sesiones: ac.sesionesDe(db, d.id).map(({ paquete, ...s }) => ({ ...s, preguntas: paquete?.preguntas.length ?? 0, visual: paquete?.visual?.tipo ?? null })), recursos: await ac.recursosDominio(db, d), practicas: practicasDe(db, d.id, 10) }
+    return { dominio: { ...d, nivelNombre: ac.nombreNivel(d.tutorNivel) }, conceptos, sigue, ritmo: co.ritmoDe(db, d), proyecto: ac.proyectoDe(db, d.id, d.tutorNivel), proyectoObligatorio: d.tutorNivel >= ac.NIVEL_PROYECTO_OBLIGATORIO, examen: ac.examenHabilitado(db, d.id), visuales, sesiones: ac.sesionesDe(db, d.id).map(({ paquete, ...s }) => ({ ...s, preguntas: paquete?.preguntas.length ?? 0, visual: paquete?.visual?.tipo ?? null })), recursos: await ac.recursosDominio(db, d), practicas: practicasDe(db, d.id, 10), grafo: (await import('./grafo/mapa.ts')).mapaDelDominio(db, d.id) }
   }],
   ['POST', /^\/api\/academia\/(\d+)\/sesion$/, async (b, [a]) => {
     const ac = await import('./academia.ts')

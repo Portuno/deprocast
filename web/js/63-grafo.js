@@ -65,7 +65,7 @@ async function traerGrafo() {
   let r
   try { r = await api(`/grafos/${gf.actual}`) } catch (e) { avisoEstado(''); return error(e) }
   if (pedido !== gf.pedido) return
-  gf.foto = r.foto; gf.mostrado = r.foto; gf.historia = r.historia; gf.calculando = r.calculando; gf.seguidos = r.huecos ?? []; gf.hueco = null
+  gf.foto = r.foto; gf.mostrado = r.foto; gf.historia = r.historia; gf.calculando = r.calculando; gf.seguidos = r.huecos ?? []; gf.zonas = r.zonas ?? []; gf.hueco = null
   avisoEstado(r.foto ? '' : 'Todavía no hay texto para este grafo.')
   $('#gf-comparar').innerHTML = '<option value="">Comparar con…</option>' + r.historia.filter((h) => h.id !== r.foto?.id).map((h) => `<option value="${h.id}">${new Date(h.en).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${h.metricas?.n ?? '?'} conceptos</option>`).join('')
   encuadrar()
@@ -293,13 +293,22 @@ function pintarPanel() {
   $$('[data-gf-nodo]', p).forEach((b) => (b.onclick = (e) => { e.preventDefault(); const n = g.nodos[Number(b.dataset.gfNodo)]; elegir(n.i, false); centrarEn(n) }))
   $$('[data-gf-hueco]', p).forEach((b) => (b.onclick = () => { const h = g.huecos[Number(b.dataset.gfHueco)]; gf.sel = []; gf.camino = null; gf.resaltar = new Set([h.a, h.b]); dibujar() }))
   $$('[data-gf-seguido]', p).forEach((b) => (b.onclick = () => abrirHueco(gf.seguidos.find((h) => h.id === Number(b.dataset.gfSeguido)))))
+  const zs = $('#gf-zonas', p)
+  if (zs) zs.onclick = async () => {
+    zs.disabled = true; zs.textContent = 'Leyendo cada grupo…'
+    try { const r = await api(`/grafos/${gf.actual}/zonas`, {}); gf.zonas = r.zonas; if (r.aviso) toast(esc(r.aviso)); pintarPanel() } catch (e) { error(e); zs.disabled = false; zs.textContent = '✦ De qué va cada grupo' }
+  }
 }
 function volverObvio() { const v = $('#gf-volver-obvio'); if (v) v.onclick = (e) => { e.preventDefault(); $('#gf-obvio').value = '0'; quitarObvio(0) } }
 
 function estructuraHTML(g) {
   const bisagras = [...g.nodos].filter((n) => !n.vos).sort((a, b) => b.btw - a.btw).slice(0, 12)
   const entradas = g.nodos.filter((n) => n.entrada)
-  return `<section><h4>Grupos <small class="tenue">(tocá para apagar; ◎ para ver uno solo)</small></h4><ul class="gf-coms">${g.comunidades.filter((c) => c.tam >= 2).slice(0, 14).map((c) => `<li class="${gf.ocultas.has(c.id) ? 'apagada' : ''}"><button class="gf-color" data-gf-com="${c.id}" data-color="${c.id % 12}" title="Mostrar u ocultar"></button><span class="f1">${c.top.slice(0, 5).map(esc).join(', ')}</span><small class="tenue">${c.tam}</small><button class="btn btn-chico btn-icono" data-gf-solo="${c.id}" title="Ver solo este grupo">◎</button></li>`).join('')}</ul></section>
+  // Las zonas (de qué va cada grupo) valen para la foto entera, no para «quitar lo obvio» ni para otra foto.
+  const zona = (c) => (g === gf.foto ? (gf.zonas ?? []).find((z) => z.com === c.id && z.top.join() === c.top.join()) : null)
+  const sinResumen = g === gf.foto && (gf.zonas ?? []).some((z) => !z.resumen)
+  return `<section><h4>Grupos <small class="tenue">(tocá para apagar; ◎ para ver uno solo)</small></h4><ul class="gf-coms">${g.comunidades.filter((c) => c.tam >= 2).slice(0, 14).map((c) => { const z = zona(c); return `<li class="${gf.ocultas.has(c.id) ? 'apagada' : ''}"><button class="gf-color" data-gf-com="${c.id}" data-color="${c.id % 12}" title="Mostrar u ocultar"></button><span class="f1"${z?.resumen ? ` title="${esc(z.resumen)}"` : ''}>${z?.titulo ? `<b>${esc(z.titulo)}</b><br><small class="tenue">` : ''}${c.top.slice(0, 5).map(esc).join(', ')}${z?.titulo ? '</small>' : ''}</span><small class="tenue">${c.tam}</small><button class="btn btn-chico btn-icono" data-gf-solo="${c.id}" title="Ver solo este grupo">◎</button></li>` }).join('')}</ul>
+    ${sinResumen ? '<button class="btn btn-chico" id="gf-zonas" title="Mastropiero lee cada grupo y escribe de qué va (en la nube: gasta tokens)">✦ De qué va cada grupo</button>' : ''}</section>
     <section><h4>Bisagras <small class="tenue">(unen tus áreas)</small></h4><p class="gf-lista">${bisagras.map((n) => `<a href="#" data-gf-nodo="${n.i}">${esc(n.forma)}</a>`).join(' · ')}</p></section>
     ${entradas.length ? `<section><h4>Puntos de entrada <small class="tenue">(aparecen poco, conectan mucho)</small></h4><p class="gf-lista">${entradas.map((n) => `<a href="#" data-gf-nodo="${n.i}">${esc(n.forma)}</a>`).join(' · ')}</p></section>` : ''}
     ${gf.seguidos.length && !gf.quitados && gf.mostrado === gf.foto ? `<section><h4>Huecos <small class="tenue">(grupos que casi no se tocan: ahí viven ideas nuevas)</small></h4><ul class="gf-huecos">${gf.seguidos.slice(0, 6).map((h) => `<li><button class="gf-hueco" data-gf-seguido="${h.id}"><span>${h.terminosA.slice(0, 3).map(esc).join(', ')}</span><b>↔</b><span>${h.terminosB.slice(0, 3).map(esc).join(', ')}</span><i class="chip gf-h-${h.estado}">${ESTADO_HUECO[h.estado] ?? h.estado}</i></button>${h.pregunta ? `<small>${esc(h.pregunta)}</small>` : h.bisagras.length ? `<small class="tenue">hoy los une apenas: ${h.bisagras.slice(0, 3).map(esc).join(', ')}</small>` : '<small class="tenue">nada los une todavía</small>'}</li>`).join('')}</ul></section>`

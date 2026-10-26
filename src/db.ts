@@ -1440,6 +1440,18 @@ CREATE TABLE IF NOT EXISTS grafo_huecos (
   actualizado_en INTEGER NOT NULL,
   UNIQUE (grafo_id, firma)
 );
+-- De qué va cada zona de su memoria (plan v25, el patrón GraphRAG): un resumen por comunidad, cacheado por la huella de
+-- sus conceptos top (si la comunidad no cambió, no se vuelve a pedir).
+CREATE TABLE IF NOT EXISTS grafo_resumenes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  grafo_id INTEGER NOT NULL,
+  firma TEXT NOT NULL,
+  top TEXT NOT NULL,
+  titulo TEXT NOT NULL,
+  resumen TEXT NOT NULL,
+  en INTEGER NOT NULL,
+  UNIQUE (grafo_id, firma)
+);
 -- Su diccionario del grafo: palabras que frena (stop), que protege (no se cortan ni se sacan) y alias (forma → destino).
 CREATE TABLE IF NOT EXISTS grafo_diccionario (
   forma TEXT PRIMARY KEY,

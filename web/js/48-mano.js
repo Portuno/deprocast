@@ -260,9 +260,20 @@ function pintarMano() {
   el.innerHTML = `<div class="p-top">${nov ? `<span class="mano-novedad mano-${c.novedad}" title="${nov[1]}">${nov[0]} ${c.novedad === 'variacion' ? 'variación' : c.novedad}</span>` : '<span class="tenue">sin vector todavía</span>'}${c.desafio ? '<span class="mano-desafio" title="Ascensión 1: es una variación de algo que pesaste alto">⚔ puede chocar con lo que creés</span>' : ''}${c.relevancia != null ? `<span class="tenue" title="Cuánto tiene que ver con la pregunta de la Pesquisa">↳ ${Math.round(c.relevancia * 100)} % con la pregunta</span>` : ''}${f ? `<span title="${esc(f.titulo)}">de «${esc(corto(f.titulo, 50))}»${f.fecha ? ` · ${esc(f.fecha)}` : ''}</span>` : ''}</div>
     <h2 class="mano-texto">${esc(c.texto)}</h2>
     ${c.parecidaA && !(manoPredecir && manoPrediccion[c.id] == null && !manoJugadas[c.id]) ? `<small class="tenue">${c.novedad === 'repetida' ? 'Casi igual a' : 'Se parece a'}: «${esc(corto(c.parecidaA.texto, 140))}»</small>` : ''}
-    <div class="mano-toca">${toca.primaria ? `→ Primaria: <b>${esc(toca.primaria.titulo)}</b>` : '→ <span class="tenue">suelta: no toca ninguna primaria</span>'}${toca.principal ? ` · Principal: ${esc(toca.principal)}` : ''}${toca.entidades.length ? `<br><span class="tenue">Habla de ${toca.entidades.map((e) => esc(e.nombre)).join(', ')}</span>` : ''}</div>`
+    <div class="mano-toca">${toca.primaria ? `→ Primaria: <b>${esc(toca.primaria.titulo)}</b>` : '→ <span class="tenue">suelta: no toca ninguna primaria</span>'}${toca.principal ? ` · Principal: ${esc(toca.principal)}` : ''}${toca.entidades.length ? `<br><span class="tenue">Habla de ${toca.entidades.map((e) => esc(e.nombre)).join(', ')}</span>` : ''}${enTuGrafoHTML(c.grafo)}</div>`
   pintarPrediccion()
   if (manoJugadas[c.id]) pintarCaida(manoJugadas[c.id])
+}
+
+/** Qué hace la carta en tu grafo (Tu voz): nuevo, refuerza un grupo, une dos o cierra un hueco. */
+function enTuGrafoHTML(g) {
+  if (!g) return ''
+  const grupo = (ts) => `«${ts.map(esc).join(', ')}»`
+  const texto = g.tipo === 'nuevo' ? 'nuevo para tu grafo: no toca ningún concepto que ya tengas'
+    : g.tipo === 'refuerza' ? `refuerza el grupo ${grupo(g.grupos[0])}`
+      : g.tipo === 'une' ? `une ${grupo(g.grupos[0])} con ${grupo(g.grupos[1])}`
+        : `<b>cierra un hueco</b>: ${grupo(g.grupos[0])} ↔ ${grupo(g.grupos[1])}`
+  return `<br><span class="mano-grafo mano-grafo-${g.tipo}" title="${g.conceptos.length ? `Conceptos: ${esc(g.conceptos.join(', '))}` : ''}">☍ En tu grafo: ${texto}</span>`
 }
 
 function lineaVecino(v) {
