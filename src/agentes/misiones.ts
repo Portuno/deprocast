@@ -23,6 +23,8 @@ export type PasoPlan = { paso: string; estado: 'pendiente' | 'hecho' | 'descarta
 export type MisionAgente = {
   id: number; agenteId: string; titulo: string; brief: string; criterio: Criterio; entidadId: number | null; primariaId: number | null; vence: string | null
   estado: EstadoMision; plan: PasoPlan[]; proximo: string | null; creadaEn: number; actualizadaEn: number
+  /** Si es la rival de otra misión (la misma meta, un clon con una variación). */
+  madreId?: number | null
 }
 export const TIPOS_DIARIO = ['plan', 'hallazgo', 'paso', 'reflexion', 'pregunta', 'instruccion', 'resultado', 'sesion'] as const
 export type EntradaDiario = { id: number; misionId: number; agenteId: string; tipo: (typeof TIPOS_DIARIO)[number]; texto: string; refs: unknown; en: number }
@@ -30,6 +32,7 @@ export type EntradaDiario = { id: number; misionId: number; agenteId: string; ti
 const deFila = (r: any): MisionAgente => ({
   id: r.id, agenteId: r.agente_id, titulo: r.titulo, brief: r.brief, criterio: json<Criterio>(r.criterio, { metrica: 'otro', meta: 1, texto: '' } as Criterio), entidadId: r.entidad_id,
   primariaId: r.primaria_id, vence: r.vence, estado: r.estado, plan: json<PasoPlan[]>(r.plan, []) ?? [], proximo: r.proximo, creadaEn: r.creada_en, actualizadaEn: r.actualizada_en,
+  madreId: r.madre_id ?? null,
 })
 export const leerMisionAgente = (db: Db, id: number): MisionAgente | null => { const r = db.prepare('SELECT * FROM agente_misiones WHERE id = ?').get(id); return r ? deFila(r) : null }
 export const listarMisionesAgente = (db: Db, f: { estados?: EstadoMision[]; agenteId?: string } = {}): MisionAgente[] =>
@@ -180,6 +183,8 @@ export function promptMision(db: Db, f: Ficha, m: MisionAgente, ahora = Date.now
     `Sos ${alias(f)}, agente ${CLASES[f.clase].nombre} de la liga de Mastropiero (Deprocast). Trabajás una misión para el operador, en sesiones: cada sesión arranca de tu plan y tu diario y termina con cerrar_sesion.`,
     `## La misión: ${m.titulo}\n${m.brief}\nCriterio de éxito: ${m.criterio.texto}${m.vence ? ` · vence el ${m.vence}` : ''}${e ? `\nEs para: ${e.nombre} (${e.tipo})${e.notas ? ` — ${e.notas.slice(0, 600)}` : ''}` : ''}`,
     op ? `## El operador\n${op.quien}` : '',
+    f.estrategia ? `## Tu estrategia (lo que aprendiste trabajando; vale salvo que él indique otra cosa)\n${f.estrategia}` : '',
+    f.mutacion ? `## Tu variación\nNaciste como clon de ${f.padre ?? 'otro agente'} con esta diferencia: ${f.mutacion}. Trabajala de verdad: compiten por la misma meta.` : '',
     m.plan.length ? `## Tu plan\n${m.plan.map((p) => `${p.estado === 'hecho' ? '✓' : p.estado === 'descartado' ? '✕' : '·'} ${p.paso}`).join('\n')}` : '## Tu plan\nTodavía no tenés plan: armalo con rehacer_plan antes de salir a trabajar.',
     diario.length ? `## Tu diario (lo último)\n${diario.map((d) => `[${fechaLocal(d.en)} · ${d.tipo}] ${d.texto}`).join('\n')}` : '',
     respuestas.length ? `## Lo que te contestó\n${respuestas.map((r) => `- ${r.texto} → ${r.respuesta}`).join('\n')}` : '',

@@ -764,7 +764,8 @@ const rutas: [string, RegExp, Ruta][] = [
     const x = mi.leerMisionAgente(db, id(m))
     if (!x) throw new Error(`No existe la misión ${m}`)
     const em = await import('./agentes/embudo.ts')
-    return { mision: x, agente: conNivel(leer(db, x.agenteId)), diario: mi.diarioDe(db, x.id, 200), trabajando: mi.misionTrabajando(x.id), embudo: em.embudo(db, x.id), progreso: em.progreso(db, x), pistas: em.pistasDe(db, { misionId: x.id }) }
+    const rivales = mi.listarMisionesAgente(db).filter((r) => r.madreId === x.id && r.estado === 'activa').map((r) => ({ id: r.id, agente: conNivel(leer(db, r.agenteId)), progreso: em.progreso(db, r) }))
+    return { mision: x, agente: conNivel(leer(db, x.agenteId)), diario: mi.diarioDe(db, x.id, 200), trabajando: mi.misionTrabajando(x.id), embudo: em.embudo(db, x.id), progreso: em.progreso(db, x), pistas: em.pistasDe(db, { misionId: x.id }), rivales }
   }],
   ['POST', /^\/api\/agentes\/misiones\/(\d+)$/, async (b, [m]) => (await import('./agentes/misiones.ts')).editarMisionAgente(db, id(m), { estado: b.estado, brief: b.brief, titulo: b.titulo, criterio: b.criterio, vence: b.vence })],
   ['POST', /^\/api\/agentes\/misiones\/(\d+)\/instruir$/, async (b, [m]) => (await import('./agentes/misiones.ts')).instruir(db, id(m), String(b.texto ?? ''))],
@@ -782,6 +783,7 @@ const rutas: [string, RegExp, Ruta][] = [
     if (b.borrador === 'enviar' || b.borrador === 'descartar') return pi.resolverBorrador(db, id(p), b.borrador, { texto: b.texto ?? null })
     return pi.marcarPista(db, id(p), b.etapa, { nota: b.nota ?? null })
   }],
+  ['POST', /^\/api\/agentes\/([^/]+)\/genoma$/, async (b, [a]) => conNivel((await import('./agentes/genoma.ts')).fijarGenoma(db, decodeURIComponent(a), !!b.fijo))],
   ['GET', /^\/api\/agentes\/sala$/, async () => {
     const hoy = new Date(`${fechaLocal()}T00:00:00`).getTime()
     const diario = db.prepare(`SELECT d.id, d.tipo, d.texto, d.en, d.agente_id AS agente, m.id AS mision, m.titulo FROM agente_diario d JOIN agente_misiones m ON m.id = d.mision_id ORDER BY d.id DESC LIMIT 30`).all()

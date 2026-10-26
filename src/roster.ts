@@ -28,6 +28,11 @@ export type Ficha = {
   rachaFallos: number
   creadoEn: number
   ultimaCorrida: number | null
+  /** El genoma (plan v26): lo que aprendió trabajando, si él lo fijó, de quién es clon y qué mutó. */
+  estrategia?: string | null
+  genomaFijo?: boolean
+  padre?: string | null
+  mutacion?: string | null
 }
 
 /** Reglas de prueba: tres éxitos y entra al roster; tres fallos y se retira sin haber jugado. */
@@ -57,6 +62,10 @@ function deFila(r: any): Ficha {
     rachaFallos: r.racha_fallos,
     creadoEn: r.creado_en,
     ultimaCorrida: r.ultima_corrida,
+    estrategia: r.estrategia ?? null,
+    genomaFijo: !!r.genoma_fijo,
+    padre: r.padre ?? null,
+    mutacion: r.mutacion ?? null,
   }
 }
 

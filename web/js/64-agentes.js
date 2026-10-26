@@ -64,12 +64,20 @@ async function abrirMisionAg(id) {
       <button class="btn" id="ag-ver-pistas">Ver sus pistas (${r.pistas.length})</button>
     </div>
     <section class="seccion"><h3>Indicale algo o preguntale</h3><div class="fila"><input id="ag-instruir" class="f1" placeholder="«Enfocate en bodas», «¿por qué elegiste esas?»…"><button class="btn" id="ag-instruir-ok" title="Queda en su diario y manda en su próxima sesión">Indicar</button><button class="btn" id="ag-hablar" title="Te contesta ahora, desde su plan y su diario (en la nube)">💬 Preguntarle</button></div><div id="ag-respuesta"></div></section>
+    ${m.madreId ? `<p class="chico ag-rival">⚔ Es la rival de la misión <a href="#" data-ag-abrir="${m.madreId}">#${m.madreId}</a>: la misma meta, otra estrategia. La temporada decide cuál sigue.</p>` : ''}
+    ${r.rivales.length ? `<p class="chico ag-rival">⚔ Tiene rival: ${r.rivales.map((x) => `<a href="#" data-ag-abrir="${x.id}">${esc(nombreAgente(x.agente, ''))}</a> (${x.progreso.logrado} de ${x.progreso.meta})`).join(', ')}. La temporada decide cuál sigue.</p>` : ''}
+    <section class="seccion"><div class="aca-sec-cab"><h3>Su genoma</h3>${r.agente ? `<button class="btn btn-chico" id="ag-fijar" title="Fijado: no reescribe su estrategia ni tiene rivales">${r.agente.genomaFijo ? '📌 Fijado (soltar)' : '📌 Fijar'}</button>` : ''}</div>
+      ${r.agente?.mutacion ? `<p class="chico">Clon de ${esc(r.agente.padre ?? '')} con una variación: ${esc(r.agente.mutacion)}</p>` : ''}
+      ${r.agente?.estrategia ? `<p class="ag-brief">${esc(r.agente.estrategia)}</p>` : '<p class="tenue chico">Su estrategia la escribe él mismo el domingo, desde su diario y sus resultados.</p>'}</section>
     <section class="seccion"><h3>Su plan</h3>${m.plan.length ? `<ul class="ag-plan">${m.plan.map((p) => `<li class="${p.estado}">${p.estado === 'hecho' ? '✓' : p.estado === 'descartado' ? '✕' : '·'} ${esc(p.paso)}</li>`).join('')}</ul>` : '<p class="tenue">Lo arma en su primera sesión.</p>'}${m.proximo ? `<p class="chico">Próximo paso: ${esc(m.proximo)}</p>` : ''}</section>
     <section class="seccion"><h3>El brief</h3><p class="ag-brief">${esc(m.brief)}</p></section>
     <section class="seccion"><h3>Su diario</h3>${r.diario.length ? `<ol class="ag-diario">${r.diario.map((d) => `<li class="ag-d-${d.tipo}"><span>${ICONO[d.tipo] ?? '·'}</span><div class="f1"><small class="tenue">${fechaAg(d.en)} · ${esc(d.tipo)}</small><p>${esc(d.texto)}</p></div>${d.tipo === 'sesion' ? botonesFbAg(`diario:${d.id}`) : ''}</li>`).join('')}</ol>` : '<p class="tenue">Vacío: empieza con su primera sesión.</p>'}</section>
   </div>`
   $('#ag-volver').onclick = () => { ag.mision = null; pintarAgMisiones() }
   engancharFbAg(cuerpo)
+  $$('[data-ag-abrir]', cuerpo).forEach((a) => (a.onclick = (e) => { e.preventDefault(); abrirMisionAg(Number(a.dataset.agAbrir)) }))
+  const fj = $('#ag-fijar')
+  if (fj) fj.onclick = async () => { try { await api(`/agentes/${encodeURIComponent(m.agenteId)}/genoma`, { fijo: !r.agente.genomaFijo }); abrirMisionAg(m.id) } catch (e) { error(e) } }
   $('#ag-ver-pistas').onclick = () => { ag.filtroMision = String(m.id); irA('agpistas') }
   $$('[data-ag-estado]', cuerpo).forEach((b) => (b.onclick = async () => { try { await api(`/agentes/misiones/${m.id}`, { estado: b.dataset.agEstado }); abrirMisionAg(m.id) } catch (e) { error(e) } }))
   const instruir = async () => { const t = $('#ag-instruir').value.trim(); if (!t) return; try { await api(`/agentes/misiones/${m.id}/instruir`, { texto: t }); toast('Anotado: manda en su próxima sesión', 'suave'); abrirMisionAg(m.id) } catch (e) { error(e) } }

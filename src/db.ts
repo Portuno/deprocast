@@ -1528,6 +1528,10 @@ CREATE INDEX IF NOT EXISTS quantomos_etapa ON quantomos(etapa);
 
 /** Columnas que se sumaron después de la primera versión: se agregan sin tocar los datos. */
 const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
+  // El genoma de un agente (plan v26): la estrategia que aprendió, si él lo fijó, de quién viene y qué mutó.
+  agentes: [['estrategia', 'TEXT'], ['genoma_fijo', 'INTEGER NOT NULL DEFAULT 0'], ['padre', 'TEXT'], ['mutacion', 'TEXT']],
+  // Una misión rival: la misma meta, trabajada por un clon con una variación; la temporada decide cuál sigue.
+  agente_misiones: [['madre_id', 'INTEGER']],
   // El radar con lugar y fecha (para el mapa y el calendario): fecha/fecha_fin son las del evento; cierre, la fecha límite.
   oportunidades: [['lugar', 'TEXT'], ['online', 'INTEGER'], ['lat', 'REAL'], ['lon', 'REAL'], ['fecha', 'TEXT'], ['fecha_fin', 'TEXT'], ['ubicada', 'INTEGER'], ['agente_mision_id', 'INTEGER'], ['etapa', 'TEXT'], ['contacto', 'TEXT'], ['notas', 'TEXT']],
   corpus: [
@@ -1640,6 +1644,7 @@ const RUTINAS_SISTEMA = [
   { id: 'misiones_m', nombre: 'Los agentes trabajan sus misiones (mañana)', hora: '10:30', dias: '0123456', accion: 'misiones' },
   { id: 'misiones_t', nombre: 'Los agentes trabajan sus misiones (tarde)', hora: '15:30', dias: '0123456', accion: 'misiones' },
   { id: 'misiones_n', nombre: 'Los agentes trabajan sus misiones (noche)', hora: '21:00', dias: '0123456', accion: 'misiones' },
+  { id: 'estrategias', nombre: 'Tus agentes escriben lo que aprendieron (estrategia de la semana)', hora: '21:00', dias: '0', accion: 'estrategias' },
   { id: 'misiones_semana', nombre: 'Cómo les fue a tus agentes esta semana (sin tokens)', hora: '20:30', dias: '0', accion: 'misiones_semana' },
   { id: 'grafo_semana', nombre: 'Lo que cambió en tu grafo esta semana (sin tokens)', hora: '20:20', dias: '0', accion: 'grafo_semana' },
   { id: 'mentor', nombre: 'El Mentor recomienda qué leer o ver', hora: '08:05', dias: '1', accion: 'mentor' },

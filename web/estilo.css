@@ -2767,3 +2767,5 @@ span.ej-chip { cursor: default; }
 .ag-pierde td b { color: var(--aviso); }
 .ag-tarifas { display: grid; gap: 4px; padding-left: var(--e-3); }
 .ag-dice { margin: var(--e-2) 0 0; padding: var(--e-2) var(--e-3); border-left: 3px solid var(--acento); background: var(--acento-suave); border-radius: var(--r-s); white-space: pre-wrap; }
+.ag-rival { color: var(--acento); }
+.carta .linaje { font-size: var(--t-1); color: var(--debil); padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

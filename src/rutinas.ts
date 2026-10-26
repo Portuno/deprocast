@@ -229,7 +229,15 @@ export const ACCIONES: Acciones = {
   },
   /** Lunes temprano: cierra la temporada de la semana que terminó (la liga se arregla sola). Queda en la crónica. */
   async temporada(db, _fecha, ahora) {
-    cerrarTemporada(db, semanaDe(ahora - 86_400_000), ahora)
+    const semana = semanaDe(ahora - 86_400_000)
+    cerrarTemporada(db, semana, ahora)
+    // Las misiones evolucionan: se resuelven las rivalidades y el mejor de cada misión puede tener un rival (en la nube).
+    return (await import('./agentes/genoma.ts')).evolucionar(db, semana, ahora)
+  },
+  /** El domingo (en la nube): cada agente con misión escribe lo que aprendió; entra a su prompt. Los fijados, no. */
+  async estrategias(db, _fecha, ahora) {
+    if (topeAlcanzado(db, ahora) || !(await import('./reproceso.ts')).enLaNube()) return null
+    await (await import('./agentes/genoma.ts')).escribirEstrategias(db, ahora)
     return null
   },
   /** De madrugada: lo que se rompió y lo que él se quejó se vuelve propuestas de arreglo para La Fragua. */

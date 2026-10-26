@@ -266,6 +266,7 @@ function cartaHTML(f) {
     <div class="clase">${esc(c.nombre)}${f.especializacion ? ` <em>· ${esc(f.especializacion)}</em>` : f.proyectoId ? ` <em>· ${esc(f.proyectoId)}</em>` : ''}</div>
     <div class="xp"><div style="width:${pct}%"></div></div>
     <div class="xp-txt"><span>${f.xp} XP</span><span>${f.xpTecho ? `→ ${f.xpTecho}` : 'MÁX'}</span></div>
+    ${f.padre ? `<div class="linaje" title="${esc(f.mutacion ?? '')}">🧬 hijo de ${esc(f.padre)}${f.mutacion ? `: ${esc(f.mutacion)}` : ''}</div>` : ''}
     <ul class="stats">${stats}</ul>
     <footer><span class="pill ${f.estado}">${f.estado}</span><span>✓${f.exitos} ✗${f.fallos}</span><span class="motor" title="${esc(f.motor)}">${esc(f.motor)}</span></footer>
   </article>`
