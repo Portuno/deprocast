@@ -66,9 +66,10 @@ async function abrirMisionAg(id) {
     <section class="seccion"><h3>Indicale algo</h3><div class="fila"><input id="ag-instruir" class="f1" placeholder="«Enfocate en bodas», «nada de agencias grandes»… (manda en su próxima sesión)"><button class="btn" id="ag-instruir-ok">Indicar</button></div></section>
     <section class="seccion"><h3>Su plan</h3>${m.plan.length ? `<ul class="ag-plan">${m.plan.map((p) => `<li class="${p.estado}">${p.estado === 'hecho' ? '✓' : p.estado === 'descartado' ? '✕' : '·'} ${esc(p.paso)}</li>`).join('')}</ul>` : '<p class="tenue">Lo arma en su primera sesión.</p>'}${m.proximo ? `<p class="chico">Próximo paso: ${esc(m.proximo)}</p>` : ''}</section>
     <section class="seccion"><h3>El brief</h3><p class="ag-brief">${esc(m.brief)}</p></section>
-    <section class="seccion"><h3>Su diario</h3>${r.diario.length ? `<ol class="ag-diario">${r.diario.map((d) => `<li class="ag-d-${d.tipo}"><span>${ICONO[d.tipo] ?? '·'}</span><div><small class="tenue">${fechaAg(d.en)} · ${esc(d.tipo)}</small><p>${esc(d.texto)}</p></div></li>`).join('')}</ol>` : '<p class="tenue">Vacío: empieza con su primera sesión.</p>'}</section>
+    <section class="seccion"><h3>Su diario</h3>${r.diario.length ? `<ol class="ag-diario">${r.diario.map((d) => `<li class="ag-d-${d.tipo}"><span>${ICONO[d.tipo] ?? '·'}</span><div class="f1"><small class="tenue">${fechaAg(d.en)} · ${esc(d.tipo)}</small><p>${esc(d.texto)}</p></div>${d.tipo === 'sesion' ? botonesFbAg(`diario:${d.id}`) : ''}</li>`).join('')}</ol>` : '<p class="tenue">Vacío: empieza con su primera sesión.</p>'}</section>
   </div>`
   $('#ag-volver').onclick = () => { ag.mision = null; pintarAgMisiones() }
+  engancharFbAg(cuerpo)
   $('#ag-ver-pistas').onclick = () => { ag.filtroMision = String(m.id); irA('agpistas') }
   $$('[data-ag-estado]', cuerpo).forEach((b) => (b.onclick = async () => { try { await api(`/agentes/misiones/${m.id}`, { estado: b.dataset.agEstado }); abrirMisionAg(m.id) } catch (e) { error(e) } }))
   const instruir = async () => { const t = $('#ag-instruir').value.trim(); if (!t) return; try { await api(`/agentes/misiones/${m.id}/instruir`, { texto: t }); toast('Anotado: manda en su próxima sesión', 'suave'); abrirMisionAg(m.id) } catch (e) { error(e) } }
@@ -103,6 +104,19 @@ async function modalNuevaMisionAg() {
   }
 }
 
+// ─── tu feedback (va a su paga y a las lecciones de los agentes) ─────────
+
+const botonesFbAg = (ref) => `<span class="fila ag-fb"><button class="btn btn-chico btn-icono" data-ag-fb="${ref}" data-valor="1" title="Sirvió">👍</button><button class="btn btn-chico btn-icono" data-ag-fb="${ref}" data-valor="-1" title="No sirvió">👎</button></span>`
+function engancharFbAg(raiz) {
+  $$('[data-ag-fb]', raiz).forEach((b) => (b.onclick = async () => {
+    try {
+      await api('/devoluciones', { superficie: 'agentes', ref: b.dataset.agFb, valor: Number(b.dataset.valor) })
+      $$(`[data-ag-fb="${b.dataset.agFb}"]`, raiz).forEach((x) => x.classList.toggle('on', x === b))
+      toast('Anotado: cuenta para su paga y sus lecciones', 'suave')
+    } catch (e) { error(e) }
+  }))
+}
+
 // ─── pistas ─────────────────────────────────────────────────────────────
 
 async function montarAgPistas() {
@@ -125,7 +139,7 @@ async function pintarAgPistas() {
         <select data-ag-pista="${p.id}">${r.etapas.map((k) => `<option value="${k}" ${p.etapa === k ? 'selected' : ''} ${k === 'borrador' ? 'disabled' : ''}>${esc(r.nombres[k])}</option>`).join('')}</select></div>
       ${p.porQue ? `<p class="chico">${esc(p.porQue)}</p>` : ''}
       ${p.etapa === 'borrador' && p.borrador ? `<textarea class="ag-borrador" data-ag-texto="${p.id}" rows="7">${esc(p.borrador)}</textarea><div class="fila"><button class="btn btn-chico" data-ag-copiar="${p.id}">Copiar</button><button class="btn btn-chico btn-primario" data-ag-enviar="${p.id}">✓ Lo mando</button><button class="btn btn-chico" data-ag-descartar="${p.id}">✕ Descartar el borrador</button></div>` : ''}
-      ${p.notas ? `<small class="tenue">${esc(p.notas.split('\n').at(-1))}</small>` : ''}
+      <div class="fila">${p.notas ? `<small class="tenue f1">${esc(p.notas.split('\n').at(-1))}</small>` : '<span class="f1"></span>'}${botonesFbAg(`pista:${p.id}`)}</div>
     </li>`).join('')}</ul>` : '<p class="tenue">Nada por acá todavía.</p>'}`
   $('#ag-f-mision').onchange = (e) => { ag.filtroMision = e.target.value; pintarAgPistas() }
   $$('[data-ag-etapa]', caja).forEach((b) => (b.onclick = () => { ag.filtroEtapa = b.dataset.agEtapa; pintarAgPistas() }))
@@ -133,5 +147,6 @@ async function pintarAgPistas() {
   const texto = (id) => $(`[data-ag-texto="${id}"]`, caja)?.value ?? ''
   $$('[data-ag-copiar]', caja).forEach((b) => (b.onclick = async () => { try { await navigator.clipboard.writeText(texto(b.dataset.agCopiar)); toast('Copiado', 'suave') } catch { toast('No pude copiar: seleccionalo a mano', 'error') } }))
   $$('[data-ag-enviar]', caja).forEach((b) => (b.onclick = async () => { try { await api(`/agentes/pistas/${b.dataset.agEnviar}`, { borrador: 'enviar', texto: texto(b.dataset.agEnviar) }); toast('Marcada como enviada', 'suave'); pintarAgPistas() } catch (e) { error(e) } }))
+  engancharFbAg(caja)
   $$('[data-ag-descartar]', caja).forEach((b) => (b.onclick = async () => { try { await api(`/agentes/pistas/${b.dataset.agDescartar}`, { borrador: 'descartar' }); pintarAgPistas() } catch (e) { error(e) } }))
 }

@@ -12,6 +12,7 @@ export const SUPERFICIES: Record<string, string> = {
   clase: 'Las clases del tutor', explicacion: 'Las explicaciones', pregunta: 'Las preguntas del tutor', visual: 'Los visuales del Taller',
   fuente: 'Las fuentes que encuentra', sugerencia: 'Lo que te propone aprender', proyecto: 'Los proyectos de cada nivel', chat: 'Las respuestas de Mastropiero',
   grafo: 'Los huecos del grafo (y sus preguntas)',
+  agentes: 'Lo que hacen tus agentes (pistas y sesiones de sus misiones)',
 }
 
 export type Devolucion = { id: number; superficie: string; ref: string; valor: number; nota: string | null; en: number }

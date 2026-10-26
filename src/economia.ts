@@ -1,6 +1,9 @@
 /**
- * Economía de agentes: cada agente tiene un monedero. Cobra por lo que entrega (más por un aporte a una primaria que
- * por una tarea de ingesta) y paga lo que gasta (tokens) y lo que rompe (fallos). Las temporadas son semanales: al
+ * Economía de agentes: cada agente tiene un monedero. Cobra por lo que le sirve al operador y paga lo que gasta (tokens)
+ * y lo que rompe (fallos). Desde el plan v26 lo que más paga es el resultado: en una misión, cada pista que él no
+ * descarta, cada borrador que manda (menos si lo tuvo que editar, y resta si lo descarta), cada respuesta, reunión y
+ * cliente; su 👍/👎; y lo suyo que él sella alto en La Mano. Cumplir el formato de una tarea de ingesta paga poco: así
+ * la selección (banca, quiebra, clon) elige agentes útiles, no prolijos. Las temporadas son semanales: al
  * cierre se liquida y la liga se arregla sola — los que dieron pérdida van a la banca (y si ya estaban y vuelven a
  * perder, se retiran), y el mejor de una clase con trabajo acumulado se clona. Ejecutivos y gerentes no entran:
  * son únicos.
@@ -11,7 +14,12 @@ import { semanaDe } from './misiones.ts'
 import { CLASES, type ClaseId } from './clases.ts'
 
 /** Lo que paga cada cosa. Los tokens se cobran por miles. */
-export const TARIFAS = { tarea: 5, aporte: 15, fallo: -3, milTokens: -1 }
+export const TARIFAS = { tarea: 1, aporte: 15, fallo: -3, milTokens: -1 }
+/** Lo que paga cada resultado de una misión (y su feedback). */
+export const RESULTADOS = {
+  pista: 2, borradorAceptado: 5, borradorEditado: 3, borradorRechazado: -2,
+  enviada: 3, respondio: 10, reunion: 25, cliente: 100, pulgarArriba: 3, pulgarAbajo: -3,
+} as const
 const FUERA = new Set(['ejecutivo', 'gerente'])
 const TIPOS_APORTE = new Set(['aporte', 'preparar-run'])
 
@@ -40,7 +48,50 @@ export function balance(db: Db, semana: string): Linea[] {
   const gasto = db.prepare(`SELECT agente_id AS a, SUM(COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0)) AS t FROM llamadas WHERE en >= ? AND en < ? AND agente_id IS NOT NULL GROUP BY agente_id`).all(desde, hasta) as any[]
   const agentes = new Set((db.prepare('SELECT id FROM agentes').all() as any[]).map((r) => r.id))
   for (const r of gasto) if (agentes.has(r.a) && r.t > 0) out.push({ agente: r.a, monto: Math.round((r.t / 1000) * TARIFAS.milTokens * 100) / 100, motivo: `${Math.round(r.t / 1000)}K tokens` })
+  out.push(...resultados(db, desde, hasta))
   return out.filter((l) => agentes.has(l.agente))
+}
+
+/** Lo que cobra cada agente por los resultados de sus misiones en la ventana (y por su feedback y La Mano). */
+export function resultados(db: Db, desde: number, hasta: number): Linea[] {
+  const out: Linea[] = []
+  const suma = new Map<string, Map<string, { n: number; monto: number }>>()
+  const sumar = (agente: string | null | undefined, que: string, monto: number) => {
+    if (!agente) return
+    const m = suma.get(agente) ?? new Map()
+    const x = m.get(que) ?? { n: 0, monto: 0 }
+    m.set(que, { n: x.n + 1, monto: x.monto + monto })
+    suma.set(agente, m)
+  }
+  const agenteDePista = db.prepare('SELECT m.agente_id AS a FROM oportunidades o JOIN agente_misiones m ON m.id = o.agente_mision_id WHERE o.id = ?')
+  // Pistas que él no descartó.
+  for (const r of db.prepare(`SELECT m.agente_id AS a FROM oportunidades o JOIN agente_misiones m ON m.id = o.agente_mision_id WHERE o.creada_en >= ? AND o.creada_en < ? AND COALESCE(o.etapa, '') != 'descartada'`).all(desde, hasta) as { a: string }[]) sumar(r.a, 'pista', RESULTADOS.pista)
+  // Sus borradores: mandados tal cual, editados o descartados.
+  for (const r of db.prepare(`SELECT ref, accion FROM decisiones WHERE tipo = 'agente:borrador' AND en >= ? AND en < ?`).all(desde, hasta) as { ref: string; accion: string }[]) {
+    const a = (agenteDePista.get(Number(r.ref)) as { a: string } | undefined)?.a
+    if (r.accion === 'aceptada') sumar(a, 'borrador mandado', RESULTADOS.borradorAceptado)
+    else if (r.accion === 'editada') sumar(a, 'borrador mandado con cambios', RESULTADOS.borradorEditado)
+    else if (r.accion === 'rechazada') sumar(a, 'borrador descartado', RESULTADOS.borradorRechazado)
+  }
+  // Lo que pasó con sus pistas (la primera vez que cada una llega a cada etapa), según lo que él marcó.
+  const etapas: Record<string, [string, number]> = { enviada: ['enviada', RESULTADOS.enviada], respondio: ['respuesta', RESULTADOS.respondio], reunion: ['reunión', RESULTADOS.reunion], cliente: ['cliente', RESULTADOS.cliente] }
+  const marcas = db.prepare(`SELECT agente_id AS a, json_extract(refs, '$.pista') AS pista, json_extract(refs, '$.etapa') AS etapa, MIN(en) AS en FROM agente_diario
+    WHERE tipo = 'resultado' AND json_extract(refs, '$.etapa') IS NOT NULL GROUP BY json_extract(refs, '$.pista'), json_extract(refs, '$.etapa')`).all() as { a: string; pista: number; etapa: string; en: number }[]
+  for (const r of marcas) if (r.en >= desde && r.en < hasta && etapas[r.etapa]) sumar(r.a, etapas[r.etapa][0], etapas[r.etapa][1])
+  // Su 👍/👎 (pistas y sesiones).
+  for (const r of db.prepare(`SELECT ref, valor FROM devoluciones WHERE superficie = 'agentes' AND en >= ? AND en < ?`).all(desde, hasta) as { ref: string; valor: number }[]) {
+    const [tipo, id] = r.ref.split(':')
+    const a = tipo === 'pista' ? (agenteDePista.get(Number(id)) as { a: string } | undefined)?.a : tipo === 'diario' ? (db.prepare('SELECT agente_id AS a FROM agente_diario WHERE id = ?').get(Number(id)) as { a: string } | undefined)?.a : null
+    if (r.valor > 0) sumar(a, '👍', RESULTADOS.pulgarArriba)
+    else if (r.valor < 0) sumar(a, '👎', RESULTADOS.pulgarAbajo)
+  }
+  // Lo suyo que él selló alto en La Mano (7 o más paga lo que pasa del 6; 3 o menos resta uno).
+  for (const r of db.prepare(`SELECT c.autor AS a, q.peso FROM quantomos q JOIN corpus c ON c.id = q.pieza_id WHERE q.etapa = 'sellado' AND q.actualizado_en >= ? AND q.actualizado_en < ? AND c.autor IS NOT NULL`).all(desde, hasta) as { a: string; peso: number }[]) {
+    if (r.peso >= 7) sumar(r.a, 'sellado alto en La Mano', r.peso - 6)
+    else if (r.peso <= 3) sumar(r.a, 'sellado bajo en La Mano', -1)
+  }
+  for (const [agente, m] of suma) for (const [que, x] of m) out.push({ agente, monto: x.monto, motivo: `${x.n} ${que}` })
+  return out
 }
 
 /** Asienta la temporada en el monedero (rehacerla la reemplaza: es idempotente). */

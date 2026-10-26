@@ -29,19 +29,19 @@ test('economía: cobra por lo que entrega, paga tokens y fallos; al cierre, banc
   for (let i = 0; i < 25; i++) db.prepare(`INSERT INTO tareas (tipo, clase, payload, estado, publicada_por, creada_en, actualizada_en) VALUES ('ingesta', 'extractor', '{}', 'pendiente', 'test', ?, ?)`).run(LUNES, LUNES)
 
   const neto = (id: string) => balance(db, SEM).filter((l) => l.agente === id).reduce((s, l) => s + l.monto, 0)
-  assert.equal(neto(bueno.id), 25)
+  assert.equal(neto(bueno.id), 5)
   assert.equal(neto(ayudante.id), 15, 'un aporte vale más que una tarea')
-  assert.equal(neto(malo.id), 5 - 6 - 5)
-  assert.equal(tabla(db, SEM)[0].temporada, 25)
+  assert.equal(neto(malo.id), 1 - 6 - 5)
+  assert.equal(tabla(db, SEM)[0].temporada, 15)
 
   const r = cerrarTemporada(db, SEM, LUNES + 7 * 86_400_000)
   assert.equal(leer(db, malo.id)!.estado, 'banca', 'pérdida → banca')
   assert.equal(r.clones.length, 1, 'el mejor extractor con trabajo esperando se clona')
   assert.equal(listar(db, { clase: 'extractor' }).length, 3)
-  assert.equal(saldo(db, bueno.id), 25)
-  assert.match(r.texto!, /Temporada 2026-W41 cerrada\. Ganó .* \(\+25\) · a la banca: .* · clonados: /)
+  assert.equal(saldo(db, bueno.id), 5)
+  assert.match(r.texto!, /Temporada 2026-W41 cerrada\. Ganó .* \(\+15\) · a la banca: .* · clonados: /)
   assert.equal(cerrarTemporada(db, SEM, LUNES + 7 * 86_400_000).clones.length, 0, 'cerrarla de nuevo no clona ni castiga otra vez')
-  assert.equal(saldo(db, bueno.id), 25)
+  assert.equal(saldo(db, bueno.id), 5)
 
   // Segunda temporada con pérdida estando en banca: quiebra.
   const prox = LUNES + 7 * 86_400_000
