@@ -111,7 +111,7 @@ async function main() {
       try { await pedir('/version'); break } catch { if (i > 100) throw new Error(`El servidor no arrancó:\n${log}`); await new Promise((r) => setTimeout(r, 200)) }
     }
     await pedir('/api/velocidad/reiniciar')
-    const rutas = ['/api/estado', '/api/hoy', '/api/hoy/hud', '/api/chat/1', '/api/reproceso', '/api/takeout', '/api/misiones', '/api/bandeja', '/api/personas', '/api/entidades', '/api/memoria', '/api/encargos', '/api/mano']
+    const rutas = ['/api/estado', '/api/hoy', '/api/hoy/hud', '/api/chat/1', '/api/reproceso', '/api/takeout', '/api/misiones', '/api/bandeja', '/api/personas', '/api/yo', '/api/preguntas/siguiente', '/api/entidades', '/api/memoria', '/api/encargos', '/api/mano', '/api/academia', '/api/taller', '/api/fragua', '/api/revision', '/api/grafos', '/api/agentes/misiones']
     const ancho = [34, 6, 9, 9, 9]
     const linea = (xs: string[]) => xs.map((x, i) => (i ? x.padStart(ancho[i]) : x.padEnd(ancho[i]))).join(' ')
     console.log(`\n${linea(['ruta', 'status', 'ms (med)', 'ms (máx)', 'KB'])}\n${'-'.repeat(70)}`)

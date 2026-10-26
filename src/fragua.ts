@@ -36,8 +36,16 @@ const deFila = (r: any): Forja => ({
 export const pasoDeForja = new Map<number, string>()
 
 /** La rama del repo donde se aplicaría una forja (la que está andando). */
+/** La rama que está andando (cacheada 30 s: preguntarle a git traba el servidor un rato en cada pedido). */
+const ramas = new Map<string, { rama: string | null; en: number }>()
 export function ramaActual(repo = process.cwd()): string | null {
-  try { return git(path.resolve(repo), 'rev-parse', '--abbrev-ref', 'HEAD') } catch { return null }
+  const k = path.resolve(repo)
+  const ya = ramas.get(k)
+  if (ya && Date.now() - ya.en < 30_000) return ya.rama
+  let rama: string | null = null
+  try { rama = git(k, 'rev-parse', '--abbrev-ref', 'HEAD') } catch { /* sin git */ }
+  ramas.set(k, { rama, en: Date.now() })
+  return rama
 }
 
 /** Si el servidor se cortó a mitad de una forja, queda «haciendo» y bloquearía las siguientes: pasa a fallo. */

@@ -1737,6 +1737,8 @@ END;
 const INDICES_RAPIDOS = `
 CREATE INDEX IF NOT EXISTS corpus_nivel ON corpus(nivel, fecha);
 CREATE INDEX IF NOT EXISTS corpus_estado ON corpus(estado);
+-- El recuento por nivel del estado (cada 7 s): sin esto leía cada pieza entera (235 ms a la escala de la nube).
+CREATE INDEX IF NOT EXISTS corpus_nivel_estado ON corpus(nivel, estado);
 CREATE INDEX IF NOT EXISTS quantomos_etapa_novedad ON quantomos(etapa, novedad);
 CREATE INDEX IF NOT EXISTS mano_jugadas_pesquisa ON mano_jugadas(pesquisa_id);
 CREATE INDEX IF NOT EXISTS corpus_aporte ON corpus(json_extract(meta, '$.primaria')) WHERE json_extract(meta, '$.aporte') = 1;

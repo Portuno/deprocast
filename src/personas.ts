@@ -51,8 +51,26 @@ const a12 = (v: unknown) => (v == null || v === '' ? null : Math.max(1, Math.min
 /** De la cercanía vieja (1–5) al nivel (1–12). */
 export const NIVEL_DE_CERCANIA: Record<number, number> = { 1: 2, 2: 5, 3: 7, 4: 10, 5: 12 }
 
-/** Por entidad: cuántas piezas la nombran y la fecha de la última pieza propia donde aparece. Una sola pasada. */
+/**
+ * Por entidad: cuántas piezas la nombran y la fecha de la última pieza propia donde aparece. Una sola pasada, que a la
+ * escala de la nube cuesta ~150 ms; la piden Personas, la tarjeta «Vos», las preguntas y los puentes, así que se
+ * rearma solo si cambió lo que la alimenta (corpus_entidades) o el día.
+ */
+const corpusPorEntidad = new WeakMap<Db, { clave: string; m: Map<number, { menciones: number; propia: string | null }> }>()
+/** La huella de corpus_entidades (no tiene rowid): la última pieza, cuántas filas y la suma de entidades (cambia con una fusión); y el día. */
+function huellaCorpusEntidades(db: Db): string {
+  const f = db.prepare('SELECT MAX(pieza_id) AS m, COUNT(*) AS n, SUM(entidad_id) AS s FROM corpus_entidades').get() as { m: number | null; n: number; s: number | null }
+  return `${f.m ?? 0}|${f.n}|${f.s ?? 0}|${fechaLocal()}`
+}
 function delCorpus(db: Db): Map<number, { menciones: number; propia: string | null }> {
+  const clave = huellaCorpusEntidades(db)
+  const ya = corpusPorEntidad.get(db)
+  if (ya?.clave === clave) return ya.m
+  const m = delCorpusSinCache(db)
+  corpusPorEntidad.set(db, { clave, m })
+  return m
+}
+function delCorpusSinCache(db: Db): Map<number, { menciones: number; propia: string | null }> {
   const filas = db.prepare(`SELECT ce.entidad_id AS id, COUNT(*) AS n,
       MAX(CASE WHEN c.nivel = 'propia' THEN COALESCE(substr(c.fecha, 1, 10), date(c.creado_en / 1000, 'unixepoch', 'localtime')) END) AS f
     FROM corpus_entidades ce JOIN corpus c ON c.id = ce.pieza_id GROUP BY ce.entidad_id`).all() as any[]
@@ -252,21 +270,34 @@ export function aContactar(db: Db, ahora = Date.now()): Persona[] {
 export type ConPersona = { id: number; nombre: string; compartidas: number }
 export type PersonaConMatriz = Persona & { con: ConPersona[]; accion: string | null }
 
+/** Quién entra en la matriz: lo que él definió o lo que aparece en el corpus. */
+const enMatriz = (p: Persona) => !!(p.vinculo || p.notas || p.menciones > 0 || p.definida)
+
+/**
+ * Con quién aparece cada persona en el corpus. Una consulta por persona, en cada pedido de Personas, era lo que más
+ * pesaba: se guarda con la misma huella de corpus_entidades (si nada cambió, no se vuelve a preguntar).
+ */
+const conPorPersona = new WeakMap<Db, { clave: string; m: Map<number, ConPersona[]> }>()
+function conQuien(db: Db, id: number, clave: string): ConPersona[] {
+  let c = conPorPersona.get(db)
+  if (c?.clave !== clave) { c = { clave, m: new Map() }; conPorPersona.set(db, c) }
+  let xs = c.m.get(id)
+  if (!xs) {
+    xs = coocurrencias(db, id, 8).filter((e) => e.tipo === 'persona').map((e) => ({ id: e.id, nombre: e.nombre, compartidas: e.compartidas }))
+    c.m.set(id, xs)
+  }
+  return xs
+}
+
 /** Con quién aparece en el corpus, y la acción que ya está en los datos: escribirle si venció el ritmo, o lo próximo. */
 export function matrizPersonas(db: Db, ahora = Date.now()): PersonaConMatriz[] {
-  return personas(db, {}, ahora)
-    .filter((p) => p.vinculo || p.notas || p.menciones > 0 || p.definida)
-    .map((p) => ({
-      ...p,
-      con: coocurrencias(db, p.id, 8).filter((e) => e.tipo === 'persona').map((e) => ({ id: e.id, nombre: e.nombre, compartidas: e.compartidas })),
-      accion: p.vencida ? 'escribirle' : p.proxima,
-    }))
+  return conMatriz(db, personas(db, {}, ahora).filter(enMatriz))
 }
 
 /** La lista que ya se pidió, con la matriz pegada. Quien no entra en la matriz queda con acción vacía. */
-export function conMatriz(db: Db, ps: Persona[], ahora = Date.now()): PersonaConMatriz[] {
-  const porId = new Map(matrizPersonas(db, ahora).map((p) => [p.id, p]))
-  return ps.map((p) => ({ ...p, con: porId.get(p.id)?.con ?? [], accion: porId.get(p.id)?.accion ?? null }))
+export function conMatriz(db: Db, ps: Persona[]): PersonaConMatriz[] {
+  const clave = huellaCorpusEntidades(db)
+  return ps.map((p) => (enMatriz(p) ? { ...p, con: conQuien(db, p.id, clave), accion: p.vencida ? 'escribirle' : p.proxima } : { ...p, con: [], accion: null }))
 }
 
 const CLASE_NOMBRE: Record<string, string> = { juridica: 'persona jurídica', ficticia: 'personaje ficticio' }

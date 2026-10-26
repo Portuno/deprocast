@@ -15,7 +15,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
 import crypto from 'node:crypto'
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
+import { correr } from './proceso.ts'
 import { json, type Db } from './db.ts'
 import { pedirJson } from './modelo.ts'
 import { nanTranscribirDetallado } from './nan.ts'
@@ -128,8 +129,8 @@ export function capaNueva(tipo: TipoCapa, duracion: number, c: any = {}): Capa {
 // ─── el video de partida ────────────────────────────────────────────────
 
 /** Duración y tamaño de un video (de lo que dice ffmpeg, sin ffprobe). */
-export function sondear(ruta: string): { duracion: number; ancho: number; alto: number; audio: boolean } {
-  const r = spawnSync('ffmpeg', ['-hide_banner', '-i', ruta], { encoding: 'utf8' })
+export async function sondear(ruta: string): Promise<{ duracion: number; ancho: number; alto: number; audio: boolean }> {
+  const r = await correr('ffmpeg', ['-hide_banner', '-i', ruta])
   if (r.error) throw new Error('Para leer videos hace falta ffmpeg en el servidor (en la nube está; en esta compu no lo encuentro)')
   const s = r.stderr ?? ''
   const d = /Duration: (\d+):(\d+):([\d.]+)/.exec(s)
@@ -141,7 +142,7 @@ export function sondear(ruta: string): { duracion: number; ancho: number; alto: 
 const formatoMasCercano = (ancho: number, alto: number) => (ancho / alto > 1.2 ? '16:9' : ancho / alto < 0.85 ? '9:16' : '1:1')
 
 /** Un proyecto nuevo del Estudio: desde un video del Taller o desde un archivo subido (que se mueve a su carpeta). */
-export function crearEstudio(db: Db, o: { desdeArtefacto?: number; archivo?: string; titulo?: string }, ahora = Date.now()): Artefacto {
+export async function crearEstudio(db: Db, o: { desdeArtefacto?: number; archivo?: string; titulo?: string }, ahora = Date.now()): Promise<Artefacto> {
   const origen = o.desdeArtefacto ? leerArtefacto(db, o.desdeArtefacto) : null
   if (o.desdeArtefacto && (!origen || !origen.archivos.includes('video.mp4'))) throw new Error('Ese video del Taller no tiene un mp4 (¿se armó sin ffmpeg?)')
   if (!origen && !o.archivo) throw new Error('Falta el video')
@@ -154,7 +155,7 @@ export function crearEstudio(db: Db, o: { desdeArtefacto?: number; archivo?: str
   try {
     if (origen) fs.copyFileSync(path.join(carpeta(origen.id), 'video.mp4'), destino)
     else fs.renameSync(o.archivo!, destino)
-    const s = sondear(destino)
+    const s = await sondear(destino)
     const proyecto: Proyecto = { fuente: { artefacto: id, archivo: 'fuente.mp4' }, duracion: s.duracion, ancho: s.ancho, alto: s.alto, formato: formatoMasCercano(s.ancho, s.alto), encuadre: 'recorte', recorte: null, capas: [] }
     db.prepare('UPDATE artefactos SET archivos = ?, meta = ? WHERE id = ?').run(JSON.stringify(['fuente.mp4']), JSON.stringify({ proyecto, desde: origen?.id ?? null, audio: s.audio }), id)
   } catch (e) {
@@ -242,7 +243,7 @@ export async function transcribirEstudio(db: Db, id: number): Promise<Capa> {
   const mp3 = path.join(dir, `audio-${nuevoId()}.mp3`)
   try {
     const args = ['-hide_banner', '-loglevel', 'error', '-y', ...(p.recorte ? ['-ss', String(p.recorte.desde), '-to', String(p.recorte.hasta)] : []), '-i', fuente, '-vn', '-ac', '1', '-ar', '16000', '-b:a', '48k', mp3]
-    const r = spawnSync('ffmpeg', args, { encoding: 'utf8' })
+    const r = await correr('ffmpeg', args)
     if (r.status !== 0 || !fs.existsSync(mp3)) throw new Error('El video no tiene audio para transcribir')
     const t = await transcribir(db, fs.readFileSync(mp3), 'audio.mp3')
     let cues = cuesDePalabras(t.palabras ?? [])
@@ -524,7 +525,7 @@ export async function exportarEstudio(db: Db, id: number, ahora = Date.now()): P
       ff.on('error', mal)
       ff.on('close', (c) => (c === 0 ? ok() : mal(new Error(`ffmpeg: ${err.trim().split('\n').slice(-3).join(' ')}`))))
     })
-    spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-ss', (dur / 3).toFixed(2), '-i', 'video.mp4', '-frames:v', '1', '-vf', 'scale=480:-2', 'miniatura.jpg'], { cwd: dir })
+    await correr('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-ss', (dur / 3).toFixed(2), '-i', 'video.mp4', '-frames:v', '1', '-vf', 'scale=480:-2', 'miniatura.jpg'], { cwd: dir })
     const archivos = ['video.mp4', 'capas.ass', ...(fs.existsSync(path.join(dir, 'miniatura.jpg')) ? ['miniatura.jpg'] : [])]
     db.prepare(`UPDATE artefactos SET estado = 'listo', progreso = NULL, archivos = ? WHERE id = ?`).run(JSON.stringify(archivos), nid)
   } catch (e) {

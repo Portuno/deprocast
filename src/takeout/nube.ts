@@ -15,7 +15,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { spawnSync } from 'node:child_process'
+import { correr } from '../proceso.ts'
 import { fechaLocal, json, resolverRuta, type Db } from '../db.ts'
 import { anotar } from '../decisiones.ts'
 import { asegurarFuente, insertar, slug } from '../corpus.ts'
@@ -326,11 +326,11 @@ export function _probarTakeout(o: { transcribir?: typeof transcribir; ver?: type
 }
 
 /** Whisper aguanta ~25 MB: lo más largo se parte en tramos de 10 minutos con ffmpeg. */
-function tramosDe(ruta: string): { partes: string[]; temporal: string | null } {
+async function tramosDe(ruta: string): Promise<{ partes: string[]; temporal: string | null }> {
   if (fs.statSync(ruta).size <= 24 * 1024 * 1024) return { partes: [ruta], temporal: null }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mastro-takeout-'))
   const ext = path.extname(ruta)
-  const r = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-i', ruta, '-f', 'segment', '-segment_time', '600', '-c', 'copy', path.join(dir, `t%03d${ext}`)], { encoding: 'utf8' })
+  const r = await correr('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-i', ruta, '-f', 'segment', '-segment_time', '600', '-c', 'copy', path.join(dir, `t%03d${ext}`)])
   const partes = fs.readdirSync(dir).sort().map((f) => path.join(dir, f))
   if (r.status !== 0 || !partes.length) throw new Error('Audio largo que no pude partir')
   return { partes, temporal: dir }
@@ -375,7 +375,7 @@ async function procesarMedio(db: Db, m: any, ahora: number): Promise<number | nu
   let contenido = ''
   let etiqueta: string = m.clase
   if (m.clase === 'audio') {
-    const { partes, temporal } = tramosDe(m.ruta)
+    const { partes, temporal } = await tramosDe(m.ruta)
     try {
       const textos: string[] = []
       for (const p of partes) textos.push((await transcribir(db, fs.readFileSync(p), path.basename(p))).trim())

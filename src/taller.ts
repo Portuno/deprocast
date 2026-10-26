@@ -7,6 +7,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { correr } from './proceso.ts'
 import { json, resolverRuta, type Db } from './db.ts'
 import { insertar } from './corpus.ts'
 import { memoriaParaPrompt } from './memoria.ts'
@@ -304,13 +305,13 @@ export async function crearVoz(db: Db, texto: string, o: { voz?: string; ahora?:
  * Varios mp3 en uno. Pegarlos tal cual deja la cabecera del primero mandando (duración incluida) y muchos
  * reproductores y decodificadores cortan ahí: con ffmpeg se unen bien; sin ffmpeg, pegados (mejor que nada).
  */
-export function unirMp3(partes: Buffer[]): Buffer {
+export async function unirMp3(partes: Buffer[]): Promise<Buffer> {
   if (partes.length < 2 || !hayFfmpeg()) return Buffer.concat(partes)
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mastro-mp3-'))
   try {
     partes.forEach((p, i) => fs.writeFileSync(path.join(dir, `p${String(i).padStart(3, '0')}.mp3`), p))
     fs.writeFileSync(path.join(dir, 'lista.txt'), partes.map((_, i) => `file 'p${String(i).padStart(3, '0')}.mp3'`).join('\n'))
-    const r = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', 'lista.txt', '-c:a', 'libmp3lame', '-q:a', '4', 'todo.mp3'], { cwd: dir, encoding: 'utf8' })
+    const r = await correr('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', 'lista.txt', '-c:a', 'libmp3lame', '-q:a', '4', 'todo.mp3'], { cwd: dir })
     return r.status === 0 && fs.existsSync(path.join(dir, 'todo.mp3')) ? fs.readFileSync(path.join(dir, 'todo.mp3')) : Buffer.concat(partes)
   } finally {
     fs.rmSync(dir, { recursive: true, force: true })
@@ -326,7 +327,7 @@ export async function crearConversacion(db: Db, titulo: string, turnos: { voz: s
       avance(db, a.id, `grabando ${i + 1} de ${turnos.length}`)
       partes.push(await vozNaN(t.texto, VOCES[t.voz] ? t.voz : VOZ_DEFECTO))
     }
-    fs.writeFileSync(path.join(carpeta(a.id), 'charla.mp3'), unirMp3(partes))
+    fs.writeFileSync(path.join(carpeta(a.id), 'charla.mp3'), await unirMp3(partes))
     terminar(db, a.id, ['charla.mp3'], { guion: turnos })
   } catch (e) { fallar(db, a.id, e) }
   return leerArtefacto(db, a.id)!
@@ -373,9 +374,15 @@ export async function crearPersonaje(db: Db, pedido: string, o: { entidadId?: nu
 
 // ─── video ──────────────────────────────────────────────────────────────
 
+/** ¿Hay ffmpeg? Se pregunta una vez cada diez minutos: antes lanzaba un proceso (≈200 ms, trabando el servidor) en cada pedido. */
+let ffmpeg: { hay: boolean; en: number } | null = null
 export function hayFfmpeg(): boolean {
   if (process.env.MASTRO_SIN_FFMPEG) return false
-  try { return spawnSync('ffmpeg', ['-version'], { encoding: 'utf8' }).status === 0 } catch { return false }
+  if (ffmpeg && Date.now() - ffmpeg.en < 10 * 60_000) return ffmpeg.hay
+  let hay = false
+  try { hay = spawnSync('ffmpeg', ['-version'], { encoding: 'utf8' }).status === 0 } catch { /* no está */ }
+  ffmpeg = { hay, en: Date.now() }
+  return hay
 }
 
 const SISTEMA_GUION = `Sos el guionista del Taller de Mastropiero. Escribís el guion de un video corto, en escenas.
@@ -420,7 +427,7 @@ export async function crearVideo(db: Db, pedido: string, o: { personajeId?: numb
     const final = ['presentacion.html', 'guion.json', ...archivos.sort()]
     if (hayFfmpeg()) {
       avance(db, a.id, 'montando el video')
-      montar(dir, escenas.length, archivos, { formato, movimiento })
+      await montar(dir, escenas.length, archivos, { formato, movimiento })
       final.unshift('video.mp4')
     }
     terminar(db, a.id, final, { escenas: escenas.length, voz, conFfmpeg: hayFfmpeg(), guion: escenas })
@@ -429,7 +436,7 @@ export async function crearVideo(db: Db, pedido: string, o: { personajeId?: numb
 }
 
 /** Une las escenas en un mp4: cada imagen dura lo que su voz, con un acercamiento suave si se pidió movimiento. */
-export function montar(dir: string, n: number, archivos: string[], o: { formato?: string; movimiento?: boolean } = {}) {
+export async function montar(dir: string, n: number, archivos: string[], o: { formato?: string; movimiento?: boolean } = {}) {
   const [w, h] = (ASPECTOS[o.formato ?? '16:9'] ?? ASPECTOS['16:9']).video
   const encuadre = `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2,setsar=1`
   // zoompan sobre una imagen agrandada: se acerca de a poco hacia el centro (efecto Ken Burns), sin temblores.
@@ -439,13 +446,13 @@ export function montar(dir: string, n: number, archivos: string[], o: { formato?
     const img = archivos.find((f) => f.startsWith(`escena-${i}.`) && !f.endsWith('.mp3'))
     if (!img) continue
     const salida = `parte-${i}.mp4`
-    const r = spawnSync('ffmpeg', ['-y', '-loop', '1', '-framerate', '25', '-i', img, '-i', `escena-${i}.mp3`, '-c:v', 'libx264', '-tune', 'stillimage', '-c:a', 'aac', '-b:a', '128k', '-pix_fmt', 'yuv420p',
-      '-vf', vf, '-r', '25', '-shortest', salida], { cwd: dir, encoding: 'utf8' })
+    const r = await correr('ffmpeg', ['-y', '-loop', '1', '-framerate', '25', '-i', img, '-i', `escena-${i}.mp3`, '-c:v', 'libx264', '-tune', 'stillimage', '-c:a', 'aac', '-b:a', '128k', '-pix_fmt', 'yuv420p',
+      '-vf', vf, '-r', '25', '-shortest', salida], { cwd: dir })
     if (r.status !== 0) throw new Error(`ffmpeg (escena ${i}): ${r.stderr.slice(-300)}`)
     partes.push(salida)
   }
   fs.writeFileSync(path.join(dir, 'lista.txt'), partes.map((p) => `file '${p}'`).join('\n'))
-  const r = spawnSync('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', 'lista.txt', '-c', 'copy', 'video.mp4'], { cwd: dir, encoding: 'utf8' })
+  const r = await correr('ffmpeg', ['-y', '-f', 'concat', '-safe', '0', '-i', 'lista.txt', '-c', 'copy', 'video.mp4'], { cwd: dir })
   if (r.status !== 0) throw new Error(`ffmpeg (montaje): ${r.stderr.slice(-300)}`)
   for (const p of partes) fs.rmSync(path.join(dir, p), { force: true })
   fs.rmSync(path.join(dir, 'lista.txt'), { force: true })

@@ -90,6 +90,20 @@ export function tareas(db: Db, estado?: EstadoTarea, limite = 50): Tarea[] {
 }
 
 /**
+ * Las últimas tareas para el tablero, livianas: sin resultado y con el payload reducido a una línea de texto, sacada en
+ * SQL (parsear el JSON entero de cada una, con el texto de cada pieza en ingesta, para tirarlo después costaba caro).
+ */
+export function tareasLivianas(db: Db, limite = 120): (Omit<Tarea, 'resultado' | 'payload'> & { payload: { texto?: string } })[] {
+  const rows = db.prepare(`SELECT id, tipo, clase, proyecto_id, dominio, estado, asignada_a, asignada_por, publicada_por, pipeline, etapa, corpus_id, intentos, error, creada_en, actualizada_en,
+      substr(replace(replace(COALESCE(json_extract(payload, '$.texto'), json_extract(payload, '$.titulo'), json_extract(payload, '$.url'), ''), char(10), ' '), char(13), ' '), 1, 140) AS linea
+    FROM tareas ORDER BY id DESC LIMIT ?`).all(limite) as any[]
+  return rows.map((r) => {
+    const { resultado: _, payload: __, ...t } = deFila({ ...r, payload: null, resultado: null })
+    return { ...t, payload: r.linea ? { texto: String(r.linea).replace(/\s+/g, ' ') } : {} }
+  })
+}
+
+/**
  * Pone en espera la ingesta que no arrancó o quedó asignada sin correr: deja de repartirse y de gastar.
  * Las piezas siguen en el corpus y se buscan igual; solo se frena el destilado.
  */

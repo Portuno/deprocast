@@ -82,7 +82,7 @@ test('estudio: QR legible por estructura (buscadores en tres esquinas)', () => {
 
 test('estudio: de un video a la exportación vertical, con transcripción, agente, deshacer, momentos, plantillas y Cuentas', { skip: !conFfmpeg && 'sin ffmpeg' }, async () => {
   const db = abrir(':memory:')
-  const a = es.crearEstudio(db, { archivo: videoDePrueba(), titulo: 'Charla de prueba' })
+  const a = await es.crearEstudio(db, { archivo: videoDePrueba(), titulo: 'Charla de prueba' })
   const { p } = es.proyectoDe(db, a.id)
   assert.deepEqual([p.formato, Math.round(p.duracion), p.ancho, p.alto], ['16:9', 4, 640, 360])
   assert.ok(fs.existsSync(path.join(carpeta(a.id), 'fuente.mp4')))
@@ -118,7 +118,7 @@ test('estudio: de un video a la exportación vertical, con transcripción, agent
   const v = await es.exportarEstudio(db, a.id)
   assert.equal(v.estado, 'listo', v.progreso ?? '')
   assert.deepEqual([v.version, v.padreId], [2, a.id])
-  const s = es.sondear(path.join(carpeta(v.id), 'video.mp4'))
+  const s = await es.sondear(path.join(carpeta(v.id), 'video.mp4'))
   assert.deepEqual([s.ancho, s.alto, Math.round(s.duracion), s.audio], [720, 1280, 4, true])
   assert.ok(v.archivos.includes('miniatura.jpg'))
   assert.equal(libreria(db).find((o) => o.raiz === a.id)!.versiones.length, 2, 'la exportación es una versión de la obra')

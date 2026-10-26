@@ -72,7 +72,7 @@ import { aprender, archivar, corregir, estadoAprendizaje, fuentesParaAprender, m
 import { actualizarRutina, correrRutinas, listarRutinas } from './rutinas.ts'
 import { agendaDelDia, urlsCalendario } from './calendario.ts'
 import { asientos, especializacion } from './auditor.ts'
-import { enEspera, leerTarea, pausarIngesta, publicar, reanudarIngesta, tareas } from './bus.ts'
+import { enEspera, leerTarea, pausarIngesta, publicar, reanudarIngesta, tareas, tareasLivianas } from './bus.ts'
 import { asegurarFuente, fuentes, leerPieza, listarPiezas, NIVELES, TIPOS } from './corpus.ts'
 import { deshacer, descartar, ejecutar as ejecutarCarga, IMPORTADORES, leerCarga, listarCargas, reetiquetar, subir } from './cargas/index.ts'
 import { conexionesDe, contarEntidades, coocurrencias, duplicadosProbables, editarEntidad, entidadesPorId, fusionarEntidades, noSonLoMismo, quitarAliasCruzados, leerEntidad, listarEntidades, resumenEntidades, TIPOS_ENTIDAD } from './entidades.ts'
@@ -178,18 +178,34 @@ function meta() {
   }
 }
 
+/**
+ * Lo que el estado trae y no necesita precisión de segundos (recuentos, el uso del mes, las fuentes): se guarda un rato
+ * corto. Cualquier cambio que él hace (un POST) lo borra, así lo suyo se ve en el acto; lo que cambia solo (la liga, las
+ * rutinas) se ve al vencer.
+ */
+const cortas = new Map<string, { en: number; v: unknown }>()
+function corta<T>(clave: string, ms: number, f: () => T): T {
+  const ya = cortas.get(clave)
+  if (ya && Date.now() - ya.en < ms) return ya.v as T
+  const v = f()
+  cortas.set(clave, { en: Date.now(), v })
+  return v
+}
+
 /** Lo que la pantalla refresca seguido. El corpus completo va paginado aparte. */
 function estado() {
   return {
-    liga: estadoLiga(db),
-    roster: listar(db).map((f) => vista(db, f)),
-    tareas: tareas(db, undefined, 120),
-    fuentes: fuentes(db),
-    quantomos: resumenQuantomos(db),
-    entidades: resumenEntidades(db),
+    liga: corta('liga', 15_000, () => estadoLiga(db)),
+    roster: corta('roster', 10_000, () => listar(db).map((f) => vista(db, f))),
+    // Livianas: el tablero muestra una línea de cada una (el detalle se pide aparte). Con el payload entero (el texto de
+    // cada pieza en ingesta) el estado pesaba 1,4 MB y viajaba cada 7 segundos.
+    tareas: tareasLivianas(db, 120),
+    fuentes: corta('fuentes', 30_000, () => fuentes(db)),
+    quantomos: corta('quantomos', 15_000, () => resumenQuantomos(db)),
+    entidades: corta('entidades', 30_000, () => resumenEntidades(db)),
     cargas: listarCargas(db).slice(0, 20).map(({ analisis, ...c }) => ({ ...c, titulo: analisis?.titulo })),
-    lapidas: lapidas(db),
-    uso: usoDelMes(db),
+    lapidas: corta('lapidas', 60_000, () => lapidas(db)),
+    uso: corta('uso', 60_000, () => usoDelMes(db)),
     gasto: { ...tokensHoy(db), tope: topeDiario(db) },
     enEspera: enEspera(db),
     cronica: cronica(db),
@@ -1500,7 +1516,7 @@ const servidor = http.createServer(async (req, res) => {
         }
         if (est[1] === 'subir/fin') {
           if (!fs.existsSync(ruta) || fs.statSync(ruta).size !== Number(q.get('total'))) throw new Error('El video no llegó entero: volvé a subirlo')
-          return void res.end(JSON.stringify(estudio.crearEstudio(db, { archivo: ruta, titulo: (q.get('nombre') || 'Video').replace(/\.[\w]+$/, '') })))
+          return void res.end(JSON.stringify(await estudio.crearEstudio(db, { archivo: ruta, titulo: (q.get('nombre') || 'Video').replace(/\.[\w]+$/, '') })))
         }
         if (est[1] === 'plantillas/importar') return void res.end(JSON.stringify(estudio.importarPlantilla(db, await leerCrudo(req, 60 * 1024 * 1024))))
         return void res.end(JSON.stringify({ archivo: estudio.subirImagenEstudio(db, Number(est[2]), q.get('nombre') || 'imagen', await leerCrudo(req, 20 * 1024 * 1024)) }))
@@ -1673,6 +1689,7 @@ const servidor = http.createServer(async (req, res) => {
         registrarError(db, 'ruta', `${req.method} ${url.pathname.replace(/\/\d+(?=\/|$)/g, '/:id')}: Ruta desconocida`)
         return void res.writeHead(404).end(JSON.stringify({ error: 'Ruta desconocida' }))
       }
+      if (req.method === 'POST') cortas.clear() // lo que él cambia se ve en el acto
       const cuerpo = req.method === 'POST' ? await leerCuerpo(req) : {}
       const params = url.pathname.match(r[1])!.slice(1)
       res.end(JSON.stringify((await r[2](cuerpo, params, url.searchParams)) ?? null))
@@ -1835,7 +1852,22 @@ if (!enVercel()) {
   }
   servidor.listen(PUERTO, host(), () => {
     console.log(`\n  ☿ Mastropiero en http://${host() === '0.0.0.0' ? '127.0.0.1' : host()}:${PUERTO}${expuesto() ? '   (expuesto a la red: pide clave)' : ''}   (base: ${process.env.MASTRO_DB ?? 'data/mastro.db'} · motor de reclutas: ${MOTOR_DEFECTO()})\n`)
+    if (!process.env.MASTRO_SIN_PRECALENTAR) setTimeout(() => void precalentar(), 1500)
   })
+}
+
+/**
+ * Recién arrancado, el primer pedido de cada pantalla paga el frío (SQLite sin páginas en memoria, código sin
+ * compilar): /api/estado tardaba 700 ms la primera vez y 35 ms después. Las rutas que la pantalla pide primero se
+ * corren una vez de fondo, de a una y cediendo el turno entre cada una, así cuando él abre ya están calientes.
+ */
+async function precalentar() {
+  for (const ruta of ['/api/estado', '/api/meta', '/api/hoy', '/api/hoy/hud', '/api/bandeja', '/api/menciones', '/api/chat', '/api/personas', '/api/reproceso', '/api/academia', '/api/taller', '/api/mano']) {
+    const r = rutas.find(([m, re]) => m === 'GET' && re.test(ruta))
+    if (!r) continue
+    try { await r[2]({}, ruta.match(r[1])!.slice(1), new URLSearchParams()) } catch { /* una ruta que falla en frío no frena al resto */ }
+    await new Promise((ok) => setImmediate(ok))
+  }
 }
 
 export { servidor }
