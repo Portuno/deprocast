@@ -17,6 +17,8 @@ const QUE_HACE = {
   mano_puente: 'Dos cartas tuyas que conectan sin parecerse. ¿Es real o casualidad?',
   mano_contradiccion: 'Algo nuevo choca con lo que creías. ¿Lo actualizás, lo sostenés o lo probás?',
   mano_combo: 'Una hipótesis que sale de juntar cartas. ¿Vale?',
+  agente_borrador: 'Lo redactó un agente de una misión para una pista. «Lo mando» = lo mandás vos (copialo, o editalo en Agentes → Pistas) y queda como enviada; descartarlo le enseña qué no.',
+  agente_cliente: 'Entró un ingreso del proyecto después de mandarle algo a esa pista. Si es de ahí, la pista pasa a cliente (y el agente cobra).',
 }
 const DESHACER_MS = 5000
 const bj = { datos: null, sombra: null, sel: 0, estado: new Map(), marcadas: new Set(), timer: null, cola: [], ultimo: null }

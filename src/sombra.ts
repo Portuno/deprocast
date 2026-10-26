@@ -10,6 +10,7 @@ import { resolverSugerido, sugeridos } from './finanzas.ts'
 import { editarItem } from './personajes.ts'
 import { actualizarMision } from './misiones.ts'
 import { archivar, revisar } from './memoria.ts'
+import { borradoresEsperando, ingresosPorConfirmar } from './agentes/embudo.ts'
 
 const MAQUINA = `('escriba', 'directo', 'takeout', 'preguntas')`
 const n = (db: Db, sql: string, ...a: (string | number)[]) => (db.prepare(sql).get(...a) as { n: number }).n
@@ -82,6 +83,11 @@ export function bandeja(db: Db, ahora = Date.now()) {
     const s = json<any>(a.sugerencia, {}) ?? {}
     return { id: a.id, texto: a.tema, sub: [s.porQue ?? a.por_que, s.para ? `para ${s.para}${s.fecha ? ` (${s.fecha})` : ''}` : null, s.horizonte ? `${s.horizonte} plazo` : null].filter(Boolean).join(' · ') || null }
   }) })
+  // Lo que redactaron los agentes de una misión (plan v26): él lo revisa y lo manda; y los ingresos que pueden ser de una pista.
+  const bs = borradoresEsperando(db)
+  g.push({ tipo: 'agente_borrador', nombre: 'Borradores de tus agentes', n: bs.length, peso: 2, ir: null, acciones: [['aceptar', '✓ Lo mando'], ['descartar', '✕']], items: bs.slice(0, 12) })
+  const ing = ingresosPorConfirmar(db)
+  g.push({ tipo: 'agente_cliente', nombre: '¿Ingresos de tus pistas?', n: ing.length, peso: 2, ir: null, acciones: [['aceptar', '✓ Sí'], ['descartar', '✕ No']], items: ing })
   const inv = db.prepare(`SELECT id, nombre, detalle FROM inventario WHERE personaje = 'jugador' AND estado = 'sugerido' ORDER BY id DESC LIMIT 8`).all() as any[]
   g.push({ tipo: 'inventario', nombre: 'Lo que tenés (según lo que contaste)', n: n(db, `SELECT COUNT(*) AS n FROM inventario WHERE personaje = 'jugador' AND estado = 'sugerido'`), peso: 1, items: inv.map((i) => ({ id: i.id, texto: i.nombre, sub: i.detalle })), acciones: [['aceptar', '✓ Es mío'], ['descartar', '✕']], ir: null })
   const recs = db.prepare(`SELECT id, texto, fecha FROM memoria WHERE estado = 'vigente' AND revisada = 0 AND creada_por IN ${MAQUINA} ORDER BY id DESC LIMIT 8`).all() as any[]
@@ -120,6 +126,8 @@ export async function resolverBandeja(db: Db, tipo: string, id: number | string,
     return (await import('./directo.ts')).resolverPropuestas(db, Number(sesion), [resto.join(':')], accion === 'aceptar' ? 'aceptar' : 'rechazar', ahora)
   }
   if (tipo.startsWith('mano_')) return (await import('./mano.ts')).responderSorpresa(db, Number(id), accion, null, ahora)
+  if (tipo === 'agente_borrador') return (await import('./agentes/pistas.ts')).resolverBorrador(db, Number(id), accion === 'aceptar' ? 'enviar' : 'descartar', { ahora })
+  if (tipo === 'agente_cliente') return (await import('./agentes/pistas.ts')).confirmarIngreso(db, String(id), accion === 'aceptar', ahora)
   if (tipo === 'propuesta') {
     if (accion !== 'aceptar' && accion !== 'descartar') throw new Error('Aceptar o descartar')
     return (await import('./chat/index.ts')).resolverPropuesta(db, Number(id), accion === 'aceptar' ? 'aceptada' : 'descartada')

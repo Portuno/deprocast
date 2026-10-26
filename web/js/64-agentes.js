@@ -1,0 +1,137 @@
+'use strict'
+// Los agentes con misión (plan v26): metas largas que un agente trabaja solo, en sesiones, con plan y diario. Lo que
+// sale hacia afuera son borradores que vos mandás (en 📥 o acá, en Pistas). Misiones: cada una con su progreso contra
+// el criterio, el embudo, el próximo paso y su diario; le podés indicar algo, pausarla o hacerla trabajar ya (en la
+// nube). Pistas: las organizaciones que encontraron, con su etapa y el borrador.
+
+const ag = { mision: null, filtroEtapa: '', filtroMision: '' }
+const ESTADO_MISION_AG = { activa: 'Activa', pausada: 'Pausada', cumplida: 'Cumplida', fallida: 'Venció', abandonada: 'Abandonada' }
+const METRICAS_AG = [['clientes', 'Clientes'], ['reuniones', 'Reuniones'], ['respuestas', 'Respuestas'], ['pistas', 'Pistas'], ['otro', 'Otro']]
+const fechaAg = (t) => new Date(t).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+const nombreAgente = (a, id) => (a ? a.nombre || a.id : id)
+
+// ─── misiones ───────────────────────────────────────────────────────────
+
+async function montarAgMisiones() {
+  $('#principal').innerHTML = `<div class="titulo fila"><div class="f1"><h1>Misiones de tus agentes</h1><p>Una meta larga que un agente trabaja solo, varias veces por día en la nube: busca, anota, redacta. Lo que sale hacia afuera son borradores que mandás vos.</p></div><button class="btn btn-primario" id="ag-nueva">＋ Nueva misión</button></div><div id="ag-cuerpo"><p class="tenue">Juntando…</p></div>`
+  $('#ag-nueva').onclick = () => modalNuevaMisionAg()
+  if (ag.mision) return abrirMisionAg(ag.mision)
+  pintarAgMisiones()
+}
+
+async function pintarAgMisiones() {
+  let r
+  try { r = await api('/agentes/misiones') } catch (e) { return error(e) }
+  const cuerpo = $('#ag-cuerpo')
+  if (!cuerpo) return
+  if (!r.misiones.length) { cuerpo.innerHTML = '<div class="vacio"><p>Todavía ninguna. Una misión es algo como «tres clientes nuevos para tu productora antes de marzo»: le contás qué ofrecés y a quién, y un agente sale a buscar.</p></div>'; return }
+  cuerpo.innerHTML = `<div class="ag-misiones">${r.misiones.map(tarjetaMisionAg).join('')}</div>`
+  $$('[data-ag-mision]', cuerpo).forEach((b) => (b.onclick = () => abrirMisionAg(Number(b.dataset.agMision))))
+}
+
+const barraAg = (p) => `<progress class="ag-barra" max="${Math.max(1, p.meta)}" value="${Math.min(p.logrado, p.meta)}" title="${p.logrado} de ${p.meta}"></progress>`
+
+function embudoAg(e) {
+  const xs = Object.entries(e).filter(([k, n]) => n && k !== 'descartada')
+  return xs.length ? `<p class="ag-embudo chico">${xs.map(([k, n]) => `<span>${esc(NOMBRE_ETAPA_AG[k] ?? k)} <b>${n}</b></span>`).join('')}</p>` : '<p class="chico tenue">Sin pistas todavía.</p>'
+}
+const NOMBRE_ETAPA_AG = { encontrada: 'Encontrada', borrador: 'Borrador', enviada: 'Enviada', respondio: 'Respondió', reunion: 'Reunión', cliente: 'Cliente', descartada: 'Descartada' }
+
+function tarjetaMisionAg(m) {
+  return `<button class="tarjeta ag-mision ${m.estado}" data-ag-mision="${m.id}">
+    <div class="fila"><h4 class="f1">${esc(m.titulo)}</h4><span class="chip">${m.trabajando ? '⏳ trabajando' : esc(ESTADO_MISION_AG[m.estado] ?? m.estado)}</span></div>
+    <small class="tenue">${esc(nombreAgente(m.agente, m.agenteId))} · ${esc(m.criterio.texto)}${m.vence ? ` · vence ${esc(m.vence)}` : ''}</small>
+    ${barraAg(m.progreso)}${embudoAg(m.embudo)}
+    ${m.proximo ? `<p class="chico">→ ${esc(m.proximo)}</p>` : ''}
+    ${m.ultimo ? `<p class="chico tenue recorte">${fechaAg(m.ultimo.en)} · ${esc(m.ultimo.texto)}</p>` : ''}
+  </button>`
+}
+
+async function abrirMisionAg(id) {
+  ag.mision = id
+  let r
+  try { r = await api(`/agentes/misiones/${id}`) } catch (e) { ag.mision = null; return error(e) }
+  const m = r.mision, cuerpo = $('#ag-cuerpo')
+  if (!cuerpo) return
+  const ICONO = { plan: '🗺', hallazgo: '🔎', paso: '·', reflexion: '💭', pregunta: '❓', instruccion: '🗣', resultado: '✓', sesion: '⏱' }
+  cuerpo.innerHTML = `<div class="ag-detalle">
+    <header class="aca-dom-cab"><button class="btn btn-chico" id="ag-volver">←</button><div class="f1"><h2>${esc(m.titulo)}</h2><small class="tenue">${esc(nombreAgente(r.agente, m.agenteId))}${r.agente ? ` · nivel ${r.agente.nivel ?? ''} · ${esc(r.agente.estado)}` : ''} · ${esc(m.criterio.texto)}${m.vence ? ` · vence ${esc(m.vence)}` : ''}</small></div><span class="chip">${r.trabajando ? '⏳ trabajando' : esc(ESTADO_MISION_AG[m.estado] ?? m.estado)}</span></header>
+    ${barraAg(r.progreso)}<p class="chico">${r.progreso.logrado} de ${r.progreso.meta}</p>${embudoAg(r.embudo)}
+    <div class="fila ag-acciones">
+      ${m.estado === 'activa' ? '<button class="btn btn-primario" id="ag-trabajar" title="Una sesión ahora (en la nube: gasta tokens)">▶ Trabajar ahora</button><button class="btn" data-ag-estado="pausada">⏸ Pausar</button>' : ''}
+      ${m.estado === 'pausada' ? '<button class="btn" data-ag-estado="activa">▶ Retomar</button>' : ''}
+      ${['activa', 'pausada'].includes(m.estado) ? '<button class="btn" data-ag-estado="cumplida">✓ Cumplida</button><button class="btn" data-ag-estado="abandonada">✕ Abandonar</button>' : ''}
+      <button class="btn" id="ag-ver-pistas">Ver sus pistas (${r.pistas.length})</button>
+    </div>
+    <section class="seccion"><h3>Indicale algo</h3><div class="fila"><input id="ag-instruir" class="f1" placeholder="«Enfocate en bodas», «nada de agencias grandes»… (manda en su próxima sesión)"><button class="btn" id="ag-instruir-ok">Indicar</button></div></section>
+    <section class="seccion"><h3>Su plan</h3>${m.plan.length ? `<ul class="ag-plan">${m.plan.map((p) => `<li class="${p.estado}">${p.estado === 'hecho' ? '✓' : p.estado === 'descartado' ? '✕' : '·'} ${esc(p.paso)}</li>`).join('')}</ul>` : '<p class="tenue">Lo arma en su primera sesión.</p>'}${m.proximo ? `<p class="chico">Próximo paso: ${esc(m.proximo)}</p>` : ''}</section>
+    <section class="seccion"><h3>El brief</h3><p class="ag-brief">${esc(m.brief)}</p></section>
+    <section class="seccion"><h3>Su diario</h3>${r.diario.length ? `<ol class="ag-diario">${r.diario.map((d) => `<li class="ag-d-${d.tipo}"><span>${ICONO[d.tipo] ?? '·'}</span><div><small class="tenue">${fechaAg(d.en)} · ${esc(d.tipo)}</small><p>${esc(d.texto)}</p></div></li>`).join('')}</ol>` : '<p class="tenue">Vacío: empieza con su primera sesión.</p>'}</section>
+  </div>`
+  $('#ag-volver').onclick = () => { ag.mision = null; pintarAgMisiones() }
+  $('#ag-ver-pistas').onclick = () => { ag.filtroMision = String(m.id); irA('agpistas') }
+  $$('[data-ag-estado]', cuerpo).forEach((b) => (b.onclick = async () => { try { await api(`/agentes/misiones/${m.id}`, { estado: b.dataset.agEstado }); abrirMisionAg(m.id) } catch (e) { error(e) } }))
+  const instruir = async () => { const t = $('#ag-instruir').value.trim(); if (!t) return; try { await api(`/agentes/misiones/${m.id}/instruir`, { texto: t }); toast('Anotado: manda en su próxima sesión', 'suave'); abrirMisionAg(m.id) } catch (e) { error(e) } }
+  $('#ag-instruir-ok').onclick = instruir
+  $('#ag-instruir').onkeydown = (e) => { if (e.key === 'Enter') instruir() }
+  const tr = $('#ag-trabajar')
+  if (tr) tr.onclick = async () => {
+    tr.disabled = true; tr.textContent = '⏳ Trabajando…'
+    try { const x = await api(`/agentes/misiones/${m.id}/trabajar`, {}); toast(`Sesión ${x.sesion}: ${x.pasos.length} pasos${x.cerrada ? '' : ' (sin cerrar)'}`, 'suave') } catch (e) { error(e) }
+    abrirMisionAg(m.id)
+  }
+}
+
+async function modalNuevaMisionAg() {
+  let ents = []
+  try { ents = (await api('/entidades?tipo=proyecto&limite=200')).entidades } catch { /* sin entidades: se crea sin proyecto */ }
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Una misión nueva</h2>
+    <label class="campo">Qué tiene que lograr<input id="agn-titulo" placeholder="Ej.: Tres clientes nuevos para la productora"></label>
+    <label class="campo">El brief<textarea id="agn-brief" rows="6" placeholder="Qué ofrecés, a quién, dónde, precios, links de muestra. Es todo lo que el agente sabe de entrada."></textarea></label>
+    <div class="fila"><label class="campo f1">Se mide en<select id="agn-metrica">${METRICAS_AG.map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select></label><label class="campo">Cuántos<input id="agn-meta" type="number" min="1" value="3"></label><label class="campo">Vence<input id="agn-vence" type="date"></label></div>
+    <label class="campo">Para qué proyecto<select id="agn-entidad"><option value="">—</option>${ents.map((e) => `<option value="${e.id}">${esc(e.nombre)}</option>`).join('')}</select></label>
+    <p class="chico tenue">Se forja un agente buscador para esta misión. Trabaja en la nube, tres veces por día según su ritmo; lo que redacta te llega a 📥.</p>
+    <div class="fila"><button class="btn btn-primario" id="agn-ok">Crear la misión</button></div>`)
+  $('#agn-ok').onclick = async () => {
+    try {
+      const m = await api('/agentes/misiones', {
+        titulo: $('#agn-titulo').value, brief: $('#agn-brief').value, vence: $('#agn-vence').value || null, entidadId: $('#agn-entidad').value ? Number($('#agn-entidad').value) : null,
+        criterio: { metrica: $('#agn-metrica').value, meta: Number($('#agn-meta').value) || 1 },
+      })
+      cerrarModal(); ag.mision = m.id; irA('agmisiones'); abrirMisionAg(m.id)
+    } catch (e) { error(e) }
+  }
+}
+
+// ─── pistas ─────────────────────────────────────────────────────────────
+
+async function montarAgPistas() {
+  $('#principal').innerHTML = `<div class="titulo"><h1>Pistas</h1><p>Las organizaciones que encontraron tus agentes, con el link de donde las sacaron. Cuando hay borrador, revisalo, copialo y mandalo vos; después marcá qué pasó: eso le enseña al agente qué funciona.</p></div><div id="ag-pistas"><p class="tenue">Juntando…</p></div>`
+  pintarAgPistas()
+}
+
+async function pintarAgPistas() {
+  let r, ms
+  try { [r, ms] = await Promise.all([api(`/agentes/pistas${ag.filtroMision ? `?mision=${ag.filtroMision}` : ''}`), api('/agentes/misiones')]) } catch (e) { return error(e) }
+  const caja = $('#ag-pistas')
+  if (!caja) return
+  const xs = r.pistas.filter((p) => !ag.filtroEtapa || p.etapa === ag.filtroEtapa)
+  const titulo = new Map(ms.misiones.map((m) => [m.id, m.titulo]))
+  caja.innerHTML = `<div class="fila ag-filtros"><select id="ag-f-mision"><option value="">Todas las misiones</option>${ms.misiones.map((m) => `<option value="${m.id}" ${String(m.id) === ag.filtroMision ? 'selected' : ''}>${esc(m.titulo)}</option>`).join('')}</select>
+      <div class="tabs">${[['', 'Todas'], ...r.etapas.map((k) => [k, r.nombres[k]])].map(([k, n]) => `<button data-ag-etapa="${k}" class="${ag.filtroEtapa === k ? 'on' : ''}">${esc(n)}</button>`).join('')}</div></div>
+    ${xs.length ? `<ul class="ag-pistas">${xs.map((p) => `<li class="ag-pista ${p.etapa}">
+      <div class="fila"><div class="f1"><b>${esc(p.contacto.organizacion || p.titulo)}</b>${p.url ? ` <a href="${esc(p.url)}" target="_blank" rel="noopener" class="chico">web ↗</a>` : ''}${p.contacto.url ? ` <a href="${esc(p.contacto.url)}" target="_blank" rel="noopener" class="chico">contacto ↗</a>` : ''}
+        <br><small class="tenue">${esc(titulo.get(p.misionId) ?? '')} · ${esc(p.contacto.canal)}${p.lugar ? ` · ${esc(p.lugar)}` : ''}</small></div>
+        <select data-ag-pista="${p.id}">${r.etapas.map((k) => `<option value="${k}" ${p.etapa === k ? 'selected' : ''} ${k === 'borrador' ? 'disabled' : ''}>${esc(r.nombres[k])}</option>`).join('')}</select></div>
+      ${p.porQue ? `<p class="chico">${esc(p.porQue)}</p>` : ''}
+      ${p.etapa === 'borrador' && p.borrador ? `<textarea class="ag-borrador" data-ag-texto="${p.id}" rows="7">${esc(p.borrador)}</textarea><div class="fila"><button class="btn btn-chico" data-ag-copiar="${p.id}">Copiar</button><button class="btn btn-chico btn-primario" data-ag-enviar="${p.id}">✓ Lo mando</button><button class="btn btn-chico" data-ag-descartar="${p.id}">✕ Descartar el borrador</button></div>` : ''}
+      ${p.notas ? `<small class="tenue">${esc(p.notas.split('\n').at(-1))}</small>` : ''}
+    </li>`).join('')}</ul>` : '<p class="tenue">Nada por acá todavía.</p>'}`
+  $('#ag-f-mision').onchange = (e) => { ag.filtroMision = e.target.value; pintarAgPistas() }
+  $$('[data-ag-etapa]', caja).forEach((b) => (b.onclick = () => { ag.filtroEtapa = b.dataset.agEtapa; pintarAgPistas() }))
+  $$('[data-ag-pista]', caja).forEach((s) => (s.onchange = async () => { try { await api(`/agentes/pistas/${s.dataset.agPista}`, { etapa: s.value }); pintarAgPistas() } catch (e) { error(e) } }))
+  const texto = (id) => $(`[data-ag-texto="${id}"]`, caja)?.value ?? ''
+  $$('[data-ag-copiar]', caja).forEach((b) => (b.onclick = async () => { try { await navigator.clipboard.writeText(texto(b.dataset.agCopiar)); toast('Copiado', 'suave') } catch { toast('No pude copiar: seleccionalo a mano', 'error') } }))
+  $$('[data-ag-enviar]', caja).forEach((b) => (b.onclick = async () => { try { await api(`/agentes/pistas/${b.dataset.agEnviar}`, { borrador: 'enviar', texto: texto(b.dataset.agEnviar) }); toast('Marcada como enviada', 'suave'); pintarAgPistas() } catch (e) { error(e) } }))
+  $$('[data-ag-descartar]', caja).forEach((b) => (b.onclick = async () => { try { await api(`/agentes/pistas/${b.dataset.agDescartar}`, { borrador: 'descartar' }); pintarAgPistas() } catch (e) { error(e) } }))
+}

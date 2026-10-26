@@ -1529,7 +1529,7 @@ CREATE INDEX IF NOT EXISTS quantomos_etapa ON quantomos(etapa);
 /** Columnas que se sumaron después de la primera versión: se agregan sin tocar los datos. */
 const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   // El radar con lugar y fecha (para el mapa y el calendario): fecha/fecha_fin son las del evento; cierre, la fecha límite.
-  oportunidades: [['lugar', 'TEXT'], ['online', 'INTEGER'], ['lat', 'REAL'], ['lon', 'REAL'], ['fecha', 'TEXT'], ['fecha_fin', 'TEXT'], ['ubicada', 'INTEGER']],
+  oportunidades: [['lugar', 'TEXT'], ['online', 'INTEGER'], ['lat', 'REAL'], ['lon', 'REAL'], ['fecha', 'TEXT'], ['fecha_fin', 'TEXT'], ['ubicada', 'INTEGER'], ['agente_mision_id', 'INTEGER'], ['etapa', 'TEXT'], ['contacto', 'TEXT'], ['notas', 'TEXT']],
   corpus: [
     ['nivel', 'TEXT'],
     ['tipo', "TEXT NOT NULL DEFAULT 'materia'"], // materia | referencia | ficha | lista | enlace

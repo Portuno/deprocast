@@ -933,6 +933,23 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `le indicó algo a la misión #${a.id}`,
   },
   {
+    nombre: 'marcar_pista', familia: 'accion',
+    descripcion: 'Marca qué pasó con una pista de los agentes cuando él lo cuenta («me respondió la productora X», «tengo reunión con…», «cerramos con…», «esa no»): enviada, respondio, reunion, cliente o descartada. Si no sabés cuál es, mostrale las parecidas.',
+    parametros: S({ pista: str('El id o el nombre de la organización'), etapa: str('Qué pasó', { enum: ['enviada', 'respondio', 'reunion', 'cliente', 'descartada'] }), nota: str('Lo que contó, corto') }, ['pista', 'etapa']),
+    ejecutar: async (a, { db }) => {
+      const pi = await import('../agentes/pistas.ts')
+      const q = String(a.pista ?? '').trim()
+      const plano = (x: string) => x.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+      const todas = pi.pistasDe(db)
+      const p = /^\d+$/.test(q) ? pi.leerPista(db, Number(q)) : todas.find((x) => plano(x.contacto.organizacion || x.titulo) === plano(q)) ?? null
+      const parecidas = p ? [] : todas.filter((x) => plano(x.contacto.organizacion || x.titulo).includes(plano(q).slice(0, 5)))
+      if (!p) return parecidas.length === 1 ? { pista: pi.marcarPista(db, parecidas[0].id, a.etapa, { nota: a.nota }).id, organizacion: parecidas[0].contacto.organizacion, etapa: a.etapa } : { error: `No encuentro la pista «${q}»`, parecidas: parecidas.slice(0, 6).map((x) => ({ id: x.id, organizacion: x.contacto.organizacion || x.titulo, etapa: x.etapa })) }
+      const r = pi.marcarPista(db, p.id, a.etapa, { nota: a.nota })
+      return { pista: r.id, organizacion: r.contacto.organizacion, etapa: r.etapa }
+    },
+    resumen: (a) => `marcó la pista «${recorte(a.pista, 30)}»: ${a.etapa}`,
+  },
+  {
     nombre: 'ver_grafo', familia: 'lectura',
     descripcion: 'El grafo de su memoria (qué conceptos aparecen juntos en sus textos): el estado de su discurso (sesgado, enfocado, diversificado, disperso), las zonas (grupos de ideas, con su resumen si ya lo tiene), las bisagras que unen sus áreas, los puntos de entrada y los huecos (grupos que casi no se tocan). Por defecto «Tu voz» (sus textos y lo sellado); también «todo» o uno de sus grafos por nombre.',
     parametros: S({ grafo: str('voz (por defecto), todo, o el nombre de uno de sus grafos') }),
@@ -1728,7 +1745,7 @@ export const NUCLEO = [
   'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'proponer_mejora', 'deshacer_ultima_accion', 'ver_para_validar', 'validar', 'arrancar_bloque', 'terminar_bloque',
 ]
 export const GRUPOS: Record<string, string[]> = {
-  liga: ['crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
+  liga: ['crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
@@ -1741,7 +1758,7 @@ export const GRUPOS: Record<string, string[]> = {
 export function gruposDelMensaje(mensaje: string): string[] {
   const t = mensaje.toLowerCase()
   const g: string[] = []
-  if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox|misi[oó]n/.test(t)) g.push('liga')
+  if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox|misi[oó]n|pista|me respondi|reuni[oó]n con/.test(t)) g.push('liga')
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|\[confirmado\]|\[inferido\]/.test(t)) g.push('corpus')
   if (/primaria|reporte|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
   if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')

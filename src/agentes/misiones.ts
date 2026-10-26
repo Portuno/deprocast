@@ -216,6 +216,7 @@ export async function trabajarMision(db: Db, id: number, o: { ahora?: number } =
   if (!f) throw new Error(`El agente ${m.agenteId} ya no está`)
   if (f.estado === 'banca') throw new Error(`${alias(f)} está en la banca: no trabaja hasta que vuelva`)
   if (trabajando.has(id)) throw new Error('Esta misión ya está trabajando')
+  await import('./pistas.ts') // las pistas y los borradores se suman a las herramientas y al prompt
   trabajando.add(id)
   try {
     const n = (db.prepare(`SELECT COUNT(*) AS n FROM agente_diario WHERE mision_id = ? AND tipo = 'sesion'`).get(id) as { n: number }).n + 1

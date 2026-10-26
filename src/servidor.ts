@@ -254,7 +254,8 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/estado$/, () => estado()],
 
   // Liga
-  ['GET', /^\/api\/agentes\/([^/]+)$/, (_, [a]) => {
+  // (misiones, pistas y sala son del plan v26: no son ids de agentes)
+  ['GET', /^\/api\/agentes\/(?!misiones$|pistas$|sala$)([^/]+)$/, (_, [a]) => {
     const f = leer(db, decodeURIComponent(a))
     if (!f) throw new Error(`No existe ${a}`)
     return {
@@ -754,14 +755,16 @@ const rutas: [string, RegExp, Ruta][] = [
   // Los agentes con misión (plan v26): crear, ver (con su diario), indicar, pausar y una sesión a mano (en la nube).
   ['GET', /^\/api\/agentes\/misiones$/, async () => {
     const mi = await import('./agentes/misiones.ts')
-    return { misiones: mi.listarMisionesAgente(db).map((m) => ({ ...m, agente: leer(db, m.agenteId), trabajando: mi.misionTrabajando(m.id), ultimo: mi.diarioDe(db, m.id, 1)[0] ?? null })) }
+    const em = await import('./agentes/embudo.ts')
+    return { misiones: mi.listarMisionesAgente(db).map((m) => ({ ...m, agente: conNivel(leer(db, m.agenteId)), trabajando: mi.misionTrabajando(m.id), ultimo: mi.diarioDe(db, m.id, 1)[0] ?? null, embudo: em.embudo(db, m.id), progreso: em.progreso(db, m) })) }
   }],
   ['POST', /^\/api\/agentes\/misiones$/, async (b) => (await import('./agentes/misiones.ts')).crearMisionAgente(db, { titulo: b.titulo, brief: b.brief, criterio: b.criterio, entidadId: b.entidadId ?? null, vence: b.vence ?? null, agenteId: b.agenteId || null })],
   ['GET', /^\/api\/agentes\/misiones\/(\d+)$/, async (_, [m]) => {
     const mi = await import('./agentes/misiones.ts')
     const x = mi.leerMisionAgente(db, id(m))
     if (!x) throw new Error(`No existe la misión ${m}`)
-    return { mision: x, agente: leer(db, x.agenteId), diario: mi.diarioDe(db, x.id, 200), trabajando: mi.misionTrabajando(x.id) }
+    const em = await import('./agentes/embudo.ts')
+    return { mision: x, agente: conNivel(leer(db, x.agenteId)), diario: mi.diarioDe(db, x.id, 200), trabajando: mi.misionTrabajando(x.id), embudo: em.embudo(db, x.id), progreso: em.progreso(db, x), pistas: em.pistasDe(db, { misionId: x.id }) }
   }],
   ['POST', /^\/api\/agentes\/misiones\/(\d+)$/, async (b, [m]) => (await import('./agentes/misiones.ts')).editarMisionAgente(db, id(m), { estado: b.estado, brief: b.brief, titulo: b.titulo, criterio: b.criterio, vence: b.vence })],
   ['POST', /^\/api\/agentes\/misiones\/(\d+)\/instruir$/, async (b, [m]) => (await import('./agentes/misiones.ts')).instruir(db, id(m), String(b.texto ?? ''))],
@@ -769,6 +772,15 @@ const rutas: [string, RegExp, Ruta][] = [
     soloNube('Una sesión del agente')
     const r = await (await import('./agentes/misiones.ts')).trabajarMision(db, id(m))
     return { sesion: r.sesion, pasos: r.resultado.pasos, cerrada: r.cerrada, cortado: r.resultado.cortado }
+  }],
+  ['GET', /^\/api\/agentes\/pistas$/, async (_, __, q) => {
+    const em = await import('./agentes/embudo.ts')
+    return { pistas: em.pistasDe(db, { misionId: q.get('mision') ? Number(q.get('mision')) : undefined }), etapas: em.ETAPAS, nombres: em.NOMBRE_ETAPA }
+  }],
+  ['POST', /^\/api\/agentes\/pistas\/(\d+)$/, async (b, [p]) => {
+    const pi = await import('./agentes/pistas.ts')
+    if (b.borrador === 'enviar' || b.borrador === 'descartar') return pi.resolverBorrador(db, id(p), b.borrador, { texto: b.texto ?? null })
+    return pi.marcarPista(db, id(p), b.etapa, { nota: b.nota ?? null })
   }],
   ['GET', /^\/api\/agentes\/sala$/, async () => ({ trabajando: (await import('./agentes/motor.ts')).trabajandoAhora() })],
   // El Grafo (plan v25): las capas, los grafos propios, sus fotos, recalcular (en el hilo aparte) y el diccionario.
@@ -1262,6 +1274,9 @@ async function leerCuerpo(req: http.IncomingMessage): Promise<any> {
 }
 
 /** Lo que gasta tokens se pide desde la nube. */
+/** Una ficha con su nivel (la pantalla lo muestra; la ficha guarda solo la XP). */
+const conNivel = (f: Ficha | null) => (f ? { ...f, nivel: nivel(f) } : null)
+
 function soloNube(que: string) {
   if (!enLaNube()) throw new Error(`${que}: lo arma Mastropiero en la nube (gasta tokens de NaN). Pedilo desde tu Deprocast en la nube.`)
 }
