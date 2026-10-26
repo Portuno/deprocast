@@ -202,7 +202,9 @@ function irA(v) {
   pintarEspacio(v)
   $$('#barra-abajo [data-abajo]').forEach((b) => b.classList.toggle('activo', b.dataset.abajo === v || (b.dataset.abajo === 'mas' && v !== 'hoy' && v !== 'chat')))
   document.title = `${nombreDeVista(VISTA_PADRE[v] ?? v)} · Mastropiero`
-  montando = { vista: v, desde: Date.now() } // lo que pida en sus primeros segundos se aprende (y la próxima vez llega antes)
+  // Lo que pida en sus primeros segundos se aprende (y la próxima vez llega antes); n: qué montaje es (si se va o la
+  // vuelve a abrir antes de que llegue lo pedido, eso ya no se entrega).
+  montando = { vista: v, desde: Date.now(), n: (montando?.n ?? 0) + 1 }
   VISTAS[v].montar()
   $('#principal').scrollTop = 0
   api('/uso', { vista: v }).catch(() => {}) // qué usa de verdad (para rankear con datos)

@@ -16,20 +16,29 @@ function cuandoSeVea(f) {
 }
 
 async function api(ruta, cuerpo) {
+  // Lo que pide una sección al abrirse es de ese montaje: si él ya se fue (o la volvió a abrir) cuando llega, no se
+  // entrega (la promesa queda sin resolver). Así la sección vieja no sigue dibujando sobre la nueva ni tira errores
+  // buscando sus botones en una pantalla que ya no es suya.
+  const deMontaje = cuerpo === undefined && montando && Date.now() - montando.desde < 4000 && !RUTAS_COMPARTIDAS.test(ruta) ? montando.n : null
+  const caduco = () => deMontaje != null && montando?.n !== deMontaje
+  const vigente = (x) => (caduco() ? new Promise(() => {}) : x)
   if (cuerpo === undefined) {
     // Lo que se trajo de antemano (al pasar por el menú o mirando la sección vecina): se usa una vez y si está fresco.
     const p = precargas.get(ruta)
     precargas.delete(ruta)
-    if (p && Date.now() - p.en < FRESCO_MS) { try { return await p.promesa } catch { /* cae al pedido de siempre */ } }
+    if (p && Date.now() - p.en < FRESCO_MS) { try { return vigente(await p.promesa) } catch { /* cae al pedido de siempre */ } }
     aprenderRuta(ruta)
   } else if (!/^\/(uso|zona)\b/.test(ruta)) precargas.clear() // lo que él cambia invalida lo traído antes (lo que se anota de uso, no)
   const r = await fetch('/api' + ruta, cuerpo === undefined ? {} : {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cuerpo),
   })
   const j = await r.json()
+  if (caduco()) return vigente(j)
   if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`)
   return j
 }
+/** Lo que piden las piezas que viven en todas las pantallas (el estado, el chat al costado, el Directo, 📥, la paleta). */
+const RUTAS_COMPARTIDAS = /^\/(estado|meta|hoy\/hud|menciones|uso|velocidad|chat|directo|bandeja|sombra|paleta|preguntas|zona)\b/
 
 // ─── traer de antemano (que cada sección abra al instante) ──────────────
 // Cada sección pide lo suyo al abrirse; esas rutas se aprenden (las de los primeros segundos de cada vista) y la próxima

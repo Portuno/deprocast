@@ -31,8 +31,11 @@ for (const [archivo, info] of Object.entries(window.PEREZOSOS ?? {})) {
     if (fn in window) continue
     const stub = function (...args) {
       if (fn.startsWith('montar') && $('#principal') && !document.querySelector(`script[src^="/js/${archivo}"]`)) $('#principal').innerHTML = `<p class="tenue cargando-vista" role="status">Abriendo ${esc(typeof nombreDeVista === 'function' ? nombreDeVista(VISTA_PADRE?.[vista] ?? vista) : '')}…</p>`
+      const n = montando?.n
       return cargarScript(archivo).then(() => {
         if (window[fn] === stub) throw new Error(`${fn} no está en ${archivo}`)
+        // Si mientras bajaba el archivo él se fue a otra sección (o la volvió a abrir), este montaje ya no va: pisaría el nuevo.
+        if (fn.startsWith('montar') && montando?.n !== n) return
         return window[fn](...args)
       })
     }
