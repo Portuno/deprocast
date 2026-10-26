@@ -78,3 +78,35 @@ test('El diccionario: frenar, proteger y alias cambian lo que se ve; y analizar 
   assert.ok(r.nodos.length > 4 && !r.nodos.some((n) => n.vos))
   await assert.rejects(gr.analizarTexto(db, 'corto'), /más largo/)
 })
+
+test('Leer el grafo: los pasajes donde aparecen juntos, quitar lo obvio, el diff entre fotos y el grafo de algo', async () => {
+  const db = base()
+  const le = await import('../src/grafo/leer.ts')
+  const voz = gr.grafoPorClave(db, 'voz')
+  const f = (await gr.recalcular(db, voz.id, { ahora: T }))!
+  const nodo = (forma: string) => f.nodos.find((n) => n.forma === forma)!
+  assert.equal(le.prefijo('resistent', 'resistencia'), 'resisten', 'lo común entre la raíz y la forma')
+  const frs = le.fragmentos(db, voz.id, f.id, nodo('resistencia'), nodo('corriente'))
+  assert.ok(frs.length >= 1)
+  assert.match(frs[0].texto, /«resistencia» frena la «corriente»/)
+  assert.ok(frs.every((x) => x.pieza != null), 'piezas suyas, con su id para abrirlas')
+  const solos = le.fragmentos(db, voz.id, f.id, nodo('voltaje'))
+  assert.ok(solos.some((x) => x.quantomo != null), 'también los quántomos sellados')
+  assert.equal(le.fragmentos(db, voz.id, f.id, { lema: 'harin', forma: 'harina' }).length, 0, 'lo que no entra a este grafo no aparece')
+
+  const sin = await le.sinLoObvio(db, f.id, 2)
+  assert.equal(sin.quitados.length, 2)
+  assert.ok(sin.nodos.every((n) => !sin.quitados.includes(n.forma)))
+  assert.equal(sin.metricas.n, f.metricas.n - 2)
+
+  insertar(db, { fuente: 'operador', nivel: 'propia', titulo: 'Drones', contenido: 'El dron vuela con hélices y batería; la batería del dron dura poco y la hélice se rompe.', origenId: 'pd' }, T)
+  const f2 = (await gr.recalcular(db, voz.id, { ahora: T + 1 }))!
+  const d = le.diffFotos(f, f2)
+  assert.ok(d.nuevos.includes('dron') || d.nacieron.some((c) => c.top.includes('dron')), 'lo nuevo aparece en el diff')
+  assert.ok(d.metricas.n.ahora > d.metricas.n.antes)
+
+  const ent = Number(db.prepare(`INSERT INTO entidades (nombre, tipo, creada_en) VALUES ('Electricidad', 'concepto', ?)`).run(T).lastInsertRowid)
+  const g1 = le.grafoDe(db, { tipo: 'entidad', id: ent }, 'Electricidad')
+  const g2 = le.grafoDe(db, { tipo: 'entidad', id: ent }, 'Otro nombre')
+  assert.equal(g1.id, g2.id, 'el grafo de algo se reusa')
+})

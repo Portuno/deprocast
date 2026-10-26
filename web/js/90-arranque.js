@@ -31,6 +31,9 @@ const VISTAS = {
   libreria: { montar: montarLibreria, refrescar: () => {} },
   fragua: { montar: montarFragua, refrescar: refrescarFragua },
   revision: { montar: montarRevision, refrescar: () => {} },
+  grafo: { montar: montarGrafo, refrescar: () => {} },
+  grafos: { montar: montarGrafos, refrescar: () => {} },
+  grafosalud: { montar: montarGrafoSalud, refrescar: () => {} },
   quantomos: { montar: montarQuantomos, refrescar: refrescarQuantomos },
   matriz: { montar: montarMatriz, refrescar: montarMatriz },
   cementerio: { montar: montarCementerio, refrescar: montarCementerio },
@@ -72,6 +75,7 @@ const ESPACIOS = [
   { id: 'plan', nombre: 'Plan', ico: 'target', tecla: 'p', vistas: [['misiones', 'Misiones'], ['calendario', 'Calendario'], ['linea', 'Línea'], ['mapa', 'Mapa']] },
   { id: 'vida', nombre: 'Vida', ico: 'heart-pulse', tecla: 'v', vistas: [['salud', 'Salud'], ['personas', 'Personas'], ['jugador', 'Jugador'], ['suenos', 'Sueños']] },
   { id: 'aprender', nombre: 'Aprender', ico: 'graduation-cap', tecla: 'a', vistas: [['aprender', 'Academia'], ['idiomas', 'Idiomas'], ['mano', 'La Mano'], ['criba', 'Criba']] },
+  { id: 'grafo', nombre: 'Grafo', ico: 'waypoints', tecla: 'r', vistas: [['grafo', 'Grafo'], ['grafos', 'Mis grafos'], ['grafosalud', 'Salud']] },
   { id: 'saber', nombre: 'Saber', ico: 'library', tecla: 's', vistas: [['corpus', 'Corpus'], ['cuadernos', 'Cuadernos'], ['libreria', 'Librería'], ['entidades', 'Entidades']] },
   { id: 'afuera', nombre: 'Afuera', ico: 'globe', tecla: 'f', vistas: [['taller', 'Taller'], ['radar', 'Radar'], ['cuentas', 'Cuentas'], ['discovery', 'Discovery']] },
   { id: 'maquina', nombre: 'La máquina', ico: 'cog', tecla: 'm', vistas: [['fragua', 'La Fragua'], ['revision', 'Revisión'], ['liga', 'Roster'], ['forja', 'Forja'], ['encargos', 'Encargos'], ['matriz', 'Matriz 72'], ['cementerio', 'Cementerio']] },
@@ -148,7 +152,7 @@ function irA(v) {
   if (location.hash.slice(1) !== v) history.replaceState(null, '', `#${v}`) // un link directo a cada vista
   document.body.classList.toggle('en-maquina', VISTAS_MAQUINA.has(v))
   if (E) renderHud()
-  $('#principal').classList.toggle('lleno', v === 'chat' || v === 'hoy')
+  $('#principal').classList.toggle('lleno', v === 'chat' || v === 'hoy' || v === 'grafo')
   aplicarCronica()
   pintarEspacio(v)
   $$('#barra-abajo [data-abajo]').forEach((b) => b.classList.toggle('activo', b.dataset.abajo === v || (b.dataset.abajo === 'mas' && v !== 'hoy' && v !== 'chat')))

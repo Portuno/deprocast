@@ -2,7 +2,7 @@
  * Un cálculo completo del grafo (plan v25), puro: documentos → red → medidas → huecos → dibujo. Corre en el hilo aparte
  * (trabajador.ts); acá no hay base de datos ni red.
  */
-import { construirRed, type Documento } from './construir.ts'
+import { construirRed, type Documento, type Red } from './construir.ts'
 import { adyacencia, comunidades, componentes, entropia, estadoDiscurso, intermediacion, type Estado } from './medidas.ts'
 import { acomodar } from './layout.ts'
 import type { Diccionario } from './texto.ts'
@@ -18,6 +18,12 @@ export type Opciones = { dic?: Diccionario; maxNodos?: number; puenteParrafos?: 
 export function calcular(docs: Documento[], o: Opciones = {}): Resultado {
   const t0 = Date.now()
   const red = construirRed(docs, { dic: o.dic, maxNodos: o.maxNodos, puenteParrafos: o.puenteParrafos })
+  return { ...medirRed(red, o), ms: Date.now() - t0 }
+}
+
+/** Las medidas y el dibujo sobre una red ya armada (también sirve para «quitar lo obvio»: la misma red sin sus bisagras). */
+export function medirRed(red: Pick<Red, 'nodos' | 'aristas' | 'documentos' | 'lemas' | 'automaticas'>, o: Opciones = {}): Resultado {
+  const t0 = Date.now()
   const n = red.nodos.length
   const g = adyacencia(n, red.aristas)
   const btw = intermediacion(n, g, { semilla: o.semilla })

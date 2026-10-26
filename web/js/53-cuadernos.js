@@ -59,7 +59,7 @@ async function montarCuaderno(id) {
   const modo = cuImport.modo
   $('#principal').innerHTML = `
     <div class="titulo cu-cab"><h1>${esc(c.titulo)}</h1><p><a href="#" id="cu-volver">← Cuadernos</a></p>
-      <div class="fila"><button class="btn" id="cu-guia" ${c.fuentes.length ? '' : 'disabled'}>Guía</button><button class="btn" id="cu-charla" ${c.fuentes.length && !c.haciendo ? '' : 'disabled'}>🎧 Charla en audio</button>${c.fuentes.length ? `<a class="btn" href="/api/cuadernos/${c.id}.md" download title="Todas las fuentes en un solo Markdown">📄 MD</a>` : ''}<button class="btn btn-chico btn-peligro" id="cu-borrar">Borrar cuaderno</button></div></div>
+      <div class="fila"><button class="btn" id="cu-guia" ${c.fuentes.length ? '' : 'disabled'}>Guía</button><button class="btn" id="cu-grafo" ${c.fuentes.length ? '' : 'disabled'} title="El grafo de las fuentes del cuaderno">☍ Grafo</button><button class="btn" id="cu-charla" ${c.fuentes.length && !c.haciendo ? '' : 'disabled'}>🎧 Charla en audio</button>${c.fuentes.length ? `<a class="btn" href="/api/cuadernos/${c.id}.md" download title="Todas las fuentes en un solo Markdown">📄 MD</a>` : ''}<button class="btn btn-chico btn-peligro" id="cu-borrar">Borrar cuaderno</button></div></div>
     ${c.haciendo ? `<p class="pensando">${esc(c.haciendo)}…</p>` : ''}
     <div class="cu-cols">
       <aside class="panel cu-lado">
@@ -112,6 +112,7 @@ async function montarCuaderno(id) {
   $('#cu-volver').onclick = (e) => { e.preventDefault(); cuadernoAbierto = null; montarCuadernos() }
   $('#cu-borrar').onclick = async () => { if (!(await confirmar(`¿Borrar el cuaderno «${c.titulo}»?`, { detalle: 'Las fuentes quedan en el corpus.', si: 'Borrar el cuaderno', peligro: true }))) return; try { await api(`/cuadernos/${id}/borrar`, {}); cuadernoAbierto = null; montarCuadernos() } catch (e) { error(e) } }
   $$('[data-quitar]').forEach((b) => (b.onclick = async () => { try { await api(`/cuadernos/${id}/quitar`, { pieza: Number(b.dataset.quitar) }); otra() } catch (e) { error(e) } }))
+  $('#cu-grafo').onclick = () => abrirGrafoDe({ tipo: 'cuaderno', id }, c.titulo)
   $('#cu-guia').onclick = (e) => ocupado(e.target, 'Leyendo las fuentes…', () => api(`/cuadernos/${id}/guia`, {}))
   $('#cu-charla').onclick = (e) => ocupado(e.target, 'Arrancando…', async () => { await api(`/cuadernos/${id}/charla`, {}); toast('Armando la charla<small>Tarda unos minutos; te aviso acá cuando esté.</small>') })
   $('#cu-preguntar').onsubmit = (e) => { e.preventDefault(); const q = e.target.pregunta.value.trim(); if (q) ocupado(e.target.querySelector('button'), 'Pensando…', () => api(`/cuadernos/${id}/preguntar`, { pregunta: q })) }

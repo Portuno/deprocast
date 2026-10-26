@@ -33,26 +33,27 @@ function arbol(xs: Float64Array, ys: Float64Array, masa: Float64Array): Celda {
   return raiz
 }
 
-export function acomodar(n: number, g: Adyacencia, o: { previas?: (readonly [number, number] | null)[]; iteraciones?: number; semilla?: number; fijo?: number | null } = {}): [number, number][] {
+export function acomodar(n: number, g: Adyacencia, o: { previas?: (readonly [number, number] | null)[]; iteraciones?: number; semilla?: number; fijo?: number | null; kr?: number; kg?: number } = {}): [number, number][] {
   if (!n) return []
   const r = azar(o.semilla ?? 11)
   const xs = new Float64Array(n), ys = new Float64Array(n)
+  // Escala de trabajo: un disco cuyo radio crece con la raíz de la cantidad de nodos.
+  const R0 = 10 * Math.sqrt(n)
   for (let i = 0; i < n; i++) {
     const p = o.previas?.[i]
-    if (p) { xs[i] = p[0] * 100 + (r() - 0.5); ys[i] = p[1] * 100 + (r() - 0.5) }
-    else { const a = r() * Math.PI * 2, d = 20 + r() * 80; xs[i] = Math.cos(a) * d; ys[i] = Math.sin(a) * d }
+    if (p) { xs[i] = p[0] * R0 + (r() - 0.5); ys[i] = p[1] * R0 + (r() - 0.5) }
+    else { const a = r() * Math.PI * 2, d = R0 * Math.sqrt(r()); xs[i] = Math.cos(a) * d; ys[i] = Math.sin(a) * d }
   }
   const masa = new Float64Array(n)
   for (let i = 0; i < n; i++) masa[i] = g.vecinos[i].length + 1
-  const kr = 10, gravedad = 1, theta = 1.2
+  // ForceAtlas2: repulsión kr·(g1+1)(g2+1)/d, atracción lineal por el peso (amortiguado con log), gravedad fuerte
+  // (proporcional a la distancia: nadie se escapa al borde, los grupos sueltos quedan cerca).
+  const kr = o.kr ?? 2, kg = o.kg ?? 0.05, theta = 1.2
   const fx = new Float64Array(n), fy = new Float64Array(n)
-  const iter = o.iteraciones ?? (n > 800 ? 250 : 400)
-  // Pesos de atracción normalizados (para que unos pocos pesos enormes no colapsen todo).
-  const pmax = Math.max(1, ...g.pesos.flat())
+  const iter = o.iteraciones ?? (n > 800 ? 300 : 450)
   for (let it = 0; it < iter; it++) {
     fx.fill(0); fy.fill(0)
     const raiz = arbol(xs, ys, masa)
-    // Repulsión (Barnes-Hut).
     for (let i = 0; i < n; i++) {
       const pila = [raiz]
       while (pila.length) {
@@ -66,33 +67,33 @@ export function acomodar(n: number, g: Adyacencia, o: { previas?: (readonly [num
         fx[i] += dx * f; fy[i] += dy * f
       }
     }
-    // Atracción por las aristas y gravedad.
     for (let i = 0; i < n; i++) {
       const vs = g.vecinos[i], ps = g.pesos[i]
       for (let k = 0; k < vs.length; k++) {
         const j = vs[k]
         if (j < i) continue
-        const w = 0.2 + (ps[k] / pmax) * 2
+        const w = 1 + Math.log(ps[k])
         const dx = xs[j] - xs[i], dy = ys[j] - ys[i]
-        fx[i] += dx * w * 0.05; fy[i] += dy * w * 0.05
-        fx[j] -= dx * w * 0.05; fy[j] -= dy * w * 0.05
+        fx[i] += dx * w; fy[i] += dy * w
+        fx[j] -= dx * w; fy[j] -= dy * w
       }
-      const d = Math.hypot(xs[i], ys[i]) || 1
-      fx[i] -= (xs[i] / d) * gravedad * masa[i]; fy[i] -= (ys[i] / d) * gravedad * masa[i]
+      fx[i] -= xs[i] * kg * masa[i]; fy[i] -= ys[i] * kg * masa[i]
     }
-    // Moverse con un paso que se enfría (y acotado: nada sale disparado).
-    const temp = 10 * (1 - it / iter) + 0.5
+    // Moverse: proporcional a la fuerza sobre la masa, con un tope que se enfría (nada sale disparado).
+    const tope = R0 * 0.08 * (1 - it / iter) + R0 * 0.002
     for (let i = 0; i < n; i++) {
       if (o.fijo === i) { xs[i] = 0; ys[i] = 0; continue }
-      const f = Math.hypot(fx[i], fy[i]) || 1
-      const paso = Math.min(temp, f / masa[i])
-      xs[i] += (fx[i] / f) * paso; ys[i] += (fy[i] / f) * paso
+      let dx = (fx[i] / masa[i]) * 0.1, dy = (fy[i] / masa[i]) * 0.1
+      const l = Math.hypot(dx, dy)
+      if (l > tope) { dx *= tope / l; dy *= tope / l }
+      xs[i] += dx; ys[i] += dy
     }
   }
-  // A [-1, 1], centrado (en lo fijo, si hay: «Vos en el centro»).
+  // A [-1, 1], centrado (en lo fijo, si hay: «Vos en el centro»); la escala la marca el 98 % (un suelto no achica todo).
   const cx = o.fijo != null ? xs[o.fijo] : xs.reduce((s, x) => s + x, 0) / n
   const cy = o.fijo != null ? ys[o.fijo] : ys.reduce((s, y) => s + y, 0) / n
-  let r0 = 1e-6
-  for (let i = 0; i < n; i++) r0 = Math.max(r0, Math.abs(xs[i] - cx), Math.abs(ys[i] - cy))
-  return Array.from({ length: n }, (_, i) => [+((xs[i] - cx) / r0).toFixed(4), +((ys[i] - cy) / r0).toFixed(4)] as [number, number])
+  const radios = Array.from({ length: n }, (_, i) => Math.max(Math.abs(xs[i] - cx), Math.abs(ys[i] - cy))).sort((a, b) => a - b)
+  const r0 = radios[Math.min(n - 1, Math.floor(n * 0.98))] || 1e-6
+  const lim = (v: number) => Math.max(-1, Math.min(1, v))
+  return Array.from({ length: n }, (_, i) => [+lim((xs[i] - cx) / r0).toFixed(4), +lim((ys[i] - cy) / r0).toFixed(4)] as [number, number])
 }

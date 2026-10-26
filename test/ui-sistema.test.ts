@@ -71,3 +71,16 @@ test('Tres anchos y nada más: compu (más de 1000), tablet (1000) y celular (72
   const anchos = new Set([...css.matchAll(/@media \(max-width: (\d+)px\)/g)].map((m) => m[1]))
   assert.deepEqual([...anchos].sort(), ['1000', '1280', '720'])
 })
+
+test('Los scripts de la pantalla comparten el ámbito global: ningún nombre de primer nivel se declara dos veces', () => {
+  const vistos = new Map<string, string>()
+  const repetidos: string[] = []
+  for (const f of fs.readdirSync(path.join(WEB, 'js')).filter((x) => x.endsWith('.js'))) {
+    const texto = fs.readFileSync(path.join(WEB, 'js', f), 'utf8')
+    for (const m of texto.matchAll(/^(?:const|let|var|function|async function|class) ([A-Za-z_$][\w$]*)/gm)) {
+      if (vistos.has(m[1]) && vistos.get(m[1]) !== f) repetidos.push(`${m[1]} (${vistos.get(m[1])} y ${f})`)
+      vistos.set(m[1], f)
+    }
+  }
+  assert.deepEqual(repetidos, [])
+})

@@ -766,6 +766,16 @@ const rutas: [string, RegExp, Ruta][] = [
     return { grafo: x, foto, calculando: gr.estaCalculando(x.id), historia: gr.historia(db, x.id) }
   }],
   ['POST', /^\/api\/grafos\/(\d+)$/, async (b, [g]) => (await import('./grafo/index.ts')).editarGrafo(db, id(g), { nombre: b.nombre, fuentes: b.fuentes, desde: b.desde, hasta: b.hasta, borrar: !!b.borrar })],
+  // Leer el grafo: los fragmentos donde aparecen juntos, quitar lo obvio, el diff entre fotos y abrir el grafo de algo.
+  ['GET', /^\/api\/grafos\/(\d+)\/fragmentos$/, async (_, [g], q) => ({ fragmentos: (await import('./grafo/leer.ts')).fragmentos(db, id(g), Number(q.get('foto')), { lema: q.get('a') ?? '', forma: q.get('fa') ?? q.get('a') ?? '' }, q.get('b') ? { lema: q.get('b')!, forma: q.get('fb') ?? q.get('b')! } : null) })],
+  ['POST', /^\/api\/grafos\/fotos\/(\d+)\/sin$/, async (b, [f]) => (await import('./grafo/leer.ts')).sinLoObvio(db, id(f), Number(b.k) || 5)],
+  ['GET', /^\/api\/grafos\/diff$/, async (_, __, q) => {
+    const gr = await import('./grafo/index.ts')
+    const a = gr.leerFoto(db, Number(q.get('a'))), b = gr.leerFoto(db, Number(q.get('b')))
+    if (!a || !b) throw new Error('Elegí dos fotos del mismo grafo')
+    return (await import('./grafo/leer.ts')).diffFotos(a, b)
+  }],
+  ['POST', /^\/api\/grafos\/de$/, async (b) => (await import('./grafo/leer.ts')).grafoDe(db, b.fuente, String(b.nombre ?? 'Grafo'))],
   ['POST', /^\/api\/grafos\/(\d+)\/recalcular$/, async (b, [g]) => ({ foto: await (await import('./grafo/index.ts')).recalcular(db, id(g), { forzar: !!b.forzar }) })],
   // Su feedback y la revisión (plan v24): valorar cualquier cosa, las lecciones que salen de eso y las métricas.
   ['POST', /^\/api\/devoluciones$/, async (b) => (await import('./devoluciones.ts')).anotarDevolucion(db, { superficie: String(b.superficie ?? ''), ref: String(b.ref ?? ''), valor: Number(b.valor), nota: b.nota ?? null })],

@@ -5,15 +5,17 @@
  */
 import { parentPort } from 'node:worker_threads'
 import { DatabaseSync } from 'node:sqlite'
-import { calcular, type Opciones } from './calcular.ts'
-import type { Documento } from './construir.ts'
+import { calcular, medirRed, type Opciones } from './calcular.ts'
+import type { Documento, Red } from './construir.ts'
 import { documentosDe, type Definicion } from './fuentes.ts'
 
-type Pedido = { docs?: Documento[]; ruta?: string; definicion?: Definicion; opciones: Opciones & { dic?: any } }
+type Pedido = { docs?: Documento[]; red?: Pick<Red, 'nodos' | 'aristas' | 'documentos' | 'lemas' | 'automaticas'>; ruta?: string; definicion?: Definicion; opciones: Opciones & { dic?: any } }
 
 parentPort!.on('message', (p: Pedido) => {
   try {
     const opciones = { ...p.opciones, dic: p.opciones.dic ? { stop: new Set<string>(p.opciones.dic.stop), alias: new Map<string, string>(p.opciones.dic.alias), proteger: new Set<string>(p.opciones.dic.proteger) } : undefined }
+    // Una red ya armada (quitar lo obvio): solo medir y dibujar.
+    if (p.red) return void parentPort!.postMessage({ ok: true, resultado: medirRed(p.red, opciones), documentos: p.red.documentos, firma: '' })
     let docs = p.docs ?? []
     if (!p.docs && p.ruta && p.definicion) {
       const db = new DatabaseSync(p.ruta, { readOnly: true })

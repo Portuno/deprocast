@@ -111,6 +111,7 @@ const hiloHTMLBase = () => `
           <label class="chat-mas-item" id="chat-audio" role="menuitem" hidden>${ico('mic')}<span>Subir un audio (se transcribe)</span><input type="file" accept="audio/*" hidden id="chat-audio-in"></label>
           <button type="button" class="chat-mas-item" id="chat-vivo" role="menuitem">${ico('headphones')}<span>Charla en vivo (te contesta en voz alta)</span></button>
           <button type="button" class="chat-mas-item" id="chat-leer" role="menuitem">${ico('volume-2')}<span>Leer las respuestas en voz alta</span></button>
+          <button type="button" class="chat-mas-item" id="chat-grafo" role="menuitem">${ico('waypoints')}<span>El grafo de esta charla</span></button>
         </div>
       </details>
       <textarea id="chat-txt" rows="1" placeholder="Escribile a Mastropiero…" title="Enter envía. Shift+Enter, nueva línea." aria-label="Mensaje para Mastropiero"></textarea>
@@ -144,6 +145,7 @@ function engancharCompositor() {
   // El menú «＋» se cierra al elegir algo, al tocar afuera o con Esc.
   const mas = $('#chat-mas')
   mas.querySelector('.chat-mas-menu').addEventListener('click', () => setTimeout(() => (mas.open = false), 0))
+  $('#chat-grafo').onclick = () => chat.actual && abrirGrafoDe({ tipo: 'conversacion', id: chat.actual.id }, chat.actual.titulo || 'Esta charla')
   mas.addEventListener('keydown', (e) => { if (e.key === 'Escape' && mas.open) { e.stopPropagation(); mas.open = false; mas.querySelector('summary').focus() } })
   $('#chat-audio-in').onchange = async (e) => {
     const f = e.target.files[0]

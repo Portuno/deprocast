@@ -128,6 +128,7 @@ async function pintarDominio(id) {
       <button class="btn" id="aca-ubicar" title="Seis preguntas, de la más fácil a la más difícil: arranco en tu nivel">📏 Ubicarme</button>
       <button class="btn" id="aca-meta">🎯 ${r.ritmo ? 'Cambiar la meta' : 'Una meta con fecha'}</button>
       <button class="btn" id="aca-tarjetas">🃏 Repasar tarjetas</button>
+      <button class="btn" id="aca-grafo" title="El grafo de su material y sus clases: grupos, bisagras, puntos de entrada y huecos">☍ Grafo del material</button>
       <button class="btn" id="aca-fuentes" title="Busca material a tu nivel y lo suma al corpus (en la nube)">🔎 Buscar fuentes</button>
     </div>
     ${!r.examen && d.estado === 'activo' ? '<p class="tenue chico">El examen se habilita con dos clases seguidas del nivel resueltas con 80 % o más, o con todo el nivel sabido.</p>' : ''}
@@ -143,6 +144,7 @@ async function pintarDominio(id) {
   $$('.aca-barra b', cont).forEach((x) => (x.style.width = `${x.dataset.pct}%`))
   $$('[data-aca-clase]', cont).forEach((b) => (b.onclick = () => abrirClase(d.id, !!b.dataset.examen)))
   $('#aca-tarjetas', cont).onclick = () => repasarTarjetas(`aprender:${d.id}`)
+  $('#aca-grafo', cont).onclick = () => abrirGrafoDe({ tipo: 'dominio', id: d.id }, `${d.tema} (Academia)`)
   $('#aca-ubicar', cont).onclick = () => abrirClase(d.id, false, true)
   const nuevoP = $('#aca-proyecto-nuevo', cont)
   if (nuevoP) nuevoP.onclick = async () => { nuevoP.disabled = true; toast('El tutor está pensando un proyecto…', 'suave'); try { await api(`/academia/${d.id}/proyecto`, {}); pintarDominio(d.id) } catch (e) { error(e) } finally { nuevoP.disabled = false } }

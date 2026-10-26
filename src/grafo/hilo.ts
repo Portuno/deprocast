@@ -4,11 +4,11 @@
  */
 import { Worker } from 'node:worker_threads'
 import type { Resultado, Opciones } from './calcular.ts'
-import type { Documento } from './construir.ts'
+import type { Documento, Red } from './construir.ts'
 import type { Definicion } from './fuentes.ts'
 import type { Diccionario } from './texto.ts'
 
-export type Pedido = { docs?: Documento[]; ruta?: string; definicion?: Definicion; opciones?: Opciones }
+export type Pedido = { docs?: Documento[]; red?: Pick<Red, 'nodos' | 'aristas' | 'documentos' | 'lemas' | 'automaticas'>; ruta?: string; definicion?: Definicion; opciones?: Opciones }
 export type Respuesta = { resultado: Resultado; documentos: number; firma: string }
 
 const MAX_MS = 5 * 60_000

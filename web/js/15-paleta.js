@@ -41,7 +41,7 @@ const SINONIMOS = {
   personas: 'gente contactos amigos', jugador: 'yo perfil plata finanzas gastos ingresos inventario', suenos: 'soñe dormir', mano: 'cartas afirmaciones pesquisa',
   idiomas: 'chino ingles lenguas', aprender: 'estudiar practicar academia tutor dominios cursos clases', criba: 'pesar pasajes', corpus: 'archivo piezas buscar notas quantomos', cuadernos: 'notebook',
   libreria: 'libros peliculas series obras', entidades: 'proyectos conceptos', taller: 'crear imagen video estudio', radar: 'oportunidades convocatorias',
-  cuentas: 'redes publicaciones posts', discovery: 'clientes encargos consultoria', fragua: 'propuestas mejoras', revision: 'feedback lecciones metricas acierto valoraciones', liga: 'agentes roster',
+  cuentas: 'redes publicaciones posts', discovery: 'clientes encargos consultoria', fragua: 'propuestas mejoras', revision: 'feedback lecciones metricas acierto valoraciones', grafo: 'red mapa conceptos comunidades bisagras huecos topologia', grafos: 'crear grafo diccionario analizar texto', grafosalud: 'estado discurso modularidad salud corpus', liga: 'agentes roster',
 }
 
 function itemsBase() {
