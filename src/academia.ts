@@ -1003,3 +1003,28 @@ export function descartarProyecto(db: Db, pid: number) {
   db.prepare(`UPDATE tutor_proyectos SET estado = 'descartado' WHERE id = ? AND estado = 'propuesto'`).run(pid)
   return { ok: true }
 }
+
+/**
+ * Dejar listo lo que va a abrir (plan de velocidad; en la nube: gasta tokens). Por cada dominio activo: la próxima clase
+ * (y la voz de su explicación, así el ▶ suena al instante), el examen si ya está habilitado, el proyecto del nivel si
+ * le toca y la ubicación si el dominio es nuevo. Lo que ya está listo no se rehace; frena si se llega al tope.
+ */
+export async function adelantarAcademia(db: Db, o: { tope?: () => boolean; ahora?: number } = {}): Promise<string[]> {
+  const hechos: string[] = []
+  const tope = o.tope ?? (() => false)
+  for (const d of listarDominios(db, o.ahora).filter((x) => x.estado === 'activo' && !x.idioma)) {
+    const paso = async (que: string, f: () => Promise<unknown>) => {
+      if (tope()) return
+      try { await f(); hechos.push(`${que} de ${d.tema}`) } catch (e) { console.error(`  adelantar ${que} (${d.tema}):`, e instanceof Error ? e.message : e) }
+    }
+    const nueva = !(db.prepare(`SELECT 1 FROM tutor_sesiones WHERE aprendizaje_id = ? AND estado = 'hecha' LIMIT 1`).get(d.id))
+    if (nueva && !sesionLista(db, d.id, 'diagnostico')) await paso('la ubicación', () => prepararDiagnostico(db, d.id))
+    if (!sesionLista(db, d.id, 'clase')) await paso('la próxima clase', () => prepararSesionTutor(db, d.id, { prioridadVisual: 1 }))
+    if (examenHabilitado(db, d.id) && !sesionLista(db, d.id, 'examen')) await paso('el examen', () => prepararSesionTutor(db, d.id, { examen: true, prioridadVisual: 1 }))
+    if (tocaProyecto(db, d.id, d.tutorNivel)) await paso('el proyecto del nivel', () => proponerProyecto(db, d.id))
+    // La voz de la explicación de la clase lista (queda en caché: el ▶ suena sin esperar).
+    const lista = sesionLista(db, d.id, 'clase')
+    if (lista?.estado === 'lista' && !tope()) { try { await audiosDe(db, lista.id, { parte: 'explicacion' }) } catch { /* sin voz: se genera al tocar ▶ */ } }
+  }
+  return hechos
+}

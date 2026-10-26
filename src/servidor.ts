@@ -768,6 +768,8 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/academia\/(\d+)\/material\/(\d+)$/, async (b, [a, f]) => ({ material: (await import('./academia.ts')).marcarMaterial(db, id(a), id(f), { util: b.util == null ? undefined : Number(b.util), quitar: !!b.quitar }) })],
   // El mapa de conceptos, el diagnóstico, la meta y los huecos (plan v24).
   // El proyecto del nivel: proponer (u otro), aceptar (queda como primaria), entregar (lo corrige el tutor), descartar.
+  // Dejar listo ya lo que va a abrir (la próxima clase, la sesión de idioma, el grafo): lo hace la rutina; esto, a mano.
+  ['POST', /^\/api\/adelantar$/, async () => { soloNube('Dejar listo lo que vas a abrir'); return (await import('./adelantar.ts')).adelantar(db) }],
   // Los agentes con misión (plan v26): crear, ver (con su diario), indicar, pausar y una sesión a mano (en la nube).
   ['GET', /^\/api\/agentes\/misiones$/, async () => {
     const mi = await import('./agentes/misiones.ts')
@@ -1787,6 +1789,12 @@ if (enLaNube() && !enVercel()) {
   const reprocesar = () => { if (ajuste(db, 'reproceso_activo') === '1') void trabajarReproceso(db).catch((e) => console.error('  reproceso:', e instanceof Error ? e.message : e)) }
   setTimeout(reprocesar, 90_000).unref()
   setInterval(reprocesar, 10 * 60_000).unref()
+}
+
+// Recién arrancado, en la nube: lo que va a abrir (la próxima clase, la sesión de idioma, el grafo) se deja listo de fondo,
+// sin esperar a la rutina (un reinicio no lo deja esperando al modelo).
+if (enLaNube() && !enVercel() && !process.env.MASTRO_SIN_RUTINAS) {
+  setTimeout(() => { if (!topeAlcanzado(db)) void import('./adelantar.ts').then((a) => a.adelantar(db)).catch((e) => console.error('  adelantar:', e instanceof Error ? e.message : e)) }, 3 * 60_000).unref()
 }
 
 // Las cuentas: lo aprobado se publica en su horario (solo con conector; «redacta» solo lo que él aprobó).

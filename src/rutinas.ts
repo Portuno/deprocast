@@ -135,6 +135,12 @@ export const ACCIONES: Acciones = {
     }
     return null
   },
+  /** Tres veces por día (en la nube): dejar listo lo que va a abrir (la próxima clase, la sesión de idioma, el grafo). */
+  async adelantar(db, _fecha, ahora) {
+    if (topeAlcanzado(db, ahora) || !(await import('./reproceso.ts')).enLaNube()) return null
+    await (await import('./adelantar.ts')).adelantar(db, ahora)
+    return null
+  },
   /** Tres veces por día (en la nube): los agentes trabajan sus misiones, una sesión cada una si les toca por su Ritmo. */
   async misiones(db, _fecha, ahora) {
     if (topeAlcanzado(db, ahora) || !(await import('./reproceso.ts')).enLaNube()) return null

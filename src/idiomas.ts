@@ -516,3 +516,14 @@ export function practicasQueTocan(db: Db, ahora = Date.now()): Idioma[] {
   return (db.prepare(`${SELECT} WHERE i.hora IS NOT NULL`).all() as any[]).map(deFila).filter((i) => i.hora! <= hhmm && i.ultimoEnvio !== hoy)
 }
 export const marcarEnviada = (db: Db, id: number, ahora = Date.now()) => db.prepare('UPDATE idiomas SET ultimo_envio = ? WHERE aprendizaje_id = ?').run(fechaLocal(ahora), id)
+
+/** Dejar lista la próxima sesión de cada idioma activo (en la nube: gasta tokens). Lo que ya está listo no se rehace. */
+export async function adelantarIdiomas(db: Db, o: { tope?: () => boolean } = {}): Promise<string[]> {
+  const hechos: string[] = []
+  const ids = (db.prepare(`SELECT i.aprendizaje_id AS id, a.tema FROM idiomas i JOIN aprendizajes a ON a.id = i.aprendizaje_id WHERE a.estado = 'activo'`).all() as { id: number; tema: string }[])
+  for (const x of ids) {
+    if (o.tope?.() || sesionLista(db, x.id)) continue
+    try { await prepararSesion(db, x.id); hechos.push(`la próxima sesión de ${x.tema}`) } catch (e) { console.error(`  adelantar idioma (${x.tema}):`, e instanceof Error ? e.message : e) }
+  }
+  return hechos
+}
