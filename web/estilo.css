@@ -2645,3 +2645,13 @@ span.ej-chip { cursor: default; }
 .aca-proyecto p { margin: 0; }
 .aca-pasos { margin: 0; padding-left: 20px; }
 .aca-entrega { display: flex; flex-direction: column; gap: var(--e-2); }
+.m-fb { display: inline-flex; gap: 2px; margin-left: var(--e-2); }
+.m-fb button { background: none; border: 0; padding: 0 2px; cursor: pointer; opacity: .35; font-size: var(--t-2); }
+.m-fb button:hover, .m-fb button.on { opacity: 1; }
+.aca-fb-clase { align-items: center; }
+[data-fb-clase].on, [data-mal-formulada].on { border-color: var(--acento); }
+.rev-tabla { width: 100%; border-collapse: collapse; font-size: var(--t-3); }
+.rev-tabla th, .rev-tabla td { text-align: left; padding: var(--e-1) var(--e-2); border-bottom: 1px solid var(--linea); }
+.rev-tabla th { color: var(--tenue); font-weight: 500; }
+.rev-lecciones, .rev-notas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--e-1); }
+.rev-lecciones li { display: flex; align-items: center; gap: var(--e-2); }

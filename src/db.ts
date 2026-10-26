@@ -1389,6 +1389,28 @@ CREATE TABLE IF NOT EXISTS tutor_proyectos (
   cerrado_en INTEGER
 );
 CREATE INDEX IF NOT EXISTS tutor_proyectos_apr ON tutor_proyectos(aprendizaje_id, nivel);
+-- Su feedback (plan v24): una valoración por cosa (superficie + ref). valor: −1/+1 o 1 a 5 estrellas.
+CREATE TABLE IF NOT EXISTS devoluciones (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  superficie TEXT NOT NULL,            -- clase | explicacion | pregunta | visual | fuente | sugerencia | proyecto | chat
+  ref TEXT NOT NULL,
+  valor REAL NOT NULL,
+  nota TEXT,
+  en INTEGER NOT NULL,
+  UNIQUE (superficie, ref)
+);
+CREATE INDEX IF NOT EXISTS devoluciones_en ON devoluciones(superficie, en);
+-- Lo que aprendió de su feedback: reglas cortas por superficie que entran a los prompts. fijada: la corrigió él.
+CREATE TABLE IF NOT EXISTS lecciones (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  superficie TEXT NOT NULL,
+  texto TEXT NOT NULL,
+  apoyo INTEGER NOT NULL DEFAULT 1,
+  fijada INTEGER NOT NULL DEFAULT 0,
+  estado TEXT NOT NULL DEFAULT 'vigente', -- vigente | archivada
+  creada_en INTEGER NOT NULL,
+  editada_en INTEGER
+);
 CREATE UNIQUE INDEX IF NOT EXISTS dominio_fuentes_obra ON dominio_fuentes(aprendizaje_id, obra_id) WHERE obra_id IS NOT NULL AND pieza_id IS NULL;
 
 -- Lo que se rompió (errores del servidor, rutas que no existen): la materia de la autocrítica. Uno por texto y día.
@@ -1515,6 +1537,7 @@ const RUTINAS_SISTEMA = [
   { id: 'academia', nombre: 'La Academia propone qué te conviene aprender', hora: '08:15', dias: '1', accion: 'academia' },
   { id: 'fuentes', nombre: 'La Academia busca material para un dominio', hora: '05:00', dias: '0123456', accion: 'fuentes' },
   { id: 'huecos', nombre: 'Lo que te falta: tus metas y tus dominios contra tu archivo', hora: '19:50', dias: '0', accion: 'huecos' },
+  { id: 'lecciones', nombre: 'Lo que aprendí de tu feedback (lecciones para la semana)', hora: '20:00', dias: '0', accion: 'lecciones' },
   { id: 'mentor', nombre: 'El Mentor recomienda qué leer o ver', hora: '08:05', dias: '1', accion: 'mentor' },
   { id: 'puentes', nombre: 'Puentes con tu gente', hora: '11:00', dias: '0', accion: 'puentes' },
   { id: 'temporada', nombre: 'Cierre de temporada de la liga', hora: '07:30', dias: '1', accion: 'temporada' },

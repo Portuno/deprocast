@@ -3,6 +3,7 @@
  * Cada turno es un bucle: el modelo responde o pide herramientas; las herramientas corren y vuelven; hasta que contesta.
  * Todo se guarda mensaje a mensaje, así la pantalla ve el avance mientras el turno corre.
  */
+import { leccionesPara } from '../devoluciones.ts'
 import { ahoraEnPalabras, calendarioCorto } from '../zona.ts'
 import { horarioParaPrompt } from '../horario.ts'
 import { yoParaPrompt } from '../yo.ts'
@@ -57,14 +58,20 @@ export type Mensaje = {
   deshacer?: unknown; deshacible?: boolean; deshecho?: boolean
   /** Cómo llegó o salió: 'voz' (dicho o escuchado), 'copiloto' (un consejo pedido), o null (escrito). */
   via?: string | null
+  /** Su 👍 (1) o 👎 (−1) a esta respuesta, si lo dio. */
+  fb?: number | null
 }
 
 const conv = (r: any): Conversacion => ({ id: r.id, con: r.con, modo: r.modo ?? 'chat', titulo: r.titulo, archivada: r.archivada === 1, creadaEn: r.creada_en, actualizadaEn: r.actualizada_en, mensajes: r.mensajes })
 const msj = (r: any): Mensaje => ({
   id: r.id, conversacionId: r.conversacion_id, rol: r.rol, texto: r.texto, llamadas: r.llamadas ? JSON.parse(r.llamadas) : null,
   llamadaId: r.llamada_id, herramienta: r.herramienta, resumen: r.resumen, razonamiento: r.razonamiento, modelo: r.modelo, tokens: r.tokens, en: r.en,
-  deshacible: !!r.deshacer && !r.deshecho_en, deshecho: !!r.deshecho_en, via: r.via ?? null,
+  deshacible: !!r.deshacer && !r.deshecho_en, deshecho: !!r.deshecho_en, via: r.via ?? null, fb: r.fb ?? null,
 })
+/** Lo que aprendió de sus 👍/👎 a las respuestas (plan v24). */
+const leccionesChat = (db: Db) => { try { return leccionesPara(db, 'chat') } catch { return '' } }
+/** Con su 👍/👎 (si lo dio) para la pantalla. */
+const CON_FB = `SELECT m.*, (SELECT d.valor FROM devoluciones d WHERE d.superficie = 'chat' AND d.ref = CAST(m.id AS TEXT)) AS fb FROM mensajes m`
 
 export function crearConversacion(db: Db, con: string = MASTROPIERO, modo: Modo = 'chat', ahora = Date.now()): Conversacion {
   // Un modelo del consejo (modelo:<entidad>) habla desde su manual.
@@ -125,7 +132,7 @@ export function archivarConversacion(db: Db, id: number) {
 }
 
 export function mensajes(db: Db, id: number, desde = 0): Mensaje[] {
-  return db.prepare('SELECT * FROM mensajes WHERE conversacion_id = ? AND id > ? ORDER BY id').all(id, desde).map(msj)
+  return db.prepare(`${CON_FB} WHERE m.conversacion_id = ? AND m.id > ? ORDER BY m.id`).all(id, desde).map(msj)
 }
 
 /**
@@ -133,7 +140,7 @@ export function mensajes(db: Db, id: number, desde = 0): Mensaje[] {
  * turno por la mitad. hayMas: si quedan más viejos. (La conversación de Hoy junta miles: mandarlos todos pesaba megas.)
  */
 export function ultimosMensajes(db: Db, id: number, n = 200, antes?: number | null): { mensajes: Mensaje[]; hayMas: boolean } {
-  const filas = (db.prepare(`SELECT * FROM mensajes WHERE conversacion_id = ? AND id < ? ORDER BY id DESC LIMIT ?`).all(id, antes ?? Number.MAX_SAFE_INTEGER, n + 1) as any[]).reverse()
+  const filas = (db.prepare(`${CON_FB} WHERE m.conversacion_id = ? AND m.id < ? ORDER BY m.id DESC LIMIT ?`).all(id, antes ?? Number.MAX_SAFE_INTEGER, n + 1) as any[]).reverse()
   const hayMas = filas.length > n
   let xs = hayMas ? filas.slice(1) : filas
   if (hayMas) {
@@ -306,6 +313,7 @@ ${finanzasParaPrompt(db)}
 ${saludParaPrompt(db)}
 ${aprenderParaPrompt(db)}
 ${academiaParaPrompt(db)}
+${leccionesChat(db)}
 ${personasParaPrompt(db)}
 ${libreriaParaPrompt(db)}
 ${mencionado(db, mensaje)}

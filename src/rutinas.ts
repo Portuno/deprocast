@@ -127,6 +127,15 @@ export const ACCIONES: Acciones = {
     const r = await (await import('./academia.ts')).reporteHuecos(db, ahora)
     return r?.texto ?? null
   },
+  /** Los domingos (en la nube): su feedback de la semana se vuelve lecciones que entran a los prompts. */
+  async lecciones(db, _fecha, ahora) {
+    if (topeAlcanzado(db, ahora) || !(await import('./reproceso.ts')).enLaNube()) return null
+    const d = await import('./devoluciones.ts')
+    const r = await d.destilarLecciones(db, ahora)
+    const sups = Object.keys(r)
+    if (!sups.length) return null
+    return `Aprendí de tu feedback de la semana: ${sups.map((s) => `${d.SUPERFICIES[s].toLowerCase()} (${r[s]} lecciones)`).join(', ')}. Las ves y las corregís en La máquina → Revisión.`
+  },
   /** De madrugada (en la nube): material nuevo para el dominio que hace más que no busca. Al corpus, sin aviso. */
   async fuentes(db, _fecha, ahora) {
     if (topeAlcanzado(db, ahora) || !(await import('./reproceso.ts')).enLaNube()) return null

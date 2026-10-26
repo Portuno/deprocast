@@ -407,7 +407,7 @@ function pintarClase(r) {
     <section class="aca-preguntas"><h3>${s.tipo === 'examen' ? 'El examen' : s.tipo === 'diagnostico' ? 'Las seis preguntas' : 'Para chequear'}</h3>
       ${p.preguntas.map((q, i) => { const t = turno(i); return `<form class="aca-pregunta ${t ? (t.correcto ? 'bien' : 'mal') : ''}" data-i="${i}">
         <p><b>${i + 1}.</b> ${q.nivel && s.tipo === 'diagnostico' ? `<span class="chip">nivel ${q.nivel}</span> ` : ''}${q.repaso ? `<span class="chip" title="Repaso intercalado: algo que ya viste y le toca volver">repaso · ${esc(q.repaso)}</span> ` : ''}${esc(q.pregunta)}
-          <button type="button" class="btn btn-chico btn-icono" data-oir-parte="pregunta" data-i="${i}" title="Escuchar la pregunta">🔊</button>${abierta && clase ? `<button type="button" class="btn btn-chico btn-icono" data-aclarar="${i}" title="¿Qué me pide? (sin la respuesta)">🤔</button>` : ''}</p>
+          <button type="button" class="btn btn-chico btn-icono" data-oir-parte="pregunta" data-i="${i}" title="Escuchar la pregunta">🔊</button>${abierta && clase ? `<button type="button" class="btn btn-chico btn-icono" data-aclarar="${i}" title="¿Qué me pide? (sin la respuesta)">🤔</button>` : ''}<button type="button" class="btn btn-chico btn-icono" data-mal-formulada="${i}" title="La pregunta está mal formulada (el tutor aprende)">⚑</button></p>
         <div class="aca-aclaraciones" data-aclaraciones="${i}">${aclaraciones(i)}</div>
         <div class="fila"><textarea class="campo-suelto f1" name="respuesta" rows="2" placeholder="Con tus palabras… (o grabalo)" ${abierta ? '' : 'disabled'}>${esc(t?.respuesta ?? '')}</textarea>${abierta ? `<button type="button" class="btn btn-chico btn-icono" data-grabar="${i}" title="Responder hablando">🎙</button><button class="btn btn-chico">${t ? 'De nuevo' : 'Responder'}</button>` : ''}</div>
         <div class="aca-devolucion">${t ? devolucionHTML(t) : ''}</div></form>` }).join('')}
@@ -423,6 +423,13 @@ function pintarClase(r) {
   $$('[data-oir-parte]', cont).forEach((b) => (b.onclick = async () => {
     b.disabled = true
     try { const { urls } = await api(`/academia/sesion/${s.id}/voz`, { parte: b.dataset.oirParte, i: b.dataset.i == null ? null : Number(b.dataset.i) }); await reproducir(urls) } catch (e) { error(e) } finally { b.disabled = false }
+  }))
+  // ⚑ Una pregunta mal formulada: feedback para las lecciones del tutor.
+  $$('[data-mal-formulada]', cont).forEach((b) => (b.onclick = async () => {
+    const i = Number(b.dataset.malFormulada)
+    const nota = await preguntar('¿Qué tiene de malo la pregunta?', '', { placeholder: 'Ambigua, pide memoria, no tiene que ver con la clase…', ok: 'Anotar' })
+    if (nota === null) return
+    try { await api('/devoluciones', { superficie: 'pregunta', ref: `${s.id}:${i}`, valor: -1, nota: `${nota || 'mal formulada'} — «${p.preguntas[i].pregunta}»` }); b.classList.add('on'); toast('Anotado: el tutor lo va a tener en cuenta', 'suave') } catch (e) { error(e) }
   }))
   // «No entendí»: otra explicación, más simple, que queda debajo.
   $$('[data-aclarar]', cont).forEach((b) => (b.onclick = async () => {
@@ -505,7 +512,14 @@ function pintarClase(r) {
         <p>${c.diagnostico ? 'Lo de los niveles de abajo queda como sabido (vuelve pronto a repaso para confirmarlo). Las clases arrancan acá.' : `${[c.tarjetas ? `${c.tarjetas} tarjeta${c.tarjetas === 1 ? '' : 's'} para repasar` : '', c.quantomos ? `${c.quantomos} quántomo${c.quantomos === 1 ? '' : 's'} para La Mano` : '', 'la pieza en tu corpus'].filter(Boolean).join(' · ')}.`}</p>
         ${c.repasar?.length ? `<p>Para repasar antes de volver a intentarlo:</p><ul>${c.repasar.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
         ${c.examen && s.tipo !== 'examen' ? '<p><b>El examen del nivel está habilitado.</b></p>' : ''}
+        ${s.tipo === 'clase' ? `<div class="fila aca-fb-clase"><span class="tenue chico">¿Te sirvió esta clase?</span><button class="btn btn-chico btn-icono" data-fb-clase="1">👍</button><button class="btn btn-chico btn-icono" data-fb-clase="-1">👎</button></div>` : ''}
         <div class="fila"><button class="btn btn-primario" id="aca-otra">▶ Otra clase</button><button class="btn" id="aca-al-dominio">Volver al dominio</button></div></section>`
+      $$('[data-fb-clase]').forEach((b) => (b.onclick = async () => {
+        const valor = Number(b.dataset.fbClase)
+        const nota = await preguntar(valor > 0 ? '¿Qué estuvo bien? (opcional)' : '¿Qué faltó o sobró? (con esto el tutor aprende)', '', { ok: 'Listo' })
+        if (nota === null) return
+        try { await api('/devoluciones', { superficie: 'clase', ref: s.id, valor, nota: nota || `${valor > 0 ? 'sirvió' : 'no sirvió'}: ${p.tema}` }); $$('[data-fb-clase]').forEach((x) => x.classList.toggle('on', x === b)); toast('Anotado', 'suave') } catch (e) { error(e) }
+      }))
       $$('.aca-pregunta textarea, .aca-pregunta button', cont).forEach((x) => (x.disabled = true))
       cerrar.parentElement.remove()
       $('#aca-otra').onclick = () => abrirClase(s.aprendizajeId)

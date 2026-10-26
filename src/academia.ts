@@ -18,6 +18,8 @@ import { crearAprendizaje, leerAprendizaje, listarAprendizajes, recursosDe, regi
 import { enLaNube } from './reproceso.ts'
 import { pedirVisual } from './taller-cola.ts'
 import { leerArtefacto } from './taller.ts'
+import { anotarSilencioso, leccionesPara } from './devoluciones.ts'
+import { anotar } from './decisiones.ts'
 import { anotarRespuesta, bajarDominio, conceptoPorNombre, conceptosDe, conceptosParaRepasar, deTemario, dominioHoy, frontera, guardarMapa, leerConcepto, marcarSabidos, nivelSabido, programarRepaso, ritmoDe, SABIDO, type Concepto } from './conceptos.ts'
 
 export const NIVELES_TUTOR = [
@@ -205,6 +207,7 @@ function contexto(db: Db, d: Dominio, extra: string[] = []): string {
     r.obras.length ? `Obras suyas sobre esto: ${r.obras.map((o) => o.titulo).join(' · ')}` : '',
     material.length ? `El material que sumó para esto: ${material.slice(0, 12).join(' · ')}` : '',
     otros.length ? `Sus otros dominios (para los puentes del nivel frontera): ${otros.join(' · ')}` : '',
+    leccionesPara(db, ['clase', 'explicacion', 'pregunta', 'proyecto']),
     ...extra,
   ].filter(Boolean).join('\n')
 }
@@ -366,7 +369,7 @@ export async function responderTutor(db: Db, sid: number, i: number, respuesta: 
   // Socrático: en el primer intento, si se equivoca, el tutor da una pista y no la respuesta; desde el segundo, explica.
   const intento = (db.prepare(`SELECT COUNT(*) AS n FROM tutor_turnos WHERE sesion_id = ? AND i = ? AND tipo = 'respuesta'`).get(sid, i) as { n: number }).n + 1
   const examen = s.tipo !== 'clase'
-  const d = await modelo(db, SISTEMA_DEVOLUCION, `Nivel ${s.nivel} (${nombreNivel(s.nivel)}). Tema: ${s.tema}\nPregunta: ${p.pregunta}\nClave: ${p.clave}\nIntento: ${examen ? 2 : intento}${examen ? ' (es una evaluación: corregí sin pistas)' : ''}\nRespuesta del alumno: ${r.slice(0, 2000)}`)
+  const d = await modelo(db, SISTEMA_DEVOLUCION, `${leccionesPara(db, 'pregunta') ? `${leccionesPara(db, 'pregunta')}\n` : ''}Nivel ${s.nivel} (${nombreNivel(s.nivel)}). Tema: ${s.tema}\nPregunta: ${p.pregunta}\nClave: ${p.clave}\nIntento: ${examen ? 2 : intento}${examen ? ' (es una evaluación: corregí sin pistas)' : ''}\nRespuesta del alumno: ${r.slice(0, 2000)}`)
   const correcto = !!d?.correcto
   const pista = !correcto && intento === 1 && !examen
   const devolucion = txt(d?.devolucion, 800) || (correcto ? 'Bien.' : pista ? 'No es eso todavía: volvé a la explicación y probá de nuevo.' : 'No es eso: volvé a la explicación.')
@@ -399,6 +402,8 @@ export async function aclarar(db: Db, sid: number, i = -1, ahora = Date.now()): 
   db.prepare(`INSERT INTO tutor_turnos (sesion_id, i, respuesta, correcto, devolucion, tipo, en) VALUES (?, ?, '(no entendí)', 0, ?, 'aclaracion', ?)`).run(sid, i, texto, ahora)
   const cid = p?.conceptoId ?? s.conceptoId
   if (cid) bajarDominio(db, cid, 0.85)
+  // Pedir otra explicación es feedback: esa explicación (o esa pregunta) no alcanzó.
+  anotarSilencioso(db, { superficie: i >= 0 ? 'pregunta' : 'explicacion', ref: `${sid}:${i}`, valor: -1, nota: `pidió otra explicación (${s.tema})` }, ahora)
   return { i, texto }
 }
 
@@ -582,7 +587,7 @@ export async function sugerirAprendizajes(db: Db, o: { ahora?: number; max?: num
   const pendientes = (db.prepare(`SELECT COUNT(*) AS n FROM aprendizajes WHERE estado = 'sugerido'`).get() as { n: number }).n
   const n = Math.max(0, Math.min(3, o.max ?? 3) - pendientes)
   if (!n) return []
-  const datos = await modelo(db, SISTEMA_SUGERIR(n), await contextoSugerir(db, ahora))
+  const datos = await modelo(db, SISTEMA_SUGERIR(n), [await contextoSugerir(db, ahora), leccionesPara(db, 'sugerencia')].filter(Boolean).join('\n\n'))
   const ya = new Set((db.prepare('SELECT tema FROM aprendizajes').all() as { tema: string }[]).map((r) => normTema(r.tema)))
   const nuevos: Dominio[] = []
   for (const s of (Array.isArray(datos?.sugerencias) ? datos.sugerencias : []).slice(0, n)) {
@@ -612,6 +617,8 @@ export async function aceptarSugerencia(db: Db, id: number, ahora = Date.now()):
   const d = leerDominio(db, id)
   if (!d || d.estado !== 'sugerido') throw new Error('Esa sugerencia ya no está')
   db.prepare(`UPDATE aprendizajes SET estado = 'activo', creado_en = ? WHERE id = ?`).run(ahora, id)
+  anotar(db, 'aprender', id, 'aceptada', { ahora })
+  anotarSilencioso(db, { superficie: 'sugerencia', ref: id, valor: 1, nota: `aceptó: ${d.tema}${(d.sugerencia as any)?.porQue ? ` (${(d.sugerencia as any).porQue})` : ''}` }, ahora)
   try { (await import('./entidades.ts')).asegurarPorNombre(db, d.tema, 'dominio', ahora) } catch { /* el grafo es un plus */ }
   // Si vino con fecha (un evento), queda como meta: llegar al nivel siguiente para ese día.
   const fecha = (d.sugerencia as any)?.fecha
@@ -627,6 +634,8 @@ export function descartarSugerencia(db: Db, id: number) {
   const d = leerDominio(db, id)
   if (!d || d.estado !== 'sugerido') throw new Error('Esa sugerencia ya no está')
   db.prepare(`UPDATE aprendizajes SET estado = 'descartado' WHERE id = ?`).run(id)
+  anotar(db, 'aprender', id, 'rechazada')
+  anotarSilencioso(db, { superficie: 'sugerencia', ref: id, valor: -1, nota: `descartó: ${d.tema}${(d.sugerencia as any)?.porQue ? ` (${(d.sugerencia as any).porQue})` : ''}` })
   return { ok: true }
 }
 
@@ -669,7 +678,7 @@ export async function buscarFuentes(db: Db, id: number, o: { ahora?: number; con
   const ya = [...r.obras.map((x) => x.titulo), ...materialDe(db, id).map((m) => m.titulo)]
   // Si hay un concepto de su nivel sin material (un hueco), la búsqueda va por ese.
   const concepto = o.concepto ?? conceptosDe(db, id).find((x) => x.sinMaterial === true && x.nivel >= d.tutorNivel && dominioHoy(x, ahora) < SABIDO)?.nombre ?? null
-  const c = await modelo(db, SISTEMA_FUENTES(d.tutorNivel), [`Tema: ${d.tema}`, concepto ? `Concepto puntual que le falta (buscá material sobre ESTO): ${concepto}` : '', d.porQue ? `Para qué: ${d.porQue}` : '', ya.length ? `Ya tiene: ${ya.slice(0, 15).join(' · ')}` : ''].filter(Boolean).join('\n'))
+  const c = await modelo(db, SISTEMA_FUENTES(d.tutorNivel), [leccionesPara(db, 'fuente'), `Tema: ${d.tema}`, concepto ? `Concepto puntual que le falta (buscá material sobre ESTO): ${concepto}` : '', d.porQue ? `Para qué: ${d.porQue}` : '', ya.length ? `Ya tiene: ${ya.slice(0, 15).join(' · ')}` : ''].filter(Boolean).join('\n'))
   const consultas = (Array.isArray(c?.consultas) ? c.consultas : []).map((x: unknown) => txt(x, 160)).filter(Boolean).slice(0, 4) as string[]
   const listas: { titulo: string; url: string }[][] = []
   for (const q of consultas) {
@@ -772,7 +781,11 @@ export async function sumarMaterial(db: Db, id: number, m: { url?: string | null
 /** Sirve (1), no sirve (−1) o sin opinión (0); o quitarlo del dominio (la pieza sigue en el corpus). */
 export function marcarMaterial(db: Db, id: number, fid: number, c: { util?: number; quitar?: boolean }) {
   if (c.quitar) db.prepare('DELETE FROM dominio_fuentes WHERE id = ? AND aprendizaje_id = ?').run(fid, id)
-  else db.prepare('UPDATE dominio_fuentes SET util = ? WHERE id = ? AND aprendizaje_id = ?').run(c.util ? Math.sign(c.util) : null, fid, id)
+  else {
+    db.prepare('UPDATE dominio_fuentes SET util = ? WHERE id = ? AND aprendizaje_id = ?').run(c.util ? Math.sign(c.util) : null, fid, id)
+    const m = materialDe(db, id).find((x) => x.id === fid)
+    if (m && c.util) anotarSilencioso(db, { superficie: 'fuente', ref: m.piezaId ?? `obra:${m.obraId}`, valor: Math.sign(c.util), nota: `${c.util > 0 ? 'sirve' : 'no sirve'}: ${m.titulo}${m.url ? ` (${m.url})` : ''}` })
+  }
   return materialDe(db, id)
 }
 
@@ -916,7 +929,10 @@ export async function proponerProyecto(db: Db, id: number, ahora = Date.now()): 
   const r = await modelo(db, SISTEMA_PROYECTO(n), contexto(db, d, [sabidos.length ? `Lo que ya sabe: ${sabidos.join(' · ')}` : '', anterior ? `No le gustó este (proponé otra cosa): ${anterior.titulo}` : '']))
   const titulo = txt(r?.titulo, 120)
   if (!titulo) throw new Error('El tutor no armó el proyecto: probá de nuevo')
-  if (anterior) db.prepare(`UPDATE tutor_proyectos SET estado = 'descartado' WHERE id = ?`).run(anterior.id)
+  if (anterior) {
+    db.prepare(`UPDATE tutor_proyectos SET estado = 'descartado' WHERE id = ?`).run(anterior.id)
+    anotarSilencioso(db, { superficie: 'proyecto', ref: anterior.id, valor: -1, nota: `pidió otro en vez de «${anterior.titulo}»` }, ahora)
+  }
   const pid = Number(db.prepare('INSERT INTO tutor_proyectos (aprendizaje_id, nivel, titulo, objetivo, pasos, entregable, criterio, creado_en) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
     .run(id, n, titulo, txt(r.objetivo, 600) || null, JSON.stringify((Array.isArray(r.pasos) ? r.pasos : []).map((x: unknown) => txt(x, 300)).filter(Boolean).slice(0, 8)), txt(r.entregable, 400) || null, txt(r.criterio, 600) || null, ahora).lastInsertRowid)
   return leerProyecto(db, pid)!
@@ -942,6 +958,7 @@ export async function aceptarProyecto(db: Db, pid: number, ahora = Date.now()): 
     detalle: [p.objetivo, p.pasos.length ? `Pasos: ${p.pasos.map((x, i) => `${i + 1}) ${x}`).join(' ')}` : '', p.entregable ? `Entregá: ${p.entregable}` : '', p.criterio ? `Está bien si: ${p.criterio}` : ''].filter(Boolean).join('\n'),
   }, { por: 'academia', ahora })
   db.prepare(`UPDATE tutor_proyectos SET estado = 'aceptado', mision_id = ? WHERE id = ?`).run(m.id, pid)
+  anotarSilencioso(db, { superficie: 'proyecto', ref: pid, valor: 1, nota: `aceptó «${p.titulo}»` }, ahora)
   return leerProyecto(db, pid)!
 }
 

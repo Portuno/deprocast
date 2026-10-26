@@ -395,13 +395,13 @@ function hiloHTML(ms, q, vivo) {
     // Un momento del Directo en vivo (Hoy): una línea fina, como un evento.
     if (m.rol === 'momento') { turnos.push({ evento: m, momento: true }); continue }
     // Lo que manda una rutina (el saludo, el cierre, la calificación) es su propio mensaje: no se pega a la respuesta anterior.
-    if (m.rol === 'asistente' && m.modelo === 'rutina') { turnos.push({ yo: null, herr: [], textos: m.texto ? [m.texto] : [], errores: [], tokens: 0, modelo: 'rutina', rutina: true, en: m.en }); continue }
+    if (m.rol === 'asistente' && m.modelo === 'rutina') { turnos.push({ yo: null, herr: [], textos: m.texto ? [m.texto] : [], errores: [], tokens: 0, modelo: 'rutina', rutina: true, en: m.en, ultimoId: m.id, fb: m.fb ?? null }); continue }
     if (m.rol === 'operador' || !turnos.length || turnos.at(-1).evento || turnos.at(-1).rutina) turnos.push({ yo: m.rol === 'operador' ? m : null, herr: [], textos: [], errores: [], tokens: 0, modelo: null })
     const t = turnos.at(-1)
     if (m.rol === 'herramienta') t.herr.push(m)
     else if (m.rol === 'error') t.errores.push(m)
     else if (m.rol === 'asistente') {
-      if (m.texto) t.textos.push(m.texto)
+      if (m.texto) { t.textos.push(m.texto); t.ultimoId = m.id; t.fb = m.fb ?? null }
       if (m.via === 'voz') t.oido = true
       t.tokens += m.tokens ?? 0
       t.modelo = m.modelo ?? t.modelo
@@ -425,7 +425,9 @@ function turnoHTML(t, q, vivo) {
   const texto = [...t.textos.map((x) => partirSeguir(x).texto), borrador].filter(Boolean).join('\n\n')
   const haciendo = vivo && !borrador
     ? `<div class="pensando"><span><i></i><i></i><i></i></span>${esc(vivo.herramienta ? (VIVO[vivo.herramienta]?.(vivo.argumentos) ?? 'trabajando') : t.herr.length ? 'pensando qué decirte' : 'pensando')}…</div>` : ''
-  const meta = !vivo && t.modelo ? `<div class="m-meta">${t.rutina ? `rutina${t.en ? ` · ${new Date(t.en).toTimeString().slice(0, 5)}` : ''}` : `${esc(t.modelo)}${t.tokens ? ` · ${t.tokens.toLocaleString('es-AR')} tokens` : ''}${t.oido ? ' · 🔊' : ''}`}</div>` : ''
+  // 👍/👎 a la respuesta: su feedback se vuelve lecciones para las próximas (La máquina → Revisión).
+  const fb = !vivo && t.ultimoId ? `<span class="m-fb"><button type="button" class="${t.fb === 1 ? 'on' : ''}" data-fb="${t.ultimoId}" data-v="1" title="Me sirvió">👍</button><button type="button" class="${t.fb === -1 ? 'on' : ''}" data-fb="${t.ultimoId}" data-v="-1" title="No me sirvió (contame por qué)">👎</button></span>` : ''
+  const meta = !vivo && t.modelo ? `<div class="m-meta">${t.rutina ? `rutina${t.en ? ` · ${new Date(t.en).toTimeString().slice(0, 5)}` : ''}` : `${esc(t.modelo)}${t.tokens ? ` · ${t.tokens.toLocaleString('es-AR')} tokens` : ''}${t.oido ? ' · 🔊' : ''}`}${fb}</div>` : ''
   if (actividad || texto || haciendo) {
     h += `<div class="m m-el"><span class="avatar" style="--c:${q.color}">${q.glifo}</span><div>${actividad}
       ${texto ? `<div class="md">${md(texto)}${borrador ? '<span class="cursor"></span>' : ''}</div>` : ''}${haciendo}${meta}</div></div>`
@@ -583,6 +585,20 @@ function preguntarAMastropiero(texto) {
   cerrarModal()
   irA('chat')
 }
+
+// 👍/👎 a una respuesta (con 👎, una nota opcional de qué faltó).
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest?.('[data-fb]')
+  if (!b) return
+  e.preventDefault()
+  const valor = Number(b.dataset.v)
+  const nota = valor < 0 ? await preguntar('¿Qué no te sirvió? (opcional: con esto aprende)', '', { placeholder: 'Muy largo, no era eso, inventó…', ok: 'Listo' }) : null
+  try {
+    await api('/devoluciones', { superficie: 'chat', ref: b.dataset.fb, valor, nota: nota || null })
+    b.parentElement.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b))
+    toast(valor > 0 ? 'Anotado 👍' : 'Anotado: lo tengo en cuenta', 'suave')
+  } catch (err) { error(err) }
+})
 
 // ↶ deshacer: confirma, vuelve atrás lo que anotó en ese turno y recarga la charla.
 document.addEventListener('click', async (e) => {

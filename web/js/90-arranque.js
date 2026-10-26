@@ -30,6 +30,7 @@ const VISTAS = {
   cuadernos: { montar: montarCuadernos, refrescar: refrescarCuadernos },
   libreria: { montar: montarLibreria, refrescar: () => {} },
   fragua: { montar: montarFragua, refrescar: refrescarFragua },
+  revision: { montar: montarRevision, refrescar: () => {} },
   quantomos: { montar: montarQuantomos, refrescar: refrescarQuantomos },
   matriz: { montar: montarMatriz, refrescar: montarMatriz },
   cementerio: { montar: montarCementerio, refrescar: montarCementerio },
@@ -73,7 +74,7 @@ const ESPACIOS = [
   { id: 'aprender', nombre: 'Aprender', ico: 'graduation-cap', tecla: 'a', vistas: [['aprender', 'Academia'], ['idiomas', 'Idiomas'], ['mano', 'La Mano'], ['criba', 'Criba']] },
   { id: 'saber', nombre: 'Saber', ico: 'library', tecla: 's', vistas: [['corpus', 'Corpus'], ['cuadernos', 'Cuadernos'], ['libreria', 'Librería'], ['entidades', 'Entidades']] },
   { id: 'afuera', nombre: 'Afuera', ico: 'globe', tecla: 'f', vistas: [['taller', 'Taller'], ['radar', 'Radar'], ['cuentas', 'Cuentas'], ['discovery', 'Discovery']] },
-  { id: 'maquina', nombre: 'La máquina', ico: 'cog', tecla: 'm', vistas: [['fragua', 'La Fragua'], ['liga', 'Roster'], ['forja', 'Forja'], ['encargos', 'Encargos'], ['matriz', 'Matriz 72'], ['cementerio', 'Cementerio']] },
+  { id: 'maquina', nombre: 'La máquina', ico: 'cog', tecla: 'm', vistas: [['fragua', 'La Fragua'], ['revision', 'Revisión'], ['liga', 'Roster'], ['forja', 'Forja'], ['encargos', 'Encargos'], ['matriz', 'Matriz 72'], ['cementerio', 'Cementerio']] },
 ]
 /** Las vistas que viven adentro de otra (se marcan como esa pestaña). */
 const VISTA_PADRE = { quantomos: 'corpus', estudio: 'taller' }

@@ -31,6 +31,7 @@ export const TIPOS: Record<string, { nombre: string; auto: boolean }> = {
   nombre: { nombre: 'Nombres del archivo (personas, proyectos, lugares)', auto: false },
   quantomo: { nombre: 'Quántomos proto', auto: false },
   propuesta: { nombre: 'Propuestas de mejora', auto: false },
+  aprender: { nombre: 'Lo que te propone aprender (Academia)', auto: false },
 }
 export const CLAVES_TIPO = Object.keys(TIPOS)
 

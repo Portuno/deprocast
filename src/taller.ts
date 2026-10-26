@@ -179,7 +179,8 @@ export async function crearVisual(db: Db, id: number): Promise<Artefacto> {
     const previoDatos = padre?.meta.plantilla && padre.meta.plantilla !== 'libre' && padre.archivos.includes('datos.json')
       ? { plantilla: padre.meta.plantilla, datos: JSON.parse(fs.readFileSync(path.join(carpeta(padre.id), 'datos.json'), 'utf8')) } : null
     if (!padre || previoDatos) {
-      const d = await datosVisual(db, { clase: a.meta.clase, concepto: a.meta.concepto ?? a.titulo, pedido: a.pedido, dominio: a.meta.dominio, nivel: a.meta.nivel }, previoDatos)
+      const lecciones = (await import('./devoluciones.ts')).leccionesPara(db, 'visual')
+      const d = await datosVisual(db, { clase: a.meta.clase, concepto: a.meta.concepto ?? a.titulo, pedido: a.pedido, dominio: a.meta.dominio, nivel: a.meta.nivel, lecciones }, previoDatos)
       if (d) {
         fs.writeFileSync(path.join(carpeta(a.id), 'datos.json'), JSON.stringify(d.datos))
         fs.writeFileSync(path.join(carpeta(a.id), 'index.html'), shellVisual(d.plantilla, d.datos, a.meta.concepto ?? a.titulo))
@@ -217,6 +218,8 @@ export function valorarArtefacto(db: Db, id: number, estrellas: number, nota?: s
   const e = Math.max(1, Math.min(5, Math.round(Number(estrellas))))
   if (!Number.isFinite(e)) throw new Error('De 1 a 5 estrellas')
   db.prepare('UPDATE artefactos SET meta = ? WHERE id = ?').run(JSON.stringify({ ...a.meta, valoracion: e, nota: nota?.trim().slice(0, 500) || null, sellado: e >= 4 }), id)
+  // Para las lecciones de los visuales: las estrellas con la plantilla y su nota.
+  if (a.tipo === 'visual') void import('./devoluciones.ts').then((d) => d.anotarSilencioso(db, { superficie: 'visual', ref: id, valor: e, nota: [a.meta.plantilla ? `plantilla ${a.meta.plantilla}` : '', a.meta.concepto ?? a.titulo, nota?.trim()].filter(Boolean).join(' · ') }))
   return leerArtefacto(db, id)!
 }
 

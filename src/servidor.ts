@@ -751,6 +751,11 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/academia\/(\d+)\/material\/(\d+)$/, async (b, [a, f]) => ({ material: (await import('./academia.ts')).marcarMaterial(db, id(a), id(f), { util: b.util == null ? undefined : Number(b.util), quitar: !!b.quitar }) })],
   // El mapa de conceptos, el diagnóstico, la meta y los huecos (plan v24).
   // El proyecto del nivel: proponer (u otro), aceptar (queda como primaria), entregar (lo corrige el tutor), descartar.
+  // Su feedback y la revisión (plan v24): valorar cualquier cosa, las lecciones que salen de eso y las métricas.
+  ['POST', /^\/api\/devoluciones$/, async (b) => (await import('./devoluciones.ts')).anotarDevolucion(db, { superficie: String(b.superficie ?? ''), ref: String(b.ref ?? ''), valor: Number(b.valor), nota: b.nota ?? null })],
+  ['GET', /^\/api\/revision$/, async () => (await import('./devoluciones.ts')).revision(db)],
+  ['POST', /^\/api\/lecciones\/destilar$/, async () => { soloNube('Destilar lecciones'); return (await import('./devoluciones.ts')).destilarLecciones(db) }],
+  ['POST', /^\/api\/lecciones\/(\d+)$/, async (b, [l]) => ({ lecciones: (await import('./devoluciones.ts')).editarLeccion(db, id(l), { texto: b.texto, borrar: !!b.borrar }) })],
   ['POST', /^\/api\/academia\/(\d+)\/proyecto$/, async (_, [a]) => (await import('./academia.ts')).proponerProyecto(db, id(a))],
   ['POST', /^\/api\/academia\/proyecto\/(\d+)\/aceptar$/, async (_, [p]) => (await import('./academia.ts')).aceptarProyecto(db, id(p))],
   ['POST', /^\/api\/academia\/proyecto\/(\d+)\/entregar$/, async (b, [p]) => (await import('./academia.ts')).entregarProyecto(db, id(p), { texto: String(b.texto ?? ''), url: b.url || null })],
