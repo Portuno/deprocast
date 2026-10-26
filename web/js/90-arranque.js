@@ -100,10 +100,13 @@ function pintarNav() {
 /** Entrar a un espacio: a la última pestaña que abrió ahí; si nunca, a la que más usa (o la primera). */
 function irAEspacio(id) {
   const e = ESPACIOS.find((x) => x.id === id)
-  if (!e) return
-  const ultima = pref.leer(`mastro-espacio-${id}`, '')
+  if (e) irA(vistaDeEntrada(e))
+}
+/** La pestaña por la que se entra a un espacio: la última que abrió ahí; si nunca, la que más usa. */
+function vistaDeEntrada(e) {
+  const ultima = pref.leer(`mastro-espacio-${e.id}`, '')
   const masUsada = [...e.vistas].sort((a, b) => (usoVistas[b[0]] ?? 0) - (usoVistas[a[0]] ?? 0))[0][0]
-  irA(e.vistas.some(([v]) => v === ultima) ? ultima : masUsada)
+  return e.vistas.some(([v]) => v === ultima) ? ultima : masUsada
 }
 
 /** El menú y las pestañas del espacio de la vista abierta. */
@@ -125,6 +128,43 @@ $('#nav-espacios').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-espacio]')
   if (b) irAEspacio(b.dataset.espacio)
 })
+// Pasar el mouse (o apoyar el dedo) sobre una sección ya la trae: su archivo y sus datos llegan antes del clic.
+$('#nav-espacios').addEventListener('pointerover', (e) => {
+  const b = e.target.closest('button[data-espacio]')
+  const esp = b && ESPACIOS.find((x) => x.id === b.dataset.espacio)
+  if (esp) precargarVista(vistaDeEntrada(esp))
+})
+$('#pestanas').addEventListener('pointerover', (e) => {
+  const b = e.target.closest('button[data-vista]')
+  if (b) precargarVista(b.dataset.vista)
+})
+
+/** Trae de antemano lo que una vista va a pedir al abrirse: su archivo (si todavía no bajó) y las rutas que aprendió. */
+function precargarVista(v) {
+  if (!VISTAS[v] || v === vista) return
+  const archivo = VISTAS[v].montar?.archivo
+  if (archivo) cargarScript(archivo).catch(() => {})
+  for (const r of rutasDeVista[v] ?? []) precargarDatos(r)
+}
+
+/** Con la sección abierta, las pestañas vecinas quedan listas (si él sigue ahí un momento). */
+function precargarVecinas(v) {
+  if (vista !== v || document.hidden) return
+  for (const [x] of espacioDe(v).vistas.filter(([x]) => x !== (VISTA_PADRE[v] ?? v)).slice(0, 3)) precargarVista(x)
+}
+
+/** Con la pantalla quieta, bajan los archivos de las vistas (las que más usa primero), de a uno. */
+function precargarArchivos() {
+  if (navigator.connection?.saveData) return
+  const archivos = [...new Set(Object.keys(VISTAS).sort((a, b) => (usoVistas[b] ?? 0) - (usoVistas[a] ?? 0)).map((v) => VISTAS[v].montar?.archivo).filter(Boolean))]
+  const quieto = (f) => ('requestIdleCallback' in window ? requestIdleCallback(f, { timeout: 4000 }) : setTimeout(f, 400))
+  const siguiente = () => {
+    const a = archivos.shift()
+    if (a) quieto(() => cargarScript(a).catch(() => {}).finally(() => setTimeout(siguiente, 250)))
+  }
+  setTimeout(siguiente, 2500)
+}
+
 $('#pestanas').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-vista]')
   if (b && b.dataset.vista !== (VISTA_PADRE[vista] ?? vista)) irA(b.dataset.vista)
@@ -162,9 +202,11 @@ function irA(v) {
   pintarEspacio(v)
   $$('#barra-abajo [data-abajo]').forEach((b) => b.classList.toggle('activo', b.dataset.abajo === v || (b.dataset.abajo === 'mas' && v !== 'hoy' && v !== 'chat')))
   document.title = `${nombreDeVista(VISTA_PADRE[v] ?? v)} · Mastropiero`
+  montando = { vista: v, desde: Date.now() } // lo que pida en sus primeros segundos se aprende (y la próxima vez llega antes)
   VISTAS[v].montar()
   $('#principal').scrollTop = 0
   api('/uso', { vista: v }).catch(() => {}) // qué usa de verdad (para rankear con datos)
+  setTimeout(() => precargarVecinas(v), 1500)
 }
 
 
@@ -332,6 +374,7 @@ async function iniciar() {
   $('#btn-directo').onclick = modalDirecto
   pintarIndicadorDirecto()
   irA(location.hash.slice(1) || 'hoy')
+  precargarArchivos()
   window.addEventListener('hashchange', () => { if (location.hash.slice(1) !== vista) irA(location.hash.slice(1)) })
   // Su hora, no la del servidor: la zona del navegador viaja una vez (o cuando cambia, si viaja).
   try {

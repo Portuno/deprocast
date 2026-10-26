@@ -16,12 +16,45 @@ function cuandoSeVea(f) {
 }
 
 async function api(ruta, cuerpo) {
+  if (cuerpo === undefined) {
+    // Lo que se trajo de antemano (al pasar por el menú o mirando la sección vecina): se usa una vez y si está fresco.
+    const p = precargas.get(ruta)
+    precargas.delete(ruta)
+    if (p && Date.now() - p.en < FRESCO_MS) { try { return await p.promesa } catch { /* cae al pedido de siempre */ } }
+    aprenderRuta(ruta)
+  } else if (!/^\/(uso|zona)\b/.test(ruta)) precargas.clear() // lo que él cambia invalida lo traído antes (lo que se anota de uso, no)
   const r = await fetch('/api' + ruta, cuerpo === undefined ? {} : {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cuerpo),
   })
   const j = await r.json()
   if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`)
   return j
+}
+
+// ─── traer de antemano (que cada sección abra al instante) ──────────────
+// Cada sección pide lo suyo al abrirse; esas rutas se aprenden (las de los primeros segundos de cada vista) y la próxima
+// vez se piden antes de entrar: al pasar el mouse o tocar el menú, y para las pestañas vecinas de la sección abierta.
+
+const FRESCO_MS = 30_000
+const precargas = new Map()
+const RUTAS_DE_TODOS = /^\/(estado|meta|hoy\/hud|menciones|uso|velocidad)\b/
+let montando = null
+let rutasDeVista = (() => { try { return JSON.parse(localStorage.getItem('mastro-rutas') || '{}') } catch { return {} } })()
+
+/** Las rutas que pide una vista en sus primeros segundos quedan anotadas para traerlas antes la próxima vez. */
+function aprenderRuta(ruta) {
+  if (!montando || Date.now() - montando.desde > 2500 || RUTAS_DE_TODOS.test(ruta)) return
+  const xs = (rutasDeVista[montando.vista] ?? []).filter((x) => x !== ruta)
+  rutasDeVista[montando.vista] = [ruta, ...xs].slice(0, 6)
+  try { localStorage.setItem('mastro-rutas', JSON.stringify(rutasDeVista)) } catch { /* sin almacenamiento: se aprende de nuevo */ }
+}
+
+function precargarDatos(ruta) {
+  const ya = precargas.get(ruta)
+  if (ya && Date.now() - ya.en < FRESCO_MS) return
+  const promesa = fetch('/api' + ruta).then(async (r) => { const j = await r.json(); if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`); return j })
+  promesa.catch(() => precargas.delete(ruta))
+  precargas.set(ruta, { en: Date.now(), promesa })
 }
 
 let META = null

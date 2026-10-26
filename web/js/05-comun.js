@@ -36,6 +36,7 @@ for (const [archivo, info] of Object.entries(window.PEREZOSOS ?? {})) {
         return window[fn](...args)
       })
     }
+    stub.archivo = archivo // para traer el archivo de antemano (precargarVista)
     window[fn] = stub
   }
 }
