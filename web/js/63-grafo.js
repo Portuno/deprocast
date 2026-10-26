@@ -454,6 +454,8 @@ function diffHTML(d) {
     ${d.murieron.length ? `<h4>Se apagaron</h4><p class="chico">${d.murieron.map((c) => `[${c.top.slice(0, 4).map(esc).join(', ')}]`).join(' · ')}</p>` : ''}
     ${d.juntaron.length ? `<h4>Se juntaron</h4>${d.juntaron.map((j) => `<p class="chico">${j.eran.map((e) => `[${lista(e)}]`).join(' + ')} → [${lista(j.top)}]</p>`).join('')}` : ''}
     ${d.partieron.length ? `<h4>Se partieron</h4>${d.partieron.map((p) => `<p class="chico">[${lista(p.de)}] → ${p.en.map((e) => `[${lista(e)}]`).join(' + ')}</p>`).join('')}` : ''}
+    ${d.crecen?.length ? `<h4>Crecen</h4><p class="chico">${d.crecen.map((c) => `[${lista(c.top)}] ${c.antes} → ${c.ahora}`).join(' · ')}</p>` : ''}
+    ${d.achican?.length ? `<h4>Se achican</h4><p class="chico">${d.achican.map((c) => `[${lista(c.top)}] ${c.antes} → ${c.ahora}`).join(' · ')}</p>` : ''}
     ${d.bisagrasSuben.length ? `<h4>Bisagras que suben</h4><p class="chico">${d.bisagrasSuben.map(esc).join(' · ')}</p>` : ''}
     ${d.bisagrasBajan.length ? `<h4>Bisagras que bajan</h4><p class="chico">${d.bisagrasBajan.map(esc).join(' · ')}</p>` : ''}
     ${d.nuevos.length ? `<h4>Conceptos nuevos</h4><p class="chico">${d.nuevos.map(esc).join(' · ')}</p>` : ''}
@@ -579,9 +581,39 @@ async function montarGrafoSalud() {
   try {
     const { grafos } = await api('/grafos')
     const voz = grafos.find((g) => g.tipo === 'voz')
-    const r = await api(`/grafos/${voz.id}`)
-    const h = r.historia
-    $('#gfh-cuerpo').innerHTML = `<section class="seccion"><h3>Tu voz, hoy: ${esc(r.foto?.metricas.estado ?? '—')}</h3><p>${esc(ESTADOS[r.foto?.metricas.estado] ?? '')}</p><p class="tenue chico">Los umbrales de los estados vienen de la literatura y se calibran con tu historia (con un mes de fotos ya dicen algo tuyo).</p></section>
-      <section class="seccion"><h3>La historia</h3>${h.length ? `<table class="rev-tabla"><thead><tr><th>Foto</th><th>Textos</th><th>Conceptos</th><th>M</th><th>C1</th><th>C2</th><th>E</th><th>Estado</th></tr></thead><tbody>${h.map((x) => `<tr><td>${new Date(x.en).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}</td><td>${x.documentos}</td><td>${x.metricas?.n ?? '—'}</td><td>${x.metricas?.M ?? '—'}</td><td>${x.metricas ? Math.round(x.metricas.C1 * 100) + '%' : '—'}</td><td>${x.metricas ? Math.round(x.metricas.C2 * 100) + '%' : '—'}</td><td>${x.metricas?.E ?? '—'}</td><td>${esc(x.metricas?.estado ?? '')}</td></tr>`).join('')}</tbody></table>` : '<p class="tenue">Todavía una sola foto.</p>'}</section>`
+    pintarSaludGrafo(voz.id, await api(`/grafos/${voz.id}/salud`))
   } catch (e) { error(e) }
+}
+
+const pctGrafo = (x) => `${Math.round(x * 100)}%`
+const grupoGrafo = (ts) => `«${ts.slice(0, 4).map(esc).join(', ')}»`
+
+function pintarSaludGrafo(grafoId, s) {
+  const m = s.metricas, c = s.calibracion, u = s.umbrales
+  const rango = (k, f = (x) => x) => (c ? `<small class="tenue">tu rango ${f(c[k].min)}–${f(c[k].max)}</small>` : '')
+  const cambios = s.cambios
+  const algo = cambios && ['nacieron', 'crecen', 'juntaron', 'partieron', 'achican', 'disueltos', 'bisagrasSuben', 'nuevos'].some((k) => cambios[k].length)
+  $('#gfh-cuerpo').innerHTML = `<section class="seccion"><h3>Tu voz, hoy: ${esc(s.estado ?? '—')}</h3><p>${esc(ESTADOS[s.estado] ?? '')}</p>
+      ${m ? `<div class="gf-salud-medidas">
+        <div><b>M ${m.M}</b><small>qué tan marcados están los grupos</small>${rango('M')}</div>
+        <div><b>C1 ${pctGrafo(m.C1)}</b><small>el grupo mayor</small>${rango('C1', pctGrafo)}</div>
+        <div><b>C2 ${pctGrafo(m.C2)}</b><small>lo conectado</small>${rango('C2', pctGrafo)}</div>
+        <div><b>E ${m.E}</b><small>cuán repartida está la influencia</small>${rango('E')}</div></div>` : ''}
+      <p class="tenue chico">${c ? `Calibrado con ${c.semanas} semanas tuyas: tu estado habitual es <b>${esc(c.habitual)}</b>. ` : `Umbrales de la literatura, <b>a calibrar</b>: con ${s.semanasParaCalibrar} semanas de historia ya dicen algo tuyo (van ${s.semanas.length}). `}Sesgado si M &lt; ${u.mBajo}; disperso si M &gt; ${u.mAlto} y lo conectado baja de ${pctGrafo(u.c2Fragmentado)}; enfocado si un grupo pasa el ${pctGrafo(u.c1Domina)}.</p></section>
+    <section class="seccion"><h3>Lo que cambió${cambios ? ` desde el ${new Date(cambios.desde).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}` : ''}</h3>${cambios ? `<ul class="gf-salud-cambios">
+      ${cambios.nacieron.map((t) => `<li>🌱 Nació ${grupoGrafo(t)}</li>`).join('')}
+      ${cambios.crecen.map((x) => `<li>↗ Crece ${grupoGrafo(x.top)} <small class="tenue">${x.antes} → ${x.ahora} conceptos</small></li>`).join('')}
+      ${cambios.juntaron.map((x) => `<li>⨝ Se juntaron ${x.eran.map(grupoGrafo).join(' y ')}</li>`).join('')}
+      ${cambios.partieron.map((x) => `<li>⑂ Se partió ${grupoGrafo(x.de)} en ${x.en.map(grupoGrafo).join(' y ')}</li>`).join('')}
+      ${cambios.achican.map((x) => `<li>↘ Se achica ${grupoGrafo(x.top)} <small class="tenue">${x.antes} → ${x.ahora}</small></li>`).join('')}
+      ${cambios.disueltos.map((t) => `<li>· Se disolvió ${grupoGrafo(t)}</li>`).join('')}
+      ${cambios.bisagrasSuben.length ? `<li>⤴ Bisagras que suben: ${cambios.bisagrasSuben.map(esc).join(', ')}</li>` : ''}
+      ${cambios.nuevos.length ? `<li class="tenue">Conceptos nuevos: ${cambios.nuevos.slice(0, 10).map(esc).join(', ')}</li>` : ''}</ul>${algo ? '' : '<p class="tenue">Nada que valga decir: los grupos son los mismos.</p>'}` : '<p class="tenue">Con una segunda foto (de otro día) aparece lo que cambió.</p>'}</section>
+    <section class="seccion"><h3>Posibles bucles <small class="tenue">(una señal para mirar, no un diagnóstico)</small></h3>${s.bucles.length ? `<ul>${s.bucles.map((b) => `<li><b>${esc(b.forma)}</b> <small class="tenue">conecta cada vez más (${b.antes.toFixed(3)} → ${b.ahora.toFixed(3)}) sin que crezca su grupo: ¿volvés sobre lo mismo desde todos lados?</small></li>`).join('')}</ul>` : '<p class="tenue">Ninguno: nada crece en influencia sin crecer en contenido.</p>'}</section>
+    <section class="seccion"><h3>Palabras que se usan igual <small class="tenue">(¿son la misma?)</small></h3>${s.alias.length ? `<ul class="gf-salud-alias">${s.alias.map((x) => `<li><span class="f1"><b>${esc(x.a)}</b> → <b>${esc(x.b)}</b> <small class="tenue">${pctGrafo(x.parecido)} de vecinos en común</small></span><button class="btn btn-chico" data-gfs-alias="${esc(x.a)}" data-destino="${esc(x.b)}" title="En el grafo, «${esc(x.a)}» pasa a contar como «${esc(x.b)}» (Mis grafos → Diccionario)">Unificar</button></li>`).join('')}</ul><p class="tenue chico">Las entidades que se usan igual aparecen en Corpus → Duplicados («Es esa / Es otra»).</p>` : '<p class="tenue">Nada para unificar por ahora.</p>'}</section>
+    <section class="seccion"><h3>La historia, semana a semana</h3>${s.semanas.length ? `<div class="gf-tabla"><table class="rev-tabla"><thead><tr><th>Semana</th><th>Textos</th><th>Conceptos</th><th>M</th><th>C1</th><th>C2</th><th>E</th><th>Estado</th></tr></thead><tbody>${s.semanas.map((x) => `<tr><td>${esc(x.semana)}</td><td>${x.metricas.documentos}</td><td>${x.metricas.n}</td><td>${x.metricas.M}</td><td>${pctGrafo(x.metricas.C1)}</td><td>${pctGrafo(x.metricas.C2)}</td><td>${x.metricas.E}</td><td>${esc(x.metricas.estado)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="tenue">Empieza con la próxima foto.</p>'}</section>`
+  $$('[data-gfs-alias]').forEach((b) => (b.onclick = async () => {
+    b.disabled = true
+    try { await api('/grafos/diccionario', { forma: b.dataset.gfsAlias, tipo: 'alias', destino: b.dataset.destino }); toast(`«${esc(b.dataset.gfsAlias)}» cuenta como «${esc(b.dataset.destino)}» desde la próxima foto`); b.closest('li').remove() } catch (e) { error(e); b.disabled = false }
+  }))
 }

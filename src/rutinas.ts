@@ -135,6 +135,10 @@ export const ACCIONES: Acciones = {
     }
     return null
   },
+  /** El domingo: lo que cambió en el grafo de su voz (grupos que nacen o crecen, bisagras que suben, posibles bucles). Sin tokens. */
+  async grafo_semana(db, _fecha, ahora) {
+    return (await import('./grafo/salud.ts')).avisoSemanal(db, ahora)
+  },
   /** Los domingos (en la nube): su feedback de la semana se vuelve lecciones que entran a los prompts. */
   async lecciones(db, _fecha, ahora) {
     if (topeAlcanzado(db, ahora) || !(await import('./reproceso.ts')).enLaNube()) return null

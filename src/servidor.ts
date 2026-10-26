@@ -765,6 +765,8 @@ const rutas: [string, RegExp, Ruta][] = [
     const foto = q.get('foto') ? gr.leerFoto(db, Number(q.get('foto'))) : gr.ultimaFoto(db, x.id) ?? await gr.recalcular(db, x.id)
     return { grafo: x, foto, calculando: gr.estaCalculando(x.id), historia: gr.historia(db, x.id), huecos: (await import('./grafo/huecos.ts')).huecosDe(db, x.id), zonas: foto ? (await import('./grafo/mapa.ts')).zonas(db, x, foto, 30) : [] }
   }],
+  // La salud: estado, historia semanal y su calibración, lo que cambió, posibles bucles y alias (sin modelo).
+  ['GET', /^\/api\/grafos\/(\d+)\/salud$/, async (_, [g]) => (await import('./grafo/salud.ts')).saludDe(db, id(g))],
   // De qué va cada grupo (los resúmenes por comunidad): los escribe el modelo, en la nube.
   ['POST', /^\/api\/grafos\/(\d+)\/zonas$/, async (_, [g]) => {
     soloNube('De qué va cada grupo')
@@ -1129,7 +1131,7 @@ const rutas: [string, RegExp, Ruta][] = [
     const f = { tipo: q.get('tipo') || undefined, q: q.get('q') || undefined }
     return { total: contarEntidades(db, f), entidades: listarEntidades(db, { ...f, limite: num(q.get('limite')), desde: num(q.get('desde')) }) }
   }],
-  ['GET', /^\/api\/duplicados$/, () => duplicadosProbables(db)],
+  ['GET', /^\/api\/duplicados$/, async () => duplicadosProbables(db, 40, (await import('./grafo/salud.ts')).paresPorGrafo(db))],
   ['POST', /^\/api\/duplicados\/alias$/, (b) => ({ quitados: quitarAliasCruzados(db, (b.ids ?? []).map(Number)) })],
   ['POST', /^\/api\/duplicados\/no$/, (b) => (noSonLoMismo(db, (b.ids ?? []).map(Number)), { ok: true })],
   ['GET', /^\/api\/entidades\/(\d+)\/componentes$/, (_, [e]) => componentesDeEntidad(db, id(e))],

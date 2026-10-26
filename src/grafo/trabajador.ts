@@ -21,15 +21,18 @@ parentPort!.on('message', (p: Pedido) => {
       const db = new DatabaseSync(p.ruta, { readOnly: true })
       try { docs = documentosDe(db as any, p.definicion) } finally { db.close() }
     }
-    parentPort!.postMessage({ ok: true, resultado: calcular(docs, opciones), documentos: docs.length, firma: firmaDe(docs) })
+    parentPort!.postMessage({ ok: true, resultado: calcular(docs, opciones), documentos: docs.length, firma: firmaDe(docs, p.opciones.dic) })
   } catch (e) {
     parentPort!.postMessage({ ok: false, error: e instanceof Error ? e.message : String(e) })
   }
 })
 
-/** Una huella barata de lo que entró: si no cambió, no hace falta recalcular. */
-export function firmaDe(docs: Documento[]): string {
+/** Una huella barata de lo que entró (los textos y su diccionario): si no cambió, no hace falta recalcular. */
+export function firmaDe(docs: Documento[], dic?: unknown): string {
   let h = 2166136261
   for (const d of docs) { h ^= d.id; h = Math.imul(h, 16777619); h ^= d.texto.length; h = Math.imul(h, 16777619) }
-  return `${docs.length}:${(h >>> 0).toString(36)}`
+  const t = dic && Object.values(dic as Record<string, unknown[]>).some((x) => x?.length) ? JSON.stringify(dic) : '' // sin diccionario, la huella de siempre
+  let hd = 2166136261
+  for (let i = 0; i < t.length; i++) { hd ^= t.charCodeAt(i); hd = Math.imul(hd, 16777619) }
+  return `${docs.length}:${(h >>> 0).toString(36)}${t ? `:${(hd >>> 0).toString(36)}` : ''}`
 }

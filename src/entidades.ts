@@ -190,7 +190,8 @@ const clave = (s: string) => normal(s).replace(/[^a-z0-9ñ ]+/g, ' ').replace(/\
  * Entidades que parecen la misma: mismo nombre (sin tildes ni mayúsculas), o el nombre de una es alias de la otra.
  * Propone que quede la más mencionada. Lo que él marcó como «no son lo mismo» no vuelve a aparecer.
  */
-export function duplicadosProbables(db: Db, limite = 40): GrupoDuplicado[] {
+/** extra: pares que vienen de otro lado (los que se usan igual en su grafo), con su motivo. */
+export function duplicadosProbables(db: Db, limite = 40, extra: [number, number, string][] = []): GrupoDuplicado[] {
   const todas = listarEntidades(db, { limite: 100_000 })
   const descartados = new Set((db.prepare('SELECT a, b FROM no_duplicados').all() as { a: number; b: number }[]).map((x) => `${Math.min(x.a, x.b)}-${Math.max(x.a, x.b)}`))
   const padre = new Map<number, number>()
@@ -214,6 +215,8 @@ export function duplicadosProbables(db: Db, limite = 40): GrupoDuplicado[] {
       for (const o of otros) if (o.id !== e.id) { unir(e.id, o.id); motivo.set(o.id, `«${o.nombre}» es alias de «${e.nombre}»`) }
     }
   }
+  const existe = new Set(todas.map((e) => e.id))
+  for (const [a, b, m] of extra) if (existe.has(a) && existe.has(b) && raiz(a) !== raiz(b)) { unir(a, b); if (raiz(a) === raiz(b)) motivo.set(b, m) }
   const grupos = new Map<number, Entidad[]>()
   const conPadre = new Set(padre.values())
   for (const e of todas) {

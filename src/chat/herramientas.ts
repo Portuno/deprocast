@@ -1046,7 +1046,7 @@ export const HERRAMIENTAS: Herramienta[] = [
   {
     nombre: 'ver_duplicados', familia: 'lectura', descripcion: 'Entidades que parecen la misma (mismo nombre o una es alias de otra), con cuál convendría que quede. Para fusionarlas, fusionar_entidades con su ok.',
     parametros: S({}),
-    ejecutar: (_, { db }) => duplicadosProbables(db, 20).map((g) => ({ motivo: g.motivo, queda: g.queda, entidades: g.entidades.map((e) => ({ id: e.id, nombre: e.nombre, tipo: e.tipo, piezas: e.piezas })) })),
+    ejecutar: async (_, { db }) => duplicadosProbables(db, 20, (await import('../grafo/salud.ts')).paresPorGrafo(db)).map((g) => ({ motivo: g.motivo, queda: g.queda, entidades: g.entidades.map((e) => ({ id: e.id, nombre: e.nombre, tipo: e.tipo, piezas: e.piezas })) })),
   },
   {
     nombre: 'editar_entidad', familia: 'accion',

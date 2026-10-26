@@ -1452,6 +1452,17 @@ CREATE TABLE IF NOT EXISTS grafo_resumenes (
   en INTEGER NOT NULL,
   UNIQUE (grafo_id, firma)
 );
+-- La historia larga del grafo (plan v25, la salud): una fila por semana con sus métricas, sus bisagras (con el tamaño de su
+-- grupo) y sus grupos. Las fotos se podan a 20; esto queda para calibrar los umbrales con su corpus y ver los bucles.
+CREATE TABLE IF NOT EXISTS grafo_semanas (
+  grafo_id INTEGER NOT NULL,
+  semana TEXT NOT NULL,
+  metricas TEXT NOT NULL,
+  bisagras TEXT NOT NULL,
+  grupos TEXT NOT NULL,
+  en INTEGER NOT NULL,
+  PRIMARY KEY (grafo_id, semana)
+);
 -- Su diccionario del grafo: palabras que frena (stop), que protege (no se cortan ni se sacan) y alias (forma → destino).
 CREATE TABLE IF NOT EXISTS grafo_diccionario (
   forma TEXT PRIMARY KEY,
@@ -1598,6 +1609,7 @@ const RUTINAS_SISTEMA = [
   { id: 'huecos', nombre: 'Lo que te falta: tus metas y tus dominios contra tu archivo', hora: '19:50', dias: '0', accion: 'huecos' },
   { id: 'lecciones', nombre: 'Lo que aprendí de tu feedback (lecciones para la semana)', hora: '20:00', dias: '0', accion: 'lecciones' },
   { id: 'grafo', nombre: 'El grafo: recalcular tu voz y todo el corpus (sin tokens)', hora: '03:30', dias: '0123456', accion: 'grafo' },
+  { id: 'grafo_semana', nombre: 'Lo que cambió en tu grafo esta semana (sin tokens)', hora: '20:20', dias: '0', accion: 'grafo_semana' },
   { id: 'mentor', nombre: 'El Mentor recomienda qué leer o ver', hora: '08:05', dias: '1', accion: 'mentor' },
   { id: 'puentes', nombre: 'Puentes con tu gente', hora: '11:00', dias: '0', accion: 'puentes' },
   { id: 'temporada', nombre: 'Cierre de temporada de la liga', hora: '07:30', dias: '1', accion: 'temporada' },

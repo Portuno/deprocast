@@ -61,6 +61,7 @@ export function editarGrafo(db: Db, id: number, c: { nombre?: string; fuentes?: 
     db.prepare('DELETE FROM grafo_fotos WHERE grafo_id = ?').run(id)
     db.prepare('DELETE FROM grafo_huecos WHERE grafo_id = ?').run(id)
     db.prepare('DELETE FROM grafo_resumenes WHERE grafo_id = ?').run(id)
+    db.prepare('DELETE FROM grafo_semanas WHERE grafo_id = ?').run(id)
     db.prepare('DELETE FROM grafos WHERE id = ?').run(id)
     return null
   }
@@ -137,6 +138,8 @@ export function recalcular(db: Db, id: number, o: { forzar?: boolean; ahora?: nu
     db.prepare(`DELETE FROM grafo_fotos WHERE grafo_id = ? AND id NOT IN (SELECT id FROM grafo_fotos WHERE grafo_id = ? ORDER BY id DESC LIMIT ${FOTOS_POR_GRAFO})`).run(id, id)
     // Los huecos de esta foto entran a seguimiento; los que ya se seguían, ¿se achicaron?
     try { (await import('./huecos.ts')).sincronizarHuecos(db, id, fid, ahora) } catch (e) { console.error('  grafo huecos:', e instanceof Error ? e.message : e) }
+    // La semana queda en la historia larga (las fotos se podan; las métricas semanales, no).
+    try { (await import('./salud.ts')).anotarSemana(db, id, leerFoto(db, fid)!, ahora) } catch (e) { console.error('  grafo semana:', e instanceof Error ? e.message : e) }
     return leerFoto(db, fid)
   })()
   calculandoAhora.set(id, p)

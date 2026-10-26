@@ -2717,6 +2717,13 @@ span.ej-chip { cursor: default; }
   .gf-panel { overflow: visible; }
 }
 .gf-hueco i.chip { font-style: normal; font-size: var(--t-1); }
+.gf-salud-medidas { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--e-2); margin: var(--e-2) 0; }
+.gf-salud-medidas > div { display: grid; gap: 2px; background: var(--panel-2); border: 1px solid var(--linea); border-radius: var(--r-s); padding: var(--e-2); }
+.gf-salud-medidas b { font-size: var(--t-5); }
+.gf-salud-medidas small { font-size: var(--t-2); color: var(--debil); }
+.gf-salud-cambios, .gf-salud-alias { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.gf-salud-alias li { display: flex; gap: var(--e-2); align-items: center; }
+.gf-tabla { overflow-x: auto; }
 .gf-h-cerrado { border-color: var(--ok); }
 .gf-h-en_curso { border-color: var(--acento); }
 .gf-hueco-lados { display: flex; gap: var(--e-2); align-items: center; margin: 0; font-weight: 500; }

@@ -165,7 +165,9 @@ export function lemas(parrafo: string, dic: Diccionario, formas?: Map<string, Ma
     const protegida = dic.proteger.has(plano)
     if (dic.stop.has(plano) || (!protegida && STOPWORDS.has(plano))) continue
     const destino = dic.alias.get(plano)
-    const l = destino ?? (protegida ? plano : raiz(baja))
+    // Un alias a otra palabra suelta se une a esa palabra (por su raíz, como cuando aparece sola); a una etiqueta de varias
+    // palabras («club náutico»), queda esa etiqueta.
+    const l = destino ? (/\s/.test(destino) || dic.proteger.has(quitar(destino)) ? destino : raiz(destino)) : protegida ? plano : raiz(baja)
     if (l.length < 3 || dic.stop.has(l) || (!protegida && !destino && STOP_RAICES.has(l))) continue
     out.push(l)
     if (formas) {

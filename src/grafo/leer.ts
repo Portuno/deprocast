@@ -109,6 +109,7 @@ export type Diff = {
   metricas: Record<string, { antes: number; ahora: number }>
   nacieron: { com: number; top: string[] }[]; murieron: { com: number; top: string[] }[]
   juntaron: { en: number; top: string[]; eran: string[][] }[]; partieron: { de: string[]; en: string[][] }[]
+  crecen: { top: string[]; antes: number; ahora: number }[]; achican: { top: string[]; antes: number; ahora: number }[]
   bisagrasSuben: string[]; bisagrasBajan: string[]; nuevos: string[]; perdidos: string[]
 }
 
@@ -128,6 +129,10 @@ export function diffFotos(a: Foto, b: Foto): Diff {
     .map((x) => ({ en: x.cb, top: top(b, x.cb), eran: x.eran.map((ca) => top(a, ca)) }))
   const partieron = [...new Set(padre.values())].map((ca) => ({ ca, en: [...padre].filter(([, v]) => v === ca).map(([cb]) => cb) })).filter((x) => x.en.length > 1)
     .map((x) => ({ de: top(a, x.ca), en: x.en.map((cb) => top(b, cb)) }))
+  // Las que siguen siendo la misma y cambiaron de tamaño en serio (un 30 % y al menos 3 conceptos).
+  const tamA = new Map(comsA.map((c) => [c.id, c.tam]))
+  const cambioDeTam = (signo: 1 | -1) => comsB.filter((c) => padre.has(c.id)).map((c) => ({ top: c.top.slice(0, 5), antes: tamA.get(padre.get(c.id)!)!, ahora: c.tam }))
+    .filter((x) => signo > 0 ? x.ahora >= x.antes * 1.3 && x.ahora - x.antes >= 3 : x.ahora <= x.antes * 0.7 && x.antes - x.ahora >= 3)
   const rango = (f: Foto) => new Map([...f.nodos].filter((n) => !n.vos).sort((x, y) => y.btw - x.btw).map((n, i) => [n.lema, i]))
   const ra = rango(a), rb = rango(b)
   const forma = new Map([...a.nodos, ...b.nodos].map((n) => [n.lema, n.forma]))
@@ -138,6 +143,8 @@ export function diffFotos(a: Foto, b: Foto): Diff {
     nacieron: comsB.filter((c) => !padre.has(c.id)).map((c) => ({ com: c.id, top: c.top.slice(0, 5) })),
     murieron: comsA.filter((c) => !hijo.has(c.id)).map((c) => ({ com: c.id, top: c.top.slice(0, 5) })),
     juntaron, partieron,
+    crecen: cambioDeTam(1),
+    achican: cambioDeTam(-1),
     bisagrasSuben: comunes.filter((l) => rb.get(l)! < 30 && ra.get(l)! - rb.get(l)! >= 15).sort((x, y) => rb.get(x)! - rb.get(y)!).slice(0, 8).map((l) => forma.get(l)!),
     bisagrasBajan: comunes.filter((l) => ra.get(l)! < 30 && rb.get(l)! - ra.get(l)! >= 15).sort((x, y) => ra.get(x)! - ra.get(y)!).slice(0, 8).map((l) => forma.get(l)!),
     nuevos: [...rb.keys()].filter((l) => !ra.has(l)).slice(0, 15).map((l) => forma.get(l)!),
