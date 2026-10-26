@@ -97,6 +97,8 @@ const sesionLista = (db: Db, id: number, tipo: SesionTutor['tipo'] = 'clase') =>
 export function examenHabilitado(db: Db, id: number): boolean {
   const d = leerDominio(db, id)
   if (!d || d.tutorNivel >= 6) return false
+  // Desde el nivel 4 (aplicado), sin el proyecto del nivel aprobado no hay examen: se sabe haciendo.
+  if (d.tutorNivel >= NIVEL_PROYECTO_OBLIGATORIO && !proyectoAprobado(db, id, d.tutorNivel)) return false
   if (nivelSabido(db, id, d.tutorNivel)) return true
   const ultimas = db.prepare(`SELECT puntaje FROM tutor_sesiones WHERE aprendizaje_id = ? AND nivel = ? AND tipo = 'clase' AND estado = 'hecha' ORDER BY id DESC LIMIT 2`).all(id, d.tutorNivel) as { puntaje: number | null }[]
   return ultimas.length === 2 && ultimas.every((s) => (s.puntaje ?? 0) >= 0.8)
@@ -268,7 +270,7 @@ export function prepararSesionTutor(db: Db, id: number, o: { tema?: string | nul
     const d = leerDominio(db, id)
     if (!d) throw new Error(`No existe el dominio ${id}`)
     const n = d.tutorNivel
-    if (o.examen && !examenHabilitado(db, id)) throw new Error('El examen se habilita con dos clases seguidas del nivel resueltas con 80 % o más')
+    if (o.examen && !examenHabilitado(db, id)) throw new Error(n >= NIVEL_PROYECTO_OBLIGATORIO && !proyectoAprobado(db, id, n) ? `Desde el nivel ${NIVEL_PROYECTO_OBLIGATORIO}, el examen pide el proyecto del nivel aprobado` : 'El examen se habilita con dos clases seguidas del nivel resueltas con 80 % o más')
     const mapa = await asegurarMapa(db, d, ahora)
     const delNivel = mapa.filter((c) => c.nivel === n)
     // El concepto: el que pidió, la frontera o, si ya sabe todo lo del nivel, lo que menos domina (repaso antes del examen).
@@ -483,6 +485,7 @@ export function cerrarSesionTutor(db: Db, sid: number, ahora = Date.now()) {
   // Cada concepto que tocó vuelve a repaso cuando le toca (lo que sabe poco, pronto; lo firme, más adelante).
   for (const c of new Set([s.conceptoId, ...p.preguntas.map((q) => q.conceptoId)].filter((x): x is number => !!x))) programarRepaso(db, c, ahora)
   prepararEnFondo(db, d.id)
+  if (s.tipo === 'clase') proyectoEnFondo(db, d.id)
   // Al subir de nivel, material del nivel nuevo (más avanzado).
   if (subio) buscarFuentesEnFondo(db, d.id)
   const fallidas = p.preguntas.filter((_, i) => !ultimos.get(i)?.correcto).map((q) => q.pregunta)
@@ -862,4 +865,116 @@ export async function reporteHuecos(db: Db, ahora = Date.now()): Promise<{ texto
   const ideas = (Array.isArray(r?.ideas) ? r.ideas : []).map((x: any) => ({ hueco: txt(x?.hueco, 200), idea: txt(x?.idea, 400) })).filter((x: { hueco: string; idea: string }) => x.hueco && x.idea).slice(0, 8)
   const texto = `🕳 **Lo que le falta** (donde su información no alcanza):\n${ideas.length ? ideas.map((x: { hueco: string; idea: string }) => `- **${x.hueco}**: ${x.idea}`).join('\n') : [...metas.map((m) => `- ${m.texto}`), ...dominios.map((x) => `- ${x}`)].slice(0, 10).join('\n')}`
   return { texto, ideas }
+}
+
+// ─── el proyecto de cada nivel (plan v24) ───────────────────────────────
+
+/** Desde este nivel el proyecto es requisito del examen (antes, opcional). */
+export const NIVEL_PROYECTO_OBLIGATORIO = 4
+
+export type Proyecto = {
+  id: number; aprendizajeId: number; nivel: number; titulo: string; objetivo: string | null; pasos: string[]; entregable: string | null; criterio: string | null
+  estado: 'propuesto' | 'aceptado' | 'aprobado' | 'rehacer' | 'descartado'; misionId: number | null; entrega: string | null; devolucion: string | null; piezaId: number | null; creadoEn: number; cerradoEn: number | null
+}
+const deProyecto = (r: any): Proyecto => ({
+  id: r.id, aprendizajeId: r.aprendizaje_id, nivel: r.nivel, titulo: r.titulo, objetivo: r.objetivo, pasos: json<string[]>(r.pasos, []) ?? [], entregable: r.entregable, criterio: r.criterio,
+  estado: r.estado, misionId: r.mision_id, entrega: r.entrega, devolucion: r.devolucion, piezaId: r.pieza_id, creadoEn: r.creado_en, cerradoEn: r.cerrado_en,
+})
+export const leerProyecto = (db: Db, pid: number) => { const r = db.prepare('SELECT * FROM tutor_proyectos WHERE id = ?').get(pid); return r ? deProyecto(r) : null }
+/** El proyecto vigente del nivel (el último que no se descartó). */
+export const proyectoDe = (db: Db, id: number, nivel: number): Proyecto | null => {
+  const r = db.prepare(`SELECT * FROM tutor_proyectos WHERE aprendizaje_id = ? AND nivel = ? AND estado != 'descartado' ORDER BY id DESC LIMIT 1`).get(id, nivel)
+  return r ? deProyecto(r) : null
+}
+export const proyectoAprobado = (db: Db, id: number, nivel: number) => !!db.prepare(`SELECT 1 FROM tutor_proyectos WHERE aprendizaje_id = ? AND nivel = ? AND estado = 'aprobado'`).get(id, nivel)
+
+const SISTEMA_PROYECTO = (n: number) => `${REGLAS}
+Proponés UN proyecto práctico para cerrar el nivel ${n} (${nombreNivel(n)}): algo que haga con las manos o en la compu, en 1 a 4 horas, que use lo que aprendió en este nivel y que deje algo que se pueda mostrar (una foto, un número medido, un archivo, un link). Concreto y alcanzable con lo que tiene; si sirve a para qué lo aprende, mejor.
+- pasos: 3 a 6, cortos.
+- entregable: qué tiene que mandar (ej.: «una foto del circuito armado y la corriente que midió»).
+- criterio: cómo se sabe que está bien (lo que el tutor va a mirar al corregir).
+Forma: {"titulo": string, "objetivo": string, "pasos": [string], "entregable": string, "criterio": string}`
+
+const SISTEMA_EVALUAR = `${REGLAS}
+Corregís la entrega de un proyecto contra su criterio. «aprobado» si cumple lo central del criterio (no hace falta perfección). La devolución: qué está bien, qué mejorar y, si no se aprueba, qué tiene que rehacer o mostrar. Si la entrega no permite saberlo (falta la medición, la foto no se describe), pedilo.
+Forma: {"aprobado": boolean, "devolucion": string}`
+
+/** ¿Ya va por la mitad del nivel? Entonces toca el proyecto (si no hay uno vigente). */
+function tocaProyecto(db: Db, id: number, nivel: number, ahora = Date.now()) {
+  const cs = conceptosDe(db, id).filter((c) => c.nivel === nivel)
+  return cs.length > 0 && cs.filter((c) => dominioHoy(c, ahora) >= SABIDO).length >= Math.ceil(cs.length / 2) && !proyectoDe(db, id, nivel)
+}
+
+/** El tutor propone el proyecto del nivel (o uno nuevo, si pidió otro). */
+export async function proponerProyecto(db: Db, id: number, ahora = Date.now()): Promise<Proyecto> {
+  const d = leerDominio(db, id)
+  if (!d) throw new Error(`No existe el dominio ${id}`)
+  const n = d.tutorNivel
+  const anterior = proyectoDe(db, id, n)
+  if (anterior && anterior.estado !== 'propuesto') throw new Error('El proyecto de este nivel ya está en marcha')
+  const sabidos = conceptosDe(db, id).filter((c) => c.nivel <= n && dominioHoy(c, ahora) >= SABIDO).map((c) => c.nombre)
+  const r = await modelo(db, SISTEMA_PROYECTO(n), contexto(db, d, [sabidos.length ? `Lo que ya sabe: ${sabidos.join(' · ')}` : '', anterior ? `No le gustó este (proponé otra cosa): ${anterior.titulo}` : '']))
+  const titulo = txt(r?.titulo, 120)
+  if (!titulo) throw new Error('El tutor no armó el proyecto: probá de nuevo')
+  if (anterior) db.prepare(`UPDATE tutor_proyectos SET estado = 'descartado' WHERE id = ?`).run(anterior.id)
+  const pid = Number(db.prepare('INSERT INTO tutor_proyectos (aprendizaje_id, nivel, titulo, objetivo, pasos, entregable, criterio, creado_en) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, n, titulo, txt(r.objetivo, 600) || null, JSON.stringify((Array.isArray(r.pasos) ? r.pasos : []).map((x: unknown) => txt(x, 300)).filter(Boolean).slice(0, 8)), txt(r.entregable, 400) || null, txt(r.criterio, 600) || null, ahora).lastInsertRowid)
+  return leerProyecto(db, pid)!
+}
+
+/** En la nube, al llegar a la mitad del nivel el proyecto se propone solo. */
+export function proyectoEnFondo(db: Db, id: number) {
+  const d = leerDominio(db, id)
+  if (!d || !nube() || !tocaProyecto(db, id, d.tutorNivel)) return
+  proponerProyecto(db, id).catch((e) => console.error('  academia: proyecto:', e instanceof Error ? e.message : e))
+}
+
+/** Aceptarlo: queda como primaria de la semana (con la entidad del dominio), para hacerlo de verdad. */
+export async function aceptarProyecto(db: Db, pid: number, ahora = Date.now()): Promise<Proyecto> {
+  const p = leerProyecto(db, pid)
+  if (!p || p.estado !== 'propuesto') throw new Error('Ese proyecto ya no está para aceptar')
+  const d = leerDominio(db, p.aprendizajeId)!
+  const { crearMision, semanaDe } = await import('./misiones.ts')
+  let entidadId: number | null = null
+  try { entidadId = (await import('./entidades.ts')).asegurarPorNombre(db, d.tema, 'dominio', ahora) } catch { /* sin entidad */ }
+  const m = crearMision(db, {
+    personaje: 'jugador', asignadaPor: 'academia', nivel: 'primaria', titulo: `Proyecto de ${d.tema}: ${p.titulo}`, semana: semanaDe(ahora), estado: 'activa', entidadId, creadaPor: 'academia',
+    detalle: [p.objetivo, p.pasos.length ? `Pasos: ${p.pasos.map((x, i) => `${i + 1}) ${x}`).join(' ')}` : '', p.entregable ? `Entregá: ${p.entregable}` : '', p.criterio ? `Está bien si: ${p.criterio}` : ''].filter(Boolean).join('\n'),
+  }, { por: 'academia', ahora })
+  db.prepare(`UPDATE tutor_proyectos SET estado = 'aceptado', mision_id = ? WHERE id = ?`).run(m.id, pid)
+  return leerProyecto(db, pid)!
+}
+
+/**
+ * La entrega: el tutor la corrige contra el criterio. Queda como pieza propia (evidencia de lo que hizo); si se aprueba,
+ * la primaria se cierra hecha; si no, dice qué rehacer y se puede volver a entregar.
+ */
+export async function entregarProyecto(db: Db, pid: number, e: { texto: string; url?: string | null }, ahora = Date.now()) {
+  const p = leerProyecto(db, pid)
+  if (!p || (p.estado !== 'aceptado' && p.estado !== 'rehacer' && p.estado !== 'propuesto')) throw new Error('Ese proyecto no está para entregar')
+  const texto = e.texto.trim()
+  if (texto.length < 10) throw new Error('Contá qué hiciste y qué salió (y el link o la foto, si hay)')
+  const d = leerDominio(db, p.aprendizajeId)!
+  const entrega = [texto, e.url ? `Link: ${e.url}` : ''].filter(Boolean).join('\n')
+  const r = await modelo(db, SISTEMA_EVALUAR, [`Proyecto: ${p.titulo} (nivel ${p.nivel}, ${nombreNivel(p.nivel)})`, p.objetivo ? `Objetivo: ${p.objetivo}` : '', p.entregable ? `Entregable pedido: ${p.entregable}` : '', `Criterio: ${p.criterio ?? 'que cumpla el objetivo'}`, `Lo que entregó:\n${entrega.slice(0, 4000)}`].filter(Boolean).join('\n'))
+  const aprobado = !!r?.aprobado
+  const devolucion = txt(r?.devolucion, 1200) || (aprobado ? 'Aprobado.' : 'Todavía no: mirá el criterio y volvé a entregar.')
+  asegurarFuente(db, FUENTE)
+  const piezaId = insertar(db, {
+    fuente: FUENTE.id, nivel: 'propia', titulo: `${d.tema} · Proyecto del nivel ${p.nivel}: ${p.titulo}`, estado: 'disponible', fecha: fechaLocal(ahora), url: e.url ?? null,
+    contenido: [`# Proyecto: ${p.titulo}`, p.objetivo ?? '', `## Lo que hice\n${entrega}`, `## Devolución del tutor (${aprobado ? 'aprobado' : 'a rehacer'})\n${devolucion}`].filter(Boolean).join('\n\n'),
+    origenId: `academia:proyecto:${pid}:${crypto.createHash('sha1').update(entrega).digest('hex').slice(0, 12)}`, // cada entrega distinta, su pieza etiquetas: ['aprendizaje', d.tema, 'proyecto'], meta: { tipo: 'academia_proyecto', dominio: d.id, nivel: p.nivel, aprobado },
+  }, ahora)
+  db.prepare('UPDATE tutor_proyectos SET estado = ?, entrega = ?, devolucion = ?, pieza_id = ?, cerrado_en = ? WHERE id = ?').run(aprobado ? 'aprobado' : 'rehacer', entrega, devolucion, piezaId, aprobado ? ahora : null, pid)
+  if (aprobado && p.misionId) {
+    try { (await import('./misiones.ts')).actualizarMision(db, p.misionId, { estado: 'hecha', feedback: devolucion.slice(0, 300) }, { por: 'academia', ahora }) } catch { /* la misión ya no está */ }
+  }
+  registrarPractica(db, { aprendizajeId: d.id, minutos: null, que: `Proyecto nivel ${p.nivel}: ${p.titulo}`, fuente: 'academia' }, ahora)
+  return { ...leerProyecto(db, pid)!, aprobado, examen: examenHabilitado(db, d.id) }
+}
+
+/** Descartar el propuesto (el tutor puede proponer otro). */
+export function descartarProyecto(db: Db, pid: number) {
+  db.prepare(`UPDATE tutor_proyectos SET estado = 'descartado' WHERE id = ? AND estado = 'propuesto'`).run(pid)
+  return { ok: true }
 }

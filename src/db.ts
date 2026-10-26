@@ -1369,6 +1369,26 @@ CREATE TABLE IF NOT EXISTS conceptos (
 );
 CREATE INDEX IF NOT EXISTS conceptos_apr ON conceptos(aprendizaje_id, nivel, orden);
 CREATE INDEX IF NOT EXISTS conceptos_vence ON conceptos(vence_en);
+-- El proyecto práctico de cada nivel (plan v24): lo propone el tutor, aceptarlo lo vuelve primaria, la entrega se evalúa
+-- contra su criterio. estado: propuesto | aceptado | aprobado | rehacer | descartado. Desde el nivel 4, pide el examen.
+CREATE TABLE IF NOT EXISTS tutor_proyectos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  aprendizaje_id INTEGER NOT NULL,
+  nivel INTEGER NOT NULL,
+  titulo TEXT NOT NULL,
+  objetivo TEXT,
+  pasos TEXT NOT NULL DEFAULT '[]',
+  entregable TEXT,
+  criterio TEXT,
+  estado TEXT NOT NULL DEFAULT 'propuesto',
+  mision_id INTEGER,
+  entrega TEXT,
+  devolucion TEXT,
+  pieza_id INTEGER,
+  creado_en INTEGER NOT NULL,
+  cerrado_en INTEGER
+);
+CREATE INDEX IF NOT EXISTS tutor_proyectos_apr ON tutor_proyectos(aprendizaje_id, nivel);
 CREATE UNIQUE INDEX IF NOT EXISTS dominio_fuentes_obra ON dominio_fuentes(aprendizaje_id, obra_id) WHERE obra_id IS NOT NULL AND pieza_id IS NULL;
 
 -- Lo que se rompió (errores del servidor, rutas que no existen): la materia de la autocrítica. Uno por texto y día.

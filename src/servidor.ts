@@ -750,6 +750,11 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/academia\/(\d+)\/material$/, async (b, [a]) => ({ material: await (await import('./academia.ts')).sumarMaterial(db, id(a), { url: b.url ?? null, texto: b.texto ?? null, titulo: b.titulo ?? null, archivo: b.archivo ?? null, nombre: b.nombre ?? null, obraId: b.obraId ? Number(b.obraId) : null }) })],
   ['POST', /^\/api\/academia\/(\d+)\/material\/(\d+)$/, async (b, [a, f]) => ({ material: (await import('./academia.ts')).marcarMaterial(db, id(a), id(f), { util: b.util == null ? undefined : Number(b.util), quitar: !!b.quitar }) })],
   // El mapa de conceptos, el diagnóstico, la meta y los huecos (plan v24).
+  // El proyecto del nivel: proponer (u otro), aceptar (queda como primaria), entregar (lo corrige el tutor), descartar.
+  ['POST', /^\/api\/academia\/(\d+)\/proyecto$/, async (_, [a]) => (await import('./academia.ts')).proponerProyecto(db, id(a))],
+  ['POST', /^\/api\/academia\/proyecto\/(\d+)\/aceptar$/, async (_, [p]) => (await import('./academia.ts')).aceptarProyecto(db, id(p))],
+  ['POST', /^\/api\/academia\/proyecto\/(\d+)\/entregar$/, async (b, [p]) => (await import('./academia.ts')).entregarProyecto(db, id(p), { texto: String(b.texto ?? ''), url: b.url || null })],
+  ['POST', /^\/api\/academia\/proyecto\/(\d+)\/descartar$/, async (_, [p]) => (await import('./academia.ts')).descartarProyecto(db, id(p))],
   ['POST', /^\/api\/academia\/(\d+)\/mapa$/, async (_, [a]) => ({ conceptos: await (await import('./academia.ts')).armarMapa(db, id(a)) })],
   ['POST', /^\/api\/academia\/(\d+)\/diagnostico$/, async (_, [a]) => {
     const ac = await import('./academia.ts')
@@ -784,7 +789,7 @@ const rutas: [string, RegExp, Ruta][] = [
     const co = await import('./conceptos.ts')
     const conceptos = co.conceptosDe(db, d.id).map((c) => ({ ...c, dominioHoy: +co.dominioHoy(c).toFixed(2) }))
     const sigue = co.frontera(db, d.id, d.tutorNivel)?.id ?? null
-    return { dominio: { ...d, nivelNombre: ac.nombreNivel(d.tutorNivel) }, conceptos, sigue, ritmo: co.ritmoDe(db, d), examen: ac.examenHabilitado(db, d.id), visuales, sesiones: ac.sesionesDe(db, d.id).map(({ paquete, ...s }) => ({ ...s, preguntas: paquete?.preguntas.length ?? 0, visual: paquete?.visual?.tipo ?? null })), recursos: await ac.recursosDominio(db, d), practicas: practicasDe(db, d.id, 10) }
+    return { dominio: { ...d, nivelNombre: ac.nombreNivel(d.tutorNivel) }, conceptos, sigue, ritmo: co.ritmoDe(db, d), proyecto: ac.proyectoDe(db, d.id, d.tutorNivel), proyectoObligatorio: d.tutorNivel >= ac.NIVEL_PROYECTO_OBLIGATORIO, examen: ac.examenHabilitado(db, d.id), visuales, sesiones: ac.sesionesDe(db, d.id).map(({ paquete, ...s }) => ({ ...s, preguntas: paquete?.preguntas.length ?? 0, visual: paquete?.visual?.tipo ?? null })), recursos: await ac.recursosDominio(db, d), practicas: practicasDe(db, d.id, 10) }
   }],
   ['POST', /^\/api\/academia\/(\d+)\/sesion$/, async (b, [a]) => {
     const ac = await import('./academia.ts')

@@ -133,6 +133,7 @@ async function pintarDominio(id) {
     ${!r.examen && d.estado === 'activo' ? '<p class="tenue chico">El examen se habilita con dos clases seguidas del nivel resueltas con 80 % o más, o con todo el nivel sabido.</p>' : ''}
     <section class="seccion"><div class="aca-sec-cab"><h3>Mapa de conceptos</h3><span class="fila"><button class="btn btn-chico" id="aca-huecos" title="Qué conceptos no tienen material en tu archivo y qué falla seguido">🕳 Huecos</button><button class="btn btn-chico" id="aca-rearmar" title="El tutor rehace el mapa siguiendo el índice de tu material (lo que sabés se conserva)">↻ Rearmar desde mi material</button></span></div>
       <div id="aca-huecos-res"></div>${mapaHTML(r.conceptos, r.sigue, d.tutorNivel)}</section>
+    <section class="seccion"><div class="aca-sec-cab"><h3>Proyecto del nivel</h3>${!r.proyecto || r.proyecto.estado === 'propuesto' ? `<button class="btn btn-chico" id="aca-proyecto-nuevo">${r.proyecto ? '↻ Otro' : '💡 Proponeme uno'}</button>` : ''}</div>${proyectoHTML(r.proyecto, r.proyectoObligatorio)}</section>
     <section class="seccion"><h3>Clases</h3>${hechas.length ? hechas.map((s) => `<div class="fila item"><span class="f1">${s.tipo === 'examen' ? '📝 ' : ''}${esc(s.tema)}</span><small class="tenue">nivel ${s.nivel}${s.puntaje != null ? ` · ${Math.round(s.puntaje * 100)} %` : ''} · ${new Date(s.cerradaEn ?? s.creadaEn).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}</small>${s.piezaId ? `<a href="#" class="ref" data-pieza="${s.piezaId}">pieza</a>` : ''}</div>`).join('') : '<p class="tenue">Todavía ninguna.</p>'}</section>
     <section class="seccion"><h3>Visuales</h3>${r.visuales.length ? `<div class="aca-visuales">${r.visuales.map((a) => `<button class="aca-vis ${a.estado}" data-vis="${a.id}"><b>${esc(a.titulo)}</b><small>${esc(a.meta.clase ?? '')}${a.meta.valoracion ? ` · ${'★'.repeat(a.meta.valoracion)}` : ''}${a.meta.sellado ? ' · sellado' : ''}${a.estado === 'haciendo' ? ' · en el horno' : a.estado === 'fallo' ? ' · no salió' : ''}</small></button>`).join('')}</div>` : '<p class="tenue">Cuando una clase pide un dibujo, el Taller lo hace y queda acá.</p>'}</section>
     <section class="seccion"><div class="aca-sec-cab"><h3>Material</h3><button class="btn btn-chico" id="aca-material">＋ Material</button></div>${materialHTML(r.recursos.material)}</section>
@@ -143,6 +144,19 @@ async function pintarDominio(id) {
   $$('[data-aca-clase]', cont).forEach((b) => (b.onclick = () => abrirClase(d.id, !!b.dataset.examen)))
   $('#aca-tarjetas', cont).onclick = () => repasarTarjetas(`aprender:${d.id}`)
   $('#aca-ubicar', cont).onclick = () => abrirClase(d.id, false, true)
+  const nuevoP = $('#aca-proyecto-nuevo', cont)
+  if (nuevoP) nuevoP.onclick = async () => { nuevoP.disabled = true; toast('El tutor está pensando un proyecto…', 'suave'); try { await api(`/academia/${d.id}/proyecto`, {}); pintarDominio(d.id) } catch (e) { error(e) } finally { nuevoP.disabled = false } }
+  $$('[data-proy]', cont).forEach((b) => (b.onclick = async () => {
+    b.disabled = true
+    try {
+      if (b.dataset.accion === 'entregar') {
+        const f = b.closest('form')
+        const r2 = await api(`/academia/proyecto/${b.dataset.proy}/entregar`, { texto: f.texto.value, url: f.url.value })
+        toast(r2.aprobado ? `Proyecto aprobado ✓${r2.examen ? '<small>El examen del nivel está habilitado.</small>' : ''}` : 'Todavía no: mirá la devolución', r2.aprobado ? '' : 'suave')
+      } else await api(`/academia/proyecto/${b.dataset.proy}/${b.dataset.accion}`, {})
+      pintarDominio(d.id)
+    } catch (e) { error(e) } finally { b.disabled = false }
+  }))
   $('#aca-meta', cont).onclick = () => modalMeta(d, r.ritmo)
   $('#aca-rearmar', cont).onclick = async () => {
     const b = $('#aca-rearmar', cont)
@@ -192,6 +206,20 @@ function mapaHTML(cs, sigue, nivel) {
         <span class="f1">${esc(c.nombre)}${c.id === sigue ? ' <span class="chip">sigue</span>' : ''}${c.sinMaterial ? ' <span title="Sin material en tu archivo">🔍</span>' : ''}</span>
         <i class="aca-barra"><b class="${c.dominioHoy >= 0.7 ? 'alto' : c.dominioHoy >= 0.4 ? 'medio' : ''}" data-pct="${Math.round(c.dominioHoy * 100)}"></b></i></li>`).join('')}</ul></details>`
   }).join('')
+}
+
+/** El proyecto del nivel: propuesto (aceptar o pedir otro), en marcha (entregar), aprobado o a rehacer (con la devolución). */
+function proyectoHTML(p, obligatorio) {
+  const nota = obligatorio ? 'Desde este nivel, el examen pide el proyecto aprobado.' : 'Opcional en este nivel: llega a la mitad del nivel y se propone solo.'
+  if (!p) return `<p class="tenue">${nota}</p>`
+  const cuerpo = `<p><b>${esc(p.titulo)}</b>${p.objetivo ? ` — ${esc(p.objetivo)}` : ''}</p>
+    ${p.pasos.length ? `<ol class="aca-pasos">${p.pasos.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}
+    ${p.entregable ? `<p class="chico"><b>Entregá:</b> ${esc(p.entregable)}</p>` : ''}${p.criterio ? `<p class="chico tenue">Está bien si: ${esc(p.criterio)}</p>` : ''}`
+  const entregar = `<form class="aca-entrega"><textarea class="campo-suelto" name="texto" rows="3" placeholder="Qué hiciste, qué mediste o qué salió…" required></textarea>
+    <div class="fila"><input class="campo-suelto f1" name="url" type="url" placeholder="Un link (foto, repo, video) — opcional"><button type="button" class="btn btn-primario btn-chico" data-proy="${p.id}" data-accion="entregar">Entregar</button></div></form>`
+  if (p.estado === 'propuesto') return `<div class="naipe aca-proyecto" data-madurez="proto">${cuerpo}<div class="fila"><button class="btn btn-primario btn-chico" data-proy="${p.id}" data-accion="aceptar">✓ Lo hago (queda como primaria)</button><button class="btn btn-chico" data-proy="${p.id}" data-accion="descartar">✕</button></div></div><p class="tenue chico">${nota}</p>`
+  if (p.estado === 'aprobado') return `<div class="naipe aca-proyecto" data-madurez="nucleo">${cuerpo}<p>✓ <b>Aprobado.</b> ${esc(p.devolucion ?? '')}</p>${p.piezaId ? `<a href="#" class="ref chico" data-pieza="${p.piezaId}">la entrega en tu corpus</a>` : ''}</div>`
+  return `<div class="naipe aca-proyecto" data-madurez="pesado">${cuerpo}${p.estado === 'rehacer' ? `<p>✗ <b>Todavía no.</b> ${esc(p.devolucion ?? '')}</p>` : '<p class="tenue chico">En marcha: está en tus primarias de la semana.</p>'}${entregar}</div>`
 }
 
 /** La meta: una fecha y el nivel al que querés llegar; la Academia calcula el ritmo. */
