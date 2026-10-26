@@ -751,6 +751,22 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/academia\/(\d+)\/material\/(\d+)$/, async (b, [a, f]) => ({ material: (await import('./academia.ts')).marcarMaterial(db, id(a), id(f), { util: b.util == null ? undefined : Number(b.util), quitar: !!b.quitar }) })],
   // El mapa de conceptos, el diagnóstico, la meta y los huecos (plan v24).
   // El proyecto del nivel: proponer (u otro), aceptar (queda como primaria), entregar (lo corrige el tutor), descartar.
+  // El Grafo (plan v25): las capas, los grafos propios, sus fotos, recalcular (en el hilo aparte) y el diccionario.
+  ['GET', /^\/api\/grafos$/, async () => ({ grafos: (await import('./grafo/index.ts')).listarGrafos(db) })],
+  ['POST', /^\/api\/grafos$/, async (b) => (await import('./grafo/index.ts')).crearGrafo(db, { nombre: b.nombre, fuentes: b.fuentes, desde: b.desde, hasta: b.hasta })],
+  ['GET', /^\/api\/grafos\/diccionario$/, async () => ({ entradas: (await import('./grafo/index.ts')).entradasDiccionario(db) })],
+  ['POST', /^\/api\/grafos\/diccionario$/, async (b) => ({ entradas: (await import('./grafo/index.ts')).editarDiccionario(db, { forma: b.forma, tipo: b.tipo || null, destino: b.destino ?? null }) })],
+  ['POST', /^\/api\/grafos\/texto$/, async (b) => (await import('./grafo/index.ts')).analizarTexto(db, String(b.texto ?? ''))],
+  ['GET', /^\/api\/grafos\/(\d+)$/, async (_, [g], q) => {
+    const gr = await import('./grafo/index.ts')
+    const x = gr.leerGrafo(db, id(g))
+    if (!x) throw new Error(`No existe el grafo ${g}`)
+    // Sin foto todavía: se calcula ahora (en el hilo aparte) y la pantalla espera; con foto, la última (o la pedida).
+    const foto = q.get('foto') ? gr.leerFoto(db, Number(q.get('foto'))) : gr.ultimaFoto(db, x.id) ?? await gr.recalcular(db, x.id)
+    return { grafo: x, foto, calculando: gr.estaCalculando(x.id), historia: gr.historia(db, x.id) }
+  }],
+  ['POST', /^\/api\/grafos\/(\d+)$/, async (b, [g]) => (await import('./grafo/index.ts')).editarGrafo(db, id(g), { nombre: b.nombre, fuentes: b.fuentes, desde: b.desde, hasta: b.hasta, borrar: !!b.borrar })],
+  ['POST', /^\/api\/grafos\/(\d+)\/recalcular$/, async (b, [g]) => ({ foto: await (await import('./grafo/index.ts')).recalcular(db, id(g), { forzar: !!b.forzar }) })],
   // Su feedback y la revisión (plan v24): valorar cualquier cosa, las lecciones que salen de eso y las métricas.
   ['POST', /^\/api\/devoluciones$/, async (b) => (await import('./devoluciones.ts')).anotarDevolucion(db, { superficie: String(b.superficie ?? ''), ref: String(b.ref ?? ''), valor: Number(b.valor), nota: b.nota ?? null })],
   ['GET', /^\/api\/revision$/, async () => (await import('./devoluciones.ts')).revision(db)],

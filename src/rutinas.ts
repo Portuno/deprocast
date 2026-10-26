@@ -127,6 +127,14 @@ export const ACCIONES: Acciones = {
     const r = await (await import('./academia.ts')).reporteHuecos(db, ahora)
     return r?.texto ?? null
   },
+  /** De madrugada: el grafo de su voz y el de todo el corpus, en el hilo aparte (solo CPU, sin tokens; si nada cambió, nada). */
+  async grafo(db, _fecha, ahora) {
+    const g = await import('./grafo/index.ts')
+    for (const clave of ['voz', 'todo'] as const) {
+      try { await g.recalcular(db, g.grafoPorClave(db, clave).id, { ahora }) } catch (e) { console.error(`  grafo ${clave}:`, e instanceof Error ? e.message : e) }
+    }
+    return null
+  },
   /** Los domingos (en la nube): su feedback de la semana se vuelve lecciones que entran a los prompts. */
   async lecciones(db, _fecha, ahora) {
     if (topeAlcanzado(db, ahora) || !(await import('./reproceso.ts')).enLaNube()) return null

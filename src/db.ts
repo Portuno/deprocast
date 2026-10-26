@@ -1400,6 +1400,34 @@ CREATE TABLE IF NOT EXISTS devoluciones (
   UNIQUE (superficie, ref)
 );
 CREATE INDEX IF NOT EXISTS devoluciones_en ON devoluciones(superficie, en);
+-- El Grafo (plan v25): las capas (voz, todo) y los que él arma sumando fuentes; cada cálculo deja una foto.
+CREATE TABLE IF NOT EXISTS grafos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  clave TEXT UNIQUE,                   -- voz | todo (las capas de siempre); NULL en los propios
+  nombre TEXT NOT NULL,
+  tipo TEXT NOT NULL,                  -- voz | todo | propio
+  fuentes TEXT NOT NULL DEFAULT '[]',  -- JSON: entidades, conversaciones, dominios, cuadernos, piezas, textos, épocas
+  desde TEXT,
+  hasta TEXT,
+  creado_en INTEGER NOT NULL,
+  editado_en INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS grafo_fotos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  grafo_id INTEGER NOT NULL,
+  firma TEXT NOT NULL,                 -- huella del texto de entrada: si no cambió, no hace falta otra foto
+  documentos INTEGER NOT NULL,
+  datos TEXT NOT NULL,                 -- JSON: nodos (con x/y), aristas, comunidades, huecos, métricas
+  en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS grafo_fotos_grafo ON grafo_fotos(grafo_id, id);
+-- Su diccionario del grafo: palabras que frena (stop), que protege (no se cortan ni se sacan) y alias (forma → destino).
+CREATE TABLE IF NOT EXISTS grafo_diccionario (
+  forma TEXT PRIMARY KEY,
+  tipo TEXT NOT NULL,
+  destino TEXT,
+  en INTEGER NOT NULL
+);
 -- Lo que aprendió de su feedback: reglas cortas por superficie que entran a los prompts. fijada: la corrigió él.
 CREATE TABLE IF NOT EXISTS lecciones (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1538,6 +1566,7 @@ const RUTINAS_SISTEMA = [
   { id: 'fuentes', nombre: 'La Academia busca material para un dominio', hora: '05:00', dias: '0123456', accion: 'fuentes' },
   { id: 'huecos', nombre: 'Lo que te falta: tus metas y tus dominios contra tu archivo', hora: '19:50', dias: '0', accion: 'huecos' },
   { id: 'lecciones', nombre: 'Lo que aprendí de tu feedback (lecciones para la semana)', hora: '20:00', dias: '0', accion: 'lecciones' },
+  { id: 'grafo', nombre: 'El grafo: recalcular tu voz y todo el corpus (sin tokens)', hora: '03:30', dias: '0123456', accion: 'grafo' },
   { id: 'mentor', nombre: 'El Mentor recomienda qué leer o ver', hora: '08:05', dias: '1', accion: 'mentor' },
   { id: 'puentes', nombre: 'Puentes con tu gente', hora: '11:00', dias: '0', accion: 'puentes' },
   { id: 'temporada', nombre: 'Cierre de temporada de la liga', hora: '07:30', dias: '1', accion: 'temporada' },
