@@ -46,3 +46,19 @@ export function efectos(a: Atributos) {
   }
 }
 export type Efectos = ReturnType<typeof efectos>
+
+/**
+ * Atributos → perillas de un agente que trabaja en bucle (plan v26, misiones): cuántos pasos da por sesión, cuánto
+ * escribe por paso, cuánto de su diario recuerda, cuántas sesiones por día y cuántos encargos puede pasar a otro.
+ */
+export function efectosAgente(a: Atributos) {
+  return {
+    pasos: Math.min(20, 6 + 2 * a.temple),
+    maxTokens: 1024 + 512 * a.potencia,
+    temperatura: Math.max(0.1, 1 - a.precision * 0.15),
+    diario: 6 + 3 * a.memoria,
+    sesionesDia: 1 + Math.floor(a.ritmo / 2),
+    encargos: a.iniciativa,
+  }
+}
+export type EfectosAgente = ReturnType<typeof efectosAgente>

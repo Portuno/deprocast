@@ -73,6 +73,8 @@ export type Ctx = {
   lecturaMax?: number
   /** Inyectado por el motor del chat para no importar en círculo. */
   hablarConAgente?: (agenteId: string, mensaje: string) => Promise<string>
+  /** Un agente trabajando una misión (plan v26): cuál, quién y las URLs que de verdad volvieron en esta sesión. */
+  mision?: { id: number; agenteId: string; urlsVistas: Set<string>; fin?: boolean }
 }
 
 export type Herramienta = {
