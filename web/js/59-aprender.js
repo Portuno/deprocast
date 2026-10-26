@@ -4,7 +4,7 @@
 // dominio abre su clase (explicación, el visual del Taller, preguntas con devolución), el examen, sus fuentes y visuales.
 // Idiomas es un dominio más, con su propia pestaña.
 
-const aca = { tab: 'dominios', datos: null, dominio: null, sondeo: null }
+const aca = { tab: 'dominios', datos: null, dominio: null, sondeo: null, enAudio: false, cortarAudio: false, reproductor: null, grabadora: null }
 
 function montarAprender() {
   $('#principal').innerHTML = `
@@ -361,44 +361,109 @@ function pintarClase(r) {
   const s = r.sesion
   const p = s.paquete
   const turno = (i) => [...r.turnos].reverse().find((t) => t.i === i)
+  const clase = s.tipo === 'clase'
+  const abierta = s.estado !== 'hecha'
+  const aclaraciones = (i) => (r.aclaraciones ?? []).filter((a) => a.i === i).map((a) => `<div class="aca-aclaracion">🤔 ${citas(esc(a.texto))}</div>`).join('')
   cont.innerHTML = `<div class="aca-clase">
-    <header class="aca-dom-cab"><button class="btn btn-chico" id="aca-volver">←</button><div class="f1"><h2>${s.tipo === 'examen' ? '📝 ' : s.tipo === 'diagnostico' ? '📏 ' : ''}${esc(p.tema)}</h2><small class="tenue">${s.tipo === 'diagnostico' ? 'Una pregunta por nivel' : `Nivel ${s.nivel}${s.tipo === 'examen' ? ' · aprobás con 4 de 5' : ''}`}</small></div></header>
+    <header class="aca-dom-cab"><button class="btn btn-chico" id="aca-volver">←</button><div class="f1"><h2>${s.tipo === 'examen' ? '📝 ' : s.tipo === 'diagnostico' ? '📏 ' : ''}${esc(p.tema)}</h2><small class="tenue">${s.tipo === 'diagnostico' ? 'Una pregunta por nivel' : `Nivel ${s.nivel}${s.tipo === 'examen' ? ' · aprobás con 4 de 5' : ''}`}</small></div>
+      ${abierta ? '<button class="btn btn-chico" id="aca-audio" title="Te leo la explicación y después cada pregunta; respondés hablando">🎧 Clase en audio</button>' : ''}</header>
     <div class="aca-clase-cuerpo ${r.visual ? 'con-visual' : ''}">
-      <section class="aca-expl">${(p.explicacion || '').split(/\n{2,}/).map((x) => `<p>${citas(esc(x))}</p>`).join('')}
+      <section class="aca-expl">
+        <div class="fila aca-expl-acc"><button class="btn btn-chico" data-oir-parte="explicacion" title="Escuchar la explicación">🔊 Escuchar</button>${abierta && clase ? '<button class="btn btn-chico" data-aclarar="-1" title="Te lo explico de otra forma, un nivel más simple">🤔 No entendí</button>' : ''}</div>
+        ${(p.explicacion || '').split(/\n{2,}/).map((x) => `<p>${citas(esc(x))}</p>`).join('')}
         ${p.fuentes?.length ? `<p class="tenue chico">Sale de: ${p.fuentes.map((id) => `<a href="#" class="ref" data-pieza="${id}">#${id}</a>`).join(' · ')}</p>` : ''}
-        ${p.ejemplos?.length ? `<h4>Ejemplos</h4><ul>${p.ejemplos.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}</section>
+        ${p.ejemplos?.length ? `<h4>Ejemplos</h4><ul>${p.ejemplos.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+        <div class="aca-aclaraciones" data-aclaraciones="-1">${aclaraciones(-1)}</div></section>
       ${r.visual ? `<aside class="aca-visual" id="aca-visual">${visualHTML(r.visual)}</aside>` : ''}
     </div>
     <section class="aca-preguntas"><h3>${s.tipo === 'examen' ? 'El examen' : s.tipo === 'diagnostico' ? 'Las seis preguntas' : 'Para chequear'}</h3>
       ${p.preguntas.map((q, i) => { const t = turno(i); return `<form class="aca-pregunta ${t ? (t.correcto ? 'bien' : 'mal') : ''}" data-i="${i}">
-        <p><b>${i + 1}.</b> ${q.nivel && s.tipo === 'diagnostico' ? `<span class="chip">nivel ${q.nivel}</span> ` : ''}${q.repaso ? `<span class="chip" title="Repaso intercalado: algo que ya viste y le toca volver">repaso · ${esc(q.repaso)}</span> ` : ''}${esc(q.pregunta)}</p>
-        <div class="fila"><textarea class="campo-suelto f1" name="respuesta" rows="2" placeholder="Con tus palabras…" ${s.estado === 'hecha' ? 'disabled' : ''}>${esc(t?.respuesta ?? '')}</textarea>${s.estado === 'hecha' ? '' : `<button class="btn btn-chico">${t ? 'De nuevo' : 'Responder'}</button>`}</div>
-        <div class="aca-devolucion">${t ? `${t.correcto ? '✓' : '✗'} ${esc(t.devolucion)}` : ''}</div></form>` }).join('')}
+        <p><b>${i + 1}.</b> ${q.nivel && s.tipo === 'diagnostico' ? `<span class="chip">nivel ${q.nivel}</span> ` : ''}${q.repaso ? `<span class="chip" title="Repaso intercalado: algo que ya viste y le toca volver">repaso · ${esc(q.repaso)}</span> ` : ''}${esc(q.pregunta)}
+          <button type="button" class="btn btn-chico btn-icono" data-oir-parte="pregunta" data-i="${i}" title="Escuchar la pregunta">🔊</button>${abierta && clase ? `<button type="button" class="btn btn-chico btn-icono" data-aclarar="${i}" title="¿Qué me pide? (sin la respuesta)">🤔</button>` : ''}</p>
+        <div class="aca-aclaraciones" data-aclaraciones="${i}">${aclaraciones(i)}</div>
+        <div class="fila"><textarea class="campo-suelto f1" name="respuesta" rows="2" placeholder="Con tus palabras… (o grabalo)" ${abierta ? '' : 'disabled'}>${esc(t?.respuesta ?? '')}</textarea>${abierta ? `<button type="button" class="btn btn-chico btn-icono" data-grabar="${i}" title="Responder hablando">🎙</button><button class="btn btn-chico">${t ? 'De nuevo' : 'Responder'}</button>` : ''}</div>
+        <div class="aca-devolucion">${t ? devolucionHTML(t) : ''}</div></form>` }).join('')}
     </section>
-    ${s.estado === 'hecha' ? '' : `<div class="fila"><button class="btn btn-primario" id="aca-cerrar">✋ Cerrar ${s.tipo === 'examen' ? 'el examen' : 'la clase'}</button><small class="tenue">Queda en tu corpus, con tarjetas para repasar.</small></div>`}
+    ${abierta ? `<div class="fila"><button class="btn btn-primario" id="aca-cerrar">✋ Cerrar ${s.tipo === 'examen' ? 'el examen' : s.tipo === 'diagnostico' ? 'el diagnóstico' : 'la clase'}</button><small class="tenue">${s.tipo === 'diagnostico' ? 'Te ubico según hasta dónde respondiste bien.' : 'Queda en tu corpus, con tarjetas para repasar.'}</small></div>` : ''}
     <div id="aca-cierre"></div>
   </div>`
-  $('#aca-volver').onclick = () => { clearTimeout(aca.sondeo); pintarDominio(s.aprendizajeId) }
+  $('#aca-volver').onclick = () => { clearTimeout(aca.sondeo); pararAudio(); pintarDominio(s.aprendizajeId) }
   $$('[data-pieza]', cont).forEach((x) => (x.onclick = (e) => { e.preventDefault(); modalPieza(Number(x.dataset.pieza)) }))
   if (r.visual?.estado === 'listo') engancharVisual($('#aca-visual'), r.visual.artefactoId, () => refrescarVisual(s.id))
   if (r.visual?.estado === 'haciendo') esperarVisual(s.id)
+  // Escuchar: la explicación (en tramos) o una pregunta.
+  $$('[data-oir-parte]', cont).forEach((b) => (b.onclick = async () => {
+    b.disabled = true
+    try { const { urls } = await api(`/academia/sesion/${s.id}/voz`, { parte: b.dataset.oirParte, i: b.dataset.i == null ? null : Number(b.dataset.i) }); await reproducir(urls) } catch (e) { error(e) } finally { b.disabled = false }
+  }))
+  // «No entendí»: otra explicación, más simple, que queda debajo.
+  $$('[data-aclarar]', cont).forEach((b) => (b.onclick = async () => {
+    const i = Number(b.dataset.aclarar)
+    const caja = $(`[data-aclaraciones="${i}"]`, cont)
+    b.disabled = true
+    caja.insertAdjacentHTML('beforeend', '<div class="aca-aclaracion tenue">El tutor lo está pensando de otra forma…</div>')
+    try {
+      const a = await api(`/academia/sesion/${s.id}/aclarar`, { i })
+      ;(r.aclaraciones ??= []).push(a)
+      caja.innerHTML = aclaraciones(i)
+      $$('[data-pieza]', caja).forEach((x) => (x.onclick = (e) => { e.preventDefault(); modalPieza(Number(x.dataset.pieza)) }))
+    } catch (e) { caja.innerHTML = aclaraciones(i); error(e) } finally { b.disabled = false }
+  }))
+  const devolver = (f, d, respuesta) => {
+    r.turnos.push({ i: d.i, respuesta, correcto: d.correcto, devolucion: d.devolucion, pista: d.pista })
+    f.classList.toggle('bien', d.correcto)
+    f.classList.toggle('mal', !d.correcto && !d.pista)
+    f.classList.toggle('pista', !!d.pista)
+    $('.aca-devolucion', f).innerHTML = devolucionHTML(d)
+    const b = $('button:not([type])', f)
+    if (b) b.textContent = 'De nuevo'
+    if (d.pista) f.respuesta.select()
+  }
   $$('.aca-pregunta', cont).forEach((f) => (f.onsubmit = async (ev) => {
     ev.preventDefault()
     const respuesta = f.respuesta.value.trim()
     if (!respuesta) return
-    const b = $('button', f)
+    const b = $('button:not([type])', f)
     b.disabled = true
     $('.aca-devolucion', f).innerHTML = '<span class="tenue">El tutor está leyendo…</span>'
-    try {
-      const d = await api(`/academia/sesion/${s.id}/responder`, { i: Number(f.dataset.i), respuesta })
-      r.turnos.push({ i: d.i, respuesta, correcto: d.correcto, devolucion: d.devolucion })
-      f.classList.toggle('bien', d.correcto)
-      f.classList.toggle('mal', !d.correcto)
-      $('.aca-devolucion', f).innerHTML = `${d.correcto ? '✓' : '✗'} ${esc(d.devolucion)}`
-      b.textContent = 'De nuevo'
-    } catch (e) { $('.aca-devolucion', f).innerHTML = ''; error(e) } finally { b.disabled = false }
+    try { devolver(f, await api(`/academia/sesion/${s.id}/responder`, { i: Number(f.dataset.i), respuesta }), respuesta) } catch (e) { $('.aca-devolucion', f).innerHTML = ''; error(e) } finally { b.disabled = false }
+  }))
+  // Responder hablando: graba hasta que lo vuelva a tocar; el audio se transcribe y se corrige.
+  const responderHablando = async (f, b) => {
+    const i = Number(f.dataset.i)
+    const blob = await grabar(b)
+    if (!blob) return null
+    $('.aca-devolucion', f).innerHTML = '<span class="tenue">Escuchando lo que dijiste…</span>'
+    const d = await fetch(`/api/academia/sesion/${s.id}/audio?i=${i}&nombre=respuesta.webm`, { method: 'POST', body: blob }).then((x) => x.json())
+    if (d.error) throw new Error(d.error)
+    f.respuesta.value = d.transcripcion
+    devolver(f, d, d.transcripcion)
+    return d
+  }
+  $$('[data-grabar]', cont).forEach((b) => (b.onclick = async () => {
+    const f = b.closest('form')
+    try { await responderHablando(f, b) } catch (e) { $('.aca-devolucion', f).innerHTML = ''; error(e) }
   }))
   $$('.aca-pregunta textarea', cont).forEach((t) => t.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); t.form.requestSubmit() } }))
+  // La clase en audio: la explicación, y pregunta por pregunta (te escucha, te devuelve en voz alta, sigue).
+  const audio = $('#aca-audio')
+  if (audio) audio.onclick = async () => {
+    if (aca.enAudio) { pararAudio(); return }
+    aca.enAudio = true
+    audio.textContent = '⏹ Parar'
+    try {
+      await reproducir((await api(`/academia/sesion/${s.id}/voz`, { parte: 'explicacion' })).urls)
+      for (const f of $$('.aca-pregunta', cont)) {
+        if (!aca.enAudio) break
+        if (f.classList.contains('bien')) continue
+        f.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        await reproducir((await api(`/academia/sesion/${s.id}/voz`, { parte: 'pregunta', i: Number(f.dataset.i) })).urls)
+        if (!aca.enAudio) break
+        const d = await responderHablando(f, $('[data-grabar]', f))
+        if (d && aca.enAudio) await reproducir((await api(`/academia/sesion/${s.id}/voz`, { parte: 'texto', texto: d.devolucion })).urls)
+      }
+    } catch (e) { error(e) } finally { pararAudio(); audio.textContent = '🎧 Clase en audio' }
+  }
   const cerrar = $('#aca-cerrar')
   if (cerrar) cerrar.onclick = async () => {
     const sin = p.preguntas.length - new Set(r.turnos.map((t) => t.i)).size
@@ -419,6 +484,60 @@ function pintarClase(r) {
       $('#aca-al-dominio').onclick = () => pintarDominio(s.aprendizajeId)
     } catch (e) { cerrar.disabled = false; error(e) }
   }
+}
+
+/** Una devolución: ✓, ✗ o 💡 (la pista del primer intento: probá de nuevo). */
+const devolucionHTML = (d) => (d.correcto ? `✓ ${esc(d.devolucion)}` : d.pista ? `💡 ${esc(d.devolucion)} <span class="tenue">— probá de nuevo</span>` : `✗ ${esc(d.devolucion)}`)
+
+// ─── la voz del tutor ───────────────────────────────────────────────────
+
+/** Reproduce los audios en orden (se corta con pararAudio). */
+async function reproducir(urls) {
+  for (const u of urls ?? []) {
+    if (aca.cortarAudio) break
+    await new Promise((ok) => {
+      aca.reproductor?.pause()
+      const a = new Audio(u)
+      aca.reproductor = a
+      a.onended = ok
+      a.onerror = ok
+      a.onpause = ok
+      a.play().catch(ok)
+    })
+  }
+  aca.cortarAudio = false
+}
+function pararAudio() {
+  aca.enAudio = false
+  aca.cortarAudio = !!aca.reproductor && !aca.reproductor.paused
+  aca.reproductor?.pause()
+  aca.grabadora?.stop()
+}
+
+/** Graba con el micrófono hasta que se vuelve a tocar el botón (o un minuto). Devuelve el audio, o null si quedó vacío. */
+function grabar(boton) {
+  return new Promise(async (ok, mal) => {
+    if (aca.grabadora) { aca.grabadora.stop(); return ok(null) }
+    let stream
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }) } catch (e) { return mal(new Error('No tengo permiso para el micrófono')) }
+    const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : ''
+    const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : {})
+    const partes = []
+    const texto = boton?.textContent
+    const tope = setTimeout(() => rec.state === 'recording' && rec.stop(), 60_000)
+    rec.ondataavailable = (e) => e.data.size && partes.push(e.data)
+    rec.onstop = () => {
+      clearTimeout(tope)
+      stream.getTracks().forEach((t) => t.stop())
+      aca.grabadora = null
+      if (boton) { boton.textContent = texto; boton.classList.remove('grabando') }
+      const blob = new Blob(partes, { type: partes[0]?.type || 'audio/webm' })
+      ok(blob.size < 2000 ? null : blob)
+    }
+    aca.grabadora = rec
+    rec.start()
+    if (boton) { boton.textContent = '⏺'; boton.classList.add('grabando') }
+  })
 }
 
 /** Mientras el visual está en el horno, se mira cada pocos segundos (solo con la pestaña a la vista). */

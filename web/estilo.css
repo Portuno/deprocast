@@ -2635,3 +2635,9 @@ span.ej-chip { cursor: default; }
 .aca-barra b.medio { background: var(--aviso); }
 .aca-barra b.alto { background: var(--ok); }
 .aca-huecos { margin: var(--e-2) 0; padding-left: 18px; display: flex; flex-direction: column; gap: var(--e-1); }
+.aca-dom-cab #aca-audio { margin-left: auto; }
+.aca-expl-acc { gap: var(--e-2); margin-bottom: var(--e-2); }
+.aca-aclaraciones:empty { display: none; }
+.aca-aclaracion { margin: var(--e-2) 0; padding: var(--e-2) var(--e-3); border-left: 3px solid var(--acento); background: var(--acento-suave); border-radius: var(--r-s); font-size: var(--t-4); }
+.aca-pregunta.pista { box-shadow: inset 3px 0 0 var(--acento); }
+.aca-pregunta [data-grabar].grabando { border-color: var(--mal); color: var(--mal); }

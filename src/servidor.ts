@@ -789,15 +789,17 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/academia\/(\d+)\/sesion$/, async (b, [a]) => {
     const ac = await import('./academia.ts')
     const s = await ac.abrirSesionTutor(db, id(a), { examen: !!b.examen })
-    return { sesion: s, turnos: ac.turnosDe(db, s.id), visual: ac.visualDe(db, s) }
+    return { sesion: s, turnos: ac.turnosDe(db, s.id), aclaraciones: ac.aclaracionesDe(db, s.id), visual: ac.visualDe(db, s) }
   }],
   ['GET', /^\/api\/academia\/sesion\/(\d+)$/, async (_, [s]) => {
     const ac = await import('./academia.ts')
     const x = ac.leerSesionTutor(db, id(s))
     if (!x) throw new Error(`No existe la sesión ${s}`)
-    return { sesion: x, turnos: ac.turnosDe(db, x.id), visual: ac.visualDe(db, x) }
+    return { sesion: x, turnos: ac.turnosDe(db, x.id), aclaraciones: ac.aclaracionesDe(db, x.id), visual: ac.visualDe(db, x) }
   }],
   ['POST', /^\/api\/academia\/sesion\/(\d+)\/responder$/, async (b, [s]) => (await import('./academia.ts')).responderTutor(db, id(s), Number(b.i), String(b.respuesta ?? ''))],
+  ['POST', /^\/api\/academia\/sesion\/(\d+)\/aclarar$/, async (b, [s]) => (await import('./academia.ts')).aclarar(db, id(s), b.i == null ? -1 : Number(b.i))],
+  ['POST', /^\/api\/academia\/sesion\/(\d+)\/voz$/, async (b, [s]) => ({ urls: await (await import('./academia.ts')).audiosDe(db, id(s), { parte: b.parte, i: b.i == null ? undefined : Number(b.i), texto: b.texto }) })],
   ['POST', /^\/api\/academia\/sesion\/(\d+)\/cerrar$/, async (_, [s]) => (await import('./academia.ts')).cerrarSesionTutor(db, id(s))],
   // YouTube: la cola (videos y canales), importar varios, y lo que lee la compu (la nube no puede leer YouTube).
   ['GET', /^\/api\/youtube$/, async () => (await import('./youtube.ts')).estadoYoutube(db)],
@@ -1539,6 +1541,12 @@ const servidor = http.createServer(async (req, res) => {
         return void res.end(JSON.stringify(await (await import('./voz.ts')).escucharTurno(db, cid, audio, { nombre: q.get('nombre') || 'voz.webm', segundos: Number(q.get('segundos')) || null, hud: q.get('hud') || null })))
       }
       // La respuesta de una práctica de idioma, grabada: se transcribe en ese idioma y vuelve la devolución.
+      // La respuesta hablada a una pregunta del tutor de la Academia: cruda, ?i= la pregunta.
+      const audioTutor = req.method === 'POST' ? /^\/api\/academia\/sesion\/(\d+)\/audio$/.exec(url.pathname) : null
+      if (audioTutor) {
+        const audio = await leerCrudo(req, 25 * 1024 * 1024)
+        return void res.end(JSON.stringify(await (await import('./academia.ts')).responderTutorAudio(db, Number(audioTutor[1]), Number(url.searchParams.get('i')), audio, url.searchParams.get('nombre') || 'respuesta.webm')))
+      }
       const audioIdioma = req.method === 'POST' ? /^\/api\/idiomas\/(\d+)\/audio$/.exec(url.pathname) : null
       if (audioIdioma) {
         const audio = await leerCrudo(req, 25 * 1024 * 1024)

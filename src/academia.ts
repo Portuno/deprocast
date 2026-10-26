@@ -18,7 +18,7 @@ import { crearAprendizaje, leerAprendizaje, listarAprendizajes, recursosDe, regi
 import { enLaNube } from './reproceso.ts'
 import { pedirVisual } from './taller-cola.ts'
 import { leerArtefacto } from './taller.ts'
-import { anotarRespuesta, conceptoPorNombre, conceptosDe, conceptosParaRepasar, deTemario, dominioHoy, frontera, guardarMapa, leerConcepto, marcarSabidos, nivelSabido, programarRepaso, ritmoDe, SABIDO, type Concepto } from './conceptos.ts'
+import { anotarRespuesta, bajarDominio, conceptoPorNombre, conceptosDe, conceptosParaRepasar, deTemario, dominioHoy, frontera, guardarMapa, leerConcepto, marcarSabidos, nivelSabido, programarRepaso, ritmoDe, SABIDO, type Concepto } from './conceptos.ts'
 
 export const NIVELES_TUTOR = [
   { n: 1, nombre: 'Niño de 10', regla: 'Explicá como a un chico curioso de 10 años: imágenes de la vida diaria, cero jerga (si aparece una palabra técnica, la explicás con algo que conoce), oraciones cortas. Las preguntas se responden con una idea, no con una definición.' },
@@ -60,10 +60,15 @@ let alPedirVisual = (db: Db, s: SesionTutor, prioridad: number): void => {
   if (r.artefactoId) db.prepare('UPDATE tutor_sesiones SET visual_id = ? WHERE id = ?').run(r.artefactoId, s.id)
   else db.prepare('UPDATE tutor_sesiones SET paquete = ? WHERE id = ?').run(JSON.stringify({ ...s.paquete, visual: { ...v, degradado: r.degradado } }), s.id)
 }
-export function _probarAcademia(o: { modelo?: typeof modelo; nube?: () => boolean; alPedirVisual?: typeof alPedirVisual }) {
+/** La voz (inyectable para tests): lo que dice el tutor (kokoro, con caché) y lo que él responde hablando (Whisper). */
+let hablar = async (db: Db, texto: string): Promise<string | null> => (await import('./voz.ts')).decir(db, texto, (await import('./chat/adjuntos.ts')).dirAdjuntos())
+let transcribir = async (db: Db, audio: Buffer, nombre: string): Promise<string> => (await import('./nan.ts')).nanTranscribir(db, audio, nombre, 'es')
+export function _probarAcademia(o: { modelo?: typeof modelo; nube?: () => boolean; alPedirVisual?: typeof alPedirVisual; hablar?: typeof hablar; transcribir?: typeof transcribir }) {
   if (o.modelo) modelo = o.modelo
   if (o.nube) nube = o.nube
   if (o.alPedirVisual) alPedirVisual = o.alPedirVisual
+  if (o.hablar) hablar = o.hablar
+  if (o.transcribir) transcribir = o.transcribir
 }
 
 // ─── leer ───────────────────────────────────────────────────────────────
@@ -158,8 +163,16 @@ Armás el examen para aprobar el nivel ${n} (${nombreNivel(n)}): 5 preguntas mez
 Forma: {"tema": "Examen del nivel ${n}", "explicacion": string (dos líneas: qué evalúa y cómo aprobar: 4 de 5), "ejemplos": [], "preguntas": [{"pregunta": string, "clave": string}], "ideas": [], "tarjetas": [], "visual": {"tipo": "ninguno", "pedido": ""}}`
 
 const SISTEMA_DEVOLUCION = `${REGLAS}
-Corregís UNA respuesta del alumno contra la clave de la pregunta. «correcto» si la idea central está, aunque lo diga con otras palabras o con errores menores. La devolución: una o dos oraciones, qué estuvo bien, qué faltó o qué está mal, y la pista justa para entenderlo (no la respuesta completa si se equivocó feo).
-Forma: {"correcto": boolean, "devolucion": string}`
+Corregís UNA respuesta del alumno contra la clave de la pregunta. «correcto» si la idea central está, aunque lo diga con otras palabras o con errores menores.
+- Si está bien: una o dos oraciones, qué estuvo bien y, si falta un matiz, cuál.
+- Si está mal y es el PRIMER intento: NO des la respuesta. Una pista o una pregunta guía que lo haga pensar en la dirección correcta (socrático), apoyada en algo que ya sabe. Termina invitándolo a probar de nuevo.
+- Si está mal y ya es el SEGUNDO intento (o más): ahí sí, explicá la respuesta, corto y claro, y por qué su idea no alcanzaba.
+- concepto_flojo: si el error muestra que le falta una idea previa (un requisito), nombrala; si no, null.
+Forma: {"correcto": boolean, "devolucion": string, "concepto_flojo": string | null}`
+
+const SISTEMA_ACLARACION = `${REGLAS}
+El alumno dijo «no entendí». Reexplicá UN nivel más abajo y con OTRA analogía distinta a la de la clase (algo de la vida diaria). Corto: 80 a 180 palabras. Si es sobre una pregunta, explicá qué te está pidiendo la pregunta y qué idea hace falta, SIN dar la respuesta.
+Forma: {"texto": string}`
 
 function paqueteDe(d: any, tema: string): Paquete {
   const v = d?.visual && VISUALES.includes(d.visual.tipo) && d.visual.tipo !== 'ninguno' && txt(d.visual.pedido) ? { tipo: d.visual.tipo, pedido: txt(d.visual.pedido, 500) } : null
@@ -335,7 +348,9 @@ export function visualDe(db: Db, s: SesionTutor) {
 }
 
 export const turnosDe = (db: Db, sid: number) =>
-  (db.prepare('SELECT i, respuesta, correcto, devolucion FROM tutor_turnos WHERE sesion_id = ? ORDER BY id').all(sid) as any[]).map((t) => ({ i: t.i, respuesta: t.respuesta, correcto: !!t.correcto, devolucion: t.devolucion }))
+  (db.prepare(`SELECT i, respuesta, correcto, devolucion FROM tutor_turnos WHERE sesion_id = ? AND tipo = 'respuesta' ORDER BY id`).all(sid) as any[]).map((t) => ({ i: t.i, respuesta: t.respuesta, correcto: !!t.correcto, devolucion: t.devolucion }))
+export const aclaracionesDe = (db: Db, sid: number) =>
+  (db.prepare(`SELECT i, devolucion FROM tutor_turnos WHERE sesion_id = ? AND tipo = 'aclaracion' ORDER BY id`).all(sid) as any[]).map((t) => ({ i: t.i, texto: t.devolucion as string }))
 
 /** Su respuesta a una pregunta: el tutor la corrige contra la clave. La última respuesta a cada pregunta es la que cuenta. */
 export async function responderTutor(db: Db, sid: number, i: number, respuesta: string, ahora = Date.now()) {
@@ -346,14 +361,78 @@ export async function responderTutor(db: Db, sid: number, i: number, respuesta: 
   if (!p) throw new Error('Esa pregunta no está en la sesión')
   const r = respuesta.trim()
   if (!r) throw new Error('¿Qué respondés?')
-  const d = await modelo(db, SISTEMA_DEVOLUCION, `Nivel ${s.nivel} (${nombreNivel(s.nivel)}). Tema: ${s.tema}\nPregunta: ${p.pregunta}\nClave: ${p.clave}\nRespuesta del alumno: ${r.slice(0, 2000)}`)
+  // Socrático: en el primer intento, si se equivoca, el tutor da una pista y no la respuesta; desde el segundo, explica.
+  const intento = (db.prepare(`SELECT COUNT(*) AS n FROM tutor_turnos WHERE sesion_id = ? AND i = ? AND tipo = 'respuesta'`).get(sid, i) as { n: number }).n + 1
+  const examen = s.tipo !== 'clase'
+  const d = await modelo(db, SISTEMA_DEVOLUCION, `Nivel ${s.nivel} (${nombreNivel(s.nivel)}). Tema: ${s.tema}\nPregunta: ${p.pregunta}\nClave: ${p.clave}\nIntento: ${examen ? 2 : intento}${examen ? ' (es una evaluación: corregí sin pistas)' : ''}\nRespuesta del alumno: ${r.slice(0, 2000)}`)
   const correcto = !!d?.correcto
-  const devolucion = txt(d?.devolucion, 800) || (correcto ? 'Bien.' : 'No es eso: volvé a la explicación.')
+  const pista = !correcto && intento === 1 && !examen
+  const devolucion = txt(d?.devolucion, 800) || (correcto ? 'Bien.' : pista ? 'No es eso todavía: volvé a la explicación y probá de nuevo.' : 'No es eso: volvé a la explicación.')
   // La primera respuesta a cada pregunta mueve lo que sabe de su concepto (los reintentos no: ya vio la devolución).
-  const primera = !db.prepare('SELECT 1 FROM tutor_turnos WHERE sesion_id = ? AND i = ?').get(sid, i)
-  if (primera && p.conceptoId) anotarRespuesta(db, p.conceptoId, correcto, ahora)
+  if (intento === 1 && p.conceptoId) anotarRespuesta(db, p.conceptoId, correcto, ahora)
+  // Si el error muestra que le falta un requisito, ese requisito baja un poco (vuelve antes).
+  const flojo = !correcto && d?.concepto_flojo ? conceptoPorNombre(db, s.aprendizajeId, String(d.concepto_flojo)) : null
+  if (flojo && flojo.id !== p.conceptoId) bajarDominio(db, flojo.id, 0.9)
   db.prepare('INSERT INTO tutor_turnos (sesion_id, i, respuesta, correcto, devolucion, en) VALUES (?, ?, ?, ?, ?, ?)').run(sid, i, r.slice(0, 4000), correcto ? 1 : 0, devolucion, ahora)
-  return { i, correcto, devolucion }
+  return { i, correcto, devolucion, pista, intento, flojo: flojo?.nombre ?? null }
+}
+
+/**
+ * «No entendí»: el tutor reexplica un nivel más abajo y con otra analogía (de la explicación, i = -1, o de una pregunta,
+ * sin darle la respuesta). Queda en la sesión y baja un poco lo que creía saber de ese concepto.
+ */
+export async function aclarar(db: Db, sid: number, i = -1, ahora = Date.now()): Promise<{ i: number; texto: string }> {
+  const s = leerSesionTutor(db, sid)
+  if (!s) throw new Error(`No existe la sesión ${sid}`)
+  const p = i >= 0 ? s.paquete.preguntas[i] : null
+  if (i >= 0 && !p) throw new Error('Esa pregunta no está en la sesión')
+  const nivel = Math.max(1, s.nivel - 1)
+  const r = await modelo(db, SISTEMA_ACLARACION, [
+    `Explicá al nivel ${nivel} (${nombreNivel(nivel)}): ${NIVELES_TUTOR[nivel - 1].regla}`,
+    `Tema: ${s.tema}`,
+    p ? `No entendió esta pregunta: ${p.pregunta}` : `No entendió la explicación:\n${s.paquete.explicacion.slice(0, 3000)}`,
+    ...aclaracionesDe(db, sid).filter((x) => x.i === i).map((x) => `Ya le dijiste (probá otra cosa): ${x.texto.slice(0, 400)}`),
+  ].join('\n'))
+  const texto = txt(r?.texto, 2000) || 'Probemos de otra forma: decime qué parte no se entiende y lo vemos.'
+  db.prepare(`INSERT INTO tutor_turnos (sesion_id, i, respuesta, correcto, devolucion, tipo, en) VALUES (?, ?, '(no entendí)', 0, ?, 'aclaracion', ?)`).run(sid, i, texto, ahora)
+  const cid = p?.conceptoId ?? s.conceptoId
+  if (cid) bajarDominio(db, cid, 0.85)
+  return { i, texto }
+}
+
+/** Responder hablando: el audio se transcribe y se corrige como una respuesta escrita (devuelve también lo que entendió). */
+export async function responderTutorAudio(db: Db, sid: number, i: number, audio: Buffer, nombre = 'respuesta.webm', ahora = Date.now()) {
+  if (audio.length < 1500) throw new Error('El audio quedó vacío')
+  const texto = (await transcribir(db, audio, nombre)).trim()
+  if (!texto) throw new Error('No se entendió el audio: probá de nuevo, más cerca del micrófono')
+  return { ...(await responderTutor(db, sid, i, texto, ahora)), transcripcion: texto }
+}
+
+/** En tramos que se dicen bien (hasta ~500 caracteres, cortando en oraciones), sin el markdown ni las citas. */
+export function tramosParaDecir(texto: string, largo = 500): string[] {
+  const limpio = texto.replace(/\[#\d+\]/g, '').replace(/(^|\s)#{1,6}\s+/g, '$1').replace(/[*_`>]+/g, '').replace(/[ \t]+([.,;:!?])/g, '$1').replace(/\n{2,}/g, '\n').trim()
+  const oraciones = limpio.match(/[^.!?\n]+[.!?]*|\n/g)?.map((x) => x.trim()).filter(Boolean) ?? []
+  const out: string[] = []
+  for (const o of oraciones) {
+    const ultimo = out[out.length - 1]
+    if (ultimo && (ultimo + ' ' + o).length <= largo) out[out.length - 1] = `${ultimo} ${o}`
+    else out.push(o.slice(0, largo))
+  }
+  return out
+}
+
+/** La voz del tutor: la explicación (en tramos), una pregunta, una devolución o una aclaración, como audios listos. */
+export async function audiosDe(db: Db, sid: number, que: { parte: 'explicacion' | 'pregunta' | 'texto'; i?: number; texto?: string }): Promise<string[]> {
+  const s = leerSesionTutor(db, sid)
+  if (!s) throw new Error(`No existe la sesión ${sid}`)
+  const texto = que.parte === 'explicacion' ? `${s.paquete.tema}.
+${s.paquete.explicacion}`
+    : que.parte === 'pregunta' ? s.paquete.preguntas[que.i ?? -1]?.pregunta ?? ''
+    : String(que.texto ?? '').slice(0, 3000)
+  if (!texto.trim()) throw new Error('No hay nada para decir')
+  const urls: string[] = []
+  for (const t of tramosParaDecir(texto)) { const u = await hablar(db, t); if (u) urls.push(u) }
+  return urls
 }
 
 /**
@@ -378,6 +457,7 @@ export function cerrarSesionTutor(db: Db, sid: number, ahora = Date.now()) {
     p.explicacion,
     p.ejemplos.length ? `## Ejemplos\n${p.ejemplos.map((e) => `- ${e}`).join('\n')}` : '',
     `## Preguntas\n${p.preguntas.map((q, i) => { const t = ultimos.get(i); return `- ${q.pregunta}${t ? `\n  - Respondí: ${t.respuesta}\n  - ${t.correcto ? '✓' : '✗'} ${t.devolucion ?? ''}` : '\n  - (sin responder)'}` }).join('\n')}`,
+    aclaracionesDe(db, sid).length ? `## Lo que no entendí y cómo me lo explicó\n${aclaracionesDe(db, sid).map((a) => `- ${a.i >= 0 ? `(pregunta ${a.i + 1}) ` : ''}${a.texto}`).join('\n')}` : '',
     `Puntaje: ${Math.round(puntaje * 100)} %`,
   ].filter(Boolean).join('\n\n')
   const piezaId = insertar(db, {

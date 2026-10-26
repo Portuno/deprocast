@@ -1418,6 +1418,8 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
     ['meta_fecha', 'TEXT'], ['meta_nivel', 'INTEGER'], ['meta_inicial', 'INTEGER'], ['diagnostico_en', 'INTEGER'],
   ],
   tutor_sesiones: [['concepto_id', 'INTEGER']],
+  // respuesta | aclaracion («no entendí»: i = -1 si fue la explicación). Las aclaraciones no cuentan para el puntaje.
+  tutor_turnos: [['tipo', "TEXT NOT NULL DEFAULT 'respuesta'"]],
   idioma_turnos: [['sesion_id', 'INTEGER']],
   misiones: [
     ['armado', 'TEXT'], // bien | mal: si la banda estuvo bien armada
