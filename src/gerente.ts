@@ -17,8 +17,10 @@ export function gerenteDe(db: Db, proyectoId: string | null): Ficha | null {
  * La carga (tareas ya asignadas en este reparto) penaliza para rotar.
  */
 export function elegir(db: Db, t: Tarea, carga: Map<string, number>): { agente: Ficha; razon: string } | null {
+  // Los que tienen una misión viva están dedicados a ella (plan v26): el bus no los toma.
+  const enMision = new Set((db.prepare(`SELECT agente_id FROM agente_misiones WHERE estado IN ('activa', 'pausada')`).all() as { agente_id: string }[]).map((r) => r.agente_id))
   const candidatos = listar(db, { clase: t.clase }).filter(
-    (f) => f.estado !== 'banca' && (f.proyectoId == null || f.proyectoId === t.proyectoId),
+    (f) => f.estado !== 'banca' && !enMision.has(f.id) && (f.proyectoId == null || f.proyectoId === t.proyectoId),
   )
   let mejor: { agente: Ficha; score: number; razon: string[] } | null = null
   for (const f of candidatos) {

@@ -751,6 +751,26 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/academia\/(\d+)\/material\/(\d+)$/, async (b, [a, f]) => ({ material: (await import('./academia.ts')).marcarMaterial(db, id(a), id(f), { util: b.util == null ? undefined : Number(b.util), quitar: !!b.quitar }) })],
   // El mapa de conceptos, el diagnóstico, la meta y los huecos (plan v24).
   // El proyecto del nivel: proponer (u otro), aceptar (queda como primaria), entregar (lo corrige el tutor), descartar.
+  // Los agentes con misión (plan v26): crear, ver (con su diario), indicar, pausar y una sesión a mano (en la nube).
+  ['GET', /^\/api\/agentes\/misiones$/, async () => {
+    const mi = await import('./agentes/misiones.ts')
+    return { misiones: mi.listarMisionesAgente(db).map((m) => ({ ...m, agente: leer(db, m.agenteId), trabajando: mi.misionTrabajando(m.id), ultimo: mi.diarioDe(db, m.id, 1)[0] ?? null })) }
+  }],
+  ['POST', /^\/api\/agentes\/misiones$/, async (b) => (await import('./agentes/misiones.ts')).crearMisionAgente(db, { titulo: b.titulo, brief: b.brief, criterio: b.criterio, entidadId: b.entidadId ?? null, vence: b.vence ?? null, agenteId: b.agenteId || null })],
+  ['GET', /^\/api\/agentes\/misiones\/(\d+)$/, async (_, [m]) => {
+    const mi = await import('./agentes/misiones.ts')
+    const x = mi.leerMisionAgente(db, id(m))
+    if (!x) throw new Error(`No existe la misión ${m}`)
+    return { mision: x, agente: leer(db, x.agenteId), diario: mi.diarioDe(db, x.id, 200), trabajando: mi.misionTrabajando(x.id) }
+  }],
+  ['POST', /^\/api\/agentes\/misiones\/(\d+)$/, async (b, [m]) => (await import('./agentes/misiones.ts')).editarMisionAgente(db, id(m), { estado: b.estado, brief: b.brief, titulo: b.titulo, criterio: b.criterio, vence: b.vence })],
+  ['POST', /^\/api\/agentes\/misiones\/(\d+)\/instruir$/, async (b, [m]) => (await import('./agentes/misiones.ts')).instruir(db, id(m), String(b.texto ?? ''))],
+  ['POST', /^\/api\/agentes\/misiones\/(\d+)\/trabajar$/, async (_, [m]) => {
+    soloNube('Una sesión del agente')
+    const r = await (await import('./agentes/misiones.ts')).trabajarMision(db, id(m))
+    return { sesion: r.sesion, pasos: r.resultado.pasos, cerrada: r.cerrada, cortado: r.resultado.cortado }
+  }],
+  ['GET', /^\/api\/agentes\/sala$/, async () => ({ trabajando: (await import('./agentes/motor.ts')).trabajandoAhora() })],
   // El Grafo (plan v25): las capas, los grafos propios, sus fotos, recalcular (en el hilo aparte) y el diccionario.
   ['GET', /^\/api\/grafos$/, async () => ({ grafos: (await import('./grafo/index.ts')).listarGrafos(db) })],
   ['POST', /^\/api\/grafos$/, async (b) => (await import('./grafo/index.ts')).crearGrafo(db, { nombre: b.nombre, fuentes: b.fuentes, desde: b.desde, hasta: b.hasta })],

@@ -135,6 +135,13 @@ export const ACCIONES: Acciones = {
     }
     return null
   },
+  /** Tres veces por día (en la nube): los agentes trabajan sus misiones, una sesión cada una si les toca por su Ritmo. */
+  async misiones(db, _fecha, ahora) {
+    if (topeAlcanzado(db, ahora) || !(await import('./reproceso.ts')).enLaNube()) return null
+    // Lo que hicieron queda en sus diarios (y en la Sala); el informe va el domingo.
+    await (await import('./agentes/misiones.ts')).trabajarMisiones(db, ahora)
+    return null
+  },
   /** El domingo: lo que cambió en el grafo de su voz (grupos que nacen o crecen, bisagras que suben, posibles bucles). Sin tokens. */
   async grafo_semana(db, _fecha, ahora) {
     return (await import('./grafo/salud.ts')).avisoSemanal(db, ahora)

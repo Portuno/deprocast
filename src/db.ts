@@ -1463,6 +1463,34 @@ CREATE TABLE IF NOT EXISTS grafo_semanas (
   en INTEGER NOT NULL,
   PRIMARY KEY (grafo_id, semana)
 );
+-- Las misiones de los agentes (plan v26): una meta larga con su criterio de éxito, que un agente trabaja en sesiones
+-- (en bucle, con herramientas) a lo largo de días. El brief lo escribe él: nada de la misión vive en el código.
+CREATE TABLE IF NOT EXISTS agente_misiones (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agente_id TEXT NOT NULL,
+  titulo TEXT NOT NULL,
+  brief TEXT NOT NULL,
+  criterio TEXT NOT NULL,              -- JSON: {metrica, meta, texto}
+  entidad_id INTEGER,
+  primaria_id INTEGER,
+  vence TEXT,                          -- YYYY-MM-DD
+  estado TEXT NOT NULL DEFAULT 'activa', -- activa | pausada | cumplida | fallida | abandonada
+  plan TEXT NOT NULL DEFAULT '[]',     -- JSON: [{paso, estado}]
+  proximo TEXT,                        -- el próximo paso que dejó la última sesión
+  creada_en INTEGER NOT NULL,
+  actualizada_en INTEGER NOT NULL
+);
+-- Su diario: la memoria de trabajo entre sesiones (lo que encontró, lo que intentó, lo que él le indicó, cada sesión).
+CREATE TABLE IF NOT EXISTS agente_diario (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  mision_id INTEGER NOT NULL,
+  agente_id TEXT NOT NULL,
+  tipo TEXT NOT NULL,                  -- plan | hallazgo | paso | reflexion | pregunta | instruccion | resultado | sesion
+  texto TEXT NOT NULL,
+  refs TEXT,
+  en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agente_diario_mision ON agente_diario(mision_id, id);
 -- Su diccionario del grafo: palabras que frena (stop), que protege (no se cortan ni se sacan) y alias (forma → destino).
 CREATE TABLE IF NOT EXISTS grafo_diccionario (
   forma TEXT PRIMARY KEY,
@@ -1609,6 +1637,9 @@ const RUTINAS_SISTEMA = [
   { id: 'huecos', nombre: 'Lo que te falta: tus metas y tus dominios contra tu archivo', hora: '19:50', dias: '0', accion: 'huecos' },
   { id: 'lecciones', nombre: 'Lo que aprendí de tu feedback (lecciones para la semana)', hora: '20:00', dias: '0', accion: 'lecciones' },
   { id: 'grafo', nombre: 'El grafo: recalcular tu voz y todo el corpus (sin tokens)', hora: '03:30', dias: '0123456', accion: 'grafo' },
+  { id: 'misiones_m', nombre: 'Los agentes trabajan sus misiones (mañana)', hora: '10:30', dias: '0123456', accion: 'misiones' },
+  { id: 'misiones_t', nombre: 'Los agentes trabajan sus misiones (tarde)', hora: '15:30', dias: '0123456', accion: 'misiones' },
+  { id: 'misiones_n', nombre: 'Los agentes trabajan sus misiones (noche)', hora: '21:00', dias: '0123456', accion: 'misiones' },
   { id: 'grafo_semana', nombre: 'Lo que cambió en tu grafo esta semana (sin tokens)', hora: '20:20', dias: '0', accion: 'grafo_semana' },
   { id: 'mentor', nombre: 'El Mentor recomienda qué leer o ver', hora: '08:05', dias: '1', accion: 'mentor' },
   { id: 'puentes', nombre: 'Puentes con tu gente', hora: '11:00', dias: '0', accion: 'puentes' },
