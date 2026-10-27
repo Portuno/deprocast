@@ -2829,3 +2829,14 @@ span.ej-chip { cursor: default; }
 .tb-item b { color: var(--acento); }
 @media (max-width: 720px) { .tb { padding: var(--e-1) var(--e-3); } .tb-cab { gap: var(--e-2); flex-wrap: wrap; } }
 @media (min-width: 1000px) { .tb-cols { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+/* El celular (plan v29): las pestañas se deslizan de costado en vez de cortarse; los filtros bajan de línea; los puntos
+   de color del grafo tienen un área de toque de 24 px (el punto se sigue viendo de 14). */
+@media (max-width: 720px) {
+  .tabs { overflow-x: auto; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs button { white-space: nowrap; flex: none; }
+  .ag-filtros { flex-wrap: wrap; }
+  .ag-filtros .tabs { max-width: 100%; }
+  .gf-coms .gf-color[data-color] { width: 24px; height: 24px; background-clip: content-box; padding: 5px; }
+}
