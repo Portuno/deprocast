@@ -329,7 +329,7 @@ export const HERRAMIENTAS: Herramienta[] = [
   {
     nombre: 'pedir_herramientas', familia: 'lectura',
     descripcion: 'Suma herramientas para este turno. Tenés a mano lo de todos los días; para lo demás pedí el grupo: liga (agentes, encargos, ticks, propuestas, La Fragua), corpus (fuentes, cargas, quántomos, entidades, ingerir), misiones (primarias, runs, reportes, ayudantes, personajes, inventario), vida (personas, plata, salud, plan, aprendizaje, bitácora, gemelo, brújula, preguntas), web (buscar en internet, leer y guardar links, radar), crear (cuadernos, librería, taller, cuentas, Directo).',
-    parametros: S({ grupos: { type: 'array', items: { type: 'string', enum: ['liga', 'corpus', 'misiones', 'vida', 'web', 'crear', 'grafo'] }, description: 'Uno o varios grupos' } }, ['grupos']),
+    parametros: S({ grupos: { type: 'array', items: { type: 'string', enum: ['liga', 'corpus', 'misiones', 'vida', 'web', 'crear', 'grafo', 'observatorio'] }, description: 'Uno o varios grupos' } }, ['grupos']),
     ejecutar: (a, ctx) => ({ activadas: ctx.activar?.(Array.isArray(a.grupos) ? a.grupos.map(String) : []) ?? [] }),
     resumen: (a) => `sumó herramientas de ${Array.isArray(a.grupos) ? a.grupos.join(', ') : '…'}`,
   },
@@ -948,6 +948,23 @@ export const HERRAMIENTAS: Herramienta[] = [
       return { pista: r.id, organizacion: r.contacto.organizacion, etapa: r.etapa }
     },
     resumen: (a) => `marcó la pista «${recorte(a.pista, 30)}»: ${a.etapa}`,
+  },
+  {
+    nombre: 'seguir_tema', familia: 'accion',
+    descripcion: 'El Observatorio: seguir un tema (una persona, un hashtag, un programa) en X, Reddit, YouTube, noticias y foros, leyendo solo lo público. Cada tanto (12 h por defecto) hace una ronda y resume qué se dice en cada lado, los saltos entre plataformas y lo nuevo. Con id, edita uno que ya sigue.',
+    parametros: S({ id: int('Para editar uno que ya sigue'), nombre: str('El tema'), consultas: { type: 'array', items: { type: 'string' }, description: 'Hasta 5 búsquedas (rotan de a una por ronda)' }, plataformas: { type: 'array', items: { type: 'string', enum: ['x', 'reddit', 'youtube', 'noticias', 'foros'] } }, cada_horas: int('Cada cuántas horas (1 a 168)'), activo: bool('Pausarlo o retomarlo') }),
+    ejecutar: async (a, { db }) => {
+      const ob = await import('../observatorio.ts')
+      const t = a.id ? ob.editarTema(db, Number(a.id), { nombre: a.nombre, consultas: a.consultas, plataformas: a.plataformas, cadaHoras: a.cada_horas, activo: a.activo }) : ob.seguirTema(db, { nombre: a.nombre, consultas: a.consultas, plataformas: a.plataformas, cadaHoras: a.cada_horas })
+      return t ? { tema: t.id, nombre: t.nombre, consultas: t.consultas, plataformas: t.plataformas, cada_horas: t.cadaHoras, aviso: 'Las rondas corren en la nube; lo ves en Afuera → Observatorio.' } : { borrado: true }
+    },
+    resumen: (a) => `${a.id ? 'ajustó' : 'empezó a seguir'} un tema en el Observatorio: ${recorte(a.nombre ?? `#${a.id}`, 40)}`,
+  },
+  {
+    nombre: 'ver_observatorio', familia: 'lectura',
+    descripcion: 'Qué se dice de un tema que sigue (o de todos): la última ronda con las narrativas de cada plataforma, los saltos entre plataformas, lo nuevo y cómo venía. De X se ve lo que indexan los buscadores.',
+    parametros: S({ tema: str('El tema (nombre o id); vacío = todos') }),
+    ejecutar: async (a, { db }) => (await import('../observatorio.ts')).verObservatorio(db, a.tema),
   },
   {
     nombre: 'ver_grafo', familia: 'lectura',
@@ -1751,6 +1768,7 @@ export const GRUPOS: Record<string, string[]> = {
   vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   web: ['buscar_web', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus'],
+  observatorio: ['seguir_tema', 'ver_observatorio'],
   crear: ['ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
 
@@ -1765,6 +1783,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal/.test(t)) g.push('web')
   if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo/.test(t)) g.push('crear')
   if (/grafo|mis temas|de qu[eé] hablo|qu[eé] conecta|me repito|mis zonas|zonas de mi|bisagra|hueco/.test(t)) g.push('grafo')
+  if (/observatorio|qu[eé] se dice|narrativa|hashtag|tendencia|segu[ií] (el|al|a la) tema|segu[ií]me/.test(t)) g.push('observatorio')
   return g
 }
 

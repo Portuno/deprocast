@@ -1463,6 +1463,41 @@ CREATE TABLE IF NOT EXISTS grafo_semanas (
   en INTEGER NOT NULL,
   PRIMARY KEY (grafo_id, semana)
 );
+-- El Observatorio (plan v27): los temas que él sigue, lo que se encontró de cada uno en cada plataforma (solo lo público,
+-- leído por los buscadores) y cada ronda con su resumen (narrativas por plataforma, saltos y lo nuevo).
+CREATE TABLE IF NOT EXISTS observatorio_temas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL,
+  consultas TEXT NOT NULL,             -- JSON: hasta 5 búsquedas (rotan, una por ronda)
+  plataformas TEXT NOT NULL,           -- JSON: x | reddit | youtube | noticias | foros
+  cada_horas INTEGER NOT NULL DEFAULT 12,
+  intensivo_hasta INTEGER,             -- en vivo (una campaña): una ronda cada 15 minutos hasta acá
+  activo INTEGER NOT NULL DEFAULT 1,
+  aviso TEXT,                          -- lo último que falló (sin cuota, una plataforma que no se pudo buscar)
+  creado_en INTEGER NOT NULL,
+  actualizado_en INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS observatorio_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tema_id INTEGER NOT NULL,
+  plataforma TEXT NOT NULL,
+  url TEXT NOT NULL,
+  titulo TEXT NOT NULL,
+  extracto TEXT,
+  texto TEXT,                          -- lo leído de la página (si se deja leer)
+  ronda INTEGER NOT NULL,
+  en INTEGER NOT NULL,
+  UNIQUE (tema_id, url)
+);
+CREATE TABLE IF NOT EXISTS observatorio_rondas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tema_id INTEGER NOT NULL,
+  en INTEGER NOT NULL,
+  nuevos INTEGER NOT NULL,
+  resumen TEXT,
+  busquedas INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS observatorio_rondas_tema ON observatorio_rondas(tema_id, id);
 -- Las misiones de los agentes (plan v26): una meta larga con su criterio de éxito, que un agente trabaja en sesiones
 -- (en bucle, con herramientas) a lo largo de días. El brief lo escribe él: nada de la misión vive en el código.
 CREATE TABLE IF NOT EXISTS agente_misiones (

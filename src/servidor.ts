@@ -768,6 +768,20 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/academia\/(\d+)\/material\/(\d+)$/, async (b, [a, f]) => ({ material: (await import('./academia.ts')).marcarMaterial(db, id(a), id(f), { util: b.util == null ? undefined : Number(b.util), quitar: !!b.quitar }) })],
   // El mapa de conceptos, el diagnóstico, la meta y los huecos (plan v24).
   // El proyecto del nivel: proponer (u otro), aceptar (queda como primaria), entregar (lo corrige el tutor), descartar.
+  // El Observatorio (plan v27): los temas que sigue, cada uno con sus rondas y lo encontrado; una ronda a mano (en la nube).
+  ['GET', /^\/api\/observatorio$/, async () => {
+    const ob = await import('./observatorio.ts')
+    return { temas: ob.listarTemas(db).map((t) => ({ ...t, ultima: ob.rondasDe(db, t.id, 1)[0] ?? null, enRonda: ob.rondaEnCurso(t.id) })), plataformas: ob.PLATAFORMAS, nombres: ob.NOMBRE_PLATAFORMA, cuotas: (await import('./web.ts')).cuotas(db) }
+  }],
+  ['POST', /^\/api\/observatorio$/, async (b) => (await import('./observatorio.ts')).seguirTema(db, { nombre: b.nombre, consultas: b.consultas, plataformas: b.plataformas, cadaHoras: b.cadaHoras })],
+  ['GET', /^\/api\/observatorio\/(\d+)$/, async (_, [t]) => {
+    const ob = await import('./observatorio.ts')
+    const x = ob.leerTema(db, id(t))
+    if (!x) throw new Error(`No existe el tema ${t}`)
+    return { tema: x, rondas: ob.rondasDe(db, x.id, 30), items: ob.itemsDe(db, x.id, { limite: 300 }), enRonda: ob.rondaEnCurso(x.id), nombres: ob.NOMBRE_PLATAFORMA }
+  }],
+  ['POST', /^\/api\/observatorio\/(\d+)$/, async (b, [t]) => (await import('./observatorio.ts')).editarTema(db, id(t), { nombre: b.nombre, consultas: b.consultas, plataformas: b.plataformas, cadaHoras: b.cadaHoras, activo: b.activo, borrar: !!b.borrar })],
+  ['POST', /^\/api\/observatorio\/(\d+)\/ronda$/, async (_, [t]) => { soloNube('Una ronda del Observatorio'); return (await import('./observatorio.ts')).ronda(db, id(t)) }],
   // Dejar listo ya lo que va a abrir (la próxima clase, la sesión de idioma, el grafo): lo hace la rutina; esto, a mano.
   ['POST', /^\/api\/adelantar$/, async () => { soloNube('Dejar listo lo que vas a abrir'); return (await import('./adelantar.ts')).adelantar(db) }],
   // Los agentes con misión (plan v26): crear, ver (con su diario), indicar, pausar y una sesión a mano (en la nube).
@@ -1789,6 +1803,16 @@ if (enLaNube() && !enVercel()) {
   const reprocesar = () => { if (ajuste(db, 'reproceso_activo') === '1') void trabajarReproceso(db).catch((e) => console.error('  reproceso:', e instanceof Error ? e.message : e)) }
   setTimeout(reprocesar, 90_000).unref()
   setInterval(reprocesar, 10 * 60_000).unref()
+}
+
+// El Observatorio: cada 10 minutos, en la nube, las rondas que tocan; lo fuerte (o todo, si es una campaña en vivo) va a Hoy.
+if (enLaNube() && !enVercel() && !process.env.MASTRO_SIN_RUTINAS) {
+  let observando = false
+  setInterval(async () => {
+    if (observando || topeAlcanzado(db)) return
+    observando = true
+    try { for (const t of await (await import('./observatorio.ts')).latidoObservatorio(db)) mensajeDeMastropiero(db, conversacionHoy(db).id, t) } catch (e) { console.error('  observatorio:', e instanceof Error ? e.message : e) } finally { observando = false }
+  }, 10 * 60_000).unref()
 }
 
 // Recién arrancado, en la nube: lo que va a abrir (la próxima clase, la sesión de idioma, el grafo) se deja listo de fondo,

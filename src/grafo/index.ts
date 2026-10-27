@@ -34,7 +34,7 @@ export function listarGrafos(db: Db): (Grafo & { foto: { en: number; metricas: R
 export const leerGrafo = (db: Db, id: number): Grafo | null => { const r = db.prepare('SELECT * FROM grafos WHERE id = ?').get(id); return r ? deGrafo(r) : null }
 export const grafoPorClave = (db: Db, clave: 'voz' | 'todo'): Grafo => { asegurarCapas(db); return deGrafo(db.prepare('SELECT * FROM grafos WHERE clave = ?').get(clave)) }
 
-const FUENTES_VALIDAS = ['entidad', 'conversacion', 'dominio', 'cuaderno', 'piezas', 'texto', 'epoca']
+const FUENTES_VALIDAS = ['entidad', 'conversacion', 'dominio', 'cuaderno', 'piezas', 'texto', 'epoca', 'observatorio']
 function limpiarFuentes(fs: unknown): Fuente[] {
   return (Array.isArray(fs) ? fs : []).filter((f: any) => FUENTES_VALIDAS.includes(f?.tipo)).slice(0, 40).map((f: any) => {
     if (f.tipo === 'piezas') return { tipo: 'piezas', ids: (Array.isArray(f.ids) ? f.ids : []).map(Number).filter(Number.isFinite).slice(0, 2000) }

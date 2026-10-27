@@ -3,7 +3,7 @@
  * - voz (la primordial): sus piezas propias y los quántomos sellados; él va en el centro.
  * - todo: el corpus entero, con una muestra pareja (por un orden pseudoaleatorio fijo) hasta un tope de caracteres.
  * - propio: lo que él arma sumando fuentes: entidades (con todo lo suyo), conversaciones, dominios de la Academia,
- *   cuadernos, una época, piezas sueltas o un texto pegado.
+ *   cuadernos, una época, piezas sueltas, un texto pegado o un tema del Observatorio (el grafo de un debate).
  * Se lee con una conexión aparte (en el hilo del grafo): solo SELECT.
  */
 import type { DatabaseSync } from 'node:sqlite'
@@ -12,6 +12,7 @@ import type { Documento } from './construir.ts'
 export type Fuente =
   | { tipo: 'entidad'; id: number } | { tipo: 'conversacion'; id: number } | { tipo: 'dominio'; id: number } | { tipo: 'cuaderno'; id: number }
   | { tipo: 'piezas'; ids: number[] } | { tipo: 'texto'; texto: string; titulo?: string } | { tipo: 'epoca'; desde: string; hasta: string }
+  | { tipo: 'observatorio'; id: number }
 export type Definicion = { tipo: 'voz' | 'todo' | 'propio'; fuentes?: Fuente[]; desde?: string | null; hasta?: string | null; topeCaracteres?: number }
 
 /** El tope de texto por grafo (medido: unos segundos de cálculo en el hilo aparte, sin trabar nada). */
@@ -70,6 +71,11 @@ export function documentosDe(db: DatabaseSync, d: Definicion): Documento[] {
       if (ids.length) for (const r of todas(`${PIEZA} WHERE id IN (${ids.map(() => '?').join(',')})`, ...ids)) sumar(doc(r))
     } else if (f.tipo === 'epoca') {
       for (const r of todas(`${PIEZA} WHERE nivel = 'propia' ${rango(f)} ORDER BY fecha`)) sumar(doc(r))
+    } else if (f.tipo === 'observatorio') {
+      // El grafo de un debate (plan v27): lo que el Observatorio encontró de ese tema, en todas las plataformas.
+      for (const r of todas(`SELECT id, titulo, extracto, texto, en FROM observatorio_items WHERE tema_id = ? ORDER BY id DESC LIMIT 3000`, f.id)) {
+        sumar({ id: -4_000_000 - r.id, texto: `${r.titulo}\n\n${r.texto ?? r.extracto ?? ''}`, fecha: new Date(r.en).toISOString().slice(0, 10), tipo: 'texto' })
+      }
     } else if (f.tipo === 'texto' && f.texto?.trim()) {
       sumar({ id: -3_000_000 - out.size, texto: `${f.titulo ?? ''}\n\n${f.texto}`, tipo: 'texto' })
     }
