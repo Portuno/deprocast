@@ -186,7 +186,12 @@ const SISTEMA = `Sos Mastropiero y redactás publicaciones para una cuenta del j
 - Respetá los temas, el tono y los tipos pedidos. Nada que él no diría. Nada inventado sobre hechos. No uses ni cites contraseñas.
 Forma: {"publicaciones": [{"texto": string, "tipo": string}]}`
 
-export async function redactarPublicaciones(db: Db, cuentaId: number, o: { n?: number; tema?: string | null; ahora?: number } = {}): Promise<Publicacion[]> {
+/**
+ * Redacta piezas para una cuenta. Con «idea»: UNA pieza que adapta esa idea suya al idioma de la red (no inventa otra);
+ * con «origen» quedan agrupadas (una idea en todas sus redes, una campaña); con «borrador», esperan su ok aunque la
+ * cuenta sea libre.
+ */
+export async function redactarPublicaciones(db: Db, cuentaId: number, o: { n?: number; tema?: string | null; idea?: string | null; origen?: string; borrador?: boolean; ahora?: number } = {}): Promise<Publicacion[]> {
   const ahora = o.ahora ?? Date.now()
   const c = leerCuenta(db, cuentaId)
   if (!c) throw new Error(`No existe la cuenta ${cuentaId}`)
@@ -197,21 +202,25 @@ export async function redactarPublicaciones(db: Db, cuentaId: number, o: { n?: n
   const { datos } = await pedirJson<{ publicaciones?: { texto?: string; tipo?: string }[] }>({ db, clase: 'mastropiero', agenteId: 'cuentas' }, SISTEMA, [
     `Cuenta: ${nombre}${c.nombre ? ` · ${c.nombre}` : ''}, ${c.usuario}. Temas: ${c.reglas.temas ?? 'los suyos'}. Tono: ${c.reglas.tono ?? 'el suyo'}.`,
     markdown ? `Contexto del agente (Markdown):\n${markdown.slice(0, 8000)}` : '',
-    o.tema ? `Esta vez, sobre: ${o.tema}` : '',
+    o.idea ? `Adaptá ESTA idea suya al idioma de ${nombre} (una sola pieza; no inventes otra idea ni le agregues hechos):\n«${o.idea}»` : o.tema ? `Esta vez, sobre: ${o.tema}` : '',
     recientes.length ? `Lo último que salió (no repitas):\n${recientes.join('\n')}` : '',
-    c.cupos.length
+    o.idea ? `Cuántas: 1.${c.cupos.length ? ` El campo tipo: uno de ${c.cupos.map((x) => x.tipo).join(', ')}.` : ''}` : c.cupos.length
       ? `Una pieza por tipo, sin pasarte de la cantidad:\n${c.cupos.map((x) => `- ${x.tipo} (${x.clase}): ${x.cantidad}`).join('\n')}\nEl campo tipo tiene que ser exactamente uno de: ${c.cupos.map((x) => x.tipo).join(', ')}.`
       : `Cuántas: ${o.n ?? 3}.`,
     `Lo que sabés de él:\n${memoriaParaPrompt(db, 50)}`,
   ].filter(Boolean).join('\n'), { temperatura: 0.8, maxTokens: 2500 })
-  const alta = db.prepare(`INSERT INTO publicaciones (cuenta_id, texto, estado, tipo, origen, creada_en) VALUES (?, ?, ?, ?, 'mastropiero', ?)`)
+  const alta = db.prepare(`INSERT INTO publicaciones (cuenta_id, texto, estado, tipo, origen, creada_en) VALUES (?, ?, ?, ?, ?, ?)`)
   const ids: number[] = []
-  const estado = c.modo === 'libre' ? 'aprobada' : 'borrador'
+  const libre = c.modo === 'libre' && !o.borrador
+  const estado = libre ? 'aprobada' : 'borrador'
   const guardar = (texto: string, tipo: string | null) => {
-    ids.push(Number(alta.run(cuentaId, texto, estado, tipo, ahora).lastInsertRowid))
+    ids.push(Number(alta.run(cuentaId, texto, estado, tipo, o.origen ?? 'mastropiero', ahora).lastInsertRowid))
   }
   const items = (datos.publicaciones ?? []).filter((p) => typeof p?.texto === 'string' && p.texto.trim())
-  if (c.cupos.length) {
+  if (o.idea) {
+    const p0 = items[0]
+    if (p0) guardar(p0.texto!.trim(), (typeof p0.tipo === 'string' && c.cupos.some((x) => x.tipo === p0.tipo) ? p0.tipo : c.cupos[0]?.tipo) ?? null)
+  } else if (c.cupos.length) {
     const usados = new Map<string, number>()
     for (const p of items) {
       const pedidoTipo = typeof p.tipo === 'string' ? p.tipo.trim() : ''
@@ -227,8 +236,28 @@ export async function redactarPublicaciones(db: Db, cuentaId: number, o: { n?: n
   } else {
     for (const p of items.slice(0, o.n ?? 3)) guardar(p.texto!.trim(), null)
   }
-  if (c.modo === 'libre') for (const id of ids) programar(db, id, ahora)
+  if (libre) for (const id of ids) programar(db, id, ahora)
   return ids.map((id) => leerPub(db, id)!)
+}
+
+/**
+ * Una idea, todas sus redes (plan v27): la idea queda guardada y cada cuenta suya activa que no es de lectura recibe una
+ * pieza que la adapta a su red (un hilo, un post, un guion), con su voz. Todo queda en borrador (aunque la cuenta sea
+ * libre) y agrupado por la idea: él las revisa juntas en 📥 o en Cuentas y aprueba las que quiera.
+ */
+export async function difundirIdea(db: Db, texto: string, o: { cuentas?: number[]; ahora?: number } = {}): Promise<{ idea: number; publicaciones: Publicacion[]; fallas: string[] }> {
+  const ahora = o.ahora ?? Date.now()
+  const t = String(texto ?? '').trim()
+  if (t.length < 10) throw new Error('Contame la idea con un poco más (una oración por lo menos)')
+  const cuentas = listarCuentas(db).filter((c) => c.activa && c.modo !== 'lectura' && (!o.cuentas?.length || o.cuentas.includes(c.id)))
+  if (!cuentas.length) throw new Error('No hay cuentas tuyas donde publicar (cargá alguna en Cuentas, que no sea de solo lectura)')
+  const idea = Number(db.prepare('INSERT INTO ideas_difusion (texto, creada_en) VALUES (?, ?)').run(t.slice(0, 4000), ahora).lastInsertRowid)
+  const publicaciones: Publicacion[] = []
+  const fallas: string[] = []
+  for (const c of cuentas) {
+    try { publicaciones.push(...await redactarPublicaciones(db, c.id, { idea: t, origen: `idea:${idea}`, borrador: true, ahora })) } catch (e) { fallas.push(`${redDe(c.red)?.nombre ?? c.red} (${c.usuario}): ${e instanceof Error ? e.message : e}`) }
+  }
+  return { idea, publicaciones, fallas }
 }
 
 /** El próximo horario libre de la cuenta (según sus horas) para una publicación aprobada. */

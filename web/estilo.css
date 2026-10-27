@@ -2787,3 +2787,5 @@ span.ej-chip { cursor: default; }
 .ob-peso { color: var(--acento); letter-spacing: -1px; font-size: var(--t-2); }
 .ob-linea li, .ob-items li { font-size: var(--t-3); overflow-wrap: anywhere; }
 .ob-plataformas { flex-wrap: wrap; gap: var(--e-2); }
+.ci-cuentas { flex-wrap: wrap; gap: var(--e-2); }
+.ci-texto { width: 100%; font: inherit; }

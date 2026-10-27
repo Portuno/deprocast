@@ -7,10 +7,11 @@ async function montarCuentas() {
   $('#principal').innerHTML = `
     <div class="cabecera"><div class="cabecera-texto"><h1>Cuentas</h1>
       <p>Varios agentes por red. Cada uno tiene usuario, correo y un contexto en Markdown. <b>lectura</b> solo lee, <b>redacta</b> espera tu ok y <b>libre</b> publica sola, sin pasarse de los cupos.</p></div>
-      <div class="fila"><button class="btn" id="cu-nueva">+ Agente</button></div></div>
+      <div class="fila"><button class="btn btn-primario" id="cu-idea" title="Una idea tuya, adaptada a cada una de tus cuentas (quedan en borrador)">💡 Una idea → mis redes</button><button class="btn" id="cu-nueva">+ Agente</button></div></div>
     <div class="panel tg-panel" id="tg"></div>
     <div class="redes" id="cu"></div>`
   $('#cu-nueva').onclick = () => modalCuenta()
+  $('#cu-idea').onclick = () => modalIdeaCuentas()
   traerCuentas()
   pintarTelegram()
 }
@@ -174,3 +175,41 @@ async function modalCuenta(c = null, redId = null) {
 }
 
 function refrescarCuentas() {}
+
+/**
+ * Una idea, todas tus redes (plan v27): la escribís (o la dictás) una vez y cada cuenta tuya recibe una versión en su
+ * idioma (hilo, post, guion). Quedan en borrador: acá las ves juntas, las editás y aprobás las que quieras.
+ */
+async function modalIdeaCuentas() {
+  let d = cuentasDatos
+  if (!d) { try { d = await api('/cuentas') } catch (e) { return error(e) } }
+  const propias = d.cuentas.filter((c) => c.activa && c.modo !== 'lectura')
+  if (!propias.length) return toast('Primero cargá alguna cuenta tuya que no sea de solo lectura', 'suave')
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Una idea → mis redes</h2>
+    <label class="campo">La idea, con tus palabras<textarea id="ci-texto" rows="5" placeholder="Lo que querés contar. Cada red recibe su versión: un hilo, un post, un guion…"></textarea></label>
+    <div class="campo">En qué cuentas<div class="fila ci-cuentas">${propias.map((c) => `<label class="chico"><input type="checkbox" value="${c.id}" checked> ${esc(c.red)} · ${esc(c.usuario)}</label>`).join('')}</div></div>
+    <div class="fila"><button class="btn btn-primario" id="ci-ok">Adaptarla</button></div>
+    <div id="ci-versiones"></div>`)
+  $('#ci-ok').onclick = async () => {
+    const b = $('#ci-ok')
+    b.disabled = true; b.textContent = 'Adaptando…'
+    try {
+      const r = await api('/cuentas/idea', { texto: $('#ci-texto').value, cuentas: $$('.ci-cuentas input:checked').map((i) => Number(i.value)) })
+      const cuenta = (id) => propias.find((c) => c.id === id)
+      $('#ci-versiones').innerHTML = `<h3>Las versiones <small class="tenue">(en borrador)</small></h3>${r.publicaciones.map((p) => `<div class="pub borrador" data-ci="${p.id}"><small>${esc(cuenta(p.cuentaId)?.red ?? '')} · ${esc(cuenta(p.cuentaId)?.usuario ?? '')}${p.tipo ? ` · ${esc(p.tipo)}` : ''}</small><textarea class="ci-texto" rows="5">${esc(p.texto)}</textarea><div class="fila"><button class="btn btn-chico btn-primario" data-cia="aprobar">Aprobar</button><button class="btn btn-chico" data-cia="copiar">Copiar</button><button class="btn btn-chico" data-cia="descartar">✕</button></div></div>`).join('')}${r.fallas.length ? `<p class="chico tenue">No salieron: ${r.fallas.map(esc).join(' · ')}</p>` : ''}`
+      $$('[data-ci]').forEach((el) => $$('[data-cia]', el).forEach((x) => (x.onclick = async () => {
+        const id = Number(el.dataset.ci), texto = $('.ci-texto', el).value
+        try {
+          if (x.dataset.cia === 'copiar') { await navigator.clipboard.writeText(texto); return toast('Copiada', 'suave') }
+          await api(`/publicaciones/${id}`, { accion: 'editar', texto })
+          await api(`/publicaciones/${id}`, { accion: x.dataset.cia })
+          el.classList.replace('borrador', x.dataset.cia === 'aprobar' ? 'aprobada' : 'descartada')
+          $('.fila', el).innerHTML = `<small class="tenue">${x.dataset.cia === 'aprobar' ? 'Aprobada: sale en el próximo horario de la cuenta' : 'Descartada'}</small>`
+          traerCuentas()
+        } catch (e) { error(e) }
+      })))
+      b.textContent = 'Adaptarla de nuevo'
+    } catch (e) { error(e); b.textContent = 'Adaptarla' }
+    b.disabled = false
+  }
+}

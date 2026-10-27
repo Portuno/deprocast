@@ -1463,6 +1463,12 @@ CREATE TABLE IF NOT EXISTS grafo_semanas (
   en INTEGER NOT NULL,
   PRIMARY KEY (grafo_id, semana)
 );
+-- Una idea, todas sus redes (plan v27): la idea tal como la dijo; sus versiones son publicaciones con origen «idea:<id>».
+CREATE TABLE IF NOT EXISTS ideas_difusion (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  texto TEXT NOT NULL,
+  creada_en INTEGER NOT NULL
+);
 -- El Observatorio (plan v27): los temas que él sigue, lo que se encontró de cada uno en cada plataforma (solo lo público,
 -- leído por los buscadores) y cada ronda con su resumen (narrativas por plataforma, saltos y lo nuevo).
 CREATE TABLE IF NOT EXISTS observatorio_temas (

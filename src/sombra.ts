@@ -84,6 +84,10 @@ export function bandeja(db: Db, ahora = Date.now()) {
     return { id: a.id, texto: a.tema, sub: [s.porQue ?? a.por_que, s.para ? `para ${s.para}${s.fecha ? ` (${s.fecha})` : ''}` : null, s.horizonte ? `${s.horizonte} plazo` : null].filter(Boolean).join(' · ') || null }
   }) })
   // Lo que redactaron los agentes de una misión (plan v26): él lo revisa y lo manda; y los ingresos que pueden ser de una pista.
+  // Lo que redactó para sus cuentas (una idea en todas sus redes, una campaña, los redactados de siempre): él lo aprueba.
+  const pubs = db.prepare(`SELECT p.id, p.texto, p.origen, c.red, c.usuario FROM publicaciones p JOIN cuentas c ON c.id = p.cuenta_id WHERE p.estado = 'borrador' ORDER BY p.id DESC LIMIT 30`).all() as { id: number; texto: string; origen: string; red: string; usuario: string }[]
+  g.push({ tipo: 'publicacion', nombre: 'Para publicar (tus cuentas)', n: n(db, `SELECT COUNT(*) AS n FROM publicaciones WHERE estado = 'borrador'`), peso: 2, ir: null, acciones: [['aceptar', '✓ Aprobar'], ['descartar', '✕']],
+    items: pubs.map((p) => ({ id: p.id, texto: `${p.red} · ${p.usuario}${p.origen.startsWith('idea:') ? ' · una idea' : p.origen.startsWith('campana:') ? ' · campaña' : ''}`, sub: p.texto })) })
   const bs = borradoresEsperando(db)
   g.push({ tipo: 'agente_borrador', nombre: 'Borradores de tus agentes', n: bs.length, peso: 2, ir: null, acciones: [['aceptar', '✓ Lo mando'], ['descartar', '✕']], items: bs.slice(0, 12) })
   const ing = ingresosPorConfirmar(db)
@@ -126,6 +130,11 @@ export async function resolverBandeja(db: Db, tipo: string, id: number | string,
     return (await import('./directo.ts')).resolverPropuestas(db, Number(sesion), [resto.join(':')], accion === 'aceptar' ? 'aceptar' : 'rechazar', ahora)
   }
   if (tipo.startsWith('mano_')) return (await import('./mano.ts')).responderSorpresa(db, Number(id), accion, null, ahora)
+  if (tipo === 'publicacion') {
+    const r = (await import('./cuentas.ts')).resolverPublicacion(db, Number(id), { accion: accion === 'aceptar' ? 'aprobar' : 'descartar' }, ahora)
+    anotar(db, 'publicacion', id, accion === 'aceptar' ? 'aceptada' : 'rechazada', { ahora })
+    return r
+  }
   if (tipo === 'agente_borrador') return (await import('./agentes/pistas.ts')).resolverBorrador(db, Number(id), accion === 'aceptar' ? 'enviar' : 'descartar', { ahora })
   if (tipo === 'agente_cliente') return (await import('./agentes/pistas.ts')).confirmarIngreso(db, String(id), accion === 'aceptar', ahora)
   if (tipo === 'propuesta') {

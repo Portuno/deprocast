@@ -950,6 +950,16 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `marcó la pista «${recorte(a.pista, 30)}»: ${a.etapa}`,
   },
   {
+    nombre: 'difundir_idea', familia: 'accion',
+    descripcion: 'Una idea suya en todas sus redes: cada cuenta suya (que no sea de solo lectura) recibe una pieza que adapta ESA idea a su red (hilo, post, guion), con su voz. Todo queda en borrador para que él lo apruebe (en 📥 o en Cuentas). Usalo cuando dice «esto quiero contarlo», «armame esto para mis redes».',
+    parametros: S({ idea: str('La idea, con sus palabras'), cuentas: { type: 'array', items: { type: 'integer' }, description: 'Solo algunas cuentas (ids); vacío = todas' } }, ['idea']),
+    ejecutar: async (a, { db }) => {
+      const r = await (await import('../cuentas.ts')).difundirIdea(db, String(a.idea ?? ''), { cuentas: Array.isArray(a.cuentas) ? a.cuentas.map(Number) : undefined })
+      return { idea: r.idea, versiones: r.publicaciones.map((p) => ({ id: p.id, cuenta: p.cuentaId, texto: recorte(p.texto, 300) })), fallas: r.fallas.length ? r.fallas : undefined, aviso: 'Quedan en borrador: las aprueba en 📥 o en Cuentas.' }
+    },
+    resumen: (a) => `adaptó una idea a sus redes: ${recorte(a.idea, 40)}`,
+  },
+  {
     nombre: 'seguir_tema', familia: 'accion',
     descripcion: 'El Observatorio: seguir un tema (una persona, un hashtag, un programa) en X, Reddit, YouTube, noticias y foros, leyendo solo lo público. Cada tanto (12 h por defecto) hace una ronda y resume qué se dice en cada lado, los saltos entre plataformas y lo nuevo. Con id, edita uno que ya sigue.',
     parametros: S({ id: int('Para editar uno que ya sigue'), nombre: str('El tema'), consultas: { type: 'array', items: { type: 'string' }, description: 'Hasta 5 búsquedas (rotan de a una por ronda)' }, plataformas: { type: 'array', items: { type: 'string', enum: ['x', 'reddit', 'youtube', 'noticias', 'foros'] } }, cada_horas: int('Cada cuántas horas (1 a 168)'), activo: bool('Pausarlo o retomarlo') }),
@@ -1769,7 +1779,7 @@ export const GRUPOS: Record<string, string[]> = {
   web: ['buscar_web', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus'],
   observatorio: ['seguir_tema', 'ver_observatorio'],
-  crear: ['ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
+  crear: ['difundir_idea', 'ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
 
 /** Los grupos que el mensaje ya anuncia (para no gastar una vuelta pidiéndolos). */
@@ -1781,7 +1791,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/primaria|reporte|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
   if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')
   if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal/.test(t)) g.push('web')
-  if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo/.test(t)) g.push('crear')
+  if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo|mis redes|difund/.test(t)) g.push('crear')
   if (/grafo|mis temas|de qu[eé] hablo|qu[eé] conecta|me repito|mis zonas|zonas de mi|bisagra|hueco/.test(t)) g.push('grafo')
   if (/observatorio|qu[eé] se dice|narrativa|hashtag|tendencia|segu[ií] (el|al|a la) tema|segu[ií]me/.test(t)) g.push('observatorio')
   return g

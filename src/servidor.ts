@@ -524,6 +524,8 @@ const rutas: [string, RegExp, Ruta][] = [
     return a
   }],
   ['POST', /^\/api\/cuentas\/(\d+)\/redactar$/, async (b, [c]) => redactarPublicaciones(db, id(c), { n: Number(b.n) || 3, tema: b.tema || null })],
+  // Una idea, todas sus redes (plan v27): una pieza por cuenta, en borrador y agrupadas.
+  ['POST', /^\/api\/cuentas\/idea$/, async (b) => { soloNube('Una idea en todas tus redes'); return (await import('./cuentas.ts')).difundirIdea(db, String(b.texto ?? ''), { cuentas: Array.isArray(b.cuentas) ? b.cuentas.map(Number) : undefined }) }],
   ['POST', /^\/api\/publicaciones\/(\d+)$/, (b, [p]) => resolverPublicacion(db, id(p), { accion: b.accion, texto: b.texto, cuando: b.cuando ? Number(b.cuando) : null, url: b.url || null })],
   ['GET', /^\/api\/taller$/, (_, __, q) => {
     const obras = libreria(db, { tipo: q.get('tipo') || undefined, q: q.get('q') || undefined })
