@@ -2813,21 +2813,54 @@ span.ej-chip { cursor: default; }
 .inf-item.on { border-color: var(--acento); }
 @media (min-width: 1000px) { .inf-grilla { grid-template-columns: minmax(0, 1fr) 220px; } }
 
-/* Hoy como tablero (plan v29): arriba del chat, plegable; en el celular arranca plegado y las columnas se apilan. */
-.tb { flex: none; border-bottom: 1px solid var(--linea); padding: var(--e-2) var(--e-5); }
+/* Hoy, el chat primero: arriba una sola barra fina (el Directo, el tablero en una línea y las acciones de la charla); el
+   tablero se abre flotando encima del chat sin empujarlo; todo el resto del alto es de la charla. */
+.hoy-chat { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto minmax(0, 1fr) auto; }
+.hoy-chat > .hoy-barra { grid-column: 1; grid-row: 1; }
+.hoy-chat > .chat-cab { grid-column: 2; grid-row: 1; }
+.hoy-chat > .hoy-ahora-foco { grid-column: 1 / -1; grid-row: 2; }
+.hoy-chat > .chat-hilo { grid-column: 1 / -1; grid-row: 3; }
+.hoy-chat > .chat-compositor { grid-column: 1 / -1; grid-row: 4; }
+.hoy-barra { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--e-2); padding: 4px 0 4px var(--e-1); min-width: 0; }
+.hoy-barra > .hoy-vivo:not(.apagado) { flex: 1 0 100%; margin: 2px 0 0; }
+.hoy-chat > .chat-cab { padding: 4px var(--e-3) 4px 0; border: 0; gap: 4px; }
+.hoy-chat > .chat-cab .avatar, .hoy-chat > .chat-cab .chat-quien { display: none; }
+.hoy-chat > .chat-cab .btn { padding: 3px 8px; font-size: var(--t-2); }
+.hoy-chat > .chat-hilo { border-top: 1px solid var(--linea); }
+
+.tb { flex: none; }
 .tb:empty { display: none; }
-.tb-cab { display: flex; align-items: center; gap: var(--e-4); width: 100%; background: none; border: 0; padding: var(--e-1) 0; color: var(--tenue); font: inherit; font-size: var(--t-3); cursor: pointer; text-align: left; }
+.tb-cab { display: flex; align-items: center; gap: var(--e-2); background: none; border: 1px solid transparent; border-radius: var(--r-pill); padding: 3px var(--e-2); color: var(--tenue); font: inherit; font-size: var(--t-2); cursor: pointer; }
+.tb-cab:hover, .tb.abierto .tb-cab { border-color: var(--linea-2); color: var(--texto); }
 .tb-cab b { color: var(--texto); margin-left: 2px; }
 .tb-cuenta.cero b { color: var(--tenue); }
-.tb-flecha { margin-left: auto; }
-.tb-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--e-2); padding: var(--e-2) 0 var(--e-1); max-height: 34vh; overflow-y: auto; }
+.tb-cols { position: absolute; z-index: 20; top: calc(100% + 4px); left: var(--e-2); right: var(--e-2); max-width: 980px; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--e-3); padding: var(--e-3); max-height: 60vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--linea-2); border-radius: var(--r-l); box-shadow: 0 12px 32px -12px color-mix(in srgb, var(--texto) 35%, transparent); }
 .tb-col h4 { margin: 0 0 var(--e-1); font-size: var(--t-2); text-transform: uppercase; letter-spacing: .04em; color: var(--tenue); }
 .tb-col ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
 .tb-item { width: 100%; text-align: left; background: var(--panel-2); border: 1px solid var(--linea); border-radius: var(--r-s); padding: 6px var(--e-2); color: inherit; font: inherit; font-size: var(--t-3); cursor: pointer; overflow-wrap: anywhere; }
 .tb-item:hover:not(:disabled) { border-color: var(--acento); }
 .tb-item:disabled { cursor: default; opacity: .8; }
 .tb-item b { color: var(--acento); }
-@media (max-width: 720px) { .tb { padding: var(--e-1) var(--e-3); } .tb-cab { gap: var(--e-2); flex-wrap: wrap; } }
+
+/* El panel del día, también angosto (si lo achicás para darle lugar al chat): nada se corta, todo baja de línea. */
+.hud-hoy { grid-template-columns: minmax(0, 1fr); }
+.hud-estado { flex-wrap: wrap; }
+.hud-estado > div { min-width: 0; }
+.hud-estado-acc { flex-wrap: wrap; justify-content: flex-end; }
+/* En el celular, el chat primero: sin «Copiar» arriba, la barra en una línea, y si no hay run ni bloque, «¿Qué hacemos?»
+   vive en la hoja «El día» (con una run o un bloque en curso, «Ahora» se sigue viendo). */
+@media (max-width: 720px) {
+  .hoy-chat > .chat-cab { display: none; }
+  /* La barra se desliza de costado; el tablero abierto se ancla al chat (no a la barra, que lo recortaría). */
+  .hoy-chat > .hoy-barra { position: static; grid-column: 1 / -1; flex-wrap: nowrap; overflow-x: auto; padding: 2px 0; }
+  .hoy-barra > .hoy-vivo:not(.apagado) { flex: 1 0 auto; }
+  .tb-cols { top: 40px; left: var(--e-2); right: var(--e-2); max-height: 70vh; }
+  .hoy-dia:not(.hoja) .ahora-libre { display: none; }
+  .hoy-barra > .hoy-vivo, .hoy-barra > .tb { flex: none; }
+  .hoy-barra > .tb { order: -1; }
+  .hoy-barra .vivo-fila button { white-space: nowrap; }
+  .chat-compositor textarea { flex-basis: 0; }
+}
 @media (min-width: 1000px) { .tb-cols { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 
 /* El celular (plan v29): las pestañas se deslizan de costado en vez de cortarse; los filtros bajan de línea; los puntos
@@ -2840,3 +2873,5 @@ span.ej-chip { cursor: default; }
   .ag-filtros .tabs { max-width: 100%; }
   .gf-coms .gf-color[data-color] { width: 24px; height: 24px; background-clip: content-box; padding: 5px; }
 }
+.bj-recargar { vertical-align: middle; margin-left: var(--e-1); font-size: var(--t-4); }
+.chat-compositor form .chat-adjuntos[hidden] { display: none; }

@@ -4,6 +4,7 @@
 // aceptás; se maneja con el teclado (j/k, a, x, espacio, A, z). En el celular, una por vez, deslizando.
 // Decidir es un gesto de un segundo y se puede deshacer: lo resuelto queda tenue unos segundos con «Deshacer» antes de
 // mandarse (si cerrás, se manda en el acto). Abajo, lo que hizo solo hoy (con ↩) y cuánto acierta cada clase de cosa.
+// Cada grupo viene de a tandas: al terminar una se trae la siguiente sola, y «r» (o ↻) trae todo lo nuevo en el momento.
 
 const MODOS_SOMBRA = [['sombra', 'Propone y espera'], ['auto', 'Lo hace solo'], ['manual', 'Siempre pregunta']]
 /** Qué pasa si lo aceptás, por clase de cosa (para decidir sin adivinar). */
@@ -33,14 +34,37 @@ function itemsBj() {
 const pendientesBj = () => itemsBj().filter((x) => !bj.estado.has(x.k))
 
 async function modalBandeja() {
-  try { [bj.datos, bj.sombra] = await Promise.all([api('/bandeja'), api('/sombra')]) } catch (e) { return error(e) }
-  bj.estado = new Map()
-  bj.marcadas = new Set(itemsBj().map((x) => x.k))
-  bj.sel = 0
+  if (!(await traerBj())) return
   abrirModal('<div id="bj"></div>', { alCerrar: () => { mandarBj(true); if (vista === 'hoy') traerHoy() } })
   $('#modal').classList.add('modal-ancho', 'modal-bj')
   pintarBj()
 }
+
+/** Lo que espera su ok, de nuevo desde el servidor. Si lo que estaba elegido sigue ahí, sigue elegido. */
+async function traerBj() {
+  const elegida = pendientesBj()[bj.sel]?.k
+  try { [bj.datos, bj.sombra] = await Promise.all([api('/bandeja'), api('/sombra')]) } catch (e) { error(e); return false }
+  bj.estado = new Map()
+  bj.marcadas = new Set(itemsBj().map((x) => x.k))
+  bj.sel = Math.max(0, pendientesBj().findIndex((x) => x.k === elegida))
+  return true
+}
+
+/** «r» o ↻: manda lo decidido y trae todo lo nuevo, sin cerrar. */
+let recargandoBj = false
+async function recargarBj() {
+  if (recargandoBj || !$('#bj')) return
+  recargandoBj = true
+  try {
+    await mandarBj(true)
+    if (await traerBj()) pintarBj()
+  } finally { recargandoBj = false }
+}
+
+/** ¿Quedan más en el servidor de algún grupo que se decide acá (más allá de esta tanda)? */
+const quedanBj = () => (bj.datos?.grupos ?? []).filter((g) => g.acciones).reduce((t, g) => t + Math.max(0, g.n - g.items.length), 0)
+/** Un grupo terminó su tanda y en el servidor tiene más: hay que traer la siguiente. */
+const tandaTerminadaBj = () => (bj.datos?.grupos ?? []).some((g) => g.acciones && g.n > 0 && !g.items.length)
 
 /** Cómo se dice lo que hizo: «Aceptada», «Descartada» o la respuesta (en La Mano, «✓ Es real»…). */
 const dichoBj = (accion, nombre, n = 1) => (accion === 'aceptar' ? (n > 1 ? `${n} aceptadas` : 'Aceptada') : accion === 'descartar' ? (n > 1 ? `${n} descartadas` : 'Descartada') : n > 1 ? `${n} · ${nombre}` : nombre)
@@ -81,13 +105,16 @@ async function mandarBj(yaMismo = false) {
       const mandadas = new Set(items.map((x) => x.k))
       for (const g of bj.datos.grupos) { const antes = g.items.length; g.items = g.items.filter((i) => !mandadas.has(claveBj(g.tipo, i.id))); g.n -= antes - g.items.length }
       for (const k of mandadas) bj.estado.delete(k)
+      // Un grupo terminó su tanda y tiene más: la siguiente viene sola (lo demás queda como estaba).
+      if (tandaTerminadaBj()) return recargarBj()
       pintarBj()
     }
   } catch (e) { error(e) }
 }
 
 function detalleBj(x) {
-  if (!x) return `<div class="vacio"><div class="gran">✓</div><h2>Nada esperando tu ok</h2><p>Lo nuevo va a aparecer acá (y su número arriba, en 📥).</p></div>`
+  if (!x && quedanBj()) return `<div class="vacio"><div class="gran">✓</div><h2>Tanda lista</h2><p>Quedan ${quedanBj()} más: llegan solas apenas se manda lo que decidiste (o ya mismo con <kbd>r</kbd>).</p><button class="btn btn-primario" data-bj-recargar>↻ Traer las que siguen</button></div>`
+  if (!x) return `<div class="vacio"><div class="gran">✓</div><h2>Nada esperando tu ok</h2><p>Lo nuevo va a aparecer acá (y su número arriba, en 📥). <kbd>r</kbd> vuelve a mirar.</p></div>`
   const { g, i } = x
   const resto = pendientesBj()
   const n = resto.findIndex((y) => y.k === x.k) + 1
@@ -123,8 +150,8 @@ function pintarBj() {
         </div>`
       }).join('')}</section>`
   }).join('')
-  raiz.innerHTML = `<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>📥 Para validar</h2>
-    <p class="tenue bj-intro">Todo lo que espera tu ok, junto. Una por una o las marcadas de un grupo; lo que decidís se puede deshacer unos segundos. <span class="bj-teclas"><kbd>j</kbd><kbd>k</kbd> moverse · <kbd>a</kbd> aceptar · <kbd>x</kbd> descartar · <kbd>espacio</kbd> marcar · <kbd>A</kbd> todas · <kbd>z</kbd> deshacer</span></p>
+  raiz.innerHTML = `<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>📥 Para validar <button class="btn btn-chico btn-icono bj-recargar" data-bj-recargar title="Traer todo lo nuevo (r)" aria-label="Traer todo lo nuevo">↻</button></h2>
+    <p class="tenue bj-intro">Todo lo que espera tu ok, junto. Una por una o las marcadas de un grupo; lo que decidís se puede deshacer unos segundos. <span class="bj-teclas"><kbd>j</kbd><kbd>k</kbd> moverse · <kbd>a</kbd> aceptar · <kbd>x</kbd> descartar · <kbd>espacio</kbd> marcar · <kbd>A</kbd> todas · <kbd>z</kbd> deshacer · <kbd>r</kbd> traer lo nuevo</span></p>
     ${b.ofertas.length ? b.ofertas.map((o) => `<div class="bj-oferta"><span>🎯 <b>${esc(o.nombre)}</b>: acerté ${o.aciertos} de ${o.n} (${Math.round((o.tasa ?? 0) * 100)} %). ¿Lo hago solo? Siempre deshacible.</span><button class="btn btn-chico btn-primario" data-bj-auto="${esc(o.tipo)}">Sí, solo</button></div>`).join('') : ''}
     <div class="bj-cuerpo">
       <div class="bj-lista" role="listbox" aria-label="Lo que espera tu ok">${lista || ''}</div>
@@ -167,6 +194,7 @@ function engancharBj(raiz) {
   }))
   $$('[data-bj-todas]', raiz).forEach((b) => (b.onclick = () => todasBj(b.closest('[data-bj-grupo]').dataset.bjGrupo, b.dataset.bjTodas)))
   $$('[data-bj-deshacer-k]', raiz).forEach((b) => (b.onclick = () => deshacerBj([b.dataset.bjDeshacerK])))
+  $$('[data-bj-recargar]', raiz).forEach((b) => (b.onclick = () => recargarBj()))
   $$('[data-bj-deshacer]', raiz).forEach((btn) => (btn.onclick = async () => { try { await api(`/decisiones/${btn.dataset.bjDeshacer}/deshacer`, {}); toast('↩ Deshecho', 'suave'); recargar() } catch (e) { error(e) } }))
   $$('[data-bj-auto]', raiz).forEach((btn) => (btn.onclick = async () => { try { await api('/sombra', { tipo: btn.dataset.bjAuto, modo: 'auto' }); toast('🤖 De ahora en más lo hago solo', 'suave'); recargar() } catch (e) { error(e) } }))
   $$('[data-bj-modo]', raiz).forEach((sel) => (sel.onchange = async () => { try { await api('/sombra', { tipo: sel.dataset.bjModo, modo: sel.value }); toast('Guardado', 'suave') } catch (e) { error(e) } }))
@@ -206,6 +234,7 @@ function teclaBj(e) {
   if (e.key === 'j' || e.key === 'ArrowDown') return mover(1)
   if (e.key === 'k' || e.key === 'ArrowUp') return mover(-1)
   if (e.key === 'z') { e.preventDefault(); return deshacerBj() }
+  if (e.key === 'r' || e.key === 'R') { e.preventDefault(); return recargarBj() }
   if (!x) return
   const acc = x.g.acciones
   if (e.key === 'A' || e.key === 'X') { e.preventDefault(); const [a] = acc[e.key === 'A' ? 0 : 1] ?? acc[0]; return todasBj(x.g.tipo, a) }
