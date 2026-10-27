@@ -2789,3 +2789,8 @@ span.ej-chip { cursor: default; }
 .ob-plataformas { flex-wrap: wrap; gap: var(--e-2); }
 .ci-cuentas { flex-wrap: wrap; gap: var(--e-2); }
 .ci-texto { width: 100%; font: inherit; }
+.ca-tag { font-size: var(--t-6); font-weight: 600; color: var(--acento); margin: 0; }
+.ca-candidatos, .ca-piezas { list-style: none; padding: 0; margin: 0 0 var(--e-2); display: grid; gap: 6px; }
+.ca-piezas .pub p { margin: 4px 0 0; white-space: pre-wrap; }
+.ca-tarjeta { text-align: left; color: inherit; font: inherit; cursor: pointer; }
+.ca-tarjeta.cerrada { opacity: .7; }

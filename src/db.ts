@@ -1463,6 +1463,26 @@ CREATE TABLE IF NOT EXISTS grafo_semanas (
   en INTEGER NOT NULL,
   PRIMARY KEY (grafo_id, semana)
 );
+-- Campañas con su gente (plan v27): una iniciativa suya con su mensaje, el hashtag (con su chequeo), la ventana del
+-- evento, las cuentas suyas que participan (solo ids de su tabla cuentas), el mensaje para su comunidad, el tema del
+-- Observatorio que la sigue en vivo y el informe al cerrar. Las piezas son publicaciones con origen «campana:<id>».
+CREATE TABLE IF NOT EXISTS campanas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  titulo TEXT NOT NULL,
+  objetivo TEXT NOT NULL,
+  mensaje TEXT,
+  hashtag TEXT,
+  candidatos TEXT,                     -- JSON: [{hashtag, enUso, ejemplos}]
+  inicio INTEGER NOT NULL,
+  fin INTEGER NOT NULL,
+  cuentas TEXT NOT NULL DEFAULT '[]',
+  tema_id INTEGER,
+  comunidad TEXT,                      -- la invitación a su gente, para copiar
+  estado TEXT NOT NULL DEFAULT 'borrador', -- borrador | armada | cerrada
+  informe_pieza INTEGER,
+  creada_en INTEGER NOT NULL,
+  actualizada_en INTEGER NOT NULL
+);
 -- Una idea, todas sus redes (plan v27): la idea tal como la dijo; sus versiones son publicaciones con origen «idea:<id>».
 CREATE TABLE IF NOT EXISTS ideas_difusion (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1477,7 +1497,8 @@ CREATE TABLE IF NOT EXISTS observatorio_temas (
   consultas TEXT NOT NULL,             -- JSON: hasta 5 búsquedas (rotan, una por ronda)
   plataformas TEXT NOT NULL,           -- JSON: x | reddit | youtube | noticias | foros
   cada_horas INTEGER NOT NULL DEFAULT 12,
-  intensivo_hasta INTEGER,             -- en vivo (una campaña): una ronda cada 15 minutos hasta acá
+  intensivo_desde INTEGER,             -- en vivo (una campaña): una ronda cada 15 minutos entre desde y hasta
+  intensivo_hasta INTEGER,
   activo INTEGER NOT NULL DEFAULT 1,
   aviso TEXT,                          -- lo último que falló (sin cuota, una plataforma que no se pudo buscar)
   creado_en INTEGER NOT NULL,
@@ -1573,6 +1594,7 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   agentes: [['estrategia', 'TEXT'], ['genoma_fijo', 'INTEGER NOT NULL DEFAULT 0'], ['padre', 'TEXT'], ['mutacion', 'TEXT']],
   // Una misión rival: la misma meta, trabajada por un clon con una variación; la temporada decide cuál sigue.
   agente_misiones: [['madre_id', 'INTEGER']],
+  observatorio_temas: [['intensivo_desde', 'INTEGER']],
   // El radar con lugar y fecha (para el mapa y el calendario): fecha/fecha_fin son las del evento; cierre, la fecha límite.
   oportunidades: [['lugar', 'TEXT'], ['online', 'INTEGER'], ['lat', 'REAL'], ['lon', 'REAL'], ['fecha', 'TEXT'], ['fecha_fin', 'TEXT'], ['ubicada', 'INTEGER'], ['agente_mision_id', 'INTEGER'], ['etapa', 'TEXT'], ['contacto', 'TEXT'], ['notas', 'TEXT']],
   corpus: [

@@ -960,6 +960,32 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `adaptó una idea a sus redes: ${recorte(a.idea, 40)}`,
   },
   {
+    nombre: 'crear_campana', familia: 'accion',
+    descripcion: 'Una campaña suya alrededor de un momento (un programa, un evento): su mensaje, un hashtag, piezas para SUS cuentas antes, durante y después (en borrador: nada sale sin su ok), una invitación para su comunidad y el Observatorio siguiéndola en vivo. Solo con sus cuentas y personas reales que eligen sumarse: nunca cuentas falsas ni hacerse pasar por otros. Pedile qué, para qué y cuándo (fecha y hora). Si no trae hashtag, en la nube propone tres con su chequeo.',
+    parametros: S({ titulo: str('Qué es'), objetivo: str('Para qué: qué quiere que pase'), mensaje: str('Su mensaje central, con sus palabras'), inicio: str('Cuándo empieza (YYYY-MM-DD HH:MM, su hora)'), fin: str('Cuándo termina (opcional)'), hashtag: str('Si ya lo tiene') }, ['titulo', 'objetivo', 'inicio']),
+    ejecutar: async (a, { db }) => {
+      const ca = await import('../campanas.ts')
+      const hora = (s: unknown) => { const t = Date.parse(String(s ?? '').replace(' ', 'T')); return Number.isFinite(t) ? t : NaN }
+      const c = ca.crearCampana(db, { titulo: a.titulo, objetivo: a.objetivo, mensaje: a.mensaje, inicio: hora(a.inicio), fin: a.fin ? hora(a.fin) : null, hashtag: a.hashtag })
+      let candidatos: unknown = undefined
+      if (!c.hashtag) { try { candidatos = await ca.proponerHashtags(db, c.id) } catch (e) { candidatos = { error: e instanceof Error ? e.message : String(e) } } }
+      return { campana: c.id, hashtag: c.hashtag ?? undefined, candidatos, siguiente: c.hashtag ? 'armar_campana para las piezas, la invitación y el seguimiento en vivo' : 'que elija el hashtag (armar_campana con hashtag)' }
+    },
+    resumen: (a) => `armó el borrador de una campaña: ${recorte(a.titulo, 40)}`,
+  },
+  {
+    nombre: 'armar_campana', familia: 'accion',
+    descripcion: 'Arma una campaña ya creada (con el hashtag que eligió): las piezas para sus cuentas antes, durante y después (en borrador), la invitación para su comunidad, el evento en el calendario y el Observatorio en vivo en la ventana.',
+    parametros: S({ id: int('La campaña'), hashtag: str('El hashtag elegido (si todavía no lo eligió)') }, ['id']),
+    ejecutar: async (a, { db }) => {
+      const ca = await import('../campanas.ts')
+      if (a.hashtag) ca.elegirHashtag(db, Number(a.id), String(a.hashtag))
+      const r = await ca.armarCampana(db, Number(a.id))
+      return { campana: r.campana.id, hashtag: r.campana.hashtag, piezas: r.piezas.length, invitacion: r.campana.comunidad ?? undefined, calendario: r.calendario, fallas: r.fallas.length ? r.fallas : undefined, aviso: 'Las piezas quedan en borrador en 📥 → Para publicar; nada sale sin su ok.' }
+    },
+    resumen: (a) => `armó la campaña #${a.id}`,
+  },
+  {
     nombre: 'seguir_tema', familia: 'accion',
     descripcion: 'El Observatorio: seguir un tema (una persona, un hashtag, un programa) en X, Reddit, YouTube, noticias y foros, leyendo solo lo público. Cada tanto (12 h por defecto) hace una ronda y resume qué se dice en cada lado, los saltos entre plataformas y lo nuevo. Con id, edita uno que ya sigue.',
     parametros: S({ id: int('Para editar uno que ya sigue'), nombre: str('El tema'), consultas: { type: 'array', items: { type: 'string' }, description: 'Hasta 5 búsquedas (rotan de a una por ronda)' }, plataformas: { type: 'array', items: { type: 'string', enum: ['x', 'reddit', 'youtube', 'noticias', 'foros'] } }, cada_horas: int('Cada cuántas horas (1 a 168)'), activo: bool('Pausarlo o retomarlo') }),
@@ -1778,7 +1804,7 @@ export const GRUPOS: Record<string, string[]> = {
   vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   web: ['buscar_web', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus'],
-  observatorio: ['seguir_tema', 'ver_observatorio'],
+  observatorio: ['seguir_tema', 'ver_observatorio', 'crear_campana', 'armar_campana'],
   crear: ['difundir_idea', 'ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
 
@@ -1793,7 +1819,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal/.test(t)) g.push('web')
   if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo|mis redes|difund/.test(t)) g.push('crear')
   if (/grafo|mis temas|de qu[eé] hablo|qu[eé] conecta|me repito|mis zonas|zonas de mi|bisagra|hueco/.test(t)) g.push('grafo')
-  if (/observatorio|qu[eé] se dice|narrativa|hashtag|tendencia|segu[ií] (el|al|a la) tema|segu[ií]me/.test(t)) g.push('observatorio')
+  if (/observatorio|qu[eé] se dice|narrativa|hashtag|tendencia|segu[ií] (el|al|a la) tema|segu[ií]me|campa[ñn]a/.test(t)) g.push('observatorio')
   return g
 }
 

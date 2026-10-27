@@ -784,6 +784,18 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['POST', /^\/api\/observatorio\/(\d+)$/, async (b, [t]) => (await import('./observatorio.ts')).editarTema(db, id(t), { nombre: b.nombre, consultas: b.consultas, plataformas: b.plataformas, cadaHoras: b.cadaHoras, activo: b.activo, borrar: !!b.borrar })],
   ['POST', /^\/api\/observatorio\/(\d+)\/ronda$/, async (_, [t]) => { soloNube('Una ronda del Observatorio'); return (await import('./observatorio.ts')).ronda(db, id(t)) }],
+  // Campañas con su gente (plan v27): crear, ver, hashtags (con chequeo), elegir, armar y cerrar (lo que gasta, en la nube).
+  ['GET', /^\/api\/campanas$/, async () => {
+    const ca = await import('./campanas.ts')
+    return { campanas: ca.listarCampanas(db).map((c) => ({ ...c, piezas: ca.piezasDe(db, c.id).length })), cuentas: listarCuentas(db).filter((c) => c.activa && c.modo !== 'lectura').map((c) => ({ id: c.id, red: c.red, usuario: c.usuario, conector: c.conector })) }
+  }],
+  ['POST', /^\/api\/campanas$/, async (b) => (await import('./campanas.ts')).crearCampana(db, { titulo: b.titulo, objetivo: b.objetivo, mensaje: b.mensaje, inicio: Number(b.inicio), fin: b.fin ? Number(b.fin) : null, cuentas: b.cuentas, hashtag: b.hashtag })],
+  ['GET', /^\/api\/campanas\/(\d+)$/, async (_, [c]) => (await import('./campanas.ts')).verCampana(db, id(c))],
+  ['POST', /^\/api\/campanas\/(\d+)$/, async (b, [c]) => (await import('./campanas.ts')).editarCampana(db, id(c), { titulo: b.titulo, objetivo: b.objetivo, mensaje: b.mensaje, inicio: b.inicio ? Number(b.inicio) : undefined, fin: b.fin ? Number(b.fin) : undefined, cuentas: b.cuentas, borrar: !!b.borrar })],
+  ['POST', /^\/api\/campanas\/(\d+)\/hashtags$/, async (_, [c]) => { soloNube('Proponer hashtags'); return { candidatos: await (await import('./campanas.ts')).proponerHashtags(db, id(c)) } }],
+  ['POST', /^\/api\/campanas\/(\d+)\/hashtag$/, async (b, [c]) => (await import('./campanas.ts')).elegirHashtag(db, id(c), String(b.hashtag ?? ''))],
+  ['POST', /^\/api\/campanas\/(\d+)\/armar$/, async (_, [c]) => { soloNube('Armar la campaña'); const r = await (await import('./campanas.ts')).armarCampana(db, id(c)); return { ...r, piezas: r.piezas.length } }],
+  ['POST', /^\/api\/campanas\/(\d+)\/cerrar$/, async (_, [c]) => { soloNube('Cerrar la campaña'); return (await import('./campanas.ts')).cerrarCampana(db, id(c)) }],
   // Dejar listo ya lo que va a abrir (la próxima clase, la sesión de idioma, el grafo): lo hace la rutina; esto, a mano.
   ['POST', /^\/api\/adelantar$/, async () => { soloNube('Dejar listo lo que vas a abrir'); return (await import('./adelantar.ts')).adelantar(db) }],
   // Los agentes con misión (plan v26): crear, ver (con su diario), indicar, pausar y una sesión a mano (en la nube).
@@ -1813,7 +1825,10 @@ if (enLaNube() && !enVercel() && !process.env.MASTRO_SIN_RUTINAS) {
   setInterval(async () => {
     if (observando || topeAlcanzado(db)) return
     observando = true
-    try { for (const t of await (await import('./observatorio.ts')).latidoObservatorio(db)) mensajeDeMastropiero(db, conversacionHoy(db).id, t) } catch (e) { console.error('  observatorio:', e instanceof Error ? e.message : e) } finally { observando = false }
+    try {
+      for (const t of await (await import('./observatorio.ts')).latidoObservatorio(db)) mensajeDeMastropiero(db, conversacionHoy(db).id, t)
+      for (const t of await (await import('./campanas.ts')).latidoCampanas(db)) mensajeDeMastropiero(db, conversacionHoy(db).id, t)
+    } catch (e) { console.error('  observatorio:', e instanceof Error ? e.message : e) } finally { observando = false }
   }, 10 * 60_000).unref()
 }
 

@@ -74,7 +74,7 @@ test('El latido: la cadencia, el modo en vivo (cada 15 minutos) y solo lo fuerte
   assert.match(avisos[0], /Tema.*En X piden.*Salta de X a Reddit/)
   // En vivo: cada 15 minutos, y cada ronda avisa.
   fuerte = false
-  ob.editarTema(db, t.id, { intensivoHasta: T + 20 * H }, T + 13 * H)
+  ob.editarTema(db, t.id, { intensivoDesde: T + 13 * H, intensivoHasta: T + 20 * H }, T + 13 * H)
   assert.equal(ob.leToca(db, ob.leerTema(db, t.id)!, T + 13 * H + 10 * 60_000), false)
   const vivo = await ob.latidoObservatorio(db, T + 13 * H + 16 * 60_000)
   assert.match(vivo[0], /\(en vivo\)/)

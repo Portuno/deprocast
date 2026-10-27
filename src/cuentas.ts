@@ -287,8 +287,10 @@ export function resolverPublicacion(db: Db, id: number, c: { accion: 'aprobar' |
   if (c.accion === 'descartar') db.prepare(`UPDATE publicaciones SET estado = 'descartada' WHERE id = ?`).run(id)
   if (c.accion === 'publicada') db.prepare(`UPDATE publicaciones SET estado = 'publicada', publicada_en = ?, url = ? WHERE id = ?`).run(ahora, c.url ?? null, id)
   if (c.accion === 'aprobar') {
-    db.prepare(`UPDATE publicaciones SET estado = 'aprobada', programada_para = ? WHERE id = ?`).run(c.cuando ?? null, id)
-    if (!c.cuando) programar(db, id, ahora)
+    // Si ya traía hora (las piezas de una campaña van en su ventana), la respeta; si no, el próximo horario de la cuenta.
+    const cuando = c.cuando ?? (p.programadaPara && p.programadaPara > ahora ? p.programadaPara : null)
+    db.prepare(`UPDATE publicaciones SET estado = 'aprobada', programada_para = ? WHERE id = ?`).run(cuando, id)
+    if (!cuando) programar(db, id, ahora)
   }
   return leerPub(db, id)!
 }

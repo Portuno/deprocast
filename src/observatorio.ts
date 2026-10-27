@@ -18,7 +18,7 @@ export type Plataforma = (typeof PLATAFORMAS)[number]
 export const NOMBRE_PLATAFORMA: Record<Plataforma, string> = { x: 'X', reddit: 'Reddit', youtube: 'YouTube', noticias: 'Noticias', foros: 'Foros' }
 
 export type Tema = {
-  id: number; nombre: string; consultas: string[]; plataformas: Plataforma[]; cadaHoras: number; intensivoHasta: number | null; activo: boolean
+  id: number; nombre: string; consultas: string[]; plataformas: Plataforma[]; cadaHoras: number; intensivoDesde: number | null; intensivoHasta: number | null; activo: boolean
   aviso: string | null; creadoEn: number; actualizadoEn: number
 }
 export type Item = { id: number; temaId: number; plataforma: Plataforma; url: string; titulo: string; extracto: string | null; texto: string | null; ronda: number; en: number }
@@ -34,7 +34,7 @@ export type Ronda = { id: number; temaId: number; en: number; nuevos: number; re
 
 const deTema = (r: any): Tema => ({
   id: r.id, nombre: r.nombre, consultas: json<string[]>(r.consultas, []) ?? [], plataformas: (json<Plataforma[]>(r.plataformas, []) ?? []).filter((p) => PLATAFORMAS.includes(p)),
-  cadaHoras: r.cada_horas, intensivoHasta: r.intensivo_hasta, activo: !!r.activo, aviso: r.aviso, creadoEn: r.creado_en, actualizadoEn: r.actualizado_en,
+  cadaHoras: r.cada_horas, intensivoDesde: r.intensivo_desde ?? null, intensivoHasta: r.intensivo_hasta, activo: !!r.activo, aviso: r.aviso, creadoEn: r.creado_en, actualizadoEn: r.actualizado_en,
 })
 const deItem = (r: any): Item => ({ id: r.id, temaId: r.tema_id, plataforma: r.plataforma, url: r.url, titulo: r.titulo, extracto: r.extracto, texto: r.texto, ronda: r.ronda, en: r.en })
 const deRonda = (r: any): Ronda => ({ id: r.id, temaId: r.tema_id, en: r.en, nuevos: r.nuevos, resumen: json<Resumen | null>(r.resumen, null), busquedas: r.busquedas })
@@ -61,7 +61,7 @@ export function seguirTema(db: Db, t: { nombre: string; consultas?: unknown; pla
   return leerTema(db, id)!
 }
 
-export function editarTema(db: Db, id: number, c: { nombre?: string; consultas?: unknown; plataformas?: unknown; cadaHoras?: number; activo?: boolean; intensivoHasta?: number | null; borrar?: boolean }, ahora = Date.now()): Tema | null {
+export function editarTema(db: Db, id: number, c: { nombre?: string; consultas?: unknown; plataformas?: unknown; cadaHoras?: number; activo?: boolean; intensivoDesde?: number | null; intensivoHasta?: number | null; borrar?: boolean }, ahora = Date.now()): Tema | null {
   const t = leerTema(db, id)
   if (!t) throw new Error(`No existe el tema ${id}`)
   if (c.borrar) {
@@ -70,6 +70,7 @@ export function editarTema(db: Db, id: number, c: { nombre?: string; consultas?:
     return null
   }
   const consultas = c.consultas === undefined ? t.consultas : limpiarConsultas(c.consultas)
+  if (c.intensivoDesde !== undefined) db.prepare('UPDATE observatorio_temas SET intensivo_desde = ? WHERE id = ?').run(c.intensivoDesde, id)
   db.prepare('UPDATE observatorio_temas SET nombre = ?, consultas = ?, plataformas = ?, cada_horas = ?, activo = ?, intensivo_hasta = ?, actualizado_en = ? WHERE id = ?').run(
     c.nombre?.trim() ? c.nombre.trim().slice(0, 120) : t.nombre, JSON.stringify(consultas.length ? consultas : [t.nombre]),
     JSON.stringify(c.plataformas === undefined ? t.plataformas : limpiarPlataformas(c.plataformas)), c.cadaHoras ? Math.max(1, Math.min(168, Math.round(c.cadaHoras))) : t.cadaHoras,
@@ -190,12 +191,15 @@ export async function ronda(db: Db, temaId: number, ahora = Date.now()): Promise
   }
 }
 
-/** Si a un tema le toca ronda: por su cadencia, o cada 15 minutos mientras está en modo intensivo (una campaña en vivo). */
+/** Si está en vivo (una campaña): entre el inicio y el fin de su ventana intensiva. */
+export const enVivo = (t: Pick<Tema, 'intensivoDesde' | 'intensivoHasta'>, ahora = Date.now()) => !!t.intensivoHasta && t.intensivoHasta > ahora && (t.intensivoDesde ?? 0) <= ahora
+
+/** Si a un tema le toca ronda: por su cadencia, o cada 15 minutos mientras está en vivo (una campaña). */
 export function leToca(db: Db, t: Tema, ahora = Date.now()): boolean {
   if (!t.activo || enCurso.has(t.id)) return false
   const ultima = (db.prepare('SELECT MAX(en) AS en FROM observatorio_rondas WHERE tema_id = ?').get(t.id) as { en: number | null }).en
   if (ultima == null) return true
-  const cada = t.intensivoHasta && t.intensivoHasta > ahora ? 15 * 60_000 : t.cadaHoras * 3_600_000
+  const cada = enVivo(t, ahora) ? 15 * 60_000 : t.cadaHoras * 3_600_000
   return ahora - ultima >= cada
 }
 
@@ -210,8 +214,11 @@ export async function latidoObservatorio(db: Db, ahora = Date.now()): Promise<st
     if (topeAlcanzado(db, ahora)) break
     try {
       const r = await ronda(db, t.id, ahora)
-      const intensivo = !!(t.intensivoHasta && t.intensivoHasta > ahora)
-      if (r.resumen && (r.resumen.fuerte || intensivo)) avisos.push(`🔭 **${t.nombre}**${intensivo ? ' (en vivo)' : ''}: ${r.resumen.resumen}${r.resumen.saltos.length ? ` Salta de ${NOMBRE_PLATAFORMA[r.resumen.saltos[0].de]} a ${NOMBRE_PLATAFORMA[r.resumen.saltos[0].a]}: ${r.resumen.saltos[0].idea}.` : ''} (Afuera → Observatorio)`)
+      const intensivo = enVivo(t, ahora)
+      // En vivo con un hashtag (la primera búsqueda de una campaña): cuántos de lo nuevo lo nombran.
+      const tag = t.consultas[0]?.startsWith('#') ? t.consultas[0].toLowerCase() : null
+      const conTag = tag && intensivo ? (db.prepare(`SELECT COUNT(*) AS n FROM observatorio_items WHERE tema_id = ? AND ronda = (SELECT MAX(ronda) FROM observatorio_items WHERE tema_id = ?) AND (LOWER(titulo) LIKE ? OR LOWER(COALESCE(extracto, '')) LIKE ?)`).get(t.id, t.id, `%${tag}%`, `%${tag}%`) as { n: number }).n : null
+      if (r.resumen && (r.resumen.fuerte || intensivo)) avisos.push(`🔭 **${t.nombre}**${intensivo ? ' (en vivo)' : ''}: ${r.resumen.resumen}${r.resumen.saltos.length ? ` Salta de ${NOMBRE_PLATAFORMA[r.resumen.saltos[0].de]} a ${NOMBRE_PLATAFORMA[r.resumen.saltos[0].a]}: ${r.resumen.saltos[0].idea}.` : ''}${conTag != null ? ` ${tag} aparece en ${conTag} de lo nuevo.` : ''} (Afuera → Observatorio)`)
     } catch (e) { console.error(`  observatorio ${t.id}:`, e instanceof Error ? e.message : e) }
   }
   return avisos
@@ -226,7 +233,7 @@ export function verObservatorio(db: Db, cual?: string | number | null) {
   return elegidos.slice(0, 5).map((t) => {
     const rs = rondasDe(db, t.id, 6)
     return {
-      id: t.id, tema: t.nombre, consultas: t.consultas, plataformas: t.plataformas, cada_horas: t.cadaHoras, en_vivo: !!(t.intensivoHasta && t.intensivoHasta > Date.now()) || undefined, aviso: t.aviso ?? undefined,
+      id: t.id, tema: t.nombre, consultas: t.consultas, plataformas: t.plataformas, cada_horas: t.cadaHoras, en_vivo: enVivo(t) || undefined, aviso: t.aviso ?? undefined,
       ultima: rs[0] ? { fecha: new Date(rs[0].en).toISOString().slice(0, 16), nuevos: rs[0].nuevos, ...rs[0].resumen } : null,
       antes: rs.slice(1).map((r) => ({ fecha: new Date(r.en).toISOString().slice(0, 16), resumen: r.resumen?.resumen ?? null })),
       nota: 'De X se ve lo que indexan los buscadores (no hay API): no es todo lo que se dice ahí.',

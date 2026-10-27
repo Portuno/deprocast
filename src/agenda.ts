@@ -129,6 +129,13 @@ function datosDe(db: Db, origen: string, id: number, o: Partial<DatosEvento>): D
     if (!o.fecha) throw new Error('¿Para qué día lo agendo?')
     return { titulo: o.titulo ?? x.texto.slice(0, 160), fecha: o.fecha, hora: o.hora ?? null, duracionMin: o.duracionMin ?? 30, lugar: o.lugar ?? null, descripcion: `Lo que sigue volviendo: volvió ${x.veces} ${x.veces === 1 ? 'vez' : 'veces'}${x.primera ? ` desde el ${x.primera}` : ''} (Deprocast).`, deDeprocast: `bucle:${id}` }
   }
+  if (origen === 'campana') {
+    const x = db.prepare('SELECT * FROM campanas WHERE id = ?').get(id) as any
+    if (!x) throw new Error(`No existe la campaña ${id}`)
+    const d = new Date(x.inicio)
+    const dos = (n: number) => String(n).padStart(2, '0')
+    return { titulo: o.titulo ?? `Campaña: ${x.titulo}`, fecha: o.fecha ?? `${d.getFullYear()}-${dos(d.getMonth() + 1)}-${dos(d.getDate())}`, hora: o.hora ?? `${dos(d.getHours())}:${dos(d.getMinutes())}`, duracionMin: o.duracionMin ?? Math.max(15, Math.round((x.fin - x.inicio) / 60_000)), lugar: o.lugar ?? null, descripcion: [x.objetivo, x.hashtag ? `Hashtag: ${x.hashtag}` : '', 'Piezas, mensaje a tu gente y seguimiento en vivo: Deprocast → Afuera → Campañas.'].filter(Boolean).join('\n\n'), deDeprocast: `campana:${id}` }
+  }
   throw new Error(`No sé llevar «${origen}» al calendario`)
 }
 
