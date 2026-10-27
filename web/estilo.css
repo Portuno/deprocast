@@ -2769,3 +2769,21 @@ span.ej-chip { cursor: default; }
 .ag-dice { margin: var(--e-2) 0 0; padding: var(--e-2) var(--e-3); border-left: 3px solid var(--acento); background: var(--acento-suave); border-radius: var(--r-s); white-space: pre-wrap; }
 .ag-rival { color: var(--acento); }
 .carta .linaje { font-size: var(--t-1); color: var(--debil); padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ─── El Observatorio (plan v27) ─── */
+.ob-temas { display: flex; flex-wrap: wrap; gap: var(--e-1); margin-bottom: var(--e-3); }
+.ob-temas .apagado { opacity: .55; }
+.ob-cab { display: flex; gap: var(--e-3); align-items: flex-start; flex-wrap: wrap; margin-bottom: var(--e-2); }
+.ob-cab h2 { margin: 0; }
+.ob-acciones { flex-wrap: wrap; }
+.ob-vivo { color: var(--aviso); border-color: var(--aviso); }
+.ob-aviso { color: var(--aviso); }
+.ob-resumen { font-size: var(--t-5); line-height: 1.5; }
+.ob-columnas { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--e-2); margin: var(--e-2) 0; }
+.ob-col { background: var(--panel-2); border: 1px solid var(--linea); border-radius: var(--r-m); padding: var(--e-2) var(--e-3); min-width: 0; }
+.ob-col h4 { margin: 0 0 var(--e-1); }
+.ob-col ul, .ob-saltos, .ob-linea, .ob-items ul { padding-left: 0; list-style: none; margin: 0; display: grid; gap: 6px; }
+.ob-col li { font-size: var(--t-3); overflow-wrap: anywhere; }
+.ob-peso { color: var(--acento); letter-spacing: -1px; font-size: var(--t-2); }
+.ob-linea li, .ob-items li { font-size: var(--t-3); overflow-wrap: anywhere; }
+.ob-plataformas { flex-wrap: wrap; gap: var(--e-2); }
