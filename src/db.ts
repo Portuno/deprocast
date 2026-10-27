@@ -1060,6 +1060,15 @@ CREATE TABLE IF NOT EXISTS apps_conectadas (
   usos INTEGER NOT NULL DEFAULT 0,
   revocada_en INTEGER
 );
+-- Lo que pidieron las apps por la puerta MCP (plan v29): solo lectura, una fila por llamada.
+CREATE TABLE IF NOT EXISTS mcp_llamadas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  app_id INTEGER NOT NULL,
+  herramienta TEXT NOT NULL,
+  ok INTEGER NOT NULL,
+  ms INTEGER NOT NULL,
+  en INTEGER NOT NULL
+);
 -- Discovery para clientes (transformación con IA): un encargo por cliente y área, sus áreas puntuadas, los logs
 -- analizados (solo el análisis: el CSV no se guarda), los procesos (as-is, to-be, KPIs) y los casos en sombra.
 CREATE TABLE IF NOT EXISTS encargos_ia (

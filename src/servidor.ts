@@ -740,7 +740,7 @@ const rutas: [string, RegExp, Ruta][] = [
     db.prepare('UPDATE conversaciones SET titulo = ? WHERE id = ?').run(`Con ${md.nombre}`, c.id)
     return { id: c.id }
   }],
-  ['GET', /^\/api\/apps-conectadas$/, async () => { const a = await import('./apps.ts'); return { apps: a.listarApps(db), permisos: a.PERMISOS } }],
+  ['GET', /^\/api\/apps-conectadas$/, async () => { const a = await import('./apps.ts'); const m = await import('./mcp.ts'); return { apps: a.listarApps(db), permisos: a.PERMISOS, mcp: { herramientas: m.HERRAMIENTAS_MCP, llamadas: m.llamadasMcp(db, 12) } } }],
   ['POST', /^\/api\/apps-conectadas$/, async (b) => (await import('./apps.ts')).crearApp(db, String(b.nombre ?? ''), Array.isArray(b.permisos) ? b.permisos : ['suenos'])],
   ['POST', /^\/api\/apps-conectadas\/(\d+)\/revocar$/, async (_, [a]) => { (await import('./apps.ts')).revocarApp(db, id(a)); return { ok: true } }],
   ['GET', /^\/api\/foco$/, async (_, __, q) => (await import('./foco.ts')).tendenciaFoco(db, Math.min(60, Number(q.get('dias')) || 14))],
@@ -1343,6 +1343,23 @@ function soloNube(que: string) {
  * Solo estas rutas: GET /api/apps/yo, POST /api/apps/suenos (JSON, multipart con «audio», o el audio crudo) y POST
  * /api/apps/eventos. Sin token o revocado: 401; sin el permiso: 403.
  */
+/**
+ * La puerta MCP (plan v29): POST /mcp con el token de una app que tenga «leer». JSON-RPC sin streaming y sin sesión;
+ * GET y DELETE no abren nada (405). Un Origin de otro sitio no entra (lo pide el protocolo contra el DNS rebinding).
+ */
+async function atenderMcp(req: http.IncomingMessage, res: http.ServerResponse) {
+  const responder = (codigo: number, cuerpo?: unknown) => void res.writeHead(codigo, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }).end(cuerpo === undefined ? '' : JSON.stringify(cuerpo))
+  if (req.method !== 'POST') return void res.writeHead(405, { allow: 'POST' }).end()
+  if (!origenPermitido(req)) return responder(403, { error: 'Origen no permitido' })
+  const apps = await import('./apps.ts')
+  const { app, motivo } = apps.autenticarApp(db, req.headers.authorization, 'leer')
+  if (!app) return responder(motivo === 'sin_permiso' ? 403 : 401, { error: motivo === 'sin_permiso' ? 'Esta app no tiene el permiso «leer» (MCP)' : 'Falta el token o no es válido (Authorization: Bearer dpc_…)' })
+  let cuerpo: unknown
+  try { cuerpo = JSON.parse((await leerCrudo(req, 1024 * 1024)).toString('utf8')) } catch { return responder(400, { jsonrpc: '2.0', id: null, error: { code: -32700, message: 'JSON inválido' } }) }
+  const r = await (await import('./mcp.ts')).atenderMcp(db, cuerpo, app)
+  return r ? responder(200, r) : responder(202)
+}
+
 async function atenderApp(req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
   const responder = (codigo: number, cuerpo: unknown) => void res.writeHead(codigo, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }).end(JSON.stringify(cuerpo))
   const apps = await import('./apps.ts')
@@ -1412,6 +1429,7 @@ const servidor = http.createServer(async (req, res) => {
   if (enVercel() && req.method && !['GET', 'HEAD'].includes(req.method)) esperarSubida(res)
   // Las apps conectadas entran con su token, no con la clave.
   if (url.pathname.startsWith('/api/apps/')) return atenderApp(req, res, url)
+  if (url.pathname === '/mcp') return atenderMcp(req, res)
   // Expuesto a la red: primero la clave (salvo desde esta misma compu).
   if (url.pathname === '/entrar') {
     if (req.method === 'POST') {

@@ -71,13 +71,15 @@ async function modalApps() {
   const fecha = (ms) => (ms ? new Date(ms).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }) : 'nunca')
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>🔌 Apps conectadas</h2>
     <p class="tenue">Otras apps tuyas que le hablan a Deprocast (Morpheon manda tus sueños). Cada una con su token: se ve una sola vez al crearla y se puede revocar. El contrato para pegar en la app está en <code>docs/apps/morpheon.md</code>.</p>
+    <p class="tenue chico">Con el permiso <b>leer</b>, la app entra por la puerta MCP (<code>${esc(location.origin)}/mcp</code>): Claude Code, Claude Desktop u otro agente tuyo leen tu archivo, tu grafo, tu Observatorio, tus misiones y tu día. Solo lectura: ${d.mcp.herramientas.length} herramientas, nada que escriba o publique.</p>
     ${d.apps.length ? d.apps.map((a) => `<div class="fila app-fila ${a.revocadaEn ? 'revocada' : ''}"><b>${esc(a.nombre)}</b><code>${esc(a.prefijo)}…</code><small class="tenue">${a.permisos.join(', ')} · ${a.usos} usos · último ${fecha(a.ultimaVez)}${a.revocadaEn ? ' · revocada' : ''}</small>${a.revocadaEn ? '' : `<button class="btn btn-chico btn-peligro" data-app-revocar="${a.id}">Revocar</button>`}</div>`).join('') : '<p class="tenue chico">Ninguna todavía.</p>'}
     <form id="app-form" class="seccion"><h3 class="sub">Una app nueva</h3>
       <div class="fila"><label class="campo">Nombre<input name="nombre" value="${d.apps.some((a) => a.nombre === 'Morpheon' && !a.revocadaEn) ? '' : 'Morpheon'}" required></label>
         ${d.permisos.map((p) => `<label class="fila g-1"><input type="checkbox" name="permisos" value="${p}" ${p === 'suenos' ? 'checked' : ''}> ${p}</label>`).join('')}</div>
       <button class="btn btn-primario">Crear y ver el token</button>
     </form>
-    <div id="app-token"></div>`)
+    <div id="app-token"></div>
+    ${d.mcp.llamadas.length ? `<details class="seccion"><summary class="sub">Lo último que pidieron por MCP</summary>${d.mcp.llamadas.map((l) => `<div class="fila app-fila"><b>${esc(l.app)}</b><code>${esc(l.herramienta)}</code><small class="tenue">${l.ok ? '' : 'falló · '}${l.ms} ms · ${new Date(l.en).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</small></div>`).join('')}</details>` : ''}`)
   $$('[data-app-revocar]').forEach((b) => (b.onclick = async () => { try { await api(`/apps-conectadas/${b.dataset.appRevocar}/revocar`, {}); modalApps() } catch (e) { error(e) } }))
   $('#app-form').onsubmit = async (ev) => {
     ev.preventDefault()
@@ -87,7 +89,9 @@ async function modalApps() {
       $('#app-form').hidden = true
       $('#app-token').innerHTML = `<div class="app-token"><p><b>Token de ${esc(r.app.nombre)}</b> — copialo ahora: no se vuelve a mostrar.</p>
         <div class="fila"><code id="app-token-txt">${esc(r.token)}</code><button class="btn btn-chico" id="app-copiar">Copiar</button></div>
-        <p class="tenue chico">En la app: <code>POST ${esc(location.origin)}/api/apps/suenos</code> con <code>Authorization: Bearer &lt;token&gt;</code>.</p></div>`
+        ${r.app.permisos.includes('leer') ? `<p class="tenue chico">Para Claude Code:</p><div class="fila"><code id="app-mcp-txt">${esc(`claude mcp add --transport http deprocast ${location.origin}/mcp --header "Authorization: Bearer ${r.token}"`)}</code><button class="btn btn-chico" id="app-mcp-copiar">Copiar</button></div><p class="tenue chico">En otro cliente MCP: la URL <code>${esc(location.origin)}/mcp</code> (HTTP) con el encabezado <code>Authorization: Bearer &lt;token&gt;</code>.</p>` : ''}
+        ${r.app.permisos.some((p) => p !== 'leer') ? `<p class="tenue chico">En la app: <code>POST ${esc(location.origin)}/api/apps/${r.app.permisos.includes('suenos') ? 'suenos' : 'eventos'}</code> con <code>Authorization: Bearer &lt;token&gt;</code>.</p>` : ''}</div>`
+      if ($('#app-mcp-copiar')) $('#app-mcp-copiar').onclick = async () => { try { await navigator.clipboard.writeText($('#app-mcp-txt').textContent); toast('Copiado', 'suave') } catch { toast('Seleccionalo y copialo a mano', 'suave') } }
       $('#app-copiar').onclick = async () => { try { await navigator.clipboard.writeText(r.token); toast('Copiado', 'suave') } catch { toast('Seleccionalo y copialo a mano', 'suave') } }
     } catch (e) { error(e) }
   }

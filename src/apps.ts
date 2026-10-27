@@ -1,14 +1,14 @@
 /**
  * Apps conectadas: otras apps suyas (Morpheon, la de sueños, y las que vengan) le hablan a Deprocast con un token.
  * - El token se ve UNA vez, al crearla; acá queda su hash (SHA-256) y el prefijo para reconocerlo. Se compara en tiempo
- *   constante y se puede revocar. Cada app tiene permisos por tipo (suenos, eventos).
+ *   constante y se puede revocar. Cada app tiene permisos por tipo (suenos, eventos, y leer: la puerta MCP).
  * - Las rutas de apps (/api/apps/…) van con «Authorization: Bearer <token>», sin la cookie de la pantalla: nada más.
  */
 import crypto from 'node:crypto'
 import { json, type Db } from './db.ts'
 import { asegurarFuente, insertar } from './corpus.ts'
 
-export const PERMISOS = ['suenos', 'eventos'] as const
+export const PERMISOS = ['suenos', 'eventos', 'leer'] as const
 export type Permiso = (typeof PERMISOS)[number]
 export type App = { id: number; nombre: string; prefijo: string; permisos: Permiso[]; creadaEn: number; ultimaVez: number | null; usos: number; revocadaEn: number | null }
 
