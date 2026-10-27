@@ -1000,7 +1000,7 @@ export function enCurso(db: Db, ahora = Date.now()): { run: Run; actual: Mision 
 
 // ─── reportes ───────────────────────────────────────────────────────────
 
-export type Reporte = { id: number; tipo: 'hora' | 'run' | 'semana'; personaje: string; desde: number; hasta: number; runId: number | null; texto: string; metricas: any; piezaId: number | null; creadoEn: number }
+export type Reporte = { id: number; tipo: 'hora' | 'run' | 'semana' | 'informe'; personaje: string; desde: number; hasta: number; runId: number | null; texto: string; metricas: any; piezaId: number | null; creadoEn: number }
 const deReporte = (r: any): Reporte => ({ id: r.id, tipo: r.tipo, personaje: r.personaje, desde: r.desde, hasta: r.hasta, runId: r.run_id, texto: r.texto, metricas: json(r.metricas, null), piezaId: r.pieza_id, creadoEn: r.creado_en })
 
 export function listarReportes(db: Db, f: { tipo?: string; runId?: number; limite?: number } = {}): Reporte[] {
@@ -1011,7 +1011,7 @@ export function listarReportes(db: Db, f: { tipo?: string; runId?: number; limit
   return db.prepare(`SELECT * FROM reportes ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY id DESC LIMIT ?`).all(...args, f.limite ?? 30).map(deReporte)
 }
 
-function guardarReporte(db: Db, r: Omit<Reporte, 'id' | 'creadoEn' | 'piezaId'> & { enCorpus?: string | null }, ahora: number): Reporte {
+export function guardarReporte(db: Db, r: Omit<Reporte, 'id' | 'creadoEn' | 'piezaId'> & { enCorpus?: string | null }, ahora: number): Reporte {
   const pieza = r.enCorpus
     ? insertar(db, { fuente: 'agentes', nivel: 'generada', titulo: r.enCorpus, contenido: r.texto, estado: 'disponible', etiquetas: ['reporte', r.tipo], autor: 'Mastropiero', fecha: new Date(ahora).toISOString() }, ahora)
     : null

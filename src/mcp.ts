@@ -13,7 +13,7 @@ import { HERRAMIENTAS, ejecutarHerramienta, type Herramienta } from './chat/herr
 /** Lo único que ve un cliente MCP. Todas son de familia «lectura» (un test lo vigila). */
 export const HERRAMIENTAS_MCP = [
   'buscar_corpus', 'leer_pieza', 'ver_entidad', 'ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus',
-  'ver_observatorio', 'ver_misiones_agentes', 'ver_dia',
+  'ver_observatorio', 'ver_misiones_agentes', 'ver_dia', 'ver_informe',
 ]
 export const VERSIONES = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05']
 export const TOPE_POR_MINUTO = 60
@@ -50,7 +50,7 @@ async function uno(db: Db, p: unknown, app: App, ahora: number): Promise<Respues
         protocolVersion: VERSIONES.includes(pedida) ? pedida : VERSIONES[0],
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'deprocast', title: 'Deprocast', version: '1.0.0' },
-        instructions: 'Deprocast de solo lectura: su archivo (corpus), sus personas y su grafo de ideas, el Observatorio, las misiones de sus agentes, su día y sus informes. Citá las piezas con [#id].',
+        instructions: 'Deprocast de solo lectura: su archivo (corpus), sus personas y su grafo de ideas, el Observatorio, las misiones de sus agentes, su día y sus informes (ver_informe con desde y hasta arma cualquier período). Citá las piezas con [#id].',
       })
     }
     case 'ping': return ok(id, {})

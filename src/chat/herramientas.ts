@@ -997,6 +997,21 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `${a.id ? 'ajustó' : 'empezó a seguir'} un tema en el Observatorio: ${recorte(a.nombre ?? `#${a.id}`, 40)}`,
   },
   {
+    nombre: 'ver_informe', familia: 'lectura',
+    descripcion: 'El informe de un período, todo junto: lo que hizo (runs, primarias), su archivo, su grafo, sus agentes, el Observatorio, la Academia, el cuerpo, la plata, lo que espera su ok y los tokens. Sin fechas: el último guardado (o la semana en curso). Con desde y hasta: ese período, armado en el momento (no se guarda).',
+    parametros: S({ desde: str('AAAA-MM-DD'), hasta: str('AAAA-MM-DD'), id: int('Un informe guardado') }),
+    ejecutar: async (a, { db }) => {
+      const inf = await import('../informe.ts')
+      if (a.id) { const i = inf.leerInforme(db, Number(a.id)); return i ? i.texto : { error: `No existe el informe ${a.id}` } }
+      if (a.desde || a.hasta) { const desde = String(a.desde ?? a.hasta); const hasta = String(a.hasta ?? a.desde); return inf.textoDe(desde, hasta, null, await inf.seccionesDe(db, desde, hasta)) }
+      const ultimo = inf.listarInformes(db, 1)[0]
+      if (ultimo) return inf.leerInforme(db, ultimo.id)!.texto
+      const { desde, hasta } = inf.rangoDeSemana()
+      return inf.textoDe(desde, hasta, null, await inf.seccionesDe(db, desde, hasta))
+    },
+    resumen: (a) => `leyó el informe${a.desde ? ` del ${a.desde} al ${a.hasta ?? a.desde}` : ''}`,
+  },
+  {
     nombre: 'ver_observatorio', familia: 'lectura',
     descripcion: 'Qué se dice de un tema que sigue (o de todos): la última ronda con las narrativas de cada plataforma, los saltos entre plataformas, lo nuevo y cómo venía. De X se ve lo que indexan los buscadores.',
     parametros: S({ tema: str('El tema (nombre o id); vacío = todos') }),
@@ -1800,7 +1815,7 @@ export const NUCLEO = [
 export const GRUPOS: Record<string, string[]> = {
   liga: ['crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
-  misiones: ['ver_reportes', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
+  misiones: ['ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   web: ['buscar_web', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus'],
@@ -1814,7 +1829,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   const g: string[] = []
   if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox|misi[oó]n|pista|me respondi|reuni[oó]n con/.test(t)) g.push('liga')
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|\[confirmado\]|\[inferido\]/.test(t)) g.push('corpus')
-  if (/primaria|reporte|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
+  if (/primaria|reporte|informe|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
   if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')
   if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal/.test(t)) g.push('web')
   if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo|mis redes|difund/.test(t)) g.push('crear')

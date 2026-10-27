@@ -2794,3 +2794,21 @@ span.ej-chip { cursor: default; }
 .ca-piezas .pub p { margin: 4px 0 0; white-space: pre-wrap; }
 .ca-tarjeta { text-align: left; color: inherit; font: inherit; cursor: pointer; }
 .ca-tarjeta.cerrada { opacity: .7; }
+
+/* El informe único (plan v29): la hoja y, al costado, los guardados. En el celular, una columna. */
+.inf-grilla { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--e-3); }
+.inf-controles { display: flex; flex-direction: column; gap: var(--e-2); margin-bottom: var(--e-3); }
+.inf-fechas { flex-wrap: wrap; align-items: flex-end; gap: var(--e-2); }
+.inf-fechas .campo { min-width: 9.5em; }
+.inf-cab { margin-bottom: var(--e-2); }
+.inf-cab h2 { margin: 0; }
+.inf-apertura { background: var(--panel-2); border: 1px solid var(--linea); border-radius: var(--r-m); padding: var(--e-2) var(--e-3); margin-bottom: var(--e-3); }
+.inf-secciones { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--e-2); }
+.inf-seccion { border: 1px solid var(--linea); border-radius: var(--r-m); padding: var(--e-2) var(--e-3); min-width: 0; }
+.inf-seccion h3 { display: flex; justify-content: space-between; align-items: center; gap: var(--e-2); margin: 0 0 var(--e-1); font-size: var(--t-5); }
+.inf-seccion ul { margin: 0; padding-left: 1.1em; }
+.inf-seccion li { font-size: var(--t-3); overflow-wrap: anywhere; }
+.inf-lista { display: flex; flex-direction: column; gap: var(--e-1); }
+.inf-item { text-align: left; background: none; border: 1px solid var(--linea); border-radius: var(--r-s); padding: var(--e-1) var(--e-2); color: inherit; cursor: pointer; font-size: var(--t-3); }
+.inf-item.on { border-color: var(--acento); }
+@media (min-width: 1000px) { .inf-grilla { grid-template-columns: minmax(0, 1fr) 220px; } }

@@ -1060,6 +1060,14 @@ CREATE TABLE IF NOT EXISTS apps_conectadas (
   usos INTEGER NOT NULL DEFAULT 0,
   revocada_en INTEGER
 );
+-- Los avisos de las rutinas del domingo que van al informe semanal en vez de a Hoy (plan v29).
+CREATE TABLE IF NOT EXISTS informe_avisos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  rutina TEXT NOT NULL,
+  texto TEXT NOT NULL,
+  en INTEGER NOT NULL,
+  informe_id INTEGER                  -- el reporte (tipo informe) que lo incluyó
+);
 -- Lo que pidieron las apps por la puerta MCP (plan v29): solo lectura, una fila por llamada.
 CREATE TABLE IF NOT EXISTS mcp_llamadas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1273,7 +1281,7 @@ CREATE TABLE IF NOT EXISTS alertas (
 
 CREATE TABLE IF NOT EXISTS reportes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  tipo TEXT NOT NULL,                 -- hora | run | semana
+  tipo TEXT NOT NULL,                 -- hora | run | semana | informe (plan v29: el informe único)
   personaje TEXT NOT NULL,
   desde INTEGER NOT NULL,
   hasta INTEGER NOT NULL,
@@ -1700,7 +1708,7 @@ const RUTINAS_SISTEMA = [
   { id: 'prediccion', nombre: 'El gemelo predice el día', hora: '08:20', dias: '0123456', accion: 'prediccion' },
   { id: 'radar', nombre: 'El radar sale a buscar oportunidades', hora: '09:30', dias: '14', accion: 'radar' },
   { id: 'calificacion', nombre: 'El gemelo se califica', hora: '23:40', dias: '0123456', accion: 'calificacion' },
-  { id: 'reporte_semanal', nombre: 'Reporte de la semana', hora: '21:00', dias: '0', accion: 'reporte_semanal' },
+  { id: 'informe_semanal', nombre: 'El informe de la semana: todo junto en uno (con apertura en la nube)', hora: '21:45', dias: '0', accion: 'informe_semanal' },
   { id: 'evidencia', nombre: 'Tu evidencia de la semana contra tu historia vieja', hora: '19:30', dias: '0', accion: 'evidencia' },
   { id: 'modelos', nombre: 'Tu vara contra la de tus modelos', hora: '19:40', dias: '0', accion: 'modelos' },
   { id: 'mis_procesos', nombre: 'El discovery de tu semana: tus procesos más caros y qué borrar o automatizar', hora: '18:00', dias: '6', accion: 'mis_procesos' },
@@ -1720,8 +1728,6 @@ const RUTINAS_SISTEMA = [
   { id: 'misiones_t', nombre: 'Los agentes trabajan sus misiones (tarde)', hora: '15:30', dias: '0123456', accion: 'misiones' },
   { id: 'misiones_n', nombre: 'Los agentes trabajan sus misiones (noche)', hora: '21:00', dias: '0123456', accion: 'misiones' },
   { id: 'estrategias', nombre: 'Tus agentes escriben lo que aprendieron (estrategia de la semana)', hora: '21:00', dias: '0', accion: 'estrategias' },
-  { id: 'misiones_semana', nombre: 'Cómo les fue a tus agentes esta semana (sin tokens)', hora: '20:30', dias: '0', accion: 'misiones_semana' },
-  { id: 'grafo_semana', nombre: 'Lo que cambió en tu grafo esta semana (sin tokens)', hora: '20:20', dias: '0', accion: 'grafo_semana' },
   { id: 'mentor', nombre: 'El Mentor recomienda qué leer o ver', hora: '08:05', dias: '1', accion: 'mentor' },
   { id: 'puentes', nombre: 'Puentes con tu gente', hora: '11:00', dias: '0', accion: 'puentes' },
   { id: 'temporada', nombre: 'Cierre de temporada de la liga', hora: '07:30', dias: '1', accion: 'temporada' },
@@ -1854,6 +1860,8 @@ export function migrar(db: Db) {
 
   const rutina = db.prepare(`INSERT OR IGNORE INTO rutinas (id, nombre, hora, dias, accion, activa) VALUES (?, ?, ?, ?, ?, 1)`)
   for (const r of RUTINAS_SISTEMA) rutina.run(r.id, r.nombre, r.hora, r.dias, r.accion)
+  // Plan v29: el informe semanal único reemplaza a estos tres avisos sueltos del domingo.
+  db.prepare(`DELETE FROM rutinas WHERE id IN ('reporte_semanal', 'misiones_semana', 'grafo_semana')`).run()
   db.prepare(`UPDATE rutinas SET nombre = 'Saludo del día' WHERE id = 'jornada' AND nombre = 'Armar la jornada'`).run()
   const plantilla = db.prepare('INSERT OR IGNORE INTO run_plantillas (nombre, pedido, sistema, creada_en) VALUES (?, ?, 1, ?)')
   for (const p of PLANTILLAS_SISTEMA) plantilla.run(p.nombre, JSON.stringify(p.pedido), Date.now())

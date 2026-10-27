@@ -27,7 +27,7 @@ import { brujulaDelDia, textoDeBrujula } from './brujula.ts'
 import { recomendar } from './mentor.ts'
 import { proponerPuentes } from './puentes.ts'
 import { enFondo, topeAlcanzado } from './nan.ts'
-import { anotarSideQuest, conAvance, listarMisiones, proponerPrimarias, reporteSemana, semanaDe, seguimientos, sideQuestsRelevantes } from './misiones.ts'
+import { anotarSideQuest, conAvance, listarMisiones, proponerPrimarias, semanaDe, seguimientos, sideQuestsRelevantes } from './misiones.ts'
 
 export type Rutina = { id: string; nombre: string; hora: string; dias: string; accion: string; activa: boolean; ultimaFecha: string | null }
 
@@ -147,14 +147,6 @@ export const ACCIONES: Acciones = {
     // Lo que hicieron queda en sus diarios (y en la Sala); el informe va el domingo.
     await (await import('./agentes/misiones.ts')).trabajarMisiones(db, ahora)
     return null
-  },
-  /** El domingo: cómo le fue a cada misión de los agentes (sesiones, pistas, borradores, progreso). Sin tokens. */
-  async misiones_semana(db, _fecha, ahora) {
-    return (await import('./agentes/misiones.ts')).informeSemanal(db, ahora)
-  },
-  /** El domingo: lo que cambió en el grafo de su voz (grupos que nacen o crecen, bisagras que suben, posibles bucles). Sin tokens. */
-  async grafo_semana(db, _fecha, ahora) {
-    return (await import('./grafo/salud.ts')).avisoSemanal(db, ahora)
   },
   /** Los domingos (en la nube): su feedback de la semana se vuelve lecciones que entran a los prompts. */
   async lecciones(db, _fecha, ahora) {
@@ -335,13 +327,18 @@ export const ACCIONES: Acciones = {
     const n = await (await import('./suenos.ts')).preguntarCreencias(db, ahora)
     return n ? `🜁 Este mes: ${n === 1 ? 'una creencia tuya' : `${n} creencias tuyas`} para mirar de dónde ${n === 1 ? 'viene' : 'vienen'} (te llegan como preguntas, de a una).` : null
   },
-  /** El domingo a la noche: el reporte de la semana que termina. */
-  async reporte_semanal(db, _fecha, ahora) {
-    const semana = semanaDe(ahora)
-    const hubo = db.prepare(`SELECT 1 FROM misiones WHERE semana = ? OR run_id IN (SELECT id FROM runs WHERE estado IN ('en_curso', 'cerrada') AND creada_en > ?) LIMIT 1`).get(semana, ahora - 7 * 86_400_000)
-    if (!hubo) return null
-    const r = await reporteSemana(db, semana, { ahora })
-    return `Reporte de la semana ${semana}.\n\n${r.texto}`
+  /**
+   * El domingo a la noche: el informe único de la semana (plan v29). Junta lo que antes llegaba suelto (el reporte, los
+   * agentes, el grafo y los avisos de las otras rutinas del domingo). La apertura de Mastropiero, solo en la nube.
+   */
+  async informe_semanal(db, _fecha, ahora) {
+    const conModelo = !topeAlcanzado(db, ahora) && (await import('./reproceso.ts')).enLaNube()
+    const inf = await (await import('./informe.ts')).informeSemanal(db, { conModelo, ahora })
+    if (!inf) return null
+    const cifras = inf.secciones.filter((x) => !['rutinas', 'espera'].includes(x.clave)).slice(0, 4).map((x) => `- **${x.titulo}:** ${x.lineas[0]}`)
+    const t = [`📋 **Su informe de la semana** (${inf.desde} a ${inf.hasta})`, inf.apertura ?? cifras.join('\n'), 'Completo en Hoy → Informe.'].join('\n\n')
+    if (telegramActivo()) await decir(t).catch(() => null)
+    return t
   },
 }
 
@@ -355,7 +352,10 @@ export async function correrRutinas(db: Db, ahora = Date.now(), acciones: Accion
     if (!accion) continue
     try {
       const mensaje = await enFondo(() => accion(db, hoy, ahora))
-      if (mensaje) mensajeDeMastropiero(db, conversacionHoy(db).id, mensaje)
+      // Las del domingo van al informe semanal (si está prendido y todavía no salió), no sueltas a Hoy.
+      const inf = mensaje ? await import('./informe.ts') : null
+      if (mensaje && inf!.vaAlInforme(db, r.id, hoy)) inf!.guardarAviso(db, r.id, mensaje, ahora)
+      else if (mensaje) mensajeDeMastropiero(db, conversacionHoy(db).id, mensaje)
       salida.push({ id: r.id, ok: true, mensaje })
     } catch (e) {
       const mensaje = `No pude ${r.nombre.toLowerCase()}: ${e instanceof Error ? e.message : e}`

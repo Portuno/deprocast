@@ -784,6 +784,11 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['POST', /^\/api\/observatorio\/(\d+)$/, async (b, [t]) => (await import('./observatorio.ts')).editarTema(db, id(t), { nombre: b.nombre, consultas: b.consultas, plataformas: b.plataformas, cadaHoras: b.cadaHoras, activo: b.activo, borrar: !!b.borrar })],
   ['POST', /^\/api\/observatorio\/(\d+)\/ronda$/, async (_, [t]) => { soloNube('Una ronda del Observatorio'); return (await import('./observatorio.ts')).ronda(db, id(t)) }],
+  // El informe único (plan v29): los guardados, uno, y armar uno entre dos fechas (con apertura de Mastropiero, en la nube).
+  ['GET', /^\/api\/informes$/, async () => { const inf = await import('./informe.ts'); return { informes: inf.listarInformes(db), semana: inf.rangoDeSemana(), enLaNube: enLaNube() } }],
+  ['GET', /^\/api\/informes\/periodo$/, async (_, __, q) => { const inf = await import('./informe.ts'); const desde = String(q.get('desde') ?? ''); const hasta = String(q.get('hasta') ?? ''); return { desde, hasta, secciones: await inf.seccionesDe(db, desde, hasta) } }],
+  ['GET', /^\/api\/informes\/(\d+)$/, async (_, [i]) => (await import('./informe.ts')).leerInforme(db, id(i)) ?? { error: 'No existe ese informe' }],
+  ['POST', /^\/api\/informes$/, async (b) => { if (b.conModelo) soloNube('Armar el informe con Mastropiero'); return (await import('./informe.ts')).armarInforme(db, { desde: String(b.desde ?? ''), hasta: String(b.hasta ?? ''), conModelo: !!b.conModelo }) }],
   // Campañas con su gente (plan v27): crear, ver, hashtags (con chequeo), elegir, armar y cerrar (lo que gasta, en la nube).
   ['GET', /^\/api\/campanas$/, async () => {
     const ca = await import('./campanas.ts')
