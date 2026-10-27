@@ -373,6 +373,8 @@ const rutas: [string, RegExp, Ruta][] = [
     }
   }],
   // El HUD de Hoy: lo de cada modo que no viene en /api/hoy, y las líneas de registro de lo que se hace desde ahí
+  // Hoy como tablero (plan v29): lo preparado, lo que espera y lo que corre. Liviano, sin modelo.
+  ['GET', /^\/api\/hoy\/tablero$/, async () => corta('hoy-tablero', 15_000, async () => (await import('./tablero.ts')).tablero(db))],
   ['GET', /^\/api\/hoy\/hud$/, async () => {
     const fecha = fechaLocal()
     const ahora = new Date()
@@ -1934,7 +1936,7 @@ if (!enVercel()) {
  * corren una vez de fondo, de a una y cediendo el turno entre cada una, así cuando él abre ya están calientes.
  */
 async function precalentar() {
-  for (const ruta of ['/api/estado', '/api/meta', '/api/hoy', '/api/hoy/hud', '/api/bandeja', '/api/menciones', '/api/chat', '/api/personas', '/api/reproceso', '/api/academia', '/api/taller', '/api/mano']) {
+  for (const ruta of ['/api/estado', '/api/meta', '/api/hoy', '/api/hoy/hud', '/api/hoy/tablero', '/api/bandeja', '/api/menciones', '/api/chat', '/api/personas', '/api/reproceso', '/api/academia', '/api/taller', '/api/mano']) {
     const r = rutas.find(([m, re]) => m === 'GET' && re.test(ruta))
     if (!r) continue
     try { await r[2]({}, ruta.match(r[1])!.slice(1), new URLSearchParams()) } catch { /* una ruta que falla en frío no frena al resto */ }

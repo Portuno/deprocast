@@ -11,7 +11,7 @@ const aMinJs = (h) => Number(h.slice(0, 2)) * 60 + Number(h.slice(3, 5))
 async function montarHoy() {
   $('#principal').classList.add('lleno')
   $('#principal').innerHTML = `<div class="hoy ${pref.leer('mastro-hoy-foco', 'no') === 'si' ? 'foco' : ''}" id="hoy" style="--hoy-dia:${Number(pref.leer('mastro-hoy-ancho', '')) || Math.max(340, Math.round(window.innerWidth * 0.3))}px">
-    <section class="chat-main hoy-chat"><div class="hoy-vivo apagado" id="hoy-vivo"></div><div class="hoy-ahora-foco" id="hoy-ahora-foco"></div>${hiloHTMLBase()}</section>
+    <section class="chat-main hoy-chat"><div class="hoy-vivo apagado" id="hoy-vivo"></div><div class="hoy-ahora-foco" id="hoy-ahora-foco"></div><div class="tb" id="hoy-tablero"></div>${hiloHTMLBase()}</section>
     <div class="hoy-divisor" id="hoy-divisor" title="Arrastrá para repartir el espacio entre el chat y las tareas (doble clic: ocultar las tareas)"></div>
     <section class="hoy-dia" id="hoy-dia"></section></div>`
   engancharSplitHoy()
@@ -77,8 +77,39 @@ function pintarHoy() {
   if (!cont || !hoyDatos) return
   pintarHud(cont)
   traerHud()
+  traerTablero()
   pintarMiniHoy()
   if (diaAbierto && $('#modal .dia-modal') && !focoEnCampo()) pintarDiaModal()
+}
+
+// ─── el tablero (plan v29): lo que se preparó de fondo, lo que le espera y lo que corre ───
+
+let tableroDatos = null
+let tableroEn = 0
+
+async function traerTablero(forzar = false) {
+  if (forzar || !tableroDatos || Date.now() - tableroEn > 30_000) {
+    try { tableroDatos = await api('/hoy/tablero'); tableroEn = Date.now() } catch { return }
+  }
+  pintarTablero()
+}
+
+function pintarTablero() {
+  const caja = $('#hoy-tablero')
+  if (!caja || !tableroDatos) return
+  const abierto = pref.leer('mastro-hoy-tablero', window.innerWidth < 720 ? 'no' : 'si') === 'si'
+  const cols = [['listo', 'Listo para usted', 'Nada nuevo preparado.'], ['espera', 'Le espera', 'Nada esperando su ok.'], ['corriendo', 'Corriendo', 'Nada corriendo ahora.']]
+  const cuenta = (k) => tableroDatos[k].reduce((t, x) => t + (x.bandeja ? x.n ?? 1 : 1), 0)
+  caja.classList.toggle('abierto', abierto)
+  caja.innerHTML = `<button class="tb-cab" id="tb-cab" title="${abierto ? 'Plegar' : 'Desplegar'} el tablero">${cols.map(([k, n]) => `<span class="tb-cuenta ${cuenta(k) ? '' : 'cero'}">${n} <b>${cuenta(k)}</b></span>`).join('')}<span class="tb-flecha">${abierto ? '▴' : '▾'}</span></button>
+    ${abierto ? `<div class="tb-cols">${cols.map(([k, n, vacio]) => `<section class="tb-col"><h4>${n}</h4>${tableroDatos[k].length ? `<ul>${tableroDatos[k].map((x, i) => `<li><button class="tb-item" data-tb="${k}:${i}" ${x.vista || x.bandeja ? '' : 'disabled'}>${esc(x.texto)}${x.bandeja && x.n ? ` <b>${x.n}</b>` : ''}</button></li>`).join('')}</ul>` : `<p class="tenue chico">${vacio}</p>`}</section>`).join('')}</div>` : ''}`
+  $('#tb-cab').onclick = () => { pref.guardar('mastro-hoy-tablero', abierto ? 'no' : 'si'); pintarTablero() }
+  $$('[data-tb]', caja).forEach((b) => (b.onclick = () => {
+    const [k, i] = b.dataset.tb.split(':')
+    const x = tableroDatos[k][Number(i)]
+    if (x.bandeja) modalBandeja()
+    else if (x.vista) irA(x.vista)
+  }))
 }
 
 const corto = (s, n = 110) => (s && s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s || '')

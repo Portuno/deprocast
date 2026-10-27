@@ -2812,3 +2812,20 @@ span.ej-chip { cursor: default; }
 .inf-item { text-align: left; background: none; border: 1px solid var(--linea); border-radius: var(--r-s); padding: var(--e-1) var(--e-2); color: inherit; cursor: pointer; font-size: var(--t-3); }
 .inf-item.on { border-color: var(--acento); }
 @media (min-width: 1000px) { .inf-grilla { grid-template-columns: minmax(0, 1fr) 220px; } }
+
+/* Hoy como tablero (plan v29): arriba del chat, plegable; en el celular arranca plegado y las columnas se apilan. */
+.tb { flex: none; border-bottom: 1px solid var(--linea); padding: var(--e-2) var(--e-5); }
+.tb:empty { display: none; }
+.tb-cab { display: flex; align-items: center; gap: var(--e-4); width: 100%; background: none; border: 0; padding: var(--e-1) 0; color: var(--tenue); font: inherit; font-size: var(--t-3); cursor: pointer; text-align: left; }
+.tb-cab b { color: var(--texto); margin-left: 2px; }
+.tb-cuenta.cero b { color: var(--tenue); }
+.tb-flecha { margin-left: auto; }
+.tb-cols { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--e-2); padding: var(--e-2) 0 var(--e-1); max-height: 34vh; overflow-y: auto; }
+.tb-col h4 { margin: 0 0 var(--e-1); font-size: var(--t-2); text-transform: uppercase; letter-spacing: .04em; color: var(--tenue); }
+.tb-col ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.tb-item { width: 100%; text-align: left; background: var(--panel-2); border: 1px solid var(--linea); border-radius: var(--r-s); padding: 6px var(--e-2); color: inherit; font: inherit; font-size: var(--t-3); cursor: pointer; overflow-wrap: anywhere; }
+.tb-item:hover:not(:disabled) { border-color: var(--acento); }
+.tb-item:disabled { cursor: default; opacity: .8; }
+.tb-item b { color: var(--acento); }
+@media (max-width: 720px) { .tb { padding: var(--e-1) var(--e-3); } .tb-cab { gap: var(--e-2); flex-wrap: wrap; } }
+@media (min-width: 1000px) { .tb-cols { grid-template-columns: repeat(3, minmax(0, 1fr)); } }

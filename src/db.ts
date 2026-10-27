@@ -1068,6 +1068,13 @@ CREATE TABLE IF NOT EXISTS informe_avisos (
   en INTEGER NOT NULL,
   informe_id INTEGER                  -- el reporte (tipo informe) que lo incluyó
 );
+-- Lo que dejó listo un proceso de fondo (adelantar y los que vengan), para el tablero de Hoy (plan v29). Dura 14 días.
+CREATE TABLE IF NOT EXISTS preparado (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  que TEXT NOT NULL,
+  vista TEXT,
+  en INTEGER NOT NULL
+);
 -- Lo que pidieron las apps por la puerta MCP (plan v29): solo lectura, una fila por llamada.
 CREATE TABLE IF NOT EXISTS mcp_llamadas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

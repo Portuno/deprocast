@@ -18,9 +18,12 @@ export function adelantar(db: Db, ahora = Date.now()): Promise<{ hechos: string[
   enCurso = (async () => {
     const tope = () => !!topeAlcanzado(db)
     const hechos: string[] = []
-    hechos.push(...await (await import('./academia.ts')).adelantarAcademia(db, { tope, ahora }))
-    hechos.push(...await (await import('./idiomas.ts')).adelantarIdiomas(db, { tope }))
-    hechos.push(...await adelantarGrafo(db, tope))
+    const { anotarPreparado } = await import('./tablero.ts')
+    // Cada cosa lista queda anotada para el tablero de Hoy, con la vista a la que lleva.
+    const anotar = (xs: string[], vista: string) => { for (const x of xs) anotarPreparado(db, x, vista, ahora); hechos.push(...xs) }
+    anotar(await (await import('./academia.ts')).adelantarAcademia(db, { tope, ahora }), 'aprender')
+    anotar(await (await import('./idiomas.ts')).adelantarIdiomas(db, { tope }), 'idiomas')
+    anotar(await adelantarGrafo(db, tope), 'grafo')
     return { hechos, frenado: topeAlcanzado(db) }
   })()
   enCurso.finally(() => (enCurso = null)).catch(() => {})
