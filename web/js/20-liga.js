@@ -201,6 +201,7 @@ async function forjar() {
 function montarMisiones() {
   $('#principal').innerHTML = `
     <div class="titulo"><h1>Encargos</h1><p>El bus de la liga: una sola cola. Publicás para una clase; el gerente (o Mastropiero) elige quién lo corre. Nadie llama a nadie.</p></div>
+    <section class="lv" id="liga-vivo"><p class="tenue">Mirando la liga…</p></section>
     <div class="panel">
       <div class="form-mision">
         <label class="campo">Clase<select id="m-clase">${META.clases.map((c) => `<option value="${c.id}" ${c.id === mision.clase ? 'selected' : ''}>${c.glifo} ${esc(c.nombre)}</option>`).join('')}</select></label>
@@ -231,7 +232,7 @@ function montarMisiones() {
         url: $('#m-url')?.value, agenteId: $('#m-ag')?.value,
       })
       $('#m-texto').value = ''
-      toast(`Encargo #${t.id} en el bus<small>Dale Tick para que alguien lo tome.</small>`, 'suave')
+      toast(`Encargo #${t.id} en el bus<small>${E.ligaAuto?.prendido && E.ligaAuto?.nube ? 'Lo toma alguien en el próximo tick.' : 'Dale Tick para que alguien lo tome.'}</small>`, 'suave')
       await refrescar()
     } catch (e) { error(e) }
   }
@@ -240,9 +241,77 @@ function montarMisiones() {
   refrescarTablero()
 }
 
+// ─── la liga en vivo (plan v30): cómo corre, por qué no avanza, los de la casa, las clases y los agentes ───
+
+let ligaVivo = null
+let pidiendoVivo = false
+const haceLv = (ms) => { if (!ms) return 'nunca'; const s = Math.max(0, Math.round((Date.now() - ms) / 1000)); return s < 60 ? `hace ${s} s` : s < 3600 ? `hace ${Math.round(s / 60)} min` : s < 86400 ? `hace ${Math.round(s / 3600)} h` : `hace ${Math.round(s / 86400)} días` }
+const ESTADO_AG = { trabajando: 'Trabajando', con_tareas: 'Con tareas', libre: 'Libre', mision: 'En una misión', banca: 'En la banca' }
+const ORDEN_AG = ['trabajando', 'con_tareas', 'libre', 'mision', 'banca']
+
+async function traerLigaVivo() {
+  if (pidiendoVivo || !$('#liga-vivo')) return
+  pidiendoVivo = true
+  try { ligaVivo = await api('/liga/vivo'); pintarLigaVivo() } catch (e) { const c = $('#liga-vivo'); if (c) c.innerHTML = `<p class="m-err">${esc(e.message ?? String(e))}</p>` } finally { pidiendoVivo = false }
+}
+
+function barraLv(c) {
+  const tot = c.pendientes + c.asignadas + c.enEspera
+  if (!tot) return '<span class="lv-barra vacia"></span>'
+  const pc = (x) => (x ? Math.max(3, Math.round((x / tot) * 100)) : 0)
+  return `<span class="lv-barra" title="${c.asignadas} asignadas · ${c.pendientes} pendientes · ${c.enEspera} en espera"><i class="asig" data-w="${pc(c.asignadas)}"></i><i class="pend" data-w="${pc(c.pendientes)}"></i><i class="esp" data-w="${pc(c.enEspera)}"></i></span>`
+}
+
+function pintarLigaVivo() {
+  const caja = $('#liga-vivo')
+  if (!caja || !ligaVivo) return
+  const { auto, motivos, casa, clases, agentes } = ligaVivo
+  const cuenta = Object.fromEntries(ORDEN_AG.map((e) => [e, agentes.filter((a) => a.estado === e).length]))
+  const estadoTxt = auto.corriendo ? 'corriendo un tick' : auto.freno ? 'frenada' : 'corriendo sola'
+  caja.innerHTML = `<div class="lv-estado ${auto.freno ? 'frenada' : 'corre'}${auto.corriendo ? ' tickeando' : ''}">
+      <span class="lv-punto" aria-hidden="true"></span>
+      <div class="f1"><b>La liga: ${estadoTxt}</b><small class="tenue">${auto.freno ? esc(auto.freno) : `último tick ${haceLv(auto.ultimoTick)} · ${auto.ticksHora} tick${auto.ticksHora === 1 ? '' : 's'} en la última hora`}</small></div>
+      <button class="btn btn-chico ${auto.prendido ? '' : 'btn-primario'}" data-lv-auto="${auto.prendido ? '0' : '1'}">${auto.prendido ? '⏸ Apagar Auto' : '▶ Prender Auto'}</button>
+      <button class="btn btn-chico" data-lv-tick title="Un tick ahora, a mano">Tick ahora</button>
+    </div>
+    ${motivos.length ? `<div class="lv-motivos"><h3>Por qué no avanza</h3><ul>${motivos.map((m) => `<li><span>${esc(m.texto)}</span>${m.accion ? `<button class="btn btn-chico" data-lv-accion="${esc(m.accion.ruta)}">${esc(m.accion.texto)}</button>` : ''}</li>`).join('')}</ul></div>` : '<p class="lv-ok">✓ Nada la frena: el bus avanza solo.</p>'}
+    <h3 class="lv-sub">Los de la casa <small class="tenue">dependen solo de Mastropiero · siempre activos · sin tokens</small></h3>
+    <div class="lv-casa">${casa.map((c) => `<article class="lv-turno">
+        <header><span class="lv-glifo">${esc(c.glifo)}</span><div class="f1"><b>${esc(c.id)} · ${esc(c.nombre)}</b><small class="tenue">${esc(c.oficio)}</small></div><button class="btn btn-chico btn-icono" data-lv-casa="${c.id}" title="Que corra ahora" aria-label="Que ${esc(c.nombre)} corra ahora">↻</button></header>
+        <p class="lv-ultimo">${c.texto ? esc(c.texto) : '<span class="tenue">Todavía no tuvo que hacer nada.</span>'} <small class="tenue">· ${haceLv(c.ultimaVez)}</small></p>
+        ${c.hallazgos.length ? `<ul class="lv-hallazgos">${c.hallazgos.map((h) => `<li class="${h.nivel}">${esc(h.texto)}</li>`).join('')}</ul>` : ''}
+      </article>`).join('')}</div>
+    <h3 class="lv-sub">Por clase <small class="tenue">agentes · el bus (asignadas, pendientes, en espera) · últimas 24 h</small></h3>
+    <div class="lv-clases">${clases.map((c) => `<div class="lv-clase" data-clase="${c.id}">
+        <div class="lv-clase-cab"><span>${esc(c.glifo)} ${esc(c.nombre)}</span><small class="tenue">${c.agentes.activo} act · ${c.agentes.prueba} prueba${c.agentes.banca ? ` · ${c.agentes.banca} banca` : ''}</small></div>
+        ${barraLv(c)}
+        <small class="lv-clase-num">${c.asignadas} asig · ${c.pendientes} pend${c.enEspera ? ` · ${c.enEspera.toLocaleString('es-AR')} espera` : ''} — 24 h: ${c.hechas24} ✓${c.fallidas24 ? ` · <b class="lv-mal">${c.fallidas24} ✗</b>` : ''}</small>
+      </div>`).join('')}</div>
+    <h3 class="lv-sub">Agentes <small class="tenue">${ORDEN_AG.filter((e) => cuenta[e]).map((e) => `${cuenta[e]} ${ESTADO_AG[e].toLowerCase()}`).join(' · ') || 'ninguno'}</small></h3>
+    <div class="lv-agentes">${[...agentes].sort((a, b) => ORDEN_AG.indexOf(a.estado) - ORDEN_AG.indexOf(b.estado) || b.asignadas - a.asignadas).map((a) => `<button class="lv-ag ${a.estado}" data-clase="${a.clase}" data-ver-agente="${esc(a.id)}" title="${esc(ESTADO_AG[a.estado])}${a.nivel === 'prueba' ? ' · en prueba' : ''} · ritmo ${a.ritmo} por tick · corrió ${haceLv(a.ultimaCorrida)}${a.casa ? ' · lo forjó el 02' : ''}"><span class="lv-dot"></span>${esc(a.alias)}${a.asignadas ? ` <b>${a.asignadas}</b>` : ''}${a.nivel === 'prueba' ? ' <small>prueba</small>' : ''}</button>`).join('')}</div>`
+  $$('.lv-barra i', caja).forEach((i) => i.style.setProperty('--w', `${i.dataset.w}%`))
+  $$('[data-lv-auto]', caja).forEach((b) => (b.onclick = () => cambiarAuto(b.dataset.lvAuto === '1')))
+  $$('[data-lv-tick]', caja).forEach((b) => (b.onclick = async () => { await hacerTick(); traerLigaVivo() }))
+  $$('[data-lv-accion]', caja).forEach((b) => (b.onclick = async () => {
+    try {
+      if (b.dataset.lvAccion === '/liga/auto') return cambiarAuto(true)
+      const r = await api(b.dataset.lvAccion, { limite: 20 })
+      if (r.reanudados != null) toast(`${r.reanudados} encargos de vuelta al bus`, 'suave')
+      await refrescar()
+      traerLigaVivo()
+    } catch (e) { error(e) }
+  }))
+  $$('[data-lv-casa]', caja).forEach((b) => (b.onclick = async () => {
+    b.disabled = true
+    try { await api(`/liga/casa/${b.dataset.lvCasa}`, {}); await refrescar(); traerLigaVivo() } catch (e) { error(e) } finally { b.disabled = false }
+  }))
+}
+
+
 function refrescarTablero() {
   const tab = $('#tablero')
   if (!tab) return
+  traerLigaVivo()
   const barra = $('#ingesta-barra')
   const ingesta = E.tareas.filter((t) => t.pipeline === 'ingesta' && (t.estado === 'pendiente' || t.estado === 'asignada')).length
   barra.innerHTML = `<span class="tenue chico">${E.enEspera ? `${E.enEspera.toLocaleString('es-AR')} encargos de ingesta en espera (no gastan).` : 'La ingesta corre con los ticks.'}</span>
@@ -256,9 +325,11 @@ function refrescarTablero() {
     } catch (e) { error(e) }
   }))
   const cols = [['pendiente', 'Pendientes'], ['asignada', 'Asignadas'], ['hecha', 'Cumplidas'], ['fallida', 'Fallidas']]
+  // Los números de arriba son los totales del bus (no solo las últimas tareas que viajan con el estado).
+  const total = Object.fromEntries((E.liga?.tareas ?? []).map((x) => [x.estado, x.n]))
   tab.innerHTML = cols.map(([estado, titulo]) => {
     const ts = E.tareas.filter((t) => t.estado === estado)
-    return `<div class="columna"><h3><span>${titulo}</span><span>${ts.length}</span></h3>
+    return `<div class="columna"><h3><span>${titulo}</span><span>${(total[estado] ?? ts.length).toLocaleString('es-AR')}</span></h3>
       ${ts.slice(0, 40).map((t) => {
         const c = claseDe(t.clase)
         const txt = t.payload?.texto || t.payload?.titulo || t.payload?.url || t.tipo

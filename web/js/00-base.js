@@ -70,7 +70,6 @@ let META = null
 let E = null
 let R = null
 let vista = 'liga'
-let auto = false
 let tickEnCurso = false
 let cronicaVista = 0
 const nuevas = new Set()
@@ -331,7 +330,7 @@ function renderHud() {
     stat('Memoria', E.memoriaSinRevisar || '✓', E.memoriaSinRevisar ? 'nuevas (los repetidos se juntan solos)' : 'al día'),
     ...(maquina ? [
       stat('Roster', r.length, `${cuenta('activo')} act · ${cuenta('prueba')} prueba`),
-      stat('Bus', t.pendiente ?? 0, `pend · ${t.hecha ?? 0} hechas${E.enEspera ? ` · ${fmtTokens(E.enEspera)} en espera` : ''}`),
+      stat('Bus', t.pendiente ?? 0, `pend · ${(t.hecha ?? 0).toLocaleString('es-AR')} hechas${E.enEspera ? ` · ${E.enEspera.toLocaleString('es-AR')} en espera` : ''}`),
       stat('Tick', E.nTick),
     ] : []),
     stat('Gasto hoy', fmtTokens(E.gasto.total), E.gasto.tope ? `solo ${fmtTokens(E.gasto.liga + (E.gasto.fondo ?? 0))} de ${fmtTokens(E.gasto.tope)}` : 'sin tope'),

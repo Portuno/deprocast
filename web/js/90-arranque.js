@@ -247,8 +247,6 @@ async function hacerTick() {
     await refrescar()
   } catch (e) {
     error(e)
-    auto = false
-    $('#btn-auto').classList.remove('on')
   } finally {
     tickEnCurso = false
     document.body.classList.remove('jugando')
@@ -298,14 +296,28 @@ $('#btn-tema').onclick = () => {
 $('#btn-validar').onclick = () => modalBandeja()
 $('#btn-buscar').onclick = () => abrirPaleta()
 $('#btn-tick').onclick = hacerTick
-$('#btn-auto').onclick = async () => {
-  auto = !auto
-  $('#btn-auto').classList.toggle('on', auto)
-  while (auto) {
-    await hacerTick()
-    const quieto = !E.tareas.some((t) => t.estado === 'pendiente' || t.estado === 'asignada')
-    await dormir(quieto ? 6000 : 1800)
-  }
+// Auto vive en el servidor (plan v30): la liga corre sola en la nube. El botón está siempre a la vista, muestra cómo está
+// y lo prende o lo apaga (también desde la liga en vivo, en Encargos).
+$('#btn-auto').onclick = () => cambiarAuto(!(E?.ligaAuto?.prendido ?? true))
+async function cambiarAuto(prendido) {
+  try {
+    const r = await api('/liga/auto', { prendido })
+    E.ligaAuto = { ...(E.ligaAuto ?? {}), prendido: r.prendido }
+    pintarBotonAuto()
+    toast(r.prendido ? `▶ Auto prendido${r.freno ? `<small>${esc(r.freno)}</small>` : ''}` : '⏸ Auto apagado: los ticks, a mano', 'suave')
+    if (vista === 'encargos') traerLigaVivo()
+  } catch (e) { error(e) }
+}
+function pintarBotonAuto() {
+  const b = $('#btn-auto')
+  if (!b || !E?.ligaAuto) return
+  const { prendido, nube } = E.ligaAuto
+  b.classList.toggle('on', prendido)
+  b.classList.toggle('local', prendido && !nube)
+  b.innerHTML = '<span class="auto-punto" aria-hidden="true"></span>Auto'
+  b.title = !prendido ? 'Auto apagado: la liga solo corre con Tick. Tocá para prenderlo.'
+    : nube ? 'Auto prendido: la liga corre sola en el servidor (con trabajo y sin tope). Tocá para apagarlo.'
+      : 'Auto prendido, pero acá no tickea: los ticks gastan tokens y corren solos en la nube; acá, Tick a mano. Los de la casa sí corren. Tocá para apagarlo.'
 }
 
 
@@ -337,6 +349,7 @@ async function refrescar({ forzar = true } = {}) {
   // Cada parte se redibuja solo si cambió lo suyo (antes, cualquier cambio del estado rehacía el HUD y la crónica entera).
   const fHud = JSON.stringify([vista, E.roster.map((f) => f.estado), E.liga.tareas, E.uso, E.hoy.total, E.hoy.hechos, E.hoy.run?.estado, E.memoriaSinRevisar, E.enEspera, E.nTick, E.gasto])
   if (forzar || fHud !== firmaHud) { firmaHud = fHud; renderHud() }
+  pintarBotonAuto()
   const ult = E.cronica.at(-1)
   const fCron = `${E.cronica.length}|${ult?.id ?? ''}|${ult?.texto ?? ''}`
   if (forzar || fCron !== firmaCronica) { firmaCronica = fCron; renderCronica() }
@@ -373,6 +386,7 @@ async function iniciar() {
   E = await api('/estado')
   cronicaVista = E.cronica.length
   renderHud()
+  pintarBotonAuto()
   renderCronica()
   ultimoAviso = E.hoy.aviso?.id ?? 0
   await traerMencionables()

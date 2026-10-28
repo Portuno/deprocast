@@ -312,8 +312,9 @@ const rutas: [string, RegExp, Ruta][] = [
   // La liga en vivo (plan v30): Auto en el servidor, los de la casa y por qué no avanza.
   ['GET', /^\/api\/liga\/vivo$/, async () => (await import('./casa.ts')).ligaEnVivo(db, enLaNube())],
   ['POST', /^\/api\/liga\/auto$/, async (b) => { const c = await import('./casa.ts'); c.fijarAuto(db, b.prendido !== false); return { prendido: c.autoPrendido(db), freno: c.frenoDeAuto(db, enLaNube()) } }],
-  ['POST', /^\/api\/liga\/casa\/(0[123])$/, async (_, [cual]) => {
+  ['POST', /^\/api\/liga\/casa\/(0?[123])$/, async (_, [n]) => {
     const c = await import('./casa.ts')
+    const cual = n.padStart(2, '0')
     if (cual === '01') return { hechos: c.despachar(db, { drenar: enLaNube() }) }
     if (cual === '02') return { forjados: c.asegurarClases(db).map((f) => f.id) }
     return { hallazgos: c.metaanalizar(db, Date.now(), { forzar: true }) }
