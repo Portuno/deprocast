@@ -4,6 +4,11 @@
 function modalEstado() {
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Exportar o importar</h2>
     <div class="seccion">
+      <h3>Exportar a medida</h3>
+      <p class="tenue">Solo lo que elegís: unos proyectos o entidades, sus vínculos, sus quántomos y (si querés) sus piezas, en un JSON. El esquema se puede guardar para volver a correrlo.</p>
+      <div class="fila mt-2"><button class="btn" id="es-segmento">Elegir qué exportar →</button></div>
+    </div>
+    <div class="seccion">
       <h3>Exportar todo</h3>
       <p class="tenue">Un solo JSON con todo: corpus, memoria, misiones, runs, chats, personas, plata, bitácora (lo cifrado sigue cifrado), agentes, ajustes y rutinas. Con los archivos, también lo que subiste y lo del Taller. No lleva tu <code>.env</code> (las claves): copialo a mano.</p>
       <label><input type="checkbox" id="es-archivos" checked> incluir archivos (cargas y Taller; pesa más)</label>
@@ -15,6 +20,7 @@ function modalEstado() {
       <label class="btn">Elegir exportación (.json)<input type="file" accept=".json,application/json" hidden id="es-archivo"></label>
       <div id="es-info"></div>
     </div>`)
+  $('#es-segmento').onclick = () => modalSegmento()
   $('#es-exportar').onclick = () => {
     const b = $('#es-exportar')
     b.disabled = true

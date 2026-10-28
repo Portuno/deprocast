@@ -1068,6 +1068,14 @@ CREATE TABLE IF NOT EXISTS informe_avisos (
   en INTEGER NOT NULL,
   informe_id INTEGER                  -- el reporte (tipo informe) que lo incluyó
 );
+-- Esquemas de exportación a medida: qué entidades, qué vínculos y qué viaja, para volver a correrlos (src/segmento.ts).
+CREATE TABLE IF NOT EXISTS export_esquemas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL UNIQUE,
+  esquema TEXT NOT NULL,
+  creado_en INTEGER NOT NULL,
+  usado_en INTEGER NOT NULL
+);
 -- Los de la casa (plan v30): 01 Despachante, 02 Forjador, 03 Meta-analista. Dependen solo de Mastropiero; acá queda su
 -- última vuelta con algo hecho (texto y hechos) y, del 03, sus hallazgos.
 CREATE TABLE IF NOT EXISTS casa_agentes (

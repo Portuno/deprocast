@@ -309,6 +309,14 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['POST', /^\/api\/ingesta\/pausar$/, () => ({ enEspera: pausarIngesta(db) })],
   ['POST', /^\/api\/ingesta\/reanudar$/, (b) => ({ reanudados: reanudarIngesta(db, { limite: Math.min(Number(b.limite) || 20, 2000), soloPropias: !!b.soloPropias }), enEspera: enEspera(db) })],
+  // Exportación a medida: elegir entidades, ver sus vínculos, armar el esquema, ver cuánto pesa y bajarlo.
+  ['GET', /^\/api\/segmento\/entidades$/, async (_, __, q) => (await import('./segmento.ts')).buscarEntidades(db, { q: q.get('q') ?? '', tipo: q.get('tipo') || undefined })],
+  ['POST', /^\/api\/segmento\/vecindario$/, async (b) => (await import('./segmento.ts')).vecindario(db, Array.isArray(b.ids) ? b.ids : [])],
+  ['POST', /^\/api\/segmento\/previa$/, async (b) => (await import('./segmento.ts')).previa(db, b.esquema ?? {})],
+  ['POST', /^\/api\/segmento\/exportar$/, async (b) => { const s = await import('./segmento.ts'); if (b.esquemaId) s.usarEsquema(db, Number(b.esquemaId)); return s.exportarSegmento(db, b.esquema ?? {}) }],
+  ['GET', /^\/api\/segmento\/esquemas$/, async () => (await import('./segmento.ts')).listarEsquemas(db)],
+  ['POST', /^\/api\/segmento\/esquemas$/, async (b) => (await import('./segmento.ts')).guardarEsquema(db, b.esquema ?? {})],
+  ['POST', /^\/api\/segmento\/esquemas\/(\d+)\/borrar$/, async (_, [e]) => { (await import('./segmento.ts')).borrarEsquema(db, id(e)); return { ok: true } }],
   // La liga en vivo (plan v30): Auto en el servidor, los de la casa y por qué no avanza.
   ['GET', /^\/api\/liga\/vivo$/, async () => (await import('./casa.ts')).ligaEnVivo(db, enLaNube())],
   ['POST', /^\/api\/liga\/auto$/, async (b) => { const c = await import('./casa.ts'); c.fijarAuto(db, b.prendido !== false); return { prendido: c.autoPrendido(db), freno: c.frenoDeAuto(db, enLaNube()) } }],
