@@ -66,3 +66,78 @@ test('La cadena: si el primero está bloqueado va el siguiente; caché de 30 min
   await assert.rejects(ex.buscar(db, 'myspace', 'algo'), /No conozco/)
   await assert.rejects(ex.leerLink(db, 'ftp://x'), (e: any) => e instanceof ErrorExplorar && e.codigo === 'ENTRADA_MALA')
 })
+
+test('Reddit: el feed Atom (post y comentarios) sin la firma «submitted by»; un subreddit por RSS; el límite pasa a Exa', async () => {
+  const { entradasAtom } = await import('../src/explorar/reddit.ts')
+  const atom = `<feed><entry><author><name>/u/autora</name></author><content type="html">&lt;div&gt;&lt;p&gt;El cuerpo del post&lt;/p&gt;&lt;/div&gt; submitted by &lt;a&gt; /u/autora &lt;/a&gt; [link] [comments]</content><link href="https://www.reddit.com/r/prueba/comments/abc/hola/"/><updated>2026-10-01T10:00:00+00:00</updated><title>Hola &amp; chau</title></entry>
+    <entry><author><name>/u/otro</name></author><content type="html">&lt;p&gt;Un comentario&lt;/p&gt;</content><link href="https://www.reddit.com/r/prueba/comments/abc/hola/xyz/"/><updated>2026-10-01T11:00:00+00:00</updated><title>/u/otro on Hola</title></entry></feed>`
+  const es = entradasAtom(atom)
+  assert.deepEqual(es.map((e) => [e.titulo, e.autor]), [['Hola & chau', 'u/autora'], ['/u/otro on Hola', 'u/otro']])
+  const db = abrir(':memory:')
+  const { _reiniciarTurnos } = await import('../src/explorar/red.ts')
+  _reiniciarTurnos()
+  redFalsa([
+    [/reddit\.com\/r\/prueba\/comments\/abc\/hola\/\.rss/, () => new Response(atom, { headers: { 'content-type': 'application/atom+xml' } })],
+    [/reddit\.com\/r\/prueba\/top\.rss/, () => new Response(atom)],
+    [/reddit\.com\/search\.rss/, () => new Response('', { status: 429 })],
+    [/mcp\.exa\.ai/, () => sse('Title: Otro post\nURL: https://www.reddit.com/r/prueba/comments/def/otro/\nHighlights:\nTexto')],
+  ])
+  const hilo = await ex.leerLink(db, 'https://www.reddit.com/r/prueba/comments/abc/hola/', { ahora: T })
+  assert.equal(hilo.via, 'RSS de Reddit')
+  assert.match(hilo.markdown, /El cuerpo del post/)
+  assert.doesNotMatch(hilo.markdown, /submitted by/)
+  assert.match(hilo.markdown, /\*\*u\/otro\*\*: Un comentario/)
+  const sub = await ex.listar(db, 'reddit', 'subreddit', 'r/prueba/top', { ahora: T })
+  assert.equal(sub.items[0].datos?.subreddit, 'prueba')
+  await assert.rejects(ex.listar(db, 'reddit', 'subreddit', 'no vale!', { ahora: T }), (e: any) => e.codigo === 'ENTRADA_MALA')
+  const b = await ex.buscar(db, 'reddit', 'algo', { ahora: T })
+  assert.equal(b.via, 'Exa', 'Exa va primero (trae el cuerpo del post)')
+})
+
+test('YouTube: los videos de una búsqueda de InnerTube, anidados a cualquier profundidad', async () => {
+  const { videosDeBusqueda } = await import('../src/explorar/youtube.ts')
+  const j = { contents: { a: { b: [{ itemSectionRenderer: { contents: [
+    { videoRenderer: { videoId: 'abcdefghijk', title: { runs: [{ text: 'Un video' }] }, ownerText: { runs: [{ text: 'Un canal' }] }, viewCountText: { simpleText: '1.234 vistas' }, lengthText: { simpleText: '10:01' } } },
+    { channelRenderer: { channelId: 'UCx' } },
+  ] } }] } } }
+  const vs = videosDeBusqueda(j)
+  assert.deepEqual(vs.map((v) => [v.titulo, v.url, v.autor, v.datos?.vistas]), [['Un video', 'https://www.youtube.com/watch?v=abcdefghijk', 'Un canal', '1.234 vistas']])
+})
+
+test('GitHub: rutas de repo e issue; buscar repos; leer un repo con README; el 403 de límite es LIMITE con la hora', async () => {
+  const { rutaGithub } = await import('../src/explorar/github.ts')
+  assert.deepEqual(rutaGithub('https://github.com/a/b'), { dueno: 'a', repo: 'b', numero: undefined })
+  assert.deepEqual(rutaGithub('https://github.com/a/b.git'), { dueno: 'a', repo: 'b', numero: undefined })
+  assert.equal(rutaGithub('https://github.com/a/b/pull/12')!.numero, 12)
+  assert.equal(rutaGithub('https://github.com/a/b/blob/main/x.md'), null, 'un archivo lo lee la web')
+  const db = abrir(':memory:')
+  redFalsa([
+    [/api\.github\.com\/search\/repositories/, () => Response.json({ items: [{ full_name: 'a/b', html_url: 'https://github.com/a/b', description: 'Un repo', stargazers_count: 7, owner: { login: 'a' } }] })],
+    [/api\.github\.com\/repos\/a\/b\/readme/, () => new Response('# Hola\n\nEl README.')],
+    [/api\.github\.com\/repos\/a\/b$/, () => Response.json({ full_name: 'a/b', description: 'Un repo', stargazers_count: 7, forks_count: 1, language: 'TypeScript', pushed_at: '2026-10-01T00:00:00Z', owner: { login: 'a' } })],
+    [/api\.github\.com\/users\/limitado/, () => new Response('{}', { status: 403, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(Math.floor(T / 1000) + 600) } })],
+  ])
+  const b = await ex.buscar(db, 'github', 'algo', { ahora: T })
+  assert.deepEqual([b.items[0].titulo, b.items[0].datos?.estrellas], ['a/b', 7])
+  const r = await ex.leerLink(db, 'https://github.com/a/b', { ahora: T })
+  assert.match(r.markdown, /★ 7 · 1 forks · TypeScript/)
+  assert.match(r.markdown, /## README\n\n# Hola/)
+  await assert.rejects(ex.listar(db, 'github', 'repos', 'limitado', { ahora: T }), (e: any) => e.codigo === 'LIMITE' && /60 pedidos/.test(e.message))
+})
+
+test('X: los hilos públicos de Exa se vuelven el tweet original; un tweet se lee por oEmbed; un perfil no se lee sin cuenta', async () => {
+  const db = abrir(':memory:')
+  redFalsa([
+    [/mcp\.exa\.ai/, () => sse('Title: Thread by @alguien\nURL: https://threadreaderapp.com/thread/1957885810075922627.html\nHighlights:\nEl hilo\n\n---\n\nTitle: Otra cosa\nURL: https://ejemplo.com/x\nHighlights:\nNada')],
+    [/publish\.twitter\.com\/oembed/, () => Response.json({ author_name: 'Alguien', author_url: 'https://x.com/alguien', html: '<blockquote><p>Un tweet de prueba con algo de texto</p>&mdash; Alguien</blockquote>' })],
+  ])
+  const b = await ex.buscar(db, 'twitter', 'algo', { ahora: T })
+  assert.deepEqual(b.items.map((x) => x.url), ['https://x.com/i/status/1957885810075922627'])
+  assert.match(b.aviso!, /Sin cuenta/)
+  const t = await ex.leerLink(db, 'https://x.com/alguien/status/123', { ahora: T })
+  assert.equal(t.via, 'oEmbed de X')
+  assert.match(t.markdown, /Un tweet de prueba/)
+  const estado = ex.estadoCanales(db, T)
+  assert.deepEqual(estado.map((c) => c.id), ['web', 'reddit', 'youtube', 'github', 'x', 'linkedin', 'instagram', 'facebook'])
+  assert.ok(estado.find((c) => c.id === 'instagram')!.noPuede!.includes('pide cuenta'))
+})

@@ -11,6 +11,7 @@ import { textoDePdf } from '../cargas/pdf.ts'
 import { clasificarYoutube, leerVideo } from './youtube.ts'
 import type { Db } from '../db.ts'
 import { pedirSeguro } from '../explorar/red.ts'
+import { vistaPrevia } from '../explorar/web.ts'
 
 /** sinMateria: entró solo la cáscara (un video sin subtítulos): la pieza queda pendiente y no cuenta como materia. */
 export type Lectura = { url: string; titulo: string; markdown: string; meta: Meta; links: { url: string; texto: string; interno: boolean }[]; palabras: number; fuente: string; aviso?: string; sinMateria?: boolean }
@@ -174,7 +175,16 @@ export async function leer(url: string): Promise<Lectura> {
     // Un Google privado vuelve sin texto pero con el aviso de cómo compartirlo (si no, se leería el login de Google).
     try { const l = await f(u, m); if (l?.markdown || (l?.fuente === 'google' && l.aviso)) return l } catch { /* se prueba como página común */ }
   }
-  if (SIN_CUENTA.test(u)) return lectura(u, 'red', u, '', { aviso: 'Esa red no deja leer sin cuenta: guardo el link y lo que me contaste.' })
+  if (SIN_CUENTA.test(u)) {
+    // Sin cuenta, lo que estas redes muestran es la vista previa (lo mismo que ve cualquier chat al pegar el link).
+    const sitio = /(instagram|facebook|fb|linkedin|threads)/i.exec(u)?.[1] ?? 'red'
+    const nombre = { instagram: 'Instagram', facebook: 'Facebook', fb: 'Facebook', linkedin: 'LinkedIn', threads: 'Threads' }[sitio.toLowerCase()] ?? 'Esa red'
+    const r = await pedir(u, { headers: { 'user-agent': 'Mozilla/5.0 (compatible; Deprocast/1.0; vista previa de links)' } }).catch(() => null)
+    const v = r?.ok ? vistaPrevia(await r.text().catch(() => '')) : null
+    const aviso = `${nombre} no deja leer sin cuenta: ${v?.titulo ? 'guardo la vista previa pública' : 'guardo el link'} y lo que me contaste.`
+    if (!v?.titulo) return lectura(u, 'red', u, '', { aviso })
+    return lectura(u, 'red', v.titulo, [`# ${v.titulo}`, v.descripcion ?? '', v.imagen ? `![](${v.imagen})` : ''].filter(Boolean).join('\n\n'), { aviso, meta: { sitio: nombre } })
+  }
   let r: Response
   try { r = await pedir(u) } catch (e) { return lectura(u, 'error', u, '', { aviso: `No pude abrirla: ${e instanceof Error ? e.message : e}` }) }
   if (!r.ok) return lectura(u, 'error', u, '', { aviso: `La página respondió ${r.status}.` })
