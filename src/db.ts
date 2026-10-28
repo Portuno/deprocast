@@ -1792,7 +1792,7 @@ const AJUSTES_SISTEMA: Record<string, string> = {
   bloques_minutos: '12,25,50',
   primarias_semana: '6',
   liga_auto: '1', // la liga corre ticks sola en el servidor (en la nube, con trabajo y sin tope); 0 = solo a mano
-  tokens_dia_max: '5000000', // tokens por día para lo que corre solo (la liga y las rutinas); lo que él pide no se frena; 0 = sin tope
+  tokens_dia_max: '0', // tokens por día para lo que corre solo (la liga y las rutinas); lo que él pide no se frena; 0 = sin tope (él lo pidió el 28/10/2026)
   pensar_cada_horas: '3', // Mastropiero piensa solo y deja una sugerencia (o nada); 0 = nunca
   meta_ingresos_mes: '', // su meta de ingresos por mes, en euros; vacío = sin meta
   telegram_voz: '0', // respuestas por Telegram también en audio: 0 = no, 1 = cuando él manda audio, siempre
@@ -1921,6 +1921,12 @@ export function migrar(db: Db) {
   }
   const ajuste = db.prepare('INSERT OR IGNORE INTO ajustes (clave, valor) VALUES (?, ?)')
   for (const [k, v] of Object.entries(AJUSTES_SISTEMA)) ajuste.run(k, v)
+  // 28/10/2026: él pidió que lo que corre solo gaste lo que tenga que gastar. Una sola vez, el tope pasa a 0 (sin tope);
+  // si después pone uno en Hoy → Ajustes, ese queda.
+  if (!db.prepare(`SELECT 1 FROM ajustes WHERE clave = 'sin_tope_v1'`).get()) {
+    db.prepare(`UPDATE ajustes SET valor = '0' WHERE clave = 'tokens_dia_max'`).run()
+    db.prepare(`INSERT OR REPLACE INTO ajustes (clave, valor) VALUES ('sin_tope_v1', '1')`).run()
+  }
   // Personas v2: la cercanía vieja (1–5) pasa a nivel de contacto (1–12), una sola vez.
   if (!db.prepare(`SELECT 1 FROM ajustes WHERE clave = 'personas_v2'`).get()) {
     db.exec(`UPDATE relaciones SET nivel = CASE cercania WHEN 1 THEN 2 WHEN 2 THEN 5 WHEN 3 THEN 7 WHEN 4 THEN 10 WHEN 5 THEN 12 END WHERE nivel IS NULL AND cercania IS NOT NULL`)

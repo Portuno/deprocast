@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 
 process.env.TZ = 'Europe/Madrid'
 process.env.NAN_API_KEY = 'test'
-const { abrir, fijarAjuste } = await import('../src/db.ts')
+const { abrir, fijarAjuste, migrar } = await import('../src/db.ts')
 const casa = await import('../src/casa.ts')
 const { CLASES } = await import('../src/clases.ts')
 const { publicar } = await import('../src/bus.ts')
@@ -55,9 +55,23 @@ test('01 Despachante: devuelve lo trabado; suelta la espera de a una tanda solo 
   assert.match(sin[0], /devolvió al bus 1 tarea trabada/)
   assert.equal((db.prepare('SELECT estado FROM tareas WHERE id = ?').get(t.id) as any).estado, 'pendiente')
   assert.equal(sin.length, 1, 'sin drenar no suelta')
+  // Con tope (y margen), de a una tanda chica; con la cola llena, espera.
+  fijarAjuste(db, 'tokens_dia_max', '5000000')
   const con = casa.despachar(db, { drenar: true, ahora: T })
   assert.match(con[0], new RegExp(`soltó ${casa.TANDA_ESPERA} encargos de la espera`))
   assert.deepEqual(casa.despachar(db, { drenar: true, ahora: T }), [], 'con la cola de ingesta llena, espera')
+})
+
+test('Sin tope de tokens (lo de fábrica desde el 28/10): la espera se suelta en tandas grandes', () => {
+  const db = abrir(':memory:')
+  assert.equal((db.prepare(`SELECT valor FROM ajustes WHERE clave = 'tokens_dia_max'`).get() as any).valor, '0', 'sin tope')
+  for (let i = 0; i < 100; i++) db.prepare(`UPDATE tareas SET estado = 'en_espera', pipeline = 'ingesta' WHERE id = ?`).run(tarea(db, 'extractor', 'pendiente', `s${i}`).id)
+  assert.match(casa.despachar(db, { drenar: true, ahora: T })[0], new RegExp(`soltó ${casa.TANDA_SIN_TOPE} encargos`))
+  // Si después pone un tope, queda (la migración no lo vuelve a borrar).
+  fijarAjuste(db, 'tokens_dia_max', '2000000')
+
+  migrar(db)
+  assert.equal((db.prepare(`SELECT valor FROM ajustes WHERE clave = 'tokens_dia_max'`).get() as any).valor, '2000000')
 })
 
 test('03 Meta-analista: cuellos de botella, fallas por clase (propuesta a 📥 una sola vez), una vez por hora', () => {

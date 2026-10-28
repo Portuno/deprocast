@@ -857,7 +857,7 @@ function modalAjustesHoy() {
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Tu día</h2>
     <p class="tenue">A qué hora hace Mastropiero cada cosa solo, cuántas primarias te propone por semana y cuánto puede gastar por día lo que corre solo, la liga y las rutinas (lo que le pedís vos no se frena).</p>
     <div class="form-ing"><label class="campo">Primarias por semana<input id="aj-prim" type="number" min="1" max="12" value="${esc(hoyDatos.ajustes.primarias_semana ?? 6)}"></label>
-      <label class="campo">Tope diario de lo que corre solo (tokens, 0 = sin tope)<input id="aj-tope" type="number" min="0" step="500000" value="${esc(hoyDatos.ajustes.tokens_dia_max ?? 5000000)}"></label>
+      <label class="campo">Tope diario de lo que corre solo (tokens, 0 = sin tope)<input id="aj-tope" type="number" min="0" step="500000" value="${esc(hoyDatos.ajustes.tokens_dia_max ?? 0)}"></label>
       <label class="campo">Runs: foco y descanso (minutos, «90/20»; 0 = sin ciclos)<input id="aj-ciclo" value="${esc(hoyDatos.ajustes.ciclo_bandas ?? '90/20')}" placeholder="90/20"></label>
       <label class="campo">La Fragua forja por noche (propuestas, 0 = ninguna)<input id="aj-fragua" type="number" min="0" max="10" value="${esc(hoyDatos.ajustes.fragua_por_noche ?? 3)}"></label>
       <label class="fila g-2"><input type="checkbox" id="aj-directo" ${hoyDatos.ajustes.directo_auto !== '0' ? 'checked' : ''}> Del Directo, las ideas y lo que miraste entran solas (tareas, personas y conexiones esperan tu ok)</label>

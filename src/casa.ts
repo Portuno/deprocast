@@ -29,6 +29,7 @@ const MIN = 60_000
 const HORA = 60 * MIN
 const DIA = 24 * HORA
 export const TANDA_ESPERA = 20
+export const TANDA_SIN_TOPE = 60
 export const TOPE_POR_CLASE = 4
 /** Pendientes por agente listo a partir de las que el Forjador suma un refuerzo. */
 export const CUELLO = 40
@@ -65,7 +66,8 @@ export function despachar(db: Db, o: { drenar: boolean; ahora?: number }): strin
     WHERE estado = 'asignada' AND (asignada_a IS NULL OR asignada_a NOT IN (SELECT id FROM agentes WHERE estado != 'banca'))`).run(ahora).changes
   if (huerfanas) hechos.push(`devolvió al bus ${huerfanas} tarea${huerfanas === 1 ? '' : 's'} trabada${huerfanas === 1 ? '' : 's'} (su agente ya no estaba o estaba en la banca)`)
   if (o.drenar && puedeSoltar(db, ahora)) {
-    const sueltas = reanudarIngesta(db, { limite: TANDA_ESPERA }, ahora)
+    // Sin tope de tokens, la espera se suelta en tandas más grandes (se vacía en días, no en semanas).
+    const sueltas = reanudarIngesta(db, { limite: topeDiario(db) ? TANDA_ESPERA : TANDA_SIN_TOPE }, ahora)
     if (sueltas) hechos.push(`soltó ${sueltas} encargo${sueltas === 1 ? '' : 's'} de la espera (lo propio primero); quedan ${enEspera(db).toLocaleString('es-AR')}`)
   }
   anotarTurno(db, '01', hechos.length ? hechos.join('; ') : null, hechos, ahora)
@@ -75,9 +77,9 @@ export function despachar(db: Db, o: { drenar: boolean; ahora?: number }): strin
 /** Hay espera, la cola de ingesta está corta y queda margen de tope (menos del 80 % gastado). */
 function puedeSoltar(db: Db, ahora: number): boolean {
   if (!enEspera(db) || topeAlcanzado(db, ahora)) return false
-  const enCola = n(db, `SELECT COUNT(*) AS n FROM tareas WHERE pipeline = 'ingesta' AND estado IN ('pendiente', 'asignada')`)
-  if (enCola >= TANDA_ESPERA) return false
   const tope = topeDiario(db)
+  const enCola = n(db, `SELECT COUNT(*) AS n FROM tareas WHERE pipeline = 'ingesta' AND estado IN ('pendiente', 'asignada')`)
+  if (enCola >= (tope ? TANDA_ESPERA : TANDA_SIN_TOPE)) return false
   if (!tope) return true
   const g = tokensHoy(db, ahora)
   return g.liga + g.fondo < tope * 0.8
