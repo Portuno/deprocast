@@ -309,6 +309,18 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['POST', /^\/api\/ingesta\/pausar$/, () => ({ enEspera: pausarIngesta(db) })],
   ['POST', /^\/api\/ingesta\/reanudar$/, (b) => ({ reanudados: reanudarIngesta(db, { limite: Math.min(Number(b.limite) || 20, 2000), soloPropias: !!b.soloPropias }), enEspera: enEspera(db) })],
+  // Explorar internet (plan v31): los canales con su salud, y probar buscar, leer o listar desde la pantalla.
+  ['GET', /^\/api\/explorar\/canales$/, async () => (await import('./explorar/index.ts')).estadoCanales(db)],
+  ['POST', /^\/api\/explorar\/(buscar|leer|listar)$/, async (b, [accion]) => {
+    const ex = await import('./explorar/index.ts')
+    try {
+      if (accion === 'buscar') return await ex.buscar(db, String(b.plataforma ?? 'web'), String(b.consulta ?? ''), { n: Number(b.n) || 8 })
+      if (accion === 'listar') return await ex.listar(db, String(b.plataforma ?? ''), String(b.que ?? ''), String(b.id ?? ''), { n: Number(b.n) || 10 })
+      return await ex.leerLink(db, String(b.url ?? ''))
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e), codigo: e instanceof ex.ErrorExplorar ? e.codigo : 'ROTO' }
+    }
+  }],
   // Exportación a medida: elegir entidades, ver sus vínculos, armar el esquema, ver cuánto pesa y bajarlo.
   ['GET', /^\/api\/segmento\/entidades$/, async (_, __, q) => (await import('./segmento.ts')).buscarEntidades(db, { q: q.get('q') ?? '', tipo: q.get('tipo') || undefined })],
   ['POST', /^\/api\/segmento\/vecindario$/, async (b) => (await import('./segmento.ts')).vecindario(db, Array.isArray(b.ids) ? b.ids : [])],

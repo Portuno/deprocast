@@ -2962,3 +2962,23 @@ span.ej-chip { cursor: default; }
 .seg-nav { display: flex; justify-content: space-between; align-items: center; gap: var(--e-2); margin-top: var(--e-3); flex-wrap: wrap; }
 @media (min-width: 1000px) { .seg-opciones { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 720px) { .seg-item { flex-wrap: wrap; } .seg-item > small { max-width: none; text-align: left; flex-basis: 100%; padding-left: 26px; } }
+
+/* Explorar internet (plan v31): un canal por plataforma con su cadena y la caja de prueba. */
+.exp-canales { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--e-2); margin: var(--e-3) 0; }
+.exp-canal { display: grid; gap: 4px; text-align: left; padding: var(--e-2) var(--e-3); border: 1px solid var(--linea); border-radius: var(--r-m); background: var(--panel); color: inherit; font: inherit; cursor: pointer; min-width: 0; }
+.exp-canal.on { border-color: var(--acento); box-shadow: inset 3px 0 0 var(--acento); }
+.exp-canal small { font-size: var(--t-2); overflow-wrap: anywhere; }
+.exp-no { color: var(--aviso); }
+.exp-cadena { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; font-size: var(--t-2); }
+.exp-paso { padding: 1px 6px; border-radius: var(--r-pill); border: 1px solid var(--linea); }
+.exp-paso.ok { border-color: color-mix(in srgb, var(--ok) 60%, var(--linea)); color: var(--ok); }
+.exp-paso.mal { border-color: color-mix(in srgb, var(--mal) 60%, var(--linea)); color: var(--mal); }
+.exp-paso.pausa { border-color: color-mix(in srgb, var(--aviso) 60%, var(--linea)); color: var(--aviso); }
+.exp-form { flex-wrap: wrap; gap: var(--e-2); margin: var(--e-2) 0; }
+.exp-form .campo-suelto.f1 { min-width: 12em; }
+.exp-items { padding-left: 1.2em; display: grid; gap: var(--e-2); font-size: var(--t-3); }
+.exp-items li { overflow-wrap: anywhere; }
+.exp-items small { display: block; }
+.exp-items p { margin: 2px 0; }
+.exp-leido { max-height: 50vh; overflow-y: auto; padding: var(--e-2) var(--e-3); border: 1px solid var(--linea); border-radius: var(--r-m); font-size: var(--t-3); overflow-wrap: anywhere; }
+@media (min-width: 1000px) { .exp-canales { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

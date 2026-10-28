@@ -30,6 +30,7 @@ const ACCIONES_PALETA = [
   { id: 'sueno', titulo: 'Anotar un sueño', ico: 'moon', claves: 'sueño soñe dormir noche', hacer: () => cargarScript('59-suenos.js').then(() => modalSueno()) },
   { id: 'ajustes', titulo: 'Ajustes (rutinas, voz, Directo, tope)', ico: 'settings', claves: 'ajustes configuracion rutinas voz tope horario', hacer: () => enHoy(() => modalAjustesHoy()) },
   { id: 'tema', titulo: 'Cambiar el tema', ico: 'sun-moon', claves: 'tema oscuro claro modo sistema', hacer: () => $('#btn-tema').click() },
+  { id: 'explorar', titulo: 'Explorar internet', ico: 'globe', claves: 'explorar internet reddit youtube github twitter x linkedin instagram facebook buscar leer link canales red', hacer: () => modalExplorar() },
   { id: 'segmento', titulo: 'Exportar a medida', ico: 'arrow-up-down', claves: 'exportar a medida segmento proyecto entidades quantomos relaciones json esquema elegir', hacer: () => modalSegmento() },
   { id: 'estado', titulo: 'Exportar o importar todo', ico: 'arrow-up-down', claves: 'exportar importar respaldo backup estado', hacer: () => modalEstado() },
   { id: 'velocidad', titulo: 'Velocidad del servidor', ico: 'activity', claves: 'velocidad rendimiento lento medir', hacer: () => modalVelocidad() },

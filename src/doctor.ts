@@ -52,6 +52,16 @@ export async function chequear(o: { conRed?: boolean; raiz?: string } = {}): Pro
       add('NaN responde', 'falla', `No contesta: ${e instanceof Error ? e.message : e}`)
     }
   }
+  // Explorar internet (plan v31): salida a internet y Exa (el buscador sin clave). Nunca falla: avisa.
+  if (o.conRed !== false) {
+    try {
+      const { pedirSeguro } = await import('./explorar/red.ts')
+      const r = await pedirSeguro('https://mcp.exa.ai/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) }, { timeoutMs: 10_000 })
+      add('Explorar internet', r.ok ? 'ok' : 'aviso', r.ok ? 'hay salida a internet y Exa (el buscador sin clave) responde' : `Exa respondió ${r.status}: se busca con los otros buscadores`)
+    } catch (e) {
+      add('Explorar internet', 'aviso', `Sin salida a internet o Exa no contesta: ${e instanceof Error ? e.message : e}`)
+    }
+  }
 
   const ruta = resolverRuta()
   try {
