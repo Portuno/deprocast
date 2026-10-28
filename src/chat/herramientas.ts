@@ -1476,16 +1476,48 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a, r) => `buscó en la web «${recorte(a.consulta, 40)}» → ${r?.resultados?.length ?? 0}`,
   },
   {
+    nombre: 'buscar_en', familia: 'lectura',
+    descripcion: 'Busca adentro de una plataforma, sin cuenta: reddit (posts con su texto), youtube (videos con vistas y duración), github (repos; «issues: …» para issues y PRs), x (tweets, por sus hilos públicos), linkedin (perfiles, empresas, posts, empleos; «personas: …» o «empresas: …» para solo eso), instagram y facebook (perfiles y posts públicos, por buscadores) o web. Devuelve links reales; para leer uno, leer_pagina.',
+    parametros: S({ plataforma: str('Dónde', { enum: ['web', 'reddit', 'youtube', 'github', 'x', 'linkedin', 'instagram', 'facebook'] }), consulta: str('Qué buscar'), n: int('Cuántos (máx. 20)') }, ['plataforma', 'consulta']),
+    ejecutar: async (a, { db }) => {
+      const ex = await import('../explorar/index.ts')
+      try {
+        const r = await ex.buscar(db, String(a.plataforma ?? 'web'), String(a.consulta ?? ''), { n: Number(a.n) || 8 })
+        return { plataforma: r.plataforma, via: r.via, aviso: r.aviso, resultados: r.items.map((x) => ({ titulo: x.titulo, url: x.url, autor: x.autor, fecha: x.fecha?.slice(0, 10), texto: x.texto ? recorte(x.texto.replace(/\s+/g, ' '), 500) : undefined, ...(x.datos ?? {}) })) }
+      } catch (e) { return { error: e instanceof Error ? e.message : String(e) } }
+    },
+    resumen: (a, r) => `buscó en ${a.plataforma} «${recorte(a.consulta, 40)}» → ${r?.resultados?.length ?? 0}`,
+  },
+  {
+    nombre: 'explorar', familia: 'lectura',
+    descripcion: 'Lista lo de algo en una plataforma, sin cuenta: reddit + subreddit (los posts de «nombre», «nombre/top» o «nombre/new»), youtube + canal (los videos de «@canal»), github + repos (los repos de un usuario u organización) o github + issues (los issues abiertos de «dueño/repo»).',
+    parametros: S({ plataforma: str('Dónde', { enum: ['reddit', 'youtube', 'github'] }), que: str('Qué listar', { enum: ['subreddit', 'canal', 'repos', 'issues'] }), id: str('De quién: el subreddit, el canal, el usuario o el repo'), n: int('Cuántos (máx. 25)') }, ['plataforma', 'que', 'id']),
+    ejecutar: async (a, { db }) => {
+      const ex = await import('../explorar/index.ts')
+      try {
+        const r = await ex.listar(db, String(a.plataforma ?? ''), String(a.que ?? ''), String(a.id ?? ''), { n: Number(a.n) || 10 })
+        return { plataforma: r.plataforma, via: r.via, resultados: r.items.map((x) => ({ titulo: x.titulo, url: x.url, autor: x.autor, fecha: x.fecha?.slice(0, 10), texto: x.texto ? recorte(x.texto.replace(/\s+/g, ' '), 300) : undefined, ...(x.datos ?? {}) })) }
+      } catch (e) { return { error: e instanceof Error ? e.message : String(e) } }
+    },
+    resumen: (a, r) => `exploró ${a.plataforma} · ${a.que} ${recorte(a.id, 30)} → ${r?.resultados?.length ?? 0}`,
+  },
+  {
     nombre: 'leer_pagina', familia: 'lectura',
-    descripcion: 'Lee una página web en Markdown limpio (sin menús ni pies; Google Docs/Sheets/Slides, GitHub, Wikipedia, Reddit, YouTube y PDF incluidos), de a tramos de unos 10.000 caracteres. Si la respuesta trae `sigue`, hay más: pedí el tramo siguiente con desde=sigue hasta llegar al final (no le digas que se corta: seguí leyendo). Si el link ya está guardado en el corpus (los que él manda se guardan enteros solos), lee lo guardado, completo.',
+    descripcion: 'Lee cualquier link en Markdown limpio (sin menús ni pies): páginas comunes y las que se arman con JavaScript, Google Docs/Sheets/Slides, PDF, Wikipedia, un hilo de Reddit con comentarios, un video de YouTube con su transcripción, un repo de GitHub con su README o un issue con sus comentarios, un tweet, una empresa o artículo de LinkedIn, la vista previa de Instagram o Facebook. De a tramos de unos 10.000 caracteres. Si la respuesta trae `sigue`, hay más: pedí el tramo siguiente con desde=sigue hasta llegar al final (no le digas que se corta: seguí leyendo). Si el link ya está guardado en el corpus (los que él manda se guardan enteros solos), lee lo guardado, completo.',
     parametros: S({ url: str('URL'), desde: int('Desde qué carácter seguir (el `sigue` del tramo anterior); vacío = desde el principio') }, ['url']),
     ejecutar: async (a, { db }) => {
       const { leer, normalizarUrl, tramo } = await import('../lector/index.ts')
       const guardada = db.prepare('SELECT id, titulo, contenido FROM corpus WHERE origen_id = ?').get(`url:${normalizarUrl(a.url)}`) as { id: number; titulo: string; contenido: string } | undefined
       if (guardada?.contenido?.trim()) return { titulo: guardada.titulo, pieza: guardada.id, ...tramo(guardada.contenido, a.desde ?? 0) }
-      const l = await leer(a.url)
-      if (!l.markdown) return { error: l.aviso ?? 'No pude leer esa página' }
-      return { titulo: l.titulo, ...tramo(l.markdown, a.desde ?? 0), aviso: l.aviso }
+      // Por explorar (plan v31): elige el canal por el sitio y, si uno falla, prueba el siguiente (Jina, Exa…).
+      const ex = await import('../explorar/index.ts')
+      const l = await ex.leerLink(db, a.url).catch(async (e) => {
+        if (e instanceof ex.ErrorExplorar && ['NO_ENCONTRADO', 'ENTRADA_MALA'].includes(e.codigo)) return { error: e.message }
+        const v = await leer(a.url) // el lector propio, como antes, por si todo lo demás falló
+        return v.markdown ? { titulo: v.titulo, markdown: v.markdown, aviso: v.aviso, via: 'el lector propio' } : { error: v.aviso ?? (e instanceof Error ? e.message : 'No pude leer esa página') }
+      })
+      if ('error' in l) return { error: l.error }
+      return { titulo: l.titulo, ...tramo(l.markdown, a.desde ?? 0), aviso: l.aviso, via: l.via }
     },
     resumen: (a, r) => `leyó ${recorte(a.url, 50)}${r?.total > (r?.hasta ?? 0) ? ` (${Math.round((r.hasta / r.total) * 100)} %)` : ''}`,
   },
@@ -1817,7 +1849,7 @@ export const GRUPOS: Record<string, string[]> = {
   corpus: ['procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
-  web: ['buscar_web', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
+  web: ['buscar_web', 'buscar_en', 'explorar', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus'],
   observatorio: ['seguir_tema', 'ver_observatorio', 'crear_campana', 'armar_campana'],
   crear: ['difundir_idea', 'ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
@@ -1831,7 +1863,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|\[confirmado\]|\[inferido\]/.test(t)) g.push('corpus')
   if (/primaria|reporte|informe|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
   if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')
-  if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal/.test(t)) g.push('web')
+  if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal|reddit|subreddit|github|repo\b|twitter|tweet|tuit|linkedin|instagram|facebook/.test(t)) g.push('web')
   if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo|mis redes|difund/.test(t)) g.push('crear')
   if (/grafo|mis temas|de qu[eé] hablo|qu[eé] conecta|me repito|mis zonas|zonas de mi|bisagra|hueco/.test(t)) g.push('grafo')
   if (/observatorio|qu[eé] se dice|narrativa|hashtag|tendencia|segu[ií] (el|al|a la) tema|segu[ií]me|campa[ñn]a/.test(t)) g.push('observatorio')

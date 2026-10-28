@@ -47,7 +47,9 @@ test('Una ronda: una búsqueda por plataforma (con site:), lee solo lo que se de
   assert.equal(r.busquedas, 5)
   assert.deepEqual(consultas.slice(-5), ['site:x.com programa entrevista invitado', 'site:reddit.com programa entrevista invitado', 'site:youtube.com programa entrevista invitado', 'programa entrevista invitado noticias', 'programa entrevista invitado foro OR meneame OR forocoches'])
   assert.equal(r.nuevos, 5)
-  assert.ok(leidas.every((u) => !/x\.com|youtube\.com/.test(u)) && leidas.length === 3, 'X y YouTube no se leen; hasta tres páginas')
+  // Plan v31: YouTube también se lee a fondo (su transcripción); X no (sin cuenta solo el tweet suelto). Hasta tres.
+  assert.ok(leidas.every((u) => !/x\.com/.test(u)) && leidas.length === 3, 'X no se lee; hasta tres páginas')
+  assert.ok(leidas.some((u) => /youtube\.com/.test(u)), 'YouTube sí (la transcripción)')
   const res = r.resumen!
   assert.deepEqual(res.plataformas.map((p) => p.plataforma), ['x'], 'una plataforma inventada no entra')
   assert.ok(res.plataformas[0].narrativas[0].ejemplos.every((u) => u.startsWith('https://x.com/')), 'ni links que no devolvió el buscador')

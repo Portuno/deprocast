@@ -19,7 +19,7 @@ import { recortarYaLeido } from '../chat/index.ts'
 /** Lo que lee cualquier agente: su archivo, sus entidades y el grafo. */
 export const LECTURA_AGENTE = ['buscar_corpus', 'leer_pieza', 'ver_entidad', 'listar_entidades', 'listar_quantomos', 'ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus']
 /** La web, para las clases que salen a buscar. */
-export const WEB_AGENTE = ['buscar_web', 'leer_pagina']
+export const WEB_AGENTE = ['buscar_web', 'buscar_en', 'explorar', 'leer_pagina']
 const CLASES_WEB = new Set(['buscador', 'crawler', 'gerente', 'generativo'])
 
 /** Las herramientas de un agente: las del catálogo que le tocan (lista cerrada) más las de su misión. */
@@ -77,7 +77,7 @@ export async function trabajar(db: Db, f: Ficha, o: {
         vivo.herramienta = l.nombre
         const x = await ejecutarHerramienta(o.herramientas, l.nombre, l.argumentos, ctx)
         const contenido = JSON.stringify(x.resultado ?? null)
-        if (ctx.mision && (l.nombre === 'buscar_web' || l.nombre === 'leer_pagina')) for (const u of contenido.match(URL) ?? []) ctx.mision.urlsVistas.add(u.replace(/[.,;]+$/, ''))
+        if (ctx.mision && WEB_AGENTE.includes(l.nombre)) for (const u of contenido.match(URL) ?? []) ctx.mision.urlsVistas.add(u.replace(/[.,;]+$/, ''))
         let args: unknown = null
         try { args = JSON.parse(l.argumentos || '{}') } catch { /* argumentos rotos: quedan como texto */ args = l.argumentos }
         registrar(db, { tareaId: null, agenteId: f.id, ok: x.ok, input: { herramienta: l.nombre, argumentos: args, mision: ctx.mision?.id ?? null }, decision: x.resumen, output: contenido.length > 2000 ? `${contenido.slice(0, 2000)}…` : x.resultado }, o.ahora ?? Date.now())

@@ -141,3 +141,37 @@ test('X: los hilos públicos de Exa se vuelven el tweet original; un tweet se le
   assert.deepEqual(estado.map((c) => c.id), ['web', 'reddit', 'youtube', 'github', 'x', 'linkedin', 'instagram', 'facebook'])
   assert.ok(estado.find((c) => c.id === 'instagram')!.noPuede!.includes('pide cuenta'))
 })
+
+test('Quién explora: los agentes buscadores tienen buscar_en y explorar; el MCP también (todo de lectura); el chat ve el grupo web', async () => {
+  const { herramientasDeAgente, WEB_AGENTE } = await import('../src/agentes/motor.ts')
+  const nombres = herramientasDeAgente({ clase: 'buscador' } as any).map((h) => h.nombre)
+  for (const n of ['buscar_en', 'explorar', 'leer_pagina']) assert.ok(nombres.includes(n), n)
+  assert.ok(!herramientasDeAgente({ clase: 'vectorizador' } as any).some((h) => WEB_AGENTE.includes(h.nombre)), 'los que no salen a la web, no')
+  const mcp = await import('../src/mcp.ts')
+  const deMcp = mcp.herramientasMcp()
+  for (const n of ['buscar_en', 'explorar', 'leer_pagina']) assert.ok(deMcp.some((h) => h.nombre === n), n)
+  assert.ok(deMcp.every((h) => h.familia === 'lectura'))
+  const { gruposDelMensaje } = await import('../src/chat/herramientas.ts')
+  assert.ok(gruposDelMensaje('fijate qué dicen en reddit de esto').includes('web'))
+})
+
+test('Las herramientas: buscar_en devuelve links reales; explorar lista; un error vuelve como error, no rompe', async () => {
+  const db = abrir(':memory:')
+  redFalsa([[/api\.github\.com\/search\/repositories/, () => Response.json({ items: [{ full_name: 'a/b', html_url: 'https://github.com/a/b', stargazers_count: 3, owner: { login: 'a' } }] })]])
+  const { HERRAMIENTAS, ejecutarHerramienta } = await import('../src/chat/herramientas.ts')
+  const r: any = await ejecutarHerramienta(HERRAMIENTAS, 'buscar_en', JSON.stringify({ plataforma: 'github', consulta: 'algo' }), { db, conversacionId: null })
+  assert.equal(r.resultado.resultados[0].url, 'https://github.com/a/b')
+  assert.equal(r.resultado.resultados[0].estrellas, 3)
+  const mal: any = await ejecutarHerramienta(HERRAMIENTAS, 'explorar', JSON.stringify({ plataforma: 'github', que: 'nada', id: 'x' }), { db, conversacionId: null })
+  assert.match(mal.resultado.error, /no lista «nada»/)
+})
+
+test('El Observatorio: lo de una plataforma con canal va por explorar (con sus datos); noticias y foros, por los buscadores', async () => {
+  const db = abrir(':memory:')
+  redFalsa([[/api\.github\.com\/search\/repositories/, () => Response.json({ items: [{ full_name: 'a/b', html_url: 'https://github.com/a/b', description: 'Un repo', stargazers_count: 42, owner: { login: 'a' } }] })]])
+  const ob = await import('../src/observatorio.ts')
+  assert.equal(ob.consultaPara('github', 'algo'), 'site:github.com algo')
+  assert.equal(ob.consultaPara('noticias', 'algo'), 'algo noticias')
+  const t = ob.seguirTema(db, { nombre: 'Un tema', consultas: ['algo'] })
+  assert.deepEqual(t.plataformas, ['x', 'reddit', 'youtube', 'noticias', 'foros'], 'las nuevas se eligen a mano')
+})

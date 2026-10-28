@@ -13,9 +13,13 @@ import { json, type Db } from './db.ts'
 import { pedirJson } from './modelo.ts'
 import { buscarWeb, leerPagina, type Resultado } from './web.ts'
 
-export const PLATAFORMAS = ['x', 'reddit', 'youtube', 'noticias', 'foros'] as const
+export const PLATAFORMAS = ['x', 'reddit', 'youtube', 'noticias', 'foros', 'github', 'linkedin', 'instagram', 'facebook'] as const
 export type Plataforma = (typeof PLATAFORMAS)[number]
-export const NOMBRE_PLATAFORMA: Record<Plataforma, string> = { x: 'X', reddit: 'Reddit', youtube: 'YouTube', noticias: 'Noticias', foros: 'Foros' }
+export const NOMBRE_PLATAFORMA: Record<Plataforma, string> = { x: 'X', reddit: 'Reddit', youtube: 'YouTube', noticias: 'Noticias', foros: 'Foros', github: 'GitHub', linkedin: 'LinkedIn', instagram: 'Instagram', facebook: 'Facebook' }
+/** Las de siempre, si un tema no elige (las nuevas se suman a mano: cada una es una búsqueda más por ronda). */
+const DEFECTO: Plataforma[] = ['x', 'reddit', 'youtube', 'noticias', 'foros']
+/** El sitio de cada plataforma que tiene canal en explorar (plan v31). */
+const SITIO: Partial<Record<Plataforma, string>> = { x: 'x.com', reddit: 'reddit.com', youtube: 'youtube.com', github: 'github.com', linkedin: 'linkedin.com', instagram: 'instagram.com', facebook: 'facebook.com' }
 
 export type Tema = {
   id: number; nombre: string; consultas: string[]; plataformas: Plataforma[]; cadaHoras: number; intensivoDesde: number | null; intensivoHasta: number | null; activo: boolean
@@ -48,7 +52,7 @@ export const itemsDe = (db: Db, temaId: number, o: { plataforma?: Plataforma; li
 const limpiarConsultas = (xs: unknown) => (Array.isArray(xs) ? xs : String(xs ?? '').split(/\n|;/)).map((x) => String(x).trim().slice(0, 200)).filter(Boolean).slice(0, 5)
 const limpiarPlataformas = (xs: unknown) => {
   const ps = (Array.isArray(xs) ? xs : []).map(String).filter((p): p is Plataforma => (PLATAFORMAS as readonly string[]).includes(p))
-  return ps.length ? [...new Set(ps)] : [...PLATAFORMAS]
+  return ps.length ? [...new Set(ps)] : [...DEFECTO]
 }
 
 /** Seguir un tema: su nombre, las búsquedas (hasta 5, rotan de a una por ronda), las plataformas y cada cuánto. */
@@ -82,9 +86,7 @@ export function editarTema(db: Db, id: number, c: { nombre?: string; consultas?:
 
 /** La búsqueda de cada plataforma (lo que indexan los buscadores de cada sitio). */
 export function consultaPara(p: Plataforma, q: string): string {
-  if (p === 'x') return `site:x.com ${q}`
-  if (p === 'reddit') return `site:reddit.com ${q}`
-  if (p === 'youtube') return `site:youtube.com ${q}`
+  if (SITIO[p]) return `site:${SITIO[p]} ${q}`
   if (p === 'noticias') return `${q} noticias`
   return `${q} foro OR meneame OR forocoches`
 }
@@ -93,13 +95,33 @@ function plataformaDe(url: string, pedida: Plataforma): Plataforma {
   if (/(^|\.)(x|twitter)\.com\//i.test(url.replace(/^https?:\/\//, ''))) return 'x'
   if (/reddit\.com\//i.test(url)) return 'reddit'
   if (/(youtube\.com|youtu\.be)\//i.test(url)) return 'youtube'
+  if (/github\.com\//i.test(url)) return 'github'
+  if (/linkedin\.com\//i.test(url)) return 'linkedin'
+  if (/instagram\.com\//i.test(url)) return 'instagram'
+  if (/(facebook\.com|fb\.watch)\//i.test(url)) return 'facebook'
   return pedida
 }
-/** Las que se dejan leer (X y YouTube son páginas que no se leen sin navegador: queda el extracto del buscador). */
-const SE_LEEN: Plataforma[] = ['noticias', 'foros', 'reddit']
+/** Las que se leen más a fondo: el hilo de Reddit con comentarios, la transcripción de YouTube, el README de GitHub. */
+const SE_LEEN: Plataforma[] = ['noticias', 'foros', 'reddit', 'youtube', 'github']
 
-let buscador = (db: Db, q: string): Promise<Resultado[]> => buscarWeb(db, q, { n: 8 })
-let lector = (url: string) => leerPagina(url, 3000)
+/**
+ * Buscar: lo de una plataforma con canal (site:…) va por explorar (Reddit con el cuerpo de los posts, YouTube con vistas,
+ * GitHub con estrellas); el resto, los buscadores de siempre.
+ */
+let buscador = async (db: Db, q: string): Promise<Resultado[]> => {
+  const m = /^site:(\S+)\s+(.+)$/.exec(q)
+  const p = m ? (Object.keys(SITIO) as Plataforma[]).find((k) => SITIO[k] === m[1]) : undefined
+  if (!p) return buscarWeb(db, q, { n: 8 })
+  const { buscar } = await import('./explorar/index.ts')
+  const r = await buscar(db, p, m![2], { n: 8 })
+  return r.items.map((x) => ({ titulo: x.titulo, url: x.url, extracto: [x.texto, ...Object.entries(x.datos ?? {}).filter(([, v]) => v != null && typeof v !== 'object').map(([k, v]) => `${k}: ${v}`)].filter(Boolean).join(' · ').slice(0, 600), proveedor: r.via }))
+}
+let lector = async (url: string, db?: Db): Promise<{ titulo: string; texto: string } | null> => {
+  if (!db) return leerPagina(url, 3000)
+  const { leerLink } = await import('./explorar/index.ts')
+  const l = await leerLink(db, url)
+  return { titulo: l.titulo, texto: l.markdown.slice(0, 3000) }
+}
 let modelo = async (db: Db, sistema: string, usuario: string): Promise<any> => (await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'observatorio' }, sistema, usuario, { temperatura: 0.3, maxTokens: 2500 })).datos
 export function _probarObservatorio(o: { buscador?: typeof buscador; lector?: typeof lector; modelo?: typeof modelo }) {
   if (o.buscador) buscador = o.buscador
@@ -107,13 +129,13 @@ export function _probarObservatorio(o: { buscador?: typeof buscador; lector?: ty
   if (o.modelo) modelo = o.modelo
 }
 
-const SISTEMA = `Sos el Observatorio de Mastropiero: mirás qué se dice de un tema en cada plataforma (X, Reddit, YouTube, noticias, foros), a partir de resultados públicos de búsqueda y de algunas páginas leídas. No opinás: describís.
+const SISTEMA = `Sos el Observatorio de Mastropiero: mirás qué se dice de un tema en cada plataforma (X, Reddit, YouTube, noticias, foros, GitHub, LinkedIn, Instagram, Facebook), a partir de resultados públicos de búsqueda y de algunas páginas leídas. No opinás: describís.
 - Por plataforma, las narrativas que aparecen (frases cortas que digan qué se sostiene), con su peso (1 a 5, cuánto aparece) y 1 a 3 links de ejemplo TOMADOS DE LOS RESULTADOS. El tono dominante en una palabra o dos.
 - Los saltos: una idea que aparece en una plataforma y también en otra (de dónde parece venir y a dónde llegó), con los links que lo muestran.
 - Lo nuevo respecto de la ronda anterior (si te la paso): narrativas que aparecen o se apagan.
 - «fuerte»: true solo si hay una narrativa nueva con peso alto o un salto claro.
 - Solo lo que está en los resultados; si una plataforma no trajo nada útil, no la inventes.
-Forma: {"plataformas": [{"plataforma": "x"|"reddit"|"youtube"|"noticias"|"foros", "narrativas": [{"frase": string, "peso": number, "ejemplos": [string]}], "tono": string}], "saltos": [{"idea": string, "de": string, "a": string, "evidencia": [string]}], "nuevo": [string], "resumen": string (dos o tres oraciones), "fuerte": boolean}`
+Forma: {"plataformas": [{"plataforma": "x"|"reddit"|"youtube"|"noticias"|"foros"|"github"|"linkedin"|"instagram"|"facebook", "narrativas": [{"frase": string, "peso": number, "ejemplos": [string]}], "tono": string}], "saltos": [{"idea": string, "de": string, "a": string, "evidencia": [string]}], "nuevo": [string], "resumen": string (dos o tres oraciones), "fuerte": boolean}`
 
 /** Lo que devolvió el modelo, sin links inventados ni plataformas que no están. */
 function validar(r: any, urls: Set<string>): Resumen {
@@ -169,7 +191,7 @@ export async function ronda(db: Db, temaId: number, ahora = Date.now()): Promise
     }
     // Lo que se deja leer, un poco más a fondo (hasta tres páginas por ronda).
     for (const it of nuevos.filter((x) => SE_LEEN.includes(x.plataforma)).slice(0, 3)) {
-      try { const l = await lector(it.url); if (l?.texto) { db.prepare('UPDATE observatorio_items SET texto = ? WHERE id = ?').run(l.texto.slice(0, 3000), it.id); it.texto = l.texto.slice(0, 3000) } } catch { /* una página que no se deja leer */ }
+      try { const l = await lector(it.url, db); if (l?.texto) { db.prepare('UPDATE observatorio_items SET texto = ? WHERE id = ?').run(l.texto.slice(0, 3000), it.id); it.texto = l.texto.slice(0, 3000) } } catch { /* una página que no se deja leer */ }
     }
     // El resumen: lo de esta ronda (y lo que ya se sabía del tema) contra la ronda anterior.
     const previa = rondasDe(db, temaId, 1)[0]?.resumen ?? null

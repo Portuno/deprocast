@@ -14,6 +14,8 @@ import { HERRAMIENTAS, ejecutarHerramienta, type Herramienta } from './chat/herr
 export const HERRAMIENTAS_MCP = [
   'buscar_corpus', 'leer_pieza', 'ver_entidad', 'ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus',
   'ver_observatorio', 'ver_misiones_agentes', 'ver_dia', 'ver_informe',
+  // Explorar internet sin cuenta (plan v31): buscar adentro de una plataforma, listar y leer cualquier link.
+  'buscar_en', 'explorar', 'leer_pagina',
 ]
 export const VERSIONES = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05']
 export const TOPE_POR_MINUTO = 60
