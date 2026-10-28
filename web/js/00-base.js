@@ -84,7 +84,7 @@ const claseDe = (id) => META.clases.find((c) => c.id === id)
 const colorDe = (id) => `var(--${id})`
 const ESTADOS_CORPUS = ['crudo', 'extraido', 'clasificado', 'disponible']
 const OFICIOS = ['Input·Cuerpo', 'Input·Mente', 'Input·Alma', 'Proc·Cuerpo', 'Proc·Mente', 'Proc·Alma', 'Output·Cuerpo', 'Output·Mente', 'Output·Alma']
-const ICONO = { purga: '✝', asigna: '→', recluta: '+', vacante: '?', corre: '✓', falla: '✗', nivel: '▲', bautismo: '★', promovido: '◆', banca: '⇣', retirado: '✝', publica: '↻', tope: '⏸', memoria: '≡' }
+const ICONO = { purga: '✝', asigna: '→', recluta: '+', vacante: '?', corre: '✓', falla: '✗', nivel: '▲', bautismo: '★', promovido: '◆', banca: '⇣', retirado: '✝', publica: '↻', tope: '⏸', memoria: '≡', casa: '⌂' }
 
 function fmtTokens(n) {
   if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M'

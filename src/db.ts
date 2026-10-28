@@ -1068,6 +1068,16 @@ CREATE TABLE IF NOT EXISTS informe_avisos (
   en INTEGER NOT NULL,
   informe_id INTEGER                  -- el reporte (tipo informe) que lo incluyó
 );
+-- Los de la casa (plan v30): 01 Despachante, 02 Forjador, 03 Meta-analista. Dependen solo de Mastropiero; acá queda su
+-- última vuelta con algo hecho (texto y hechos) y, del 03, sus hallazgos.
+CREATE TABLE IF NOT EXISTS casa_agentes (
+  id TEXT PRIMARY KEY,
+  ultima_vez INTEGER,
+  vueltas INTEGER NOT NULL DEFAULT 0,
+  texto TEXT,
+  hechos TEXT,
+  hallazgos TEXT
+);
 -- Lo que dejó listo un proceso de fondo (adelantar y los que vengan), para el tablero de Hoy (plan v29). Dura 14 días.
 CREATE TABLE IF NOT EXISTS preparado (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1755,6 +1765,7 @@ const AJUSTES_SISTEMA: Record<string, string> = {
   jornada_fin: '23:00',
   bloques_minutos: '12,25,50',
   primarias_semana: '6',
+  liga_auto: '1', // la liga corre ticks sola en el servidor (en la nube, con trabajo y sin tope); 0 = solo a mano
   tokens_dia_max: '5000000', // tokens por día para lo que corre solo (la liga y las rutinas); lo que él pide no se frena; 0 = sin tope
   pensar_cada_horas: '3', // Mastropiero piensa solo y deja una sugerencia (o nada); 0 = nunca
   meta_ingresos_mes: '', // su meta de ingresos por mes, en euros; vacío = sin meta

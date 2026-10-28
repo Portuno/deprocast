@@ -225,6 +225,7 @@ function estado() {
     memoriaSinRevisar: (db.prepare(`SELECT COUNT(*) AS n FROM memoria WHERE estado = 'vigente' AND revisada = 0`).get() as { n: number }).n,
     chatConModelo: nanConfigurado(),
     nTick: numeroDeTick(db),
+    ligaAuto: corta('liga-auto', 5_000, () => { const p = ajuste(db, 'liga_auto') !== '0'; return { prendido: p, nube: enLaNube() } }),
   }
 }
 
@@ -308,6 +309,15 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['POST', /^\/api\/ingesta\/pausar$/, () => ({ enEspera: pausarIngesta(db) })],
   ['POST', /^\/api\/ingesta\/reanudar$/, (b) => ({ reanudados: reanudarIngesta(db, { limite: Math.min(Number(b.limite) || 20, 2000), soloPropias: !!b.soloPropias }), enEspera: enEspera(db) })],
+  // La liga en vivo (plan v30): Auto en el servidor, los de la casa y por qué no avanza.
+  ['GET', /^\/api\/liga\/vivo$/, async () => (await import('./casa.ts')).ligaEnVivo(db, enLaNube())],
+  ['POST', /^\/api\/liga\/auto$/, async (b) => { const c = await import('./casa.ts'); c.fijarAuto(db, b.prendido !== false); return { prendido: c.autoPrendido(db), freno: c.frenoDeAuto(db, enLaNube()) } }],
+  ['POST', /^\/api\/liga\/casa\/(0[123])$/, async (_, [cual]) => {
+    const c = await import('./casa.ts')
+    if (cual === '01') return { hechos: c.despachar(db, { drenar: enLaNube() }) }
+    if (cual === '02') return { forjados: c.asegurarClases(db).map((f) => f.id) }
+    return { hallazgos: c.metaanalizar(db, Date.now(), { forzar: true }) }
+  }],
   ['POST', /^\/api\/tick$/, async () => ({ eventos: await tickUnico(db), tick: numeroDeTick(db) })],
   ['POST', /^\/api\/agentes\/([^/]+)\/retirar$/, (b, [a]) => {
     const f = leer(db, decodeURIComponent(a))
@@ -1784,6 +1794,22 @@ async function latido() {
   }
 }
 setInterval(latido, 60_000).unref()
+
+// La liga sola (plan v30): cada 15 s, los de la casa (como mucho una vez por minuto, sin tokens) y, si Auto está
+// prendido, en la nube, con trabajo y sin tope, un tick. Con --sin-rutinas no corre nada solo.
+let enVueltaLiga = false
+async function latidoLiga() {
+  if (enVueltaLiga || process.env.MASTRO_SIN_RUTINAS) return
+  enVueltaLiga = true
+  try {
+    await (await import('./casa.ts')).vueltaDeLiga(db, { nube: enLaNube(), tick: () => tickUnico(db) })
+  } catch (e) {
+    if (!/ya está en un tick/.test(String(e))) console.error('  liga:', e instanceof Error ? e.message : e)
+  } finally {
+    enVueltaLiga = false
+  }
+}
+setInterval(latidoLiga, 15_000).unref()
 
 // En Vercel el proceso se duerme entre pedidos: con la pantalla abierta, esto pone al día las rutinas.
 let ultimoLatido = 0

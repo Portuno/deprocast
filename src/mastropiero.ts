@@ -22,7 +22,7 @@ import { efectos, NIVEL_BAUTISMO, nivelDe, XP_POR_ASIGNACION, XP_POR_EXITO } fro
 export const MASTROPIERO = 'mastropiero'
 
 export type Evento = {
-  tipo: 'purga' | 'asigna' | 'recluta' | 'vacante' | 'corre' | 'falla' | 'nivel' | 'bautismo' | 'promovido' | 'banca' | 'retirado' | 'publica' | 'tope' | 'memoria'
+  tipo: 'purga' | 'asigna' | 'recluta' | 'vacante' | 'corre' | 'falla' | 'nivel' | 'bautismo' | 'promovido' | 'banca' | 'retirado' | 'publica' | 'tope' | 'memoria' | 'casa'
   texto: string
 }
 
@@ -117,10 +117,13 @@ export function cronica(db: Db, limite = 150) {
  */
 export function purgar(db: Db, ahora: number, ev: Evento[] = []) {
   const hoy = fechaLocal(ahora)
-  const dias = db.prepare(`SELECT DISTINCT date(en / 1000, 'unixepoch', 'localtime') AS d FROM cronica WHERE en > ? AND en <= ?`)
+  // Los avisos de los de la casa (tipo «casa») no son días de liga: solo cuentan los ticks.
+  const dias = db.prepare(`SELECT DISTINCT date(en / 1000, 'unixepoch', 'localtime') AS d FROM cronica WHERE en > ? AND en <= ? AND tipo != 'casa'`)
   for (const f of listar(db)) {
     const desde = f.ultimaCorrida ?? f.creadoEn
     if (desde >= ahora - DIAS_SIN_CORRER * DIA_MS) continue
+    // Nunca una clase sin nadie (plan v30): el último listo de su clase no se purga.
+    if (f.estado !== 'banca' && !listar(db, { clase: f.clase }).some((x) => x.id !== f.id && x.estado !== 'banca')) continue
     const jugados = new Set((dias.all(desde, ahora) as { d: string }[]).map((r) => r.d))
     jugados.add(hoy) // este tick también es un día de liga
     jugados.delete(fechaLocal(desde)) // el día en que corrió no cuenta como día sin correr

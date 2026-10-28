@@ -86,6 +86,8 @@ test('prueba → activo, nivel 3 habilita el nombre, banca por racha', async () 
 test('una semana de liga sin correr: retirado, y su nombre no se recicla', async () => {
   const db = abrir(':memory:')
   const f = forjar(db, { clase: 'clasificador', ahora: T0 })
+  // Uno más de la clase, nuevo: la purga nunca deja una clase sin nadie (plan v30), así que el viejo necesita compañía.
+  const otro = forjar(db, { clase: 'clasificador', ahora: T0 + 36 * DIA_MS })
   // Un mes sin prender la liga no mata a nadie: cuentan los días con ticks.
   await tick(db, { ahora: T0 + 30 * DIA_MS })
   assert.ok(leer(db, f.id))
@@ -93,7 +95,8 @@ test('una semana de liga sin correr: retirado, y su nombre no se recicla', async
   assert.ok(leer(db, f.id), 'seis días de liga todavía no alcanzan')
   await tick(db, { ahora: T0 + 36 * DIA_MS })
   assert.equal(leer(db, f.id), null)
-  assert.equal(forjar(db, { clase: 'clasificador' }).id, 'CLA-0002')
+  assert.ok(leer(db, otro.id), 'el último de su clase queda')
+  assert.equal(forjar(db, { clase: 'clasificador' }).id, 'CLA-0003')
 })
 
 test('ingesta en espera: no se reparte; se reanuda primero lo propio y pesado', async () => {
