@@ -1,9 +1,10 @@
 /**
- * La web para la liga: buscar y leer. Los buscadores rotan por cuota gratis (Brave y Tavily si hay clave en .env;
- * sin clave, solo Wikipedia: para encontrar comunidades y gente hace falta una clave gratis de Tavily o Brave). Cada búsqueda cuenta en la tabla `cuotas` del mes.
+ * La web para la liga: buscar y leer. Los buscadores rotan por cuota gratis: Brave y Tavily si hay clave en .env, Exa
+ * siempre (su MCP público, sin clave: plan v31) y Wikipedia al final. Cada búsqueda cuenta en la tabla `cuotas` del mes.
  */
 import type { Db } from './db.ts'
 import { _probarLector, leer } from './lector/index.ts'
+import { buscarExa } from './explorar/web.ts'
 
 export type Resultado = { titulo: string; url: string; extracto: string; proveedor: string }
 
@@ -38,7 +39,15 @@ const PROVEEDORES: Proveedor[] = [
     },
   },
   {
-    // Sin clave solo hay Wikipedia: sirve para saber cosas, no para encontrar gente ni comunidades.
+    // Exa por su MCP público, sin clave (lo usa Agent Reach): encuentra gente, comunidades y posts, con su texto.
+    // MASTRO_SIN_EXA=1 lo apaga.
+    id: 'exa', limite: Number(process.env.EXA_CUOTA ?? 3000), disponible: () => process.env.MASTRO_SIN_EXA !== '1',
+    async buscar(q, n) {
+      return (await buscarExa(pedir, q, n)).map((x) => ({ titulo: x.titulo, url: x.url, extracto: (x.texto ?? '').replace(/\s+/g, ' ').slice(0, 400), proveedor: 'exa' }))
+    },
+  },
+  {
+    // Wikipedia: sirve para saber cosas, no para encontrar gente ni comunidades.
     // (DuckDuckGo, Mojeek y Reddit bloquean a los programas y Bing les devuelve basura a propósito.)
     id: 'wikipedia', limite: Number(process.env.WIKIPEDIA_CUOTA ?? 5000), disponible: () => true,
     async buscar(q, n) {
@@ -65,8 +74,8 @@ export function cuotas(db: Db, ahora = Date.now()) {
   return PROVEEDORES.map((p) => ({ id: p.id, disponible: p.disponible(), usadas: usadas(db, p.id, ahora), limite: p.limite }))
 }
 
-/** ¿Hay un buscador de verdad (con clave)? Sin eso, solo Wikipedia. */
-export const hayBuscadorWeb = () => !!(process.env.TAVILY_API_KEY || process.env.BRAVE_API_KEY)
+/** ¿Hay un buscador de verdad (no solo Wikipedia)? Exa no pide clave: casi siempre sí. */
+export const hayBuscadorWeb = () => !!(process.env.TAVILY_API_KEY || process.env.BRAVE_API_KEY || process.env.MASTRO_SIN_EXA !== '1')
 
 /** Busca en la web: el primer buscador con clave y cuota; si falla, el siguiente. */
 export async function buscarWeb(db: Db, consulta: string, o: { n?: number; ahora?: number } = {}): Promise<Resultado[]> {

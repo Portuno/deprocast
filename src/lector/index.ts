@@ -10,13 +10,15 @@ import { leerHtml, type Meta } from './html.ts'
 import { textoDePdf } from '../cargas/pdf.ts'
 import { clasificarYoutube, leerVideo } from './youtube.ts'
 import type { Db } from '../db.ts'
+import { pedirSeguro } from '../explorar/red.ts'
 
 /** sinMateria: entró solo la cáscara (un video sin subtítulos): la pieza queda pendiente y no cuenta como materia. */
 export type Lectura = { url: string; titulo: string; markdown: string; meta: Meta; links: { url: string; texto: string; interno: boolean }[]; palabras: number; fuente: string; aviso?: string; sinMateria?: boolean }
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'
 type Pedir = (url: string, init?: RequestInit) => Promise<Response>
-let pedir: Pedir = (url, init = {}) => fetch(url, { ...init, redirect: 'follow', signal: AbortSignal.timeout(20_000), headers: { 'user-agent': UA, accept: 'text/html,application/xhtml+xml,application/json,text/plain,*/*;q=0.8', 'accept-language': 'es,en;q=0.8', ...(init.headers ?? {}) } })
+// Todo link sale por la red segura (src/explorar/red.ts): ninguno puede apuntar adentro, ni en una redirección.
+let pedir: Pedir = (url, init = {}) => pedirSeguro(url, { ...init, headers: { 'user-agent': UA, ...(init.headers as Record<string, string> ?? {}) } })
 export function _probarLector(f: Pedir) {
   pedir = f
 }

@@ -1068,6 +1068,24 @@ CREATE TABLE IF NOT EXISTS informe_avisos (
   en INTEGER NOT NULL,
   informe_id INTEGER                  -- el reporte (tipo informe) que lo incluyó
 );
+-- Explorar internet (plan v31): la caché de 30 min de cada pedido (no se le pide dos veces lo mismo a nadie) y la salud
+-- de cada backend de cada canal (último ok, último error y hasta cuándo está en pausa si lo limitaron o bloquearon).
+CREATE TABLE IF NOT EXISTS explorar_cache (
+  clave TEXT PRIMARY KEY,
+  valor TEXT NOT NULL,
+  via TEXT NOT NULL,
+  en INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS explorar_salud (
+  canal TEXT NOT NULL,
+  backend TEXT NOT NULL,
+  ok_en INTEGER,
+  error_en INTEGER,
+  codigo TEXT,
+  mensaje TEXT,
+  frenado_hasta INTEGER,
+  PRIMARY KEY (canal, backend)
+);
 -- Esquemas de exportación a medida: qué entidades, qué vínculos y qué viaja, para volver a correrlos (src/segmento.ts).
 CREATE TABLE IF NOT EXISTS export_esquemas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
