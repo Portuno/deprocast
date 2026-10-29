@@ -212,7 +212,8 @@ function estado() {
     corriendo: tickEnCurso(),
     propuestasAbiertas: (db.prepare(`SELECT COUNT(*) AS n FROM propuestas WHERE estado = 'abierta'`).get() as { n: number }).n,
     // El número de 📥 arriba: lo que espera su ok, desde cualquier pantalla.
-    paraValidar: bandeja(db).total,
+    // Armar la bandeja entera para el número de arriba es caro (miles de pendientes): una vez cada 20 s alcanza.
+    paraValidar: corta('para-validar', 20_000, () => bandeja(db).total),
     hoy: {
       fecha: fechaLocal(), ...progreso(db, fechaLocal()), conversacion: conversacionHoy(db).id,
       pregunta: siguientePregunta(db)?.id ?? null,

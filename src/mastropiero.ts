@@ -11,7 +11,7 @@ import { registrar } from './auditor.ts'
 import { construir } from './contexto.ts'
 import { aplicarEtapa, insertar, PIPELINE_INGESTA, type TipoPieza } from './corpus.ts'
 import { crearQuantomo, registrarPropuesta } from './quantomos.ts'
-import { elegir, gerenteDe } from './gerente.ts'
+import { cacheReparto, elegir, gerenteDe } from './gerente.ts'
 import { resolverMotor, type Salida } from './motores.ts'
 import {
   alias, cambiarEstado, DIA_MS, DIAS_SIN_CORRER, forjar, leer, listar, nivel,
@@ -91,7 +91,7 @@ export async function tick(db: Db, o: { ahora?: number; reclutar?: boolean } = {
   if (limpia.archivados) ev.push({ tipo: 'memoria', texto: `juntó ${limpia.archivados} recuerdo${limpia.archivados === 1 ? '' : 's'} repetido${limpia.archivados === 1 ? '' : 's'} en ${limpia.grupos}` })
   // Pasado el tope diario de tokens, la liga reparte pero no corre: nadie falla ni pierde racha por eso.
   const tope = topeAlcanzado(db, ahora)
-  repartir(db, ahora, (o.reclutar ?? true) && !tope, ev)
+  await repartir(db, ahora, (o.reclutar ?? true) && !tope, ev)
   if (tope) ev.push({ tipo: 'tope', texto: `la liga no corre: ${tope}` })
   else await correr(db, ahora, ev)
   const n = numeroDeTick(db) + 1
@@ -135,23 +135,27 @@ export function purgar(db: Db, ahora: number, ev: Evento[] = []) {
   return ev
 }
 
-function repartir(db: Db, ahora: number, reclutar: boolean, ev: Evento[]) {
+async function repartir(db: Db, ahora: number, reclutar: boolean, ev: Evento[]) {
+  const cache = cacheReparto(db)
   const carga = new Map<string, number>()
   for (const r of db.prepare(`SELECT asignada_a AS id, COUNT(*) AS n FROM tareas WHERE estado = 'asignada' GROUP BY asignada_a`).all() as any[]) {
     carga.set(r.id, r.n)
   }
   const pendientes = db.prepare(`SELECT id FROM tareas WHERE estado = 'pendiente' ORDER BY id LIMIT 500`).all() as { id: number }[]
-  for (const { id } of pendientes) {
+  for (const [i, { id }] of pendientes.entries()) {
+    // Cada 25 tareas suelta el hilo: el servidor sigue atendiendo la pantalla mientras reparte.
+    if (i && i % 25 === 0) await new Promise((r) => setImmediate(r))
     const tarea = leerTarea(db, id)!
     const gerente = gerenteDe(db, tarea.proyectoId)
     const por = gerente?.id ?? MASTROPIERO
-    let pick = elegir(db, tarea, carga)
+    let pick = elegir(db, tarea, carga, cache)
     if (!pick && reclutar) {
       if (tarea.clase === 'ejecutivo' || tarea.clase === 'gerente') {
         ev.push({ tipo: 'vacante', texto: `tarea ${tarea.id} espera un ${CLASES[tarea.clase].nombre}: no se recluta solo` })
         continue
       }
       const recluta = forjar(db, { clase: tarea.clase, creador: por, proyectoId: tarea.proyectoId, ahora })
+      cache.porClase.delete(tarea.clase) // entró uno nuevo a la clase
       ev.push({ tipo: 'recluta', texto: `${por === MASTROPIERO ? 'Mastropiero' : alias(gerente!)} forja ${recluta.id} para la tarea ${tarea.id}` })
       pick = { agente: recluta, razon: 'recluta forjado para la vacante' }
     }

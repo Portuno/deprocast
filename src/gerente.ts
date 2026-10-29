@@ -16,17 +16,24 @@ export function gerenteDe(db: Db, proyectoId: string | null): Ficha | null {
  * Puntaje de reparto. Los que están en prueba tienen prioridad: un recluta que no corre no se puede evaluar.
  * La carga (tareas ya asignadas en este reparto) penaliza para rotar.
  */
-export function elegir(db: Db, t: Tarea, carga: Map<string, number>): { agente: Ficha; razon: string } | null {
+/** Lo que no cambia durante un reparto: se calcula una vez por tick y no una vez por tarea (con cientos de pendientes, eran miles de consultas seguidas que trababan el servidor). */
+export type CacheReparto = { enMision: Set<string>; porClase: Map<string, Ficha[]>; esp: Map<string, string | null> }
+export function cacheReparto(db: Db): CacheReparto {
+  return { enMision: new Set((db.prepare(`SELECT agente_id FROM agente_misiones WHERE estado IN ('activa', 'pausada')`).all() as { agente_id: string }[]).map((r) => r.agente_id)), porClase: new Map(), esp: new Map() }
+}
+
+export function elegir(db: Db, t: Tarea, carga: Map<string, number>, cache: CacheReparto = cacheReparto(db)): { agente: Ficha; razon: string } | null {
   // Los que tienen una misión viva están dedicados a ella (plan v26): el bus no los toma.
-  const enMision = new Set((db.prepare(`SELECT agente_id FROM agente_misiones WHERE estado IN ('activa', 'pausada')`).all() as { agente_id: string }[]).map((r) => r.agente_id))
-  const candidatos = listar(db, { clase: t.clase }).filter(
-    (f) => f.estado !== 'banca' && !enMision.has(f.id) && (f.proyectoId == null || f.proyectoId === t.proyectoId),
+  if (!cache.porClase.has(t.clase)) cache.porClase.set(t.clase, listar(db, { clase: t.clase }))
+  const candidatos = cache.porClase.get(t.clase)!.filter(
+    (f) => f.estado !== 'banca' && !cache.enMision.has(f.id) && (f.proyectoId == null || f.proyectoId === t.proyectoId),
   )
   let mejor: { agente: Ficha; score: number; razon: string[] } | null = null
   for (const f of candidatos) {
     const razon = [`nv${nivel(f)}`]
     let score = nivel(f) * 2
-    const esp = especializacion(db, f.id)
+    if (!cache.esp.has(f.id)) cache.esp.set(f.id, especializacion(db, f.id))
+    const esp = cache.esp.get(f.id)
     if (esp && esp === t.dominio) (score += 3), razon.push(`especialista en ${esp}`)
     if (t.proyectoId && f.proyectoId === t.proyectoId) (score += 2), razon.push('de la casa')
     if (f.estado === 'prueba') (score += 4), razon.push('en prueba')
