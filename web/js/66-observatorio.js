@@ -41,20 +41,30 @@ async function pintarTemaOb(id) {
   if (!caja) return
   const t = r.tema, ultima = r.rondas[0] ?? null, res = ultima?.resumen ?? null, N = r.nombres
   const vivo = enVivoOb(t)
+  // Cada columna muestra lo ÚLTIMO que se sabe de esa plataforma: la narrativa de la ronda más reciente que trajo algo
+  // de ahí (con su fecha si no es la última) y los últimos items encontrados. Antes, si la última ronda no traía nada de
+  // una plataforma, la columna quedaba vacía aunque abajo hubiera de todo.
   const columnas = t.plataformas.map((p) => {
-    const col = res?.plataformas.find((x) => x.plataforma === p)
-    return `<section class="ob-col"><h4>${esc(N[p])}${col?.tono ? ` <small class="tenue">· ${esc(col.tono)}</small>` : ''}</h4>${col ? `<ul>${col.narrativas.map((n) => `<li><span class="ob-peso" title="Cuánto aparece">${pesoOb(n.peso)}</span> ${esc(n.frase)}${n.ejemplos.length ? `<br><small>${n.ejemplos.map((u, i) => `<a href="${esc(u)}" target="_blank" rel="noopener">ejemplo ${i + 1} ↗</a>`).join(' · ')}</small>` : ''}</li>`).join('')}</ul>` : '<p class="tenue chico">Nada útil en esta ronda.</p>'}</section>`
+    const conCol = r.rondas.find((x) => x.resumen?.plataformas.some((c) => c.plataforma === p))
+    const col = conCol?.resumen.plataformas.find((x) => x.plataforma === p)
+    const vieja = conCol && conCol !== ultima
+    const ultimos = r.items.filter((x) => x.plataforma === p).sort((a, b) => b.en - a.en).slice(0, 3)
+    return `<section class="ob-col"><h4>${esc(N[p])}${col?.tono ? ` <small class="tenue">· ${esc(col.tono)}</small>` : ''}</h4>
+      ${col ? `${vieja ? `<small class="tenue">de la ronda del ${fechaOb(conCol.en)}</small>` : ''}<ul>${col.narrativas.map((n) => `<li><span class="ob-peso" title="Cuánto aparece">${pesoOb(n.peso)}</span> ${esc(n.frase)}${n.ejemplos.length ? `<br><small>${n.ejemplos.map((u, i) => `<a href="${esc(u)}" target="_blank" rel="noopener">ejemplo ${i + 1} ↗</a>`).join(' · ')}</small>` : ''}</li>`).join('')}</ul>` : ''}
+      ${ultimos.length ? `<div class="ob-ultimos"><small class="hud-etq">Lo último encontrado</small><ul>${ultimos.map((x) => `<li><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.titulo || x.url)}</a> <small class="tenue">${fechaOb(x.en)}</small></li>`).join('')}</ul></div>` : ''}
+      ${!col && !ultimos.length ? '<p class="tenue chico">Todavía nada de acá.</p>' : ''}</section>`
   }).join('')
   const porPlat = t.plataformas.map((p) => ({ p, xs: r.items.filter((x) => x.plataforma === p) })).filter((x) => x.xs.length)
   caja.innerHTML = `<header class="ob-cab"><div class="f1"><h2>${esc(t.nombre)}${vivo ? ' <span class="chip ob-vivo">🔴 en vivo</span>' : ''}</h2>
       <small class="tenue">Busca: ${t.consultas.map(esc).join(' · ')} · en ${t.plataformas.map((p) => esc(N[p])).join(', ')} · cada ${t.cadaHoras} h${t.activo ? '' : ' · en pausa'}${ultima ? ` · última ronda ${fechaOb(ultima.en)}` : ''}</small></div>
       <div class="fila ob-acciones"><button class="btn btn-primario" id="ob-ronda" ${r.enRonda ? 'disabled' : ''} title="Una ronda ahora (en la nube: gasta búsquedas y tokens)">${r.enRonda ? '⏳ En ronda…' : '↻ Ronda ahora'}</button><button class="btn" id="ob-grafo" title="Los conceptos del debate y cómo se conectan">☍ El grafo del debate</button><button class="btn" id="ob-editar">✎</button><button class="btn" id="ob-pausar">${t.activo ? '⏸' : '▶'}</button></div></header>
     ${t.aviso ? `<p class="ob-aviso chico">⚠ ${esc(t.aviso)}</p>` : ''}
+    ${res ? '' : `<p class="tenue">${ultima ? 'La última ronda no trajo nada nuevo para resumir: abajo, lo último que se sabe de cada lado.' : 'Todavía no hubo ninguna ronda: la primera corre sola en la nube (o con «Ronda ahora»).'}</p>`}
+    ${r.items.length || res ? `<div class="ob-columnas">${columnas}</div>` : ''}
     ${res ? `<p class="ob-resumen">${esc(res.resumen)}</p>
-      <div class="ob-columnas">${columnas}</div>
       ${res.saltos.length ? `<section class="seccion"><h3>Saltos entre plataformas</h3><ul class="ob-saltos">${res.saltos.map((s) => `<li><b>${esc(N[s.de])} → ${esc(N[s.a])}</b> ${esc(s.idea)}${s.evidencia.length ? ` <small>${s.evidencia.map((u, i) => `<a href="${esc(u)}" target="_blank" rel="noopener">${i + 1} ↗</a>`).join(' ')}</small>` : ''}</li>`).join('')}</ul></section>` : ''}
       ${res.nuevo.length ? `<section class="seccion"><h3>Lo nuevo</h3><ul>${res.nuevo.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></section>` : ''}`
-    : `<p class="tenue">${ultima ? 'La última ronda no trajo nada para resumir.' : 'Todavía no hubo ninguna ronda: la primera corre sola en la nube (o con «Ronda ahora»).'}</p>`}
+    : ''}
     ${r.rondas.length > 1 ? `<section class="seccion"><h3>Cómo viene</h3><ol class="ob-linea">${r.rondas.map((x) => `<li><small class="tenue">${fechaOb(x.en)} · ${x.nuevos} nuevo${x.nuevos === 1 ? '' : 's'}</small> ${esc(x.resumen?.resumen ?? '—')}</li>`).join('')}</ol></section>` : ''}
     ${porPlat.length ? `<section class="seccion"><h3>Lo encontrado (${r.items.length})</h3>${porPlat.map(({ p, xs }) => `<details class="ob-items"><summary>${esc(N[p])} <small class="tenue">${xs.length}</small></summary><ul>${xs.slice(0, 60).map((x) => `<li><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.titulo || x.url)}</a>${x.extracto ? `<br><small class="tenue">${esc(x.extracto.slice(0, 220))}</small>` : ''}</li>`).join('')}</ul></details>`).join('')}</section>` : ''}`
   $('#ob-ronda').onclick = async () => {

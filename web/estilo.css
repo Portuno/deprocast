@@ -2982,3 +2982,6 @@ span.ej-chip { cursor: default; }
 .exp-items p { margin: 2px 0; }
 .exp-leido { max-height: 50vh; overflow-y: auto; padding: var(--e-2) var(--e-3); border: 1px solid var(--linea); border-radius: var(--r-m); font-size: var(--t-3); overflow-wrap: anywhere; }
 @media (min-width: 1000px) { .exp-canales { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ob-ultimos { margin-top: var(--e-2); padding-top: var(--e-1); border-top: 1px dashed var(--linea); }
+.ob-ultimos ul { margin: 2px 0 0; padding-left: 1.1em; display: grid; gap: 2px; font-size: var(--t-2); }
+.ob-ultimos li { overflow-wrap: anywhere; }
