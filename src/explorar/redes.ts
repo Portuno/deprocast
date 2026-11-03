@@ -9,7 +9,7 @@
  */
 import type { Canal } from './index.ts'
 import { ErrorExplorar, type Ctx, type Leido } from './tipos.ts'
-import { buscadorEnSitio, exaEnSitio, exaLeer, jinaLeer, sinTags, vistaPreviaDe } from './comun.ts'
+import { buscadorEnSitio, exaEnSitio, exaLeer, firecrawlEnSitio, jinaLeer, sinTags, vistaPreviaDe } from './comun.ts'
 
 async function tweet({ url }: { url: string }, ctx: Ctx): Promise<Leido> {
   if (!/\/status\/\d+/.test(url)) throw new ErrorExplorar('ROTO', 'No es un tweet: un perfil o una búsqueda no se leen sin cuenta')
@@ -31,9 +31,11 @@ export function canalesRedes(): Canal[] {
   return [
     {
       id: 'x', nombre: 'Twitter / X', hosts: /^https?:\/\/(www\.|mobile\.)?(x\.com|twitter\.com)\//i,
-      puede: 'Buscar tweets y perfiles (a través de buscadores) y leer un tweet suelto con su texto.',
+      puede: 'Buscar tweets y perfiles (Firecrawl trae los de x.com; también los hilos públicos) y leer un tweet suelto con su texto.',
       noPuede: 'perfiles, hilos completos y respuestas: X los cerró a quien no tiene cuenta (y su API es paga)',
       buscar: [
+        // Firecrawl trae tweets y perfiles reales de x.com (Exa no indexa X).
+        firecrawlEnSitio(['x.com', 'twitter.com'], X),
         {
           // Exa no indexa x.com, pero sí los hilos públicos que alguien desplegó en Thread Reader App: de ahí sale el
           // tweet original (x.com/i/status/<id>).
@@ -65,6 +67,7 @@ export function canalesRedes(): Canal[] {
             return exaEnSitio('linkedin.com', LI, cat).correr({ ...a, consulta: a.consulta.replace(/^(personas?|empresas?):\s*/i, '') }, ctx)
           },
         },
+        firecrawlEnSitio(['linkedin.com'], LI),
         buscadorEnSitio('linkedin.com', LI),
       ],
       leer: [exaLeer, jinaLeer, vistaPreviaDe('Sin cuenta, LinkedIn muestra solo la vista previa.')],
@@ -73,14 +76,14 @@ export function canalesRedes(): Canal[] {
       id: 'instagram', nombre: 'Instagram', hosts: /^https?:\/\/(www\.)?instagram\.com\//i,
       puede: 'Buscar perfiles y posts públicos (a través de buscadores) y ver la vista previa de un perfil o un post (nombre, seguidores, texto del post).',
       noPuede: 'los posts de un perfil, los comentarios y las historias: Instagram pide cuenta',
-      buscar: [exaEnSitio('instagram.com', IG), buscadorEnSitio('instagram.com', IG)],
+      buscar: [exaEnSitio('instagram.com', IG), firecrawlEnSitio(['instagram.com'], IG), buscadorEnSitio('instagram.com', IG)],
       leer: [vistaPreviaDe('Sin cuenta, Instagram muestra solo la vista previa (nombre, seguidores, el texto del post).'), exaLeer],
     },
     {
       id: 'facebook', nombre: 'Facebook', hosts: /^https?:\/\/([\w-]+\.)?(facebook\.com|fb\.com|fb\.watch)\//i,
       puede: 'Buscar páginas, grupos y posts públicos (a través de buscadores) y ver la vista previa de una página o un post.',
       noPuede: 'los posts de una página, los comentarios y los grupos: Facebook pide cuenta',
-      buscar: [exaEnSitio('facebook.com', FB), buscadorEnSitio('facebook.com', FB)],
+      buscar: [exaEnSitio('facebook.com', FB), firecrawlEnSitio(['facebook.com'], FB), buscadorEnSitio('facebook.com', FB)],
       leer: [vistaPreviaDe('Sin cuenta, Facebook muestra solo la vista previa.'), exaLeer],
     },
   ]

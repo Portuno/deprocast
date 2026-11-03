@@ -4,7 +4,8 @@
  * después Jina (páginas que se arman con JavaScript) y después Exa. Las plataformas, en sus archivos.
  */
 import type { Canal } from './index.ts'
-import { exaLeer, jinaLeer, lector } from './comun.ts'
+import { exaLeer, firecrawlLeer, jinaLeer, lector } from './comun.ts'
+import { canalAlexandria } from './alexandria.ts'
 import { canalReddit } from './reddit.ts'
 import { canalYoutube } from './youtube.ts'
 import { canalGithub } from './github.ts'
@@ -21,12 +22,12 @@ export function canalWeb(): Canal {
         return (await buscarWeb(ctx.db, consulta, { n, ahora: ctx.ahora })).map((r) => ({ titulo: r.titulo, url: r.url, texto: r.extracto, datos: { proveedor: r.proveedor } }))
       },
     }],
-    leer: [lector, jinaLeer, exaLeer],
+    leer: [lector, firecrawlLeer, jinaLeer, exaLeer],
   }
 }
 
 export function canalesDeFabrica(): Canal[] {
   // Lo que un canal no sabe leer (un archivo suelto de GitHub, la página de un canal de YouTube) lo lee la web.
   const conWeb = (c: Canal): Canal => ({ ...c, leer: [...(c.leer ?? []), lector] })
-  return [canalWeb(), conWeb(canalReddit()), conWeb(canalYoutube()), conWeb(canalGithub()), ...canalesRedes()]
+  return [canalWeb(), conWeb(canalReddit()), conWeb(canalYoutube()), conWeb(canalGithub()), ...canalesRedes(), canalAlexandria()]
 }

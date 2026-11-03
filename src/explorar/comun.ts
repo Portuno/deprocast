@@ -44,6 +44,27 @@ export async function leerConLector(url: string): Promise<Leido> {
 }
 export const lector: Backend<{ url: string }, Leido> = { id: 'lector', nombre: 'el lector propio', correr: ({ url }) => leerConLector(url) }
 
+/** Firecrawl adentro de unos sitios (includeDomains): trae lo de x.com que Exa no tiene. */
+export function firecrawlEnSitio(dominios: string[], hosts: RegExp): Backend<{ consulta: string; n: number }, Item[]> {
+  return {
+    id: 'firecrawl', nombre: 'Firecrawl',
+    correr: async ({ consulta, n }, ctx) => {
+      if (process.env.MASTRO_SIN_FIRECRAWL === '1') throw new ErrorExplorar('BLOQUEADO', 'Firecrawl apagado')
+      const { buscarFirecrawl } = await import('./firecrawl.ts')
+      return delSitio(await buscarFirecrawl(ctx.db, ctx.pedir, consulta, Math.min(n + 2, 10), { dominios, ahora: ctx.ahora }), hosts)
+    },
+  }
+}
+/** Leer con Firecrawl (páginas que se arman con JavaScript; 1 crédito por página). */
+export const firecrawlLeer: Backend<{ url: string }, Leido> = {
+  id: 'firecrawl', nombre: 'Firecrawl',
+  correr: async ({ url }, ctx) => {
+    if (process.env.MASTRO_SIN_FIRECRAWL === '1') throw new ErrorExplorar('BLOQUEADO', 'Firecrawl apagado')
+    const { leerFirecrawl } = await import('./firecrawl.ts')
+    return { url, ...(await leerFirecrawl(ctx.db, ctx.pedir, url, ctx.ahora)) }
+  },
+}
+
 /** Leer con Jina Reader (páginas que se arman con JavaScript). */
 export const jinaLeer: Backend<{ url: string }, Leido> = { id: 'jina', nombre: 'Jina Reader', correr: async ({ url }, ctx) => ({ url, ...(await leerJina(ctx.pedir, url)) }) }
 

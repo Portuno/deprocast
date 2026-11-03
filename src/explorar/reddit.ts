@@ -7,7 +7,7 @@
  */
 import type { Canal } from './index.ts'
 import { ErrorExplorar, type Ctx, type Item, type Leido } from './tipos.ts'
-import { buscadorEnSitio, desentidad, exaEnSitio, exaLeer, jinaLeer, sinTags } from './comun.ts'
+import { buscadorEnSitio, desentidad, exaEnSitio, exaLeer, firecrawlEnSitio, firecrawlLeer, jinaLeer, sinTags } from './comun.ts'
 import { turno, UA_PROPIO } from './red.ts'
 
 const HOSTS = /(^|\.)(reddit\.com|redd\.it)$/i
@@ -63,10 +63,11 @@ export function canalReddit(): Canal {
     noPuede: 'los votos exactos y los comentarios anidados: Reddit cerró su API a quien no tiene cuenta, se lee por sus feeds',
     buscar: [
       exaEnSitio('reddit.com', HOSTS),
+      firecrawlEnSitio(['reddit.com'], HOSTS),
       { id: 'rss', nombre: 'RSS de Reddit', correr: async ({ consulta, n }, ctx) => (await rss(ctx, `https://www.reddit.com/search.rss?q=${encodeURIComponent(consulta)}&sort=relevance&limit=${n}`)).map(item) },
       buscadorEnSitio('reddit.com', HOSTS),
     ],
-    leer: [{ id: 'rss', nombre: 'RSS de Reddit', correr: leerHilo }, exaLeer, jinaLeer],
+    leer: [{ id: 'rss', nombre: 'RSS de Reddit', correr: leerHilo }, exaLeer, firecrawlLeer, jinaLeer],
     listar: {
       subreddit: {
         nombre: 'Un subreddit', ayuda: 'el nombre (sin r/), y si querés el orden: «typescript», «typescript/top», «typescript/new»',

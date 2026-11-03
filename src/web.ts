@@ -5,6 +5,7 @@
 import type { Db } from './db.ts'
 import { _probarLector, leer } from './lector/index.ts'
 import { buscarExa } from './explorar/web.ts'
+import { buscarFirecrawlCrudo, CUPO as CUPO_FC } from './explorar/firecrawl.ts'
 
 export type Resultado = { titulo: string; url: string; extracto: string; proveedor: string }
 
@@ -36,6 +37,14 @@ const PROVEEDORES: Proveedor[] = [
       if (!r.ok) throw new Error(`Tavily ${r.status}`)
       const j: any = await r.json()
       return (j.results ?? []).map((x: any) => ({ titulo: x.title ?? '', url: x.url, extracto: String(x.content ?? '').slice(0, 400), proveedor: 'tavily' }))
+    },
+  },
+  {
+    // Firecrawl (plan v32): resultados tipo Google, sin clave (con FIRECRAWL_API_KEY, más cupo). Plan gratis: 1.000
+    // créditos por mes, 2 por búsqueda. MASTRO_SIN_FIRECRAWL=1 lo apaga.
+    id: 'firecrawl', limite: CUPO_FC.busquedas(), disponible: () => process.env.MASTRO_SIN_FIRECRAWL !== '1',
+    async buscar(q, n) {
+      return (await buscarFirecrawlCrudo(pedir, q, n)).map((x) => ({ titulo: x.titulo, url: x.url, extracto: (x.texto ?? '').slice(0, 400), proveedor: 'firecrawl' }))
     },
   },
   {

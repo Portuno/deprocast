@@ -61,6 +61,7 @@ export async function chequear(o: { conRed?: boolean; raiz?: string } = {}): Pro
     } catch (e) {
       add('Explorar internet', 'aviso', `Sin salida a internet o Exa no contesta: ${e instanceof Error ? e.message : e}`)
     }
+    add('Firecrawl', 'ok', process.env.FIRECRAWL_API_KEY ? 'con clave: buscar, leer y Alexandria' : 'sin clave: buscar y leer (para Alexandria, la clave gratis en FIRECRAWL_API_KEY)')
   }
 
   const ruta = resolverRuta()

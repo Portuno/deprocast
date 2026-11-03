@@ -56,7 +56,7 @@ test('La cadena: si el primero está bloqueado va el siguiente; caché de 30 min
   assert.equal(l.via, 'Exa')
   assert.equal(l.titulo, 'La página rara')
   const salud = ex.estadoCanales(db, T).find((c) => c.id === 'web')!
-  assert.deepEqual(salud.leer.map((b) => b.estado), ['fallo', 'en_pausa', 'ok'], 'el lector falló, Jina quedó en pausa (bloqueado), Exa anduvo')
+  assert.deepEqual(salud.leer.map((b) => b.estado), ['fallo', 'fallo', 'en_pausa', 'ok'], 'el lector y Firecrawl fallaron, Jina quedó en pausa (bloqueado), Exa anduvo')
   const antes = pedidos.length
   assert.equal((await ex.leerLink(db, 'https://raro.ejemplo.com/', { ahora: T + 60_000 })).via, 'Exa')
   assert.equal(pedidos.length, antes, 'de la caché: nadie pidió nada')
@@ -138,7 +138,7 @@ test('X: los hilos públicos de Exa se vuelven el tweet original; un tweet se le
   assert.equal(t.via, 'oEmbed de X')
   assert.match(t.markdown, /Un tweet de prueba/)
   const estado = ex.estadoCanales(db, T)
-  assert.deepEqual(estado.map((c) => c.id), ['web', 'reddit', 'youtube', 'github', 'x', 'linkedin', 'instagram', 'facebook'])
+  assert.deepEqual(estado.map((c) => c.id), ['web', 'reddit', 'youtube', 'github', 'x', 'linkedin', 'instagram', 'facebook', 'alexandria'])
   assert.ok(estado.find((c) => c.id === 'instagram')!.noPuede!.includes('pide cuenta'))
 })
 
@@ -174,4 +174,18 @@ test('El Observatorio: lo de una plataforma con canal va por explorar (con sus d
   assert.equal(ob.consultaPara('noticias', 'algo'), 'algo noticias')
   const t = ob.seguirTema(db, { nombre: 'Un tema', consultas: ['algo'] })
   assert.deepEqual(t.plataformas, ['x', 'reddit', 'youtube', 'noticias', 'foros'], 'las nuevas se eligen a mano')
+})
+
+test('Firecrawl (plan v32): busca adentro de x.com sin clave, cuenta el cupo del mes, y Alexandria pide la clave', async () => {
+  const db = abrir(':memory:')
+  delete process.env.FIRECRAWL_API_KEY
+  const cuerpos: any[] = []
+  redFalsa([[/api\.firecrawl\.dev\/v2\/search/, (_u, init) => { cuerpos.push(JSON.parse(String(init?.body))); return Response.json({ success: true, data: { web: [{ url: 'https://x.com/alguien/status/42', title: 'Un tweet real', description: 'Texto' }, { url: 'https://otro.com/x', title: 'Otro sitio' }] } }) }]])
+  const b = await ex.buscar(db, 'x', 'algo', { ahora: T })
+  assert.equal(b.via, 'Firecrawl', 'en X va primero (trae x.com de verdad)')
+  assert.deepEqual(b.items.map((x) => x.url), ['https://x.com/alguien/status/42'], 'solo lo del sitio')
+  assert.deepEqual(cuerpos[0].includeDomains, ['x.com', 'twitter.com'])
+  const { cupoFirecrawl } = await import('../src/explorar/firecrawl.ts')
+  assert.equal(cupoFirecrawl(db, T).busquedas, 1)
+  await assert.rejects(ex.buscar(db, 'alexandria', 'datos de empresas', { ahora: T }), (e: any) => e.codigo === 'NO_SE_PUEDE' && /FIRECRAWL_API_KEY/.test(e.message))
 })

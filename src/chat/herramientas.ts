@@ -1477,8 +1477,8 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'buscar_en', familia: 'lectura',
-    descripcion: 'Busca adentro de una plataforma, sin cuenta: reddit (posts con su texto), youtube (videos con vistas y duración), github (repos; «issues: …» para issues y PRs), x (tweets, por sus hilos públicos), linkedin (perfiles, empresas, posts, empleos; «personas: …» o «empresas: …» para solo eso), instagram y facebook (perfiles y posts públicos, por buscadores) o web. Devuelve links reales; para leer uno, leer_pagina.',
-    parametros: S({ plataforma: str('Dónde', { enum: ['web', 'reddit', 'youtube', 'github', 'x', 'linkedin', 'instagram', 'facebook'] }), consulta: str('Qué buscar'), n: int('Cuántos (máx. 20)') }, ['plataforma', 'consulta']),
+    descripcion: 'Busca adentro de una plataforma, sin cuenta: reddit (posts con su texto), youtube (videos con vistas y duración), github (repos; «issues: …» para issues y PRs), x (tweets, por sus hilos públicos), linkedin (perfiles, empresas, posts, empleos; «personas: …» o «empresas: …» para solo eso), instagram y facebook (perfiles y posts públicos, por buscadores) o web; o alexandria (las herramientas de datos de Firecrawl que sirven para eso: proveedor, capacidad, entradas y precio; después, usar_alexandria). Devuelve links reales; para leer uno, leer_pagina.',
+    parametros: S({ plataforma: str('Dónde', { enum: ['web', 'reddit', 'youtube', 'github', 'x', 'linkedin', 'instagram', 'facebook', 'alexandria'] }), consulta: str('Qué buscar'), n: int('Cuántos (máx. 20)') }, ['plataforma', 'consulta']),
     ejecutar: async (a, { db }) => {
       const ex = await import('../explorar/index.ts')
       try {
@@ -1487,6 +1487,21 @@ export const HERRAMIENTAS: Herramienta[] = [
       } catch (e) { return { error: e instanceof Error ? e.message : String(e) } }
     },
     resumen: (a, r) => `buscó en ${a.plataforma} «${recorte(a.consulta, 40)}» → ${r?.resultados?.length ?? 0}`,
+  },
+  {
+    nombre: 'usar_alexandria', familia: 'accion',
+    descripcion: 'Corre una herramienta de Alexandria (Firecrawl): datos de 430 proveedores (registros públicos, empresas, finanzas, podcasts, papers…). Primero buscala con buscar_en plataforma «alexandria» (gratis), que da el proveedor, la capacidad, sus entradas y su precio. Usarla GASTA créditos de su plan gratis de Firecrawl: decile cuánto cuesta y pedile el ok antes.',
+    parametros: S({ proveedor: str('El proveedor (de buscar_en alexandria)'), capacidad: str('La capacidad (de buscar_en alexandria)'), opciones: { type: 'object', description: 'Los parámetros de la herramienta' } }, ['proveedor', 'capacidad']),
+    ejecutar: async (a, { db: _db }) => {
+      const { usarAlexandria } = await import('../explorar/firecrawl.ts')
+      const { pedirSeguro } = await import('../explorar/red.ts')
+      try {
+        const r = await usarAlexandria((u, i) => pedirSeguro(u, i), String(a.proveedor ?? ''), String(a.capacidad ?? ''), a.opciones ?? {})
+        const datos = JSON.stringify(r.datos)
+        return { creditos: r.creditos, datos: datos.length > 12_000 ? `${datos.slice(0, 12_000)}…` : r.datos }
+      } catch (e) { return { error: e instanceof Error ? e.message : String(e) } }
+    },
+    resumen: (a) => `usó Alexandria: ${a.proveedor} · ${a.capacidad}`,
   },
   {
     nombre: 'explorar', familia: 'lectura',
@@ -1849,7 +1864,7 @@ export const GRUPOS: Record<string, string[]> = {
   corpus: ['procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
-  web: ['buscar_web', 'buscar_en', 'explorar', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
+  web: ['buscar_web', 'buscar_en', 'explorar', 'usar_alexandria', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus'],
   observatorio: ['seguir_tema', 'ver_observatorio', 'crear_campana', 'armar_campana'],
   crear: ['difundir_idea', 'ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
