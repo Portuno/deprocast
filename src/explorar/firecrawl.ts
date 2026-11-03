@@ -76,7 +76,7 @@ export async function herramientasAlexandria(pedir: Pedir, consulta: string, n =
   const d = await llamar(pedir, '/search', { query: consulta, sources: ['alexandria'], limit: Math.min(n, 10), toolDetail: 'full' })
   return (d.tools ?? []).map((t: any) => ({
     proveedor: String(t.provider ?? t.providerId ?? ''), capacidad: String(t.capability ?? t.path ?? ''), nombre: String(t.name ?? t.title ?? `${t.provider} · ${t.capability}`),
-    descripcion: String(t.description ?? '').slice(0, 600), precio: t.price != null ? String(t.price) : t.credits != null ? `${t.credits} créditos` : null, entradas: t.inputs ?? t.options ?? t.parameters ?? null,
+    descripcion: String(t.description ?? '').slice(0, 600), precio: t.creditsCost != null ? `${t.creditsCost} créditos${t.perRecord ? ' por resultado' : ''}` : t.price != null ? String(t.price) : null, entradas: t.inputs ?? t.options ?? t.parameters ?? null,
   })).filter((t: Herramienta) => t.proveedor && t.capacidad)
 }
 
