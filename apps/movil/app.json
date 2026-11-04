@@ -20,7 +20,13 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.deprocast.movil",
       "permissions": [
-        "RECORD_AUDIO"
+        "RECORD_AUDIO",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE"
       ]
     },
     "web": {
@@ -37,6 +43,11 @@
         }
       ]
     ],
-    "scheme": "deprocast"
+    "scheme": "deprocast",
+    "extra": {
+      "eas": {
+        "projectId": "db03a2b5-ef44-4a8e-82dd-68c60a8b333a"
+      }
+    }
   }
 }
