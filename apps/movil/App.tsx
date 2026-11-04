@@ -39,7 +39,7 @@ export default function App() {
             ))}
             <Pressable onPress={desvincular} style={s.menu} accessibilityLabel="Desvincular"><Text style={{ color: t.tenue }}>{c.nombre} ⋯</Text></Pressable>
           </View>
-          {pestana === 'hoy' ? <Hoy c={c} /> : <Escucha />}
+          {pestana === 'hoy' ? <Hoy c={c} /> : <Escucha c={c} />}
         </>
       )}
     </SafeAreaView>

@@ -18,14 +18,24 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.deprocast.movil"
+      "package": "com.deprocast.movil",
+      "permissions": [
+        "RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
       "expo-secure-store",
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Deprocast escucha tu voz para que le hables o pienses en voz alta. El audio se procesa y se borra.",
+          "enableBackgroundRecording": true
+        }
+      ]
     ],
     "scheme": "deprocast"
   }

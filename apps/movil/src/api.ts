@@ -45,4 +45,15 @@ export async function vincular(servidor: string, codigo: string, nombre: string)
 }
 
 export const traerHoy = (c: Credenciales) => pedir<PaqueteHoy>(c, 'hoy')
+
+export type MetaVoz = { modo: 'dictado' | 'pasivo'; inicio: number; fin: number; caminando: boolean }
+/** Un tramo de tu voz (WAV): Deprocast lo transcribe y lo descarta. Devuelve el texto y a dónde fue. */
+export async function subirVoz(c: Credenciales, uri: string, m: MetaVoz): Promise<{ texto: string; destino: 'chat' | 'nota' }> {
+  const { File } = await import('expo-file-system')
+  const q = new URLSearchParams({ modo: m.modo, inicio: String(m.inicio), fin: String(m.fin), caminando: m.caminando ? '1' : '0', nombre: 'voz.wav' })
+  const r = await fetch(`${c.servidor}/api/dispositivo/voz?${q}`, { method: 'POST', headers: { authorization: `Bearer ${c.token}`, 'content-type': 'audio/wav' }, body: new File(uri) })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(j.error ?? `Deprocast respondió ${r.status}`)
+  return j
+}
 export const mandarMensaje = (c: Credenciales, texto: string) => pedir<{ ok: true }>(c, 'mensaje', { method: 'POST', body: JSON.stringify({ texto }) })

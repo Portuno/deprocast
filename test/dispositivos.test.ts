@@ -81,3 +81,34 @@ test('Conciencia acústica: aprende el piso de ruido; voz directa y cerca = dict
   assert.equal(l.fuente, 'ruido')
   assert.equal(l.estado, 'ruido')
 })
+
+test('Rasgos de voz: una voz sintética (armónicos con sílabas) da voz alta; un siseo parejo, baja; el silencio, cero', async () => {
+  const { crearRasgos } = await import('../src/conciencia/rasgos.ts')
+  const sr = 16000, n = 1600 // cuadros de 100 ms
+  const cuadros = (f: (i: number) => number, k = 10) => { const r = crearRasgos(sr); let l: any; for (let c = 0; c < k; c++) { const x = new Float32Array(n); for (let i = 0; i < n; i++) x[i] = f(c * n + i); l = r.cuadro(x) } return l }
+  // Voz: fundamental de 150 Hz con armónicos, modulada por sílabas a 5 Hz.
+  const voz = cuadros((i) => { const t = i / sr; const silaba = 0.5 + 0.5 * Math.sin(2 * Math.PI * 5 * t); return 0.2 * silaba * (Math.sin(2 * Math.PI * 150 * t) + 0.6 * Math.sin(2 * Math.PI * 450 * t) + 0.4 * Math.sin(2 * Math.PI * 900 * t) + 0.3 * Math.sin(2 * Math.PI * 1800 * t)) })
+  // Siseo: ruido blanco parejo.
+  let semilla = 7
+  const azar = () => ((semilla = (semilla * 16807) % 2147483647) / 2147483647) * 2 - 1
+  const siseo = cuadros(() => 0.2 * azar())
+  const silencio = cuadros(() => 0)
+  assert.ok(voz.voz > 0.6, `voz: ${JSON.stringify(voz)}`)
+  assert.ok(siseo.voz < 0.4, `siseo: ${JSON.stringify(siseo)}`)
+  assert.equal(silencio.voz, 0)
+  assert.ok(voz.db > -30 && voz.db < 0)
+})
+
+test('Movimiento: pasos a ritmo de caminata = caminando; quieto, no; un giro rápido hacia la cara = levantado', async () => {
+  const { crearMovimiento } = await import('../src/conciencia/movimiento.ts')
+  const m = crearMovimiento()
+  let l: any
+  for (let t = 0; t < 6000; t += 50) l = m.medir({ t, x: 0.05, y: 0, z: 1 + 0.3 * Math.sin(2 * Math.PI * 1.8 * (t / 1000)) }) // ~1,8 pasos por segundo (rebote vertical)
+  assert.equal(l.caminando, true)
+  const q = crearMovimiento()
+  for (let t = 0; t < 6000; t += 50) l = q.medir({ t, x: 0, y: 0, z: 1 })
+  assert.equal(l.caminando, false)
+  assert.equal(l.levantado, false)
+  for (let t = 6000; t < 6400; t += 50) l = q.medir({ t, x: 0, y: (t - 6000) / 400, z: 1 - (t - 6000) / 400 }) // de la mesa a la cara
+  assert.equal(l.levantado, true)
+})

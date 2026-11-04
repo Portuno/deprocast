@@ -16,6 +16,7 @@ async function base(): Promise<SQLite.SQLiteDatabase> {
     CREATE TABLE IF NOT EXISTS mensajes (id INTEGER PRIMARY KEY, rol TEXT NOT NULL, texto TEXT NOT NULL, en INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS cola (id INTEGER PRIMARY KEY AUTOINCREMENT, texto TEXT NOT NULL, en INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS estado (clave TEXT PRIMARY KEY, valor TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS voz_cola (id INTEGER PRIMARY KEY AUTOINCREMENT, uri TEXT NOT NULL, meta TEXT NOT NULL);
   `)
   return db
 }
@@ -51,7 +52,18 @@ export async function cola(): Promise<{ id: number; texto: string }[]> {
 export async function sacarDeCola(id: number) {
   await (await base()).runAsync('DELETE FROM cola WHERE id = ?', id)
 }
+/** Un tramo de voz que no se pudo subir: espera acá (el WAV, en el teléfono) hasta la próxima sincronización. */
+export async function encolarVoz(uri: string, meta: unknown) {
+  await (await base()).runAsync('INSERT INTO voz_cola (uri, meta) VALUES (?, ?)', uri, JSON.stringify(meta))
+}
+export async function colaVoz(): Promise<{ id: number; uri: string; meta: string }[]> {
+  return (await base()).getAllAsync<{ id: number; uri: string; meta: string }>('SELECT id, uri, meta FROM voz_cola ORDER BY id LIMIT 20')
+}
+export async function sacarVoz(id: number) {
+  await (await base()).runAsync('DELETE FROM voz_cola WHERE id = ?', id)
+}
+
 /** Al desvincular: se borra todo lo local. */
 export async function borrarTodo() {
-  await (await base()).execAsync('DELETE FROM mensajes; DELETE FROM cola; DELETE FROM estado;')
+  await (await base()).execAsync('DELETE FROM mensajes; DELETE FROM cola; DELETE FROM estado; DELETE FROM voz_cola;')
 }

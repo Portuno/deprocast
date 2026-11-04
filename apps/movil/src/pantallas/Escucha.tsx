@@ -1,11 +1,12 @@
 /**
- * Escucha (plan v33). En el paso 2 muestra cómo va a decidir la conciencia acústica, con una simulación que corre el
- * mismo módulo que va a usar el micrófono real (src/conciencia/acustica.ts). El micrófono, el detector de voz y los
- * sensores llegan en el paso 3 (necesitan código nativo y un dev build).
+ * Escucha (plan v33, paso 3): el micrófono de verdad con la conciencia acústica. Prendés y apagás; mientras escucha se
+ * ve el estado en vivo (dictado, escucha pasiva, silencio intencional, solo ruido), lo que se mandó y a dónde fue.
+ * En segundo plano sigue escuchando, con el aviso fijo de Android.
  */
-import { useEffect, useRef, useState } from 'react'
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
-import { crearConciencia, destinoDe, type Estado, type Lectura } from '../conciencia/acustica'
+import { destinoDe, type Estado } from '../conciencia/acustica'
+import type { Credenciales } from '../api'
+import { useEscucha } from '../escucha'
 import { useTema } from '../tema'
 
 const NOMBRE: Record<Estado, string> = { dictado: 'Dictado', escucha: 'Escucha pasiva', silencio_intencional: 'Silencio intencional', ruido: 'Solo ruido' }
@@ -15,44 +16,30 @@ const QUE_HACE: Record<Estado, string> = {
   silencio_intencional: 'Caminás callado: no se manda nada.',
   ruido: 'Ruido de fondo o voces de otros: no se manda ni se guarda.',
 }
-/** Una escena de prueba: calle, lo acercás y dictás, lo bajás y pensás en voz alta, caminás callado. */
-const ESCENA = [
-  { ms: 3000, db: -45, voz: 0.1 }, { ms: 2500, db: -20, voz: 0.95, cerca: true }, { ms: 3000, db: -34, voz: 0.9, cerca: false },
-  { ms: 7000, db: -45, voz: 0.05, caminando: true },
-]
 
-export function Escucha() {
+export function Escucha({ c }: { c: Credenciales }) {
   const t = useTema()
-  const [l, setL] = useState<Lectura | null>(null)
-  const [corriendo, setCorriendo] = useState(false)
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null)
-  useEffect(() => () => { if (timer.current) clearInterval(timer.current) }, [])
-
-  const simular = () => {
-    const c = crearConciencia()
-    const cuadros = ESCENA.flatMap((e) => Array.from({ length: e.ms / 100 }, () => e))
-    let i = 0
-    setCorriendo(true)
-    timer.current = setInterval(() => {
-      const e = cuadros[i]
-      if (!e) { clearInterval(timer.current!); setCorriendo(false); return }
-      setL(c.cuadro({ t: (i + 1) * 100, db: e.db, voz: e.voz, cerca: 'cerca' in e ? e.cerca : null, caminando: 'caminando' in e ? e.caminando : null }))
-      i++
-    }, 50) // al doble de velocidad
-  }
-
+  const { activa, lectura: l, envios, error, empezar, parar } = useEscucha(c)
   return (
     <ScrollView style={{ backgroundColor: t.fondo }} contentContainerStyle={s.raiz}>
       <Text style={[s.titulo, { color: t.texto }]}>Conciencia acústica</Text>
-      <Text style={[s.texto, { color: t.tenue }]}>Deprocast va a escuchar con el micrófono y los sensores, decidir en el teléfono si le estás hablando, pensando en voz alta o caminando callado, y mandar solo tu voz (el audio se transcribe y se borra). El micrófono llega en el próximo paso; esto muestra cómo decide.</Text>
-      <View style={[s.tarjeta, { backgroundColor: t.panel, borderColor: t.linea }]}>
-        <Text style={[s.estado, { color: t.acento }]}>{l ? NOMBRE[l.estado] : '—'}</Text>
-        <Text style={[s.texto, { color: t.texto }]}>{l ? QUE_HACE[l.estado] : 'Tocá «Simular una caminata».'}</Text>
-        {l ? <Text style={[s.dato, { color: t.tenue }]}>fuente: {l.fuente === 'voz_directa' ? 'tu voz' : l.fuente} · distancia: {l.distancia} · señal/ruido: {l.snr} dB · piso: {l.piso} dB · se manda: {destinoDe(l.estado) ?? 'nada'}</Text> : null}
+      <Text style={[s.texto, { color: t.tenue }]}>Escucho con el micrófono y el acelerómetro y decido acá, en el teléfono, si me estás hablando, pensando en voz alta o caminando callado. Solo sale tu voz: se transcribe y el audio se borra.</Text>
+      <View style={[s.tarjeta, { backgroundColor: t.panel, borderColor: activa ? t.acento : t.linea }]}>
+        <Text style={[s.estado, { color: activa ? t.acento : t.tenue }]}>{activa ? (l ? NOMBRE[l.estado] : 'Escuchando…') : 'Apagada'}</Text>
+        <Text style={[s.texto, { color: t.texto }]}>{activa && l ? QUE_HACE[l.estado] : 'Tocá «Escuchar». Sigue aunque bloquees el teléfono (con un aviso fijo).'}</Text>
+        {activa && l ? <Text style={[s.dato, { color: t.tenue }]}>fuente: {l.fuente === 'voz_directa' ? 'tu voz' : l.fuente} · distancia: {l.distancia} · señal/ruido: {l.snr} dB · piso: {l.piso} dB · se manda: {destinoDe(l.estado) ?? 'nada'}</Text> : null}
       </View>
-      <Pressable onPress={simular} disabled={corriendo} style={[s.boton, { backgroundColor: t.acento, opacity: corriendo ? 0.5 : 1 }]} accessibilityRole="button">
-        <Text style={{ color: t.sobreAcento, fontWeight: '700' }}>{corriendo ? 'Simulando…' : 'Simular una caminata'}</Text>
+      {error ? <Text style={[s.texto, { color: t.mal }]}>{error}</Text> : null}
+      <Pressable onPress={activa ? parar : empezar} style={[s.boton, { backgroundColor: activa ? t.panel : t.acento, borderColor: t.linea }]} accessibilityRole="button">
+        <Text style={{ color: activa ? t.texto : t.sobreAcento, fontWeight: '700', fontSize: 16 }}>{activa ? '■ Dejar de escuchar' : '● Escuchar'}</Text>
       </Pressable>
+      {envios.length ? <Text style={[s.sub, { color: t.tenue }]}>Lo último que salió</Text> : null}
+      {envios.map((e) => (
+        <View key={e.en} style={[s.envio, { borderColor: t.linea }]}>
+          <Text style={[s.dato, { color: t.tenue }]}>{new Date(e.en).toTimeString().slice(0, 5)} · {e.modo === 'dictado' ? 'al chat' : 'nota de voz'}{e.error ? ' · en cola (sin red)' : ''}</Text>
+          {e.texto ? <Text style={{ color: t.texto, fontSize: 15 }}>{e.texto}</Text> : null}
+        </View>
+      ))}
     </ScrollView>
   )
 }
@@ -61,8 +48,10 @@ const s = StyleSheet.create({
   raiz: { padding: 20, gap: 14 },
   titulo: { fontSize: 22, fontWeight: '700' },
   texto: { fontSize: 15, lineHeight: 21 },
+  sub: { fontSize: 13, marginTop: 8 },
   tarjeta: { borderWidth: 1, borderRadius: 14, padding: 16, gap: 8 },
   estado: { fontSize: 26, fontWeight: '700' },
   dato: { fontSize: 12, lineHeight: 18 },
-  boton: { borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
+  boton: { borderRadius: 12, paddingVertical: 16, alignItems: 'center', borderWidth: 1 },
+  envio: { borderBottomWidth: 1, paddingVertical: 8, gap: 4 },
 })
