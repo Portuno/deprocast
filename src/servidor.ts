@@ -1531,6 +1531,18 @@ const servidor = http.createServer(async (req, res) => {
     if (url.pathname.startsWith('/api/')) return void res.writeHead(401, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify({ error: 'Falta la clave' }))
     return void res.writeHead(303, { location: '/entrar' }).end()
   }
+  // Vincular un teléfono sin cargar todo el panel (plan v33): una página mínima con el código de 6 dígitos, ya con la
+  // clave puesta. Cada visita da un código nuevo (el anterior deja de valer).
+  if (url.pathname === '/vincular' && req.method === 'GET') {
+    const { crearCodigo } = await import('./dispositivos.ts')
+    const { codigo, vence } = crearCodigo(db)
+    const hora = new Date(vence).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+    const host = req.headers.host ?? ''
+    return void res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }).end(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vincular · Deprocast</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f1012;color:#e6e6e8;font:16px system-ui,sans-serif;text-align:center;padding:24px;box-sizing:border-box}b{display:block;font-size:56px;letter-spacing:.15em;color:#c4a062;margin:16px 0}small{color:#9a9ca4;display:block;margin-top:8px;line-height:1.5}code{color:#e6e6e8}a{color:#c4a062}</style></head>
+<body><div><div>☿ Código para vincular tu teléfono</div><b>${codigo.slice(0, 3)} ${codigo.slice(3)}</b>
+<small>En la app: servidor <code>${host.replace(/[<>&"]/g, '')}</code> y este código.<br>Vale hasta las ${hora} y una sola vez. <a href="/vincular">Otro código</a></small></div></body></html>`)
+  }
   // Compartir desde el celular (la app instalada): un link, un reel o un texto llega a Mastropiero.
   if (url.pathname === '/compartir' && req.method === 'POST') {
     const f = leerFormulario(await leerCrudo(req, 2 * 1024 * 1024), String(req.headers['content-type'] ?? ''))
