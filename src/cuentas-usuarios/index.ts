@@ -88,16 +88,16 @@ ${o.error ? `<p class="error">${esc(o.error)}</p>` : ''}${o.ok ? `<p class="ok">
 
 // ─── la puerta ─────────────────────────────────────────────────────────
 
-export type OpcionesPuerta = { datos: string; hub?: Hub; prenderAlArrancar?: number }
+export type OpcionesPuerta = { datos: string; hub?: Hub }
 
 export function crearPuerta(o: OpcionesPuerta) {
   let cuentas: Cuentas | null = null
   const db = () => (cuentas ??= abrirCuentas(path.join(o.datos, 'cuentas.db')))
   const hub: Hub = o.hub ?? crearHub({ datos: o.datos, topeDe: (id) => usuario(db(), id)?.topeDia ?? 0 })
-  // Los usuarios quedan prendidos siempre: al arrancar se prenden todos los activos (si ya hay cuentas), escalonados y
-  // después de que el dueño ya contesta.
-  if (o.prenderAlArrancar !== undefined && fs.existsSync(path.join(o.datos, 'cuentas.db'))) {
-    setTimeout(() => { try { hub.mantener(listarUsuarios(db()).filter((u) => u.estado === 'activo').map((u) => u.id)) } catch (e) { console.error('  usuarios:', e instanceof Error ? e.message : e) } }, o.prenderAlArrancar).unref()
+  /** Los usuarios quedan prendidos siempre: al arrancar se prenden todos los activos (si ya hay cuentas), escalonados. */
+  function prenderTodos() {
+    if (!fs.existsSync(path.join(o.datos, 'cuentas.db'))) return
+    try { hub.mantener(listarUsuarios(db()).filter((u) => u.estado === 'activo').map((u) => u.id)) } catch (e) { console.error('  usuarios:', e instanceof Error ? e.message : e) }
   }
   const porIp = crearLimitador(20, 15 * 60_000)
   const porEmail = crearLimitador(8, 15 * 60_000)
@@ -284,5 +284,5 @@ ${invs ? `<h2>Invitaciones sin usar</h2><div class="tabla"><table>${invs}</table
 
   const paginaBorrar = (u: Usuario, error = '') => pagina('Borrar', `<form method="post" action="/usuarios/${u.id}/borrar" class="angosto"><h1>¿Borrar a ${esc(u.nombre)}?</h1><p class="tenue">Se borra su cuenta y su Deprocast entero (base, archivos, agentes). No se puede deshacer.</p>${error ? `<p class="error">${esc(error)}</p>` : ''}<input name="confirmar" placeholder="Escribí ${esc(u.email)}" autocomplete="off" required><button class="mal">Borrar para siempre</button><a href="/usuarios">Cancelar</a></form>`)
 
-  return { atender, hub, cuentas: db }
+  return { atender, hub, cuentas: db, prenderTodos }
 }

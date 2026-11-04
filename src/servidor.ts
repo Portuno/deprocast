@@ -134,6 +134,29 @@ const MAX_CARGA = 1024 * 1024 * 1024
 const mudanza = aplicarBaseEntrante()
 if (mudanza) console.log(`  ⇣ Arranco con la base que llegó por mudanza${mudanza.anterior ? ` (la anterior quedó en ${mudanza.anterior})` : ''}`)
 const db = abrir()
+/**
+ * Arranque sin corte (plan v33, paso 6). En la nube, cada versión nueva arranca «en espera» al lado de la que está
+ * atendiendo: contesta pedidos, pero no corre nada de fondo (rutinas, liga, Telegram, retomar lo que quedó a medias,
+ * publicar), así no se pisa con la vieja que todavía trabaja. El arranque (arranque-nube.ts) le pasa el tráfico cuando ya
+ * está caliente, apaga la vieja y recién ahí le manda «activar».
+ */
+const arrancaEnEspera = process.env.MASTRO_EN_ESPERA === '1' && typeof process.send === 'function'
+let fondoActivo = !arrancaEnEspera
+const alActivar: (() => void)[] = []
+function deFondo(f: () => void) {
+  if (fondoActivo) f()
+  else alActivar.push(f)
+}
+if (arrancaEnEspera) {
+  process.on('message', (m) => {
+    if (m !== 'activar' || fondoActivo) return
+    fondoActivo = true
+    console.log('  ☿ activo: arranca lo de fondo')
+    for (const f of alActivar.splice(0)) { try { f() } catch (e) { console.error('  activar:', e instanceof Error ? e.message : e) } }
+  })
+  process.channel?.unref()
+}
+let caliente = false
 // La hora del operador, no la del servidor (la nube corre en UTC): antes de que nada formatee una hora.
 const zona = aplicarZona(db)
 // Adiós a los Cien Días (plan v23): una sola vez, su conocimiento al corpus, respaldo y fuera sus tablas.
@@ -142,12 +165,13 @@ try {
   if (m) console.log(`  ✦ Los Cien Días pasaron al corpus: ${m.piezas} piezas, ${m.dominios} dominios; respaldo en ${m.respaldo}`)
 } catch (e) { console.error('  migración de los Cien Días:', e instanceof Error ? e.message : e) }
 // La cola del Taller: lo que quedó a medias por un reinicio vuelve a la cola y sigue.
-try { const n = retomarTaller(db); if (n) console.log(`  ✎ El Taller retoma ${n} trabajo${n === 1 ? '' : 's'}`) } catch (e) { console.error('  taller:', e instanceof Error ? e.message : e) }
+deFondo(() => { try { const n = retomarTaller(db); if (n) console.log(`  ✎ El Taller retoma ${n} trabajo${n === 1 ? '' : 's'}`) } catch (e) { console.error('  taller:', e instanceof Error ? e.message : e) } })
 alGuardar(() => { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)') } catch { /* todavía no */ } })
 
 // Usuarios (plan v33, paso 5). En el proceso del dueño, la puerta: las sesiones de los usuarios van a su propio Deprocast.
 // En el Deprocast de un usuario: el tope duro de tokens por día (cuenta todo) y, si el hub se cae, se apaga con él.
-const puerta = enUsuario() || enVercel() ? null : crearPuerta({ datos: process.env.MASTRO_CUENTAS_DIR ?? path.dirname(resolverRuta()), prenderAlArrancar: 20_000 })
+const puerta = enUsuario() || enVercel() ? null : crearPuerta({ datos: process.env.MASTRO_CUENTAS_DIR ?? path.dirname(resolverRuta()) })
+if (puerta) deFondo(() => setTimeout(() => puerta.prenderTodos(), 20_000).unref())
 if (puerta) for (const s of ['SIGTERM', 'SIGINT'] as const) process.once(s, () => { void puerta.hub.pararTodos().finally(() => process.exit(0)) })
 if (enUsuario()) {
   const tope = Number(process.env.MASTRO_TOPE_DIA) || 0
@@ -1554,7 +1578,7 @@ const servidor = http.createServer(async (req, res) => {
     return void res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(PAGINA_ENTRAR())
   }
   // Qué versión de la pantalla sirve (pública: para saber si un deploy llegó, sin datos de nadie).
-  if (url.pathname === '/version') return void res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ web: VERSION_WEB, commit: process.env.MASTRO_COMMIT ?? null, arranco: ARRANCO }))
+  if (url.pathname === '/version') return void res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ web: VERSION_WEB, commit: process.env.MASTRO_COMMIT ?? null, arranco: ARRANCO, caliente, activo: fondoActivo }))
   if (!autorizado(req) && !['/manifest.webmanifest', '/icono.svg'].includes(url.pathname)) {
     if (url.pathname.startsWith('/api/')) return void res.writeHead(401, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify({ error: 'Falta la clave' }))
     return void res.writeHead(303, { location: '/entrar' }).end()
@@ -1906,7 +1930,7 @@ async function latido() {
     enRutinas = false
   }
 }
-setInterval(latido, 60_000).unref()
+deFondo(() => setInterval(latido, 60_000).unref())
 
 // La liga sola (plan v30): cada 15 s, los de la casa (como mucho una vez por minuto, sin tokens) y, si Auto está
 // prendido, en la nube, con trabajo y sin tope, un tick. Con --sin-rutinas no corre nada solo.
@@ -1922,7 +1946,7 @@ async function latidoLiga() {
     enVueltaLiga = false
   }
 }
-setInterval(latidoLiga, 15_000).unref()
+deFondo(() => setInterval(latidoLiga, 15_000).unref())
 
 // En Vercel el proceso se duerme entre pedidos: con la pantalla abierta, esto pone al día las rutinas.
 let ultimoLatido = 0
@@ -1941,16 +1965,18 @@ function encolarDirecto(sesion: number, f: () => Promise<unknown>) {
   const sigue = previa.then(f).catch((e) => console.error('  directo:', e instanceof Error ? e.message : e))
   colasDirecto.set(sesion, sigue)
 }
-setInterval(async () => {
-  try {
-    const s = await latidoDirecto(db)
-    if (s?.informe) mensajeDeMastropiero(db, conversacionHoy(db).id, `El Directo se cortó (no me llegó nada en 10 minutos: se cerró la pestaña o se apagó el servidor), así que lo cerré yo. ${s.informe}`)
-    else void tramoDirecto(db).catch((e) => console.error('  directo:', e instanceof Error ? e.message : e))
-    // El bloque guiado que él arrancó: se cierra a su hora y avisa una vez si se fue del tema.
-    const dicho = (await import('./bloques.ts')).vigilarBloque(db)
-    if (dicho) mensajeDeMastropiero(db, conversacionHoy(db).id, dicho)
-  } catch (e) { console.error('  directo:', e instanceof Error ? e.message : e) }
-}, 60_000).unref()
+deFondo(() => {
+  setInterval(async () => {
+    try {
+      const s = await latidoDirecto(db)
+      if (s?.informe) mensajeDeMastropiero(db, conversacionHoy(db).id, `El Directo se cortó (no me llegó nada en 10 minutos: se cerró la pestaña o se apagó el servidor), así que lo cerré yo. ${s.informe}`)
+      else void tramoDirecto(db).catch((e) => console.error('  directo:', e instanceof Error ? e.message : e))
+      // El bloque guiado que él arrancó: se cierra a su hora y avisa una vez si se fue del tema.
+      const dicho = (await import('./bloques.ts')).vigilarBloque(db)
+      if (dicho) mensajeDeMastropiero(db, conversacionHoy(db).id, dicho)
+    } catch (e) { console.error('  directo:', e instanceof Error ? e.message : e) }
+  }, 60_000).unref()
+})
 
 // Mastropiero proactivo: alertas y una reflexión cada tantas horas (con las rutinas; nunca en una reunión).
 let pensando = false
@@ -1965,49 +1991,59 @@ async function latidoPensar() {
     pensando = false
   }
 }
-setInterval(latidoPensar, 15 * 60_000).unref()
-setTimeout(latidoPensar, 60_000).unref()
+deFondo(() => setInterval(latidoPensar, 15 * 60_000).unref())
+deFondo(() => setTimeout(latidoPensar, 60_000).unref())
 
 // Vectores: de a tandas, lo que falta (lo propio primero). Barato, pero respeta el tope diario si lo hay.
 let vectorizando = false
-setInterval(async () => {
-  if (vectorizando || process.env.MASTRO_SIN_RUTINAS || topeAlcanzado(db) || ajuste(db, 'vectorizar_auto') === '0') return
-  vectorizando = true
-  try { await vectorizarPendientes(db, { limite: 48 }) } catch (e) { console.error('  vectores:', e instanceof Error ? e.message : e) } finally { vectorizando = false }
-}, 10 * 60_000).unref()
+deFondo(() => {
+  setInterval(async () => {
+    if (vectorizando || process.env.MASTRO_SIN_RUTINAS || topeAlcanzado(db) || ajuste(db, 'vectorizar_auto') === '0') return
+    vectorizando = true
+    try { await vectorizarPendientes(db, { limite: 48 }) } catch (e) { console.error('  vectores:', e instanceof Error ? e.message : e) } finally { vectorizando = false }
+  }, 10 * 60_000).unref()
+})
 
 // El reproceso: si él lo prendió, sigue solo (en la nube) con lo que falte y con lo nuevo que entra.
-if (enLaNube() && !enVercel()) {
-  const reprocesar = () => { if (ajuste(db, 'reproceso_activo') === '1') void trabajarReproceso(db).catch((e) => console.error('  reproceso:', e instanceof Error ? e.message : e)) }
-  setTimeout(reprocesar, 90_000).unref()
-  setInterval(reprocesar, 10 * 60_000).unref()
-}
+deFondo(() => {
+  if (enLaNube() && !enVercel()) {
+    const reprocesar = () => { if (ajuste(db, 'reproceso_activo') === '1') void trabajarReproceso(db).catch((e) => console.error('  reproceso:', e instanceof Error ? e.message : e)) }
+    setTimeout(reprocesar, 90_000).unref()
+    setInterval(reprocesar, 10 * 60_000).unref()
+  }
+})
 
 // El Observatorio: cada 10 minutos, en la nube, las rondas que tocan; lo fuerte (o todo, si es una campaña en vivo) va a Hoy.
-if (enLaNube() && !enVercel() && !process.env.MASTRO_SIN_RUTINAS) {
-  let observando = false
-  setInterval(async () => {
-    if (observando || topeAlcanzado(db)) return
-    observando = true
-    try {
-      for (const t of await (await import('./observatorio.ts')).latidoObservatorio(db)) mensajeDeMastropiero(db, conversacionHoy(db).id, t)
-      for (const t of await (await import('./campanas.ts')).latidoCampanas(db)) mensajeDeMastropiero(db, conversacionHoy(db).id, t)
-    } catch (e) { console.error('  observatorio:', e instanceof Error ? e.message : e) } finally { observando = false }
-  }, 10 * 60_000).unref()
-}
+deFondo(() => {
+  if (enLaNube() && !enVercel() && !process.env.MASTRO_SIN_RUTINAS) {
+    let observando = false
+    setInterval(async () => {
+      if (observando || topeAlcanzado(db)) return
+      observando = true
+      try {
+        for (const t of await (await import('./observatorio.ts')).latidoObservatorio(db)) mensajeDeMastropiero(db, conversacionHoy(db).id, t)
+        for (const t of await (await import('./campanas.ts')).latidoCampanas(db)) mensajeDeMastropiero(db, conversacionHoy(db).id, t)
+      } catch (e) { console.error('  observatorio:', e instanceof Error ? e.message : e) } finally { observando = false }
+    }, 10 * 60_000).unref()
+  }
+})
 
 // Recién arrancado, en la nube: lo que va a abrir (la próxima clase, la sesión de idioma, el grafo) se deja listo de fondo,
 // sin esperar a la rutina (un reinicio no lo deja esperando al modelo).
-if (enLaNube() && !enVercel() && !process.env.MASTRO_SIN_RUTINAS) {
-  setTimeout(() => { if (!topeAlcanzado(db)) void import('./adelantar.ts').then((a) => a.adelantar(db)).catch((e) => console.error('  adelantar:', e instanceof Error ? e.message : e)) }, 3 * 60_000).unref()
-}
+deFondo(() => {
+  if (enLaNube() && !enVercel() && !process.env.MASTRO_SIN_RUTINAS) {
+    setTimeout(() => { if (!topeAlcanzado(db)) void import('./adelantar.ts').then((a) => a.adelantar(db)).catch((e) => console.error('  adelantar:', e instanceof Error ? e.message : e)) }, 3 * 60_000).unref()
+  }
+})
 
 // Las cuentas: lo aprobado se publica en su horario (solo con conector; «redacta» solo lo que él aprobó).
-setInterval(async () => {
-  try {
-    for (const p of await publicarPendientes(db)) if (p.estado === 'fallo') mensajeDeMastropiero(db, conversacionHoy(db).id, `No pude publicar: ${p.error}`)
-  } catch (e) { console.error('  cuentas:', e instanceof Error ? e.message : e) }
-}, 5 * 60_000).unref()
+deFondo(() => {
+  setInterval(async () => {
+    try {
+      for (const p of await publicarPendientes(db)) if (p.estado === 'fallo') mensajeDeMastropiero(db, conversacionHoy(db).id, `No pude publicar: ${p.error}`)
+    } catch (e) { console.error('  cuentas:', e instanceof Error ? e.message : e) }
+  }, 5 * 60_000).unref()
+})
 
 // Telegram: si hay bot, escucha; y lo que Mastropiero dice solo también sale por ahí.
 // En Vercel no hay proceso siempre prendido: el long polling pelearía con el de la compu y se cortaría.
@@ -2021,25 +2057,29 @@ if (!enVercel()) {
 }
 
 // Lo que el servidor dejó a medias al apagarse (tandas en proceso, una forja) se retoma o se marca, con o sin bot.
-if (!enVercel()) {
-  retomarTandas(db)
-  retomarFragua(db)
-  void procesarTandas(db).catch(() => {})
-  // El Takeout sigue donde quedó: un paquete sin leer se lee, y la cola de medios y destilado sigue.
-  const sinLeer = retomarTakeout(db)
-  void Promise.all(sinLeer.map((l) => ingerirPaquete(db, l).catch((e) => console.error('  takeout ingesta:', e instanceof Error ? e.message : e))))
-    .then(() => trabajarTakeout(db)).catch(() => {})
-  // YouTube: lo que quedó en cola sigue; cada 15 minutos, lo que espera a la compu vuelve a probar con el servicio (si volvió el cupo).
-  void import('./youtube.ts').then((y) => {
-    void y.trabajarYoutube(db).catch(() => {})
-    setInterval(() => { if (y.reintentarConServicio(db)) void y.trabajarYoutube(db).catch(() => {}) }, 15 * 60_000).unref()
-  })
-}
-if (telegramActivo() && !enVercel()) {
-  escucharTelegram(db)
-  setInterval(() => void latidoTelegram(db).catch(() => {}), 60_000).unref()
-  alDecirSolo((texto) => void decirPorTelegram(texto).catch(() => {}))
-}
+deFondo(() => {
+  if (!enVercel()) {
+    retomarTandas(db)
+    retomarFragua(db)
+    void procesarTandas(db).catch(() => {})
+    // El Takeout sigue donde quedó: un paquete sin leer se lee, y la cola de medios y destilado sigue.
+    const sinLeer = retomarTakeout(db)
+    void Promise.all(sinLeer.map((l) => ingerirPaquete(db, l).catch((e) => console.error('  takeout ingesta:', e instanceof Error ? e.message : e))))
+      .then(() => trabajarTakeout(db)).catch(() => {})
+    // YouTube: lo que quedó en cola sigue; cada 15 minutos, lo que espera a la compu vuelve a probar con el servicio (si volvió el cupo).
+    void import('./youtube.ts').then((y) => {
+      void y.trabajarYoutube(db).catch(() => {})
+      setInterval(() => { if (y.reintentarConServicio(db)) void y.trabajarYoutube(db).catch(() => {}) }, 15 * 60_000).unref()
+    })
+  }
+})
+deFondo(() => {
+  if (telegramActivo() && !enVercel()) {
+    escucharTelegram(db)
+    setInterval(() => void latidoTelegram(db).catch(() => {}), 60_000).unref()
+    alDecirSolo((texto) => void decirPorTelegram(texto).catch(() => {}))
+  }
+})
 
 // Las runs las arranca él: su latido (reporte por hora, cierre de la run vencida) corre aunque las rutinas estén apagadas.
 let enRuns = false
@@ -2054,8 +2094,8 @@ async function latidoDeRuns() {
     enRuns = false
   }
 }
-setInterval(latidoDeRuns, 60_000).unref()
-setTimeout(latido, 3_000).unref()
+deFondo(() => setInterval(latidoDeRuns, 60_000).unref())
+deFondo(() => setTimeout(latido, 3_000).unref())
 
 const problemaDeAcceso = validarAcceso()
 if (!enVercel()) {
@@ -2065,7 +2105,8 @@ if (!enVercel()) {
   }
   servidor.listen(PUERTO, host(), () => {
     console.log(`\n  ☿ Mastropiero en http://${host() === '0.0.0.0' ? '127.0.0.1' : host()}:${PUERTO}${expuesto() ? '   (expuesto a la red: pide clave)' : ''}   (base: ${process.env.MASTRO_DB ?? 'data/mastro.db'} · motor de reclutas: ${MOTOR_DEFECTO()})\n`)
-    if (!process.env.MASTRO_SIN_PRECALENTAR) setTimeout(() => void precalentar(), 1500)
+    if (!process.env.MASTRO_SIN_PRECALENTAR) setTimeout(() => void precalentar(), arrancaEnEspera ? 0 : 1500)
+    else caliente = true
   })
 }
 
@@ -2081,6 +2122,7 @@ async function precalentar() {
     try { await r[2]({}, ruta.match(r[1])!.slice(1), new URLSearchParams()) } catch { /* una ruta que falla en frío no frena al resto */ }
     await new Promise((ok) => setImmediate(ok))
   }
+  caliente = true
 }
 
 export { servidor }
