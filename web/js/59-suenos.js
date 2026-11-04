@@ -67,12 +67,18 @@ function modalSueno() {
 
 async function modalApps() {
   let d
-  try { d = await api('/apps-conectadas') } catch (e) { return error(e) }
+  let disp = { dispositivos: [] }
+  try { [d, disp] = await Promise.all([api('/apps-conectadas'), api('/dispositivos')]) } catch (e) { return error(e) }
   const fecha = (ms) => (ms ? new Date(ms).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }) : 'nunca')
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>🔌 Apps conectadas</h2>
     <p class="tenue">Otras apps tuyas que le hablan a Deprocast (Morpheon manda tus sueños). Cada una con su token: se ve una sola vez al crearla y se puede revocar. El contrato para pegar en la app está en <code>docs/apps/morpheon.md</code>.</p>
     <p class="tenue chico">Con el permiso <b>leer</b>, la app entra por la puerta MCP (<code>${esc(location.origin)}/mcp</code>): Claude Code, Claude Desktop u otro agente tuyo leen tu archivo, tu grafo, tu Observatorio, tus misiones y tu día. Solo lectura: ${d.mcp.herramientas.length} herramientas, nada que escriba o publique.</p>
     ${d.apps.length ? d.apps.map((a) => `<div class="fila app-fila ${a.revocadaEn ? 'revocada' : ''}"><b>${esc(a.nombre)}</b><code>${esc(a.prefijo)}…</code><small class="tenue">${a.permisos.join(', ')} · ${a.usos} usos · último ${fecha(a.ultimaVez)}${a.revocadaEn ? ' · revocada' : ''}</small>${a.revocadaEn ? '' : `<button class="btn btn-chico btn-peligro" data-app-revocar="${a.id}">Revocar</button>`}</div>`).join('') : '<p class="tenue chico">Ninguna todavía.</p>'}
+    <section class="seccion"><h3 class="sub">📱 Tus dispositivos</h3>
+      <p class="tenue chico">La app de Deprocast en tu teléfono: se vincula con un código de 6 dígitos (vale 10 minutos). Lo que dictás va al chat de Hoy; lo que pensás en voz alta queda como nota. El audio nunca se guarda.</p>
+      ${disp.dispositivos.length ? disp.dispositivos.map((x) => `<div class="fila app-fila ${x.revocadoEn ? 'revocada' : ''}"><b>${esc(x.nombre)}</b><code>${esc(x.plataforma)}</code><small class="tenue">último uso ${fecha(x.ultimaVez)}${x.revocadoEn ? ' · revocado' : ''}</small>${x.revocadoEn ? '' : `<button class="btn btn-chico btn-peligro" data-disp-revocar="${x.id}">Revocar</button>`}</div>`).join('') : ''}
+      <div class="fila"><button class="btn" id="disp-codigo">Vincular un teléfono</button><span id="disp-cod" class="disp-cod"></span></div>
+    </section>
     <form id="app-form" class="seccion"><h3 class="sub">Una app nueva</h3>
       <div class="fila"><label class="campo">Nombre<input name="nombre" value="${d.apps.some((a) => a.nombre === 'Morpheon' && !a.revocadaEn) ? '' : 'Morpheon'}" required></label>
         ${d.permisos.map((p) => `<label class="fila g-1"><input type="checkbox" name="permisos" value="${p}" ${p === 'suenos' ? 'checked' : ''}> ${p}</label>`).join('')}</div>
@@ -80,6 +86,13 @@ async function modalApps() {
     </form>
     <div id="app-token"></div>
     ${d.mcp.llamadas.length ? `<details class="seccion"><summary class="sub">Lo último que pidieron por MCP</summary>${d.mcp.llamadas.map((l) => `<div class="fila app-fila"><b>${esc(l.app)}</b><code>${esc(l.herramienta)}</code><small class="tenue">${l.ok ? '' : 'falló · '}${l.ms} ms · ${new Date(l.en).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</small></div>`).join('')}</details>` : ''}`)
+  $$('[data-disp-revocar]').forEach((b) => (b.onclick = async () => { if (!(await confirmar('¿Revocar este dispositivo? Deja de poder hablarle a Deprocast.', { si: 'Revocar', peligro: true }))) return; try { await api(`/dispositivos/${b.dataset.dispRevocar}/revocar`, {}); modalApps() } catch (e) { error(e) } }))
+  $('#disp-codigo').onclick = async () => {
+    try {
+      const r = await api('/dispositivos/codigo', {})
+      $('#disp-cod').innerHTML = `<b class="num">${r.codigo.slice(0, 3)} ${r.codigo.slice(3)}</b> <small class="tenue">en la app: «Vincular» · vale hasta las ${new Date(r.vence).toTimeString().slice(0, 5)} · servidor <code>${esc(location.origin)}</code></small>`
+    } catch (e) { error(e) }
+  }
   $$('[data-app-revocar]').forEach((b) => (b.onclick = async () => { try { await api(`/apps-conectadas/${b.dataset.appRevocar}/revocar`, {}); modalApps() } catch (e) { error(e) } }))
   $('#app-form').onsubmit = async (ev) => {
     ev.preventDefault()

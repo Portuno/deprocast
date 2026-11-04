@@ -774,6 +774,10 @@ const rutas: [string, RegExp, Ruta][] = [
     db.prepare('UPDATE conversaciones SET titulo = ? WHERE id = ?').run(`Con ${md.nombre}`, c.id)
     return { id: c.id }
   }],
+  // Los dispositivos, desde la pantalla (con la clave): el código para vincular, la lista y revocar.
+  ['GET', /^\/api\/dispositivos$/, async () => { const d = await import('./dispositivos.ts'); return { dispositivos: d.listarDispositivos(db) } }],
+  ['POST', /^\/api\/dispositivos\/codigo$/, async () => (await import('./dispositivos.ts')).crearCodigo(db)],
+  ['POST', /^\/api\/dispositivos\/(\d+)\/revocar$/, async (_, [x]) => { (await import('./dispositivos.ts')).revocarDispositivo(db, id(x)); return { ok: true } }],
   ['GET', /^\/api\/apps-conectadas$/, async () => { const a = await import('./apps.ts'); const m = await import('./mcp.ts'); return { apps: a.listarApps(db), permisos: a.PERMISOS, mcp: { herramientas: m.HERRAMIENTAS_MCP, llamadas: m.llamadasMcp(db, 12) } } }],
   ['POST', /^\/api\/apps-conectadas$/, async (b) => (await import('./apps.ts')).crearApp(db, String(b.nombre ?? ''), Array.isArray(b.permisos) ? b.permisos : ['suenos'])],
   ['POST', /^\/api\/apps-conectadas\/(\d+)\/revocar$/, async (_, [a]) => { (await import('./apps.ts')).revocarApp(db, id(a)); return { ok: true } }],
@@ -1383,6 +1387,47 @@ function soloNube(que: string) {
  * /api/apps/eventos. Sin token o revocado: 401; sin el permiso: 403.
  */
 /**
+ * Tus dispositivos (plan v33): /api/dispositivo/vincular (con el código de 6 dígitos, sin token) y, con «Authorization:
+ * Bearer dpd_…», hoy (lo mínimo para abrir al instante), mensaje (escribirle a Mastropiero) y voz (un segmento de audio:
+ * se transcribe y se descarta). Sin la clave de la pantalla.
+ */
+async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
+  const responder = (codigo: number, cuerpo: unknown) => void res.writeHead(codigo, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }).end(JSON.stringify(cuerpo))
+  const d = await import('./dispositivos.ts')
+  const ruta = url.pathname.slice('/api/dispositivo/'.length)
+  try {
+    if (ruta === 'vincular') {
+      if (req.method !== 'POST') return responder(405, { error: 'Usá POST' })
+      const b = JSON.parse((await leerCrudo(req, 64 * 1024)).toString('utf8') || '{}')
+      const r = d.vincular(db, { codigo: b.codigo, nombre: b.nombre, plataforma: b.plataforma })
+      return responder(201, { token: r.token, dispositivo: r.dispositivo })
+    }
+    const disp = d.autenticarDispositivo(db, req.headers.authorization)
+    if (!disp) return responder(401, { error: 'Falta el token del dispositivo o no es válido (Authorization: Bearer dpd_…)' })
+    if (ruta === 'hoy' && req.method === 'GET') return responder(200, { dispositivo: disp.nombre, ...(await d.paqueteHoy(db)) })
+    if (ruta === 'mensaje' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 256 * 1024)).toString('utf8') || '{}')
+      const texto = String(b.texto ?? '').trim()
+      if (!texto) return responder(400, { error: '¿Qué le digo?' })
+      void enviar(db, conversacionHoy(db).id, texto)
+      return responder(202, { ok: true })
+    }
+    if (ruta === 'voz' && req.method === 'POST') {
+      const modo = url.searchParams.get('modo') === 'pasivo' ? 'pasivo' : 'dictado'
+      const n = (k: string) => (url.searchParams.get(k) != null ? Number(url.searchParams.get(k)) : undefined)
+      const audio = await leerCrudo(req, 25 * 1024 * 1024)
+      const r = await d.recibirVoz(db, disp, audio, url.searchParams.get('nombre') || 'voz.m4a', {
+        modo, inicio: n('inicio'), fin: n('fin'), ruidoDb: n('ruidoDb'), proximidad: url.searchParams.get('proximidad') === '1', caminando: url.searchParams.get('caminando') === '1',
+      })
+      return responder(201, r)
+    }
+    return responder(404, { error: 'Ruta desconocida' })
+  } catch (e) {
+    return responder(400, { error: e instanceof Error ? e.message : String(e) })
+  }
+}
+
+/**
  * La puerta MCP (plan v29): POST /mcp con el token de una app que tenga «leer». JSON-RPC sin streaming y sin sesión;
  * GET y DELETE no abren nada (405). Un Origin de otro sitio no entra (lo pide el protocolo contra el DNS rebinding).
  */
@@ -1469,6 +1514,7 @@ const servidor = http.createServer(async (req, res) => {
   // Las apps conectadas entran con su token, no con la clave.
   if (url.pathname.startsWith('/api/apps/')) return atenderApp(req, res, url)
   if (url.pathname === '/mcp') return atenderMcp(req, res)
+  if (url.pathname.startsWith('/api/dispositivo/')) return atenderDispositivo(req, res, url)
   // Expuesto a la red: primero la clave (salvo desde esta misma compu).
   if (url.pathname === '/entrar') {
     if (req.method === 'POST') {

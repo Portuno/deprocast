@@ -2985,3 +2985,4 @@ span.ej-chip { cursor: default; }
 .ob-ultimos { margin-top: var(--e-2); padding-top: var(--e-1); border-top: 1px dashed var(--linea); }
 .ob-ultimos ul { margin: 2px 0 0; padding-left: 1.1em; display: grid; gap: 2px; font-size: var(--t-2); }
 .ob-ultimos li { overflow-wrap: anywhere; }
+.disp-cod b { font-size: var(--t-7); letter-spacing: .12em; margin-right: var(--e-2); }

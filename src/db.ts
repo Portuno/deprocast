@@ -1068,6 +1068,34 @@ CREATE TABLE IF NOT EXISTS informe_avisos (
   en INTEGER NOT NULL,
   informe_id INTEGER                  -- el reporte (tipo informe) que lo incluyó
 );
+-- Tus dispositivos (plan v33): el teléfono se vincula con un código de 6 dígitos y recibe su token (acá, su hash).
+CREATE TABLE IF NOT EXISTS dispositivos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL,
+  plataforma TEXT NOT NULL,           -- ios | android | web | otro
+  prefijo TEXT NOT NULL,
+  token_hash TEXT NOT NULL,
+  creado_en INTEGER NOT NULL,
+  ultima_vez INTEGER,
+  revocado_en INTEGER
+);
+CREATE TABLE IF NOT EXISTS dispositivo_codigos (
+  codigo TEXT PRIMARY KEY,
+  creado_en INTEGER NOT NULL,
+  intentos INTEGER NOT NULL DEFAULT 0,
+  usado_en INTEGER
+);
+-- Lo que llegó por voz desde un dispositivo (el texto, nunca el audio) y a dónde fue: el chat (dictado) o una nota (pasivo).
+CREATE TABLE IF NOT EXISTS voz_segmentos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  dispositivo_id INTEGER NOT NULL,
+  modo TEXT NOT NULL,
+  texto TEXT NOT NULL,
+  meta TEXT,
+  destino TEXT NOT NULL,
+  pieza_id INTEGER,
+  creado_en INTEGER NOT NULL
+);
 -- Explorar internet (plan v31): la caché de 30 min de cada pedido (no se le pide dos veces lo mismo a nadie) y la salud
 -- de cada backend de cada canal (último ok, último error y hasta cuándo está en pausa si lo limitaron o bloquearon).
 CREATE TABLE IF NOT EXISTS explorar_cache (
