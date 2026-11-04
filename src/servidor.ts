@@ -147,7 +147,7 @@ alGuardar(() => { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)') } catch { /* 
 
 // Usuarios (plan v33, paso 5). En el proceso del dueño, la puerta: las sesiones de los usuarios van a su propio Deprocast.
 // En el Deprocast de un usuario: el tope duro de tokens por día (cuenta todo) y, si el hub se cae, se apaga con él.
-const puerta = enUsuario() || enVercel() ? null : crearPuerta({ datos: process.env.MASTRO_CUENTAS_DIR ?? path.dirname(resolverRuta()), maxVivos: Number(process.env.MASTRO_USUARIOS_VIVOS) || undefined })
+const puerta = enUsuario() || enVercel() ? null : crearPuerta({ datos: process.env.MASTRO_CUENTAS_DIR ?? path.dirname(resolverRuta()), prenderAlArrancar: 20_000 })
 if (puerta) for (const s of ['SIGTERM', 'SIGINT'] as const) process.once(s, () => { void puerta.hub.pararTodos().finally(() => process.exit(0)) })
 if (enUsuario()) {
   const tope = Number(process.env.MASTRO_TOPE_DIA) || 0

@@ -138,6 +138,17 @@ describe('la puerta, de punta a punta (con un Deprocast de usuario de verdad)', 
     const adm = await pedir('/usuarios')
     assert.match(adm.body, /dana@ejemplo\.com/)
 
+    // Si su proceso se cae, vuelve solo (los usuarios quedan prendidos siempre).
+    const antes = puerta.hub.vivos().find((v) => v.id === 1)!.pid!
+    process.kill(antes)
+    let vuelto = false
+    for (let i = 0; i < 80 && !vuelto; i++) {
+      await new Promise((ok) => setTimeout(ok, 250))
+      vuelto = puerta.hub.vivos().some((v) => v.id === 1 && v.listo && v.pid !== antes)
+    }
+    assert.ok(vuelto, 'volvió a prenderse solo')
+    assert.equal((await pedir('/api/meta', { cookie })).status, 200)
+
     // Salir: la cookie ya no vale y vuelve a lo del dueño.
     await pedir('/salir', { cookie })
     const despues = await pedir('/api/estado', { cookie })

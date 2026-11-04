@@ -88,12 +88,17 @@ ${o.error ? `<p class="error">${esc(o.error)}</p>` : ''}${o.ok ? `<p class="ok">
 
 // ─── la puerta ─────────────────────────────────────────────────────────
 
-export type OpcionesPuerta = { datos: string; hub?: Hub; maxVivos?: number }
+export type OpcionesPuerta = { datos: string; hub?: Hub; prenderAlArrancar?: number }
 
 export function crearPuerta(o: OpcionesPuerta) {
   let cuentas: Cuentas | null = null
   const db = () => (cuentas ??= abrirCuentas(path.join(o.datos, 'cuentas.db')))
-  const hub: Hub = o.hub ?? crearHub({ datos: o.datos, maxVivos: o.maxVivos, topeDe: (id) => usuario(db(), id)?.topeDia ?? 0 })
+  const hub: Hub = o.hub ?? crearHub({ datos: o.datos, topeDe: (id) => usuario(db(), id)?.topeDia ?? 0 })
+  // Los usuarios quedan prendidos siempre: al arrancar se prenden todos los activos (si ya hay cuentas), escalonados y
+  // después de que el dueño ya contesta.
+  if (o.prenderAlArrancar !== undefined && fs.existsSync(path.join(o.datos, 'cuentas.db'))) {
+    setTimeout(() => { try { hub.mantener(listarUsuarios(db()).filter((u) => u.estado === 'activo').map((u) => u.id)) } catch (e) { console.error('  usuarios:', e instanceof Error ? e.message : e) } }, o.prenderAlArrancar).unref()
+  }
   const porIp = crearLimitador(20, 15 * 60_000)
   const porEmail = crearLimitador(8, 15 * 60_000)
   const html = (res: http.ServerResponse, codigo: number, cuerpo: string, extra: Record<string, string | string[]> = {}) =>
@@ -231,7 +236,7 @@ export function crearPuerta(o: OpcionesPuerta) {
 
   async function atenderAdmin(req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
     const p = url.pathname
-    const m = /^\/usuarios\/(\d+)\/(estado|tope|borrar|apagar)$/.exec(p)
+    const m = /^\/usuarios\/(\d+)\/(estado|tope|borrar|reiniciar)$/.exec(p)
     const mi = /^\/usuarios\/invitaciones\/(\d+)\/anular$/.exec(p)
     let aviso = ''
     if (req.method === 'POST') {
@@ -248,9 +253,9 @@ export function crearPuerta(o: OpcionesPuerta) {
         const id = Number(m[1])
         const u = usuario(db(), id)
         if (!u) return ir(res, '/usuarios')
-        if (m[2] === 'estado') { cambiarEstado(db(), id, u.estado === 'activo' ? 'suspendido' : 'activo'); if (u.estado === 'activo') { await hub.parar(id) } }
-        if (m[2] === 'tope') { fijarTope(db(), id, Number(f.tokens)); await hub.parar(id) } // arranca de nuevo con el tope nuevo
-        if (m[2] === 'apagar') { await hub.parar(id) }
+        if (m[2] === 'estado') { cambiarEstado(db(), id, u.estado === 'activo' ? 'suspendido' : 'activo'); if (u.estado === 'activo') await hub.parar(id); else void hub.asegurar(id).catch(() => {}) }
+        if (m[2] === 'tope') { fijarTope(db(), id, Number(f.tokens)); if (u.estado === 'activo') void hub.reiniciar(id).catch(() => {}) } // arranca de nuevo con el tope nuevo
+        if (m[2] === 'reiniciar' && u.estado === 'activo') void hub.reiniciar(id).catch(() => {})
         if (m[2] === 'borrar') {
           if ((f.confirmar ?? '').trim().toLowerCase() !== u.email.toLowerCase()) return html(res, 400, paginaBorrar(u, 'Escribí el email exacto para confirmar.'))
           await borrarTodo(id)
@@ -264,17 +269,17 @@ export function crearPuerta(o: OpcionesPuerta) {
     const vivos = new Map(hub.vivos().map((v) => [v.id, v]))
     const filas = listarUsuarios(db()).map((u) => {
       const g = gastoHoy(u.id)
-      return `<tr><td><b>${esc(u.nombre)}</b><br><span class="tenue">${esc(u.email)}</span></td><td>${u.estado === 'activo' ? (vivos.has(u.id) ? '● prendido' : 'activo') : 'suspendido'}<br><span class="tenue">entró ${fecha(u.ultimo)}</span></td><td>${g === null ? '—' : miles(g)} / ${u.topeDia ? miles(u.topeDia) : '∞'}</td>
+      return `<tr><td><b>${esc(u.nombre)}</b><br><span class="tenue">${esc(u.email)}</span></td><td>${u.estado === 'activo' ? (vivos.get(u.id)?.listo ? '● prendido' : vivos.has(u.id) ? '◌ arrancando' : 'activo (apagado)') : 'suspendido'}<br><span class="tenue">entró ${fecha(u.ultimo)}</span></td><td>${g === null ? '—' : miles(g)} / ${u.topeDia ? miles(u.topeDia) : '∞'}</td>
 <td><div class="fila"><form method="post" action="/usuarios/${u.id}/estado"><button class="sec">${u.estado === 'activo' ? 'Suspender' : 'Reactivar'}</button></form>
 <form method="post" action="/usuarios/${u.id}/tope"><input name="tokens" type="number" min="0" step="10000" value="${u.topeDia}" aria-label="Tope de tokens por día" style="width:120px"><button class="sec">Tope</button></form>
-${vivos.has(u.id) ? `<form method="post" action="/usuarios/${u.id}/apagar"><button class="sec">Apagar</button></form>` : ''}<a href="/usuarios/${u.id}/borrar">Borrar…</a></div></td></tr>`
+${u.estado === 'activo' ? `<form method="post" action="/usuarios/${u.id}/reiniciar"><button class="sec">Reiniciar</button></form>` : ''}<a href="/usuarios/${u.id}/borrar">Borrar…</a></div></td></tr>`
     }).join('')
     const invs = listarInvitaciones(db()).map((i) => `<tr><td>${esc(i.email ?? 'cualquier email')}${i.nota ? `<br><span class="tenue">${esc(i.nota)}</span>` : ''}</td><td>vence ${fecha(i.vence)}</td><td><form method="post" action="/usuarios/invitaciones/${i.id}/anular"><button class="sec">Anular</button></form></td></tr>`).join('')
     return html(res, 200, pagina('Usuarios', `<h1>Usuarios</h1><p class="tenue">Cada usuario tiene su propio Deprocast (su base, su memoria, sus agentes) en un proceso aparte. Usan tu clave de NaN, con un tope de tokens por día cada uno. <a href="/">← Volver</a></p>${aviso}
 <h2>Invitar</h2><form method="post" action="/usuarios/invitar"><input type="email" name="email" placeholder="Email (opcional: si lo ponés, solo sirve para ese)"><input name="nota" placeholder="Nota para vos (opcional)"><select name="dias" aria-label="Vence en"><option value="1">Vence en 1 día</option><option value="7" selected>Vence en 7 días</option><option value="30">Vence en 30 días</option></select><button>Generar el link</button></form>
 ${invs ? `<h2>Invitaciones sin usar</h2><div class="tabla"><table>${invs}</table></div>` : ''}
 <h2>Cuentas</h2>${filas ? `<div class="tabla"><table><tr><th>Quién</th><th>Estado</th><th>Tokens hoy / tope</th><th></th></tr>${filas}</table></div>` : '<p class="tenue">Todavía nadie.</p>'}
-<p class="tenue">Prendidos ahora: ${vivos.size}. Se apagan solos tras 20 minutos sin uso.</p>`))
+<p class="tenue">Prendidos ahora: ${vivos.size}. Cada cuenta activa queda prendida siempre (si se cae, vuelve sola); suspender la apaga y borrar la elimina.</p>`))
   }
 
   const paginaBorrar = (u: Usuario, error = '') => pagina('Borrar', `<form method="post" action="/usuarios/${u.id}/borrar" class="angosto"><h1>¿Borrar a ${esc(u.nombre)}?</h1><p class="tenue">Se borra su cuenta y su Deprocast entero (base, archivos, agentes). No se puede deshacer.</p>${error ? `<p class="error">${esc(error)}</p>` : ''}<input name="confirmar" placeholder="Escribí ${esc(u.email)}" autocomplete="off" required><button class="mal">Borrar para siempre</button><a href="/usuarios">Cancelar</a></form>`)
