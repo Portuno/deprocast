@@ -240,7 +240,7 @@ export const ACCIONES: Acciones = {
   },
   /** De madrugada: lo que se rompió y lo que él se quejó se vuelve propuestas de arreglo para La Fragua. */
   async autocritica(db, _fecha, ahora) {
-    if (topeAlcanzado(db, ahora)) return null
+    if (topeAlcanzado(db, ahora) || process.env.MASTRO_USUARIO) return null
     const ps = await autocritica(db, ahora)
     return ps.length ? `Revisé lo que se rompió estos días y anoté ${ps.length} arreglo${ps.length > 1 ? 's' : ''} para La Fragua: ${ps.map((p) => p.titulo).join(' · ')}.` : null
   },

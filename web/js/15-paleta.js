@@ -34,6 +34,7 @@ const ACCIONES_PALETA = [
   { id: 'segmento', titulo: 'Exportar a medida', ico: 'arrow-up-down', claves: 'exportar a medida segmento proyecto entidades quantomos relaciones json esquema elegir', hacer: () => modalSegmento() },
   { id: 'estado', titulo: 'Exportar o importar todo', ico: 'arrow-up-down', claves: 'exportar importar respaldo backup estado', hacer: () => modalEstado() },
   { id: 'velocidad', titulo: 'Velocidad del servidor', ico: 'activity', claves: 'velocidad rendimiento lento medir', hacer: () => modalVelocidad() },
+  { id: 'cuentas', titulo: () => (document.documentElement.dataset.base ? 'Tu cuenta (contraseña, salir, borrar)' : 'Usuarios e invitaciones'), ico: 'user-plus', claves: 'usuarios cuenta invitar invitacion login salir contraseña personas agentes acceso', hacer: () => { location.href = document.documentElement.dataset.base ? '/cuenta' : '/usuarios' } },
   { id: 'atajos', titulo: 'Atajos del teclado', ico: 'keyboard', claves: 'atajos teclado ayuda shortcuts', hacer: () => mostrarAtajos() },
 ]
 /** Otras palabras para encontrar cada sección. */

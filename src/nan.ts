@@ -133,6 +133,17 @@ export function _probar(t: typeof transporte, d: typeof dormir = async () => {})
   dormir = d
 }
 
+/**
+ * Tope duro (plan v33, paso 5): en el Deprocast de un usuario, todo pedido al modelo pasa por acá, también lo que pide
+ * él (el tope de siempre solo frena lo que corre solo). Si devuelve un motivo, el pedido no sale.
+ */
+let topeDuro: () => string | null = () => null
+export function fijarTopeDuro(f: () => string | null) { topeDuro = f }
+function chequearTopeDuro() {
+  const m = topeDuro()
+  if (m) throw new Error(m)
+}
+
 /** Limitador de la key: 50 pedidos por minuto. */
 const ventana: number[] = []
 async function turno() {
@@ -155,6 +166,7 @@ function key() {
 }
 
 async function pedir(metodo: 'GET' | 'POST', ruta: string, body?: unknown): Promise<Respuesta> {
+  chequearTopeDuro()
   await turno()
   await tomarLugar()
   try {
@@ -402,6 +414,7 @@ export async function nanTranscribirDetallado(db: Db, audio: Buffer, nombre: str
     const t0 = Date.now()
     let res: Response
     let cuerpo: string
+    chequearTopeDuro()
     await tomarLugar()
     try {
       res = await fetch(`${base()}/audio/transcriptions`, { method: 'POST', headers: { authorization: `Bearer ${key()}` }, body: form, signal: AbortSignal.timeout(300_000) })

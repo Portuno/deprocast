@@ -49,6 +49,11 @@ export function ramaActual(repo = process.cwd()): string | null {
 }
 
 /** Si el servidor se cortó a mitad de una forja, queda «haciendo» y bloquearía las siguientes: pasa a fallo. */
+/** La Fragua escribe el código de Deprocast: en el Deprocast de un usuario (plan v33, paso 5) no está. */
+function soloDelDueno() {
+  if (process.env.MASTRO_USUARIO) throw new Error('La Fragua es solo del dueño de este Deprocast.')
+}
+
 export function retomarFragua(db: Db) {
   db.prepare(`UPDATE fragua SET estado = 'fallo', salida = COALESCE(salida, '') || 'Se cortó: el servidor se reinició mientras forjaba. Podés volver a forjarla.' WHERE estado = 'haciendo'`).run()
 }
@@ -166,6 +171,7 @@ const dirDe = (repo: string, id: number) => path.join(repo, 'data', 'fragua', St
 
 /** Forja una propuesta (o un pedido en palabras) en su propia rama. No toca main. */
 export async function forjarMejora(db: Db, p: { propuestaId?: number | null; pedido?: string | null }, o: Opciones = {}, ahora = Date.now()): Promise<Forja> {
+  soloDelDueno()
   const repo = path.resolve(o.repo ?? process.cwd())
   const prop = p.propuestaId ? db.prepare('SELECT * FROM propuestas WHERE id = ?').get(p.propuestaId) as any : null
   if (p.propuestaId && !prop) throw new Error(`No existe la propuesta ${p.propuestaId}`)
@@ -260,6 +266,7 @@ export function propuestasParaForjar(db: Db, limite: number): { id: number; titu
 
 /** La Fragua de noche: forja de a una las propuestas que tocan, hasta el límite o el tope de gasto. */
 export async function forjarPendientes(db: Db, o: Opciones & { limite?: number; frenar?: () => string | null } = {}): Promise<{ forjas: Forja[]; frenado: string | null }> {
+  soloDelDueno()
   const forjas: Forja[] = []
   for (const p of propuestasParaForjar(db, o.limite ?? 3)) {
     const frenado = o.frenar?.() ?? null
@@ -282,6 +289,7 @@ function limpiar(repo: string, f: Forja, borrarRama: boolean) {
  * cambios suyos sin commitear). Después hay que reiniciar el servidor para que corra lo nuevo.
  */
 export function aplicarForja(db: Db, id: number, o: Opciones = {}, ahora = Date.now()): Forja {
+  soloDelDueno()
   const repo = path.resolve(o.repo ?? process.cwd())
   const f = leerForja(db, id)
   if (!f) throw new Error(`No existe la forja ${id}`)

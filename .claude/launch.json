@@ -39,6 +39,21 @@
         "--sin-telegram"
       ],
       "port": 7374
+    },
+    {
+      "name": "mastropiero-usuarios",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "--disable-warning=ExperimentalWarning",
+        "src/servidor.ts",
+        "--db",
+        "data/prueba-usuarios/prueba.db",
+        "--puerto",
+        "7375",
+        "--sin-rutinas",
+        "--sin-telegram"
+      ],
+      "port": 7375
     }
   ]
 }

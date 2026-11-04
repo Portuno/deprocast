@@ -16,9 +16,22 @@ export const enVercel = () => process.env.VERCEL === '1'
 export const detrasDeProxy = () => enVercel() || process.env.MASTRO_NUBE === '1'
 export const expuesto = () => detrasDeProxy() || !['127.0.0.1', 'localhost', '::1'].includes(host())
 const clave = () => process.env.MASTRO_CLAVE?.trim() ?? ''
+/**
+ * Usuarios (plan v33, paso 5): cada usuario tiene su propio proceso de Deprocast, que escucha solo en 127.0.0.1 y al
+ * que llega únicamente el hub (el proceso del dueño). Ahí no vale la clave del dueño ni «esta compu»: pasa solo lo que
+ * trae la cabecera del hub (que la pone después de verificar la sesión de ese usuario).
+ */
+export const enUsuario = () => !!process.env.MASTRO_USUARIO
+export const CABECERA_HUB = 'x-deprocast-hub'
+function delHub(req: http.IncomingMessage): boolean {
+  const t = process.env.MASTRO_HUB_TOKEN ?? ''
+  const v = String(req.headers[CABECERA_HUB] ?? '')
+  return t.length >= 32 && v.length === t.length && crypto.timingSafeEqual(Buffer.from(v), Buffer.from(t))
+}
 
 /** Si se expone a la red sin clave, mejor no arrancar. */
 export function validarAcceso(): string | null {
+  if (enUsuario()) return (process.env.MASTRO_HUB_TOKEN ?? '').length >= 32 ? null : 'Un Deprocast de usuario necesita MASTRO_HUB_TOKEN (lo pone el hub).'
   if (expuesto() && clave().length < 8) {
     return detrasDeProxy()
       ? `En ${enVercel() ? 'Vercel' : 'la nube'} hace falta MASTRO_CLAVE (8 caracteres o más), en las variables del servicio.`
@@ -36,13 +49,14 @@ function cookies(req: http.IncomingMessage): Record<string, string> {
 
 /** ¿Puede pasar? Desde esta compu, siempre; desde la red, con la cookie de la clave. */
 export function autorizado(req: http.IncomingMessage): boolean {
+  if (enUsuario()) return delHub(req)
   if (!expuesto() || local(req)) return true
   const c = cookies(req).mastro
   return !!c && crypto.timingSafeEqual(Buffer.from(c.padEnd(64).slice(0, 64)), Buffer.from(huella(clave())))
 }
 
 export function cookieDeEntrada(ingresada: string): string | null {
-  if (!clave() || ingresada !== clave()) return null
+  if (enUsuario() || !clave() || ingresada !== clave()) return null
   const secure = detrasDeProxy() ? '; Secure' : ''
   return `mastro=${huella(clave())}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${60 * 60 * 24 * 180}${secure}`
 }

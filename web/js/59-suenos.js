@@ -72,7 +72,7 @@ async function modalApps() {
   const fecha = (ms) => (ms ? new Date(ms).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }) : 'nunca')
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>🔌 Apps conectadas</h2>
     <p class="tenue">Otras apps tuyas que le hablan a Deprocast (Morpheon manda tus sueños). Cada una con su token: se ve una sola vez al crearla y se puede revocar. El contrato para pegar en la app está en <code>docs/apps/morpheon.md</code>.</p>
-    <p class="tenue chico">Con el permiso <b>leer</b>, la app entra por la puerta MCP (<code>${esc(location.origin)}/mcp</code>): Claude Code, Claude Desktop u otro agente tuyo leen tu archivo, tu grafo, tu Observatorio, tus misiones y tu día. Solo lectura: ${d.mcp.herramientas.length} herramientas, nada que escriba o publique.</p>
+    <p class="tenue chico">Con el permiso <b>leer</b>, la app entra por la puerta MCP (<code>${esc(ORIGEN_PUBLICO)}/mcp</code>): Claude Code, Claude Desktop u otro agente tuyo leen tu archivo, tu grafo, tu Observatorio, tus misiones y tu día. Solo lectura: ${d.mcp.herramientas.length} herramientas, nada que escriba o publique.</p>
     ${d.apps.length ? d.apps.map((a) => `<div class="fila app-fila ${a.revocadaEn ? 'revocada' : ''}"><b>${esc(a.nombre)}</b><code>${esc(a.prefijo)}…</code><small class="tenue">${a.permisos.join(', ')} · ${a.usos} usos · último ${fecha(a.ultimaVez)}${a.revocadaEn ? ' · revocada' : ''}</small>${a.revocadaEn ? '' : `<button class="btn btn-chico btn-peligro" data-app-revocar="${a.id}">Revocar</button>`}</div>`).join('') : '<p class="tenue chico">Ninguna todavía.</p>'}
     <section class="seccion"><h3 class="sub">📱 Tus dispositivos</h3>
       <p class="tenue chico">La app de Deprocast en tu teléfono: se vincula con un código de 6 dígitos (vale 10 minutos). Lo que dictás va al chat de Hoy; lo que pensás en voz alta queda como nota. El audio nunca se guarda.</p>
@@ -90,7 +90,7 @@ async function modalApps() {
   $('#disp-codigo').onclick = async () => {
     try {
       const r = await api('/dispositivos/codigo', {})
-      $('#disp-cod').innerHTML = `<b class="num">${r.codigo.slice(0, 3)} ${r.codigo.slice(3)}</b> <small class="tenue">en la app: «Vincular» · vale hasta las ${new Date(r.vence).toTimeString().slice(0, 5)} · servidor <code>${esc(location.origin)}</code></small>`
+      $('#disp-cod').innerHTML = `<b class="num">${r.codigo.slice(0, 3)} ${r.codigo.slice(3)}</b> <small class="tenue">en la app: «Vincular» · vale hasta las ${new Date(r.vence).toTimeString().slice(0, 5)} · servidor <code>${esc(ORIGEN_PUBLICO)}</code></small>`
     } catch (e) { error(e) }
   }
   $$('[data-app-revocar]').forEach((b) => (b.onclick = async () => { try { await api(`/apps-conectadas/${b.dataset.appRevocar}/revocar`, {}); modalApps() } catch (e) { error(e) } }))
@@ -102,8 +102,8 @@ async function modalApps() {
       $('#app-form').hidden = true
       $('#app-token').innerHTML = `<div class="app-token"><p><b>Token de ${esc(r.app.nombre)}</b> — copialo ahora: no se vuelve a mostrar.</p>
         <div class="fila"><code id="app-token-txt">${esc(r.token)}</code><button class="btn btn-chico" id="app-copiar">Copiar</button></div>
-        ${r.app.permisos.includes('leer') ? `<p class="tenue chico">Para Claude Code:</p><div class="fila"><code id="app-mcp-txt">${esc(`claude mcp add --transport http deprocast ${location.origin}/mcp --header "Authorization: Bearer ${r.token}"`)}</code><button class="btn btn-chico" id="app-mcp-copiar">Copiar</button></div><p class="tenue chico">En otro cliente MCP: la URL <code>${esc(location.origin)}/mcp</code> (HTTP) con el encabezado <code>Authorization: Bearer &lt;token&gt;</code>.</p>` : ''}
-        ${r.app.permisos.some((p) => p !== 'leer') ? `<p class="tenue chico">En la app: <code>POST ${esc(location.origin)}/api/apps/${r.app.permisos.includes('suenos') ? 'suenos' : 'eventos'}</code> con <code>Authorization: Bearer &lt;token&gt;</code>.</p>` : ''}</div>`
+        ${r.app.permisos.includes('leer') ? `<p class="tenue chico">Para Claude Code:</p><div class="fila"><code id="app-mcp-txt">${esc(`claude mcp add --transport http deprocast ${ORIGEN_PUBLICO}/mcp --header "Authorization: Bearer ${r.token}"`)}</code><button class="btn btn-chico" id="app-mcp-copiar">Copiar</button></div><p class="tenue chico">En otro cliente MCP: la URL <code>${esc(ORIGEN_PUBLICO)}/mcp</code> (HTTP) con el encabezado <code>Authorization: Bearer &lt;token&gt;</code>.</p>` : ''}
+        ${r.app.permisos.some((p) => p !== 'leer') ? `<p class="tenue chico">En la app: <code>POST ${esc(ORIGEN_PUBLICO)}/api/apps/${r.app.permisos.includes('suenos') ? 'suenos' : 'eventos'}</code> con <code>Authorization: Bearer &lt;token&gt;</code>.</p>` : ''}</div>`
       if ($('#app-mcp-copiar')) $('#app-mcp-copiar').onclick = async () => { try { await navigator.clipboard.writeText($('#app-mcp-txt').textContent); toast('Copiado', 'suave') } catch { toast('Seleccionalo y copialo a mano', 'suave') } }
       $('#app-copiar').onclick = async () => { try { await navigator.clipboard.writeText(r.token); toast('Copiado', 'suave') } catch { toast('Seleccionalo y copialo a mano', 'suave') } }
     } catch (e) { error(e) }

@@ -18,7 +18,8 @@ import {
 } from './misiones.ts'
 import { catalogo } from './menciones.ts'
 import { pensar } from './alertas.ts'
-import { autorizado, cookieDeEntrada, enVercel, expuesto, host, leerFormulario, PAGINA_ENTRAR, validarAcceso } from './acceso.ts'
+import { autorizado, cookieDeEntrada, enUsuario, enVercel, expuesto, host, leerFormulario, PAGINA_ENTRAR, validarAcceso } from './acceso.ts'
+import { crearPuerta } from './cuentas-usuarios/index.ts'
 import { alGuardar, bajarNube, esperarSubida, subirAhora } from './nube.ts'
 import { CONECTORES, guardarCuenta, leerAgente, listarCuentas, listarPublicaciones, MODOS, publicarPendientes, redactarPublicaciones, resolverPublicacion } from './cuentas.ts'
 import { decir as decirPorTelegram, escucharTelegram, estadoTelegram, latidoTelegram, telegramActivo, telegramConfigurado } from './telegram.ts'
@@ -83,7 +84,7 @@ import { deshacerAcciones } from './chat/deshacer.ts'
 import { celda, DOMINIOS } from './geometria72.ts'
 import { crearProyecto, cronica, estadoLiga, ingerir, numeroDeTick, tickEnCurso, tickUnico } from './mastropiero.ts'
 import { motoresDisponibles } from './motores.ts'
-import { cadena, nanConfigurado, nanTranscribir, tokensHoy, topeAlcanzado, topeDiario, usoDelMes } from './nan.ts'
+import { cadena, fijarTopeDuro, nanConfigurado, nanTranscribir, tokensHoy, topeAlcanzado, topeDiario, usoDelMes } from './nan.ts'
 import {
   aceptarPropuesta, descartar as descartarQuantomo, descartarLote, gruposProto, leerQuantomo, linaje, listarQuantomos, pedirLote, pedirMejora, quantomosDePieza, resumenQuantomos, sellar, sellarLote,
 } from './quantomos.ts'
@@ -143,6 +144,17 @@ try {
 // La cola del Taller: lo que quedó a medias por un reinicio vuelve a la cola y sigue.
 try { const n = retomarTaller(db); if (n) console.log(`  ✎ El Taller retoma ${n} trabajo${n === 1 ? '' : 's'}`) } catch (e) { console.error('  taller:', e instanceof Error ? e.message : e) }
 alGuardar(() => { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)') } catch { /* todavía no */ } })
+
+// Usuarios (plan v33, paso 5). En el proceso del dueño, la puerta: las sesiones de los usuarios van a su propio Deprocast.
+// En el Deprocast de un usuario: el tope duro de tokens por día (cuenta todo) y, si el hub se cae, se apaga con él.
+const puerta = enUsuario() || enVercel() ? null : crearPuerta({ datos: process.env.MASTRO_CUENTAS_DIR ?? path.dirname(resolverRuta()), maxVivos: Number(process.env.MASTRO_USUARIOS_VIVOS) || undefined })
+if (puerta) for (const s of ['SIGTERM', 'SIGINT'] as const) process.once(s, () => { void puerta.hub.pararTodos().finally(() => process.exit(0)) })
+if (enUsuario()) {
+  const tope = Number(process.env.MASTRO_TOPE_DIA) || 0
+  if (tope) fijarTopeDuro(() => { const t = tokensHoy(db).total; return t >= tope ? `Llegaste al tope de hoy (${tope.toLocaleString('es-AR')} tokens). Mañana sigue; si necesitás más, pedíselo a quien te invitó.` : null })
+  const padre = process.ppid
+  setInterval(() => { try { process.kill(padre, 0) } catch { process.exit(0) } }, 10_000).unref()
+}
 
 function vista(db: Db, f: Ficha) {
   const n = nivel(f)
@@ -1525,6 +1537,8 @@ const servidor = http.createServer(async (req, res) => {
   }
   if (enVercel()) latidoSiToca()
   if (enVercel() && req.method && !['GET', 'HEAD'].includes(req.method)) esperarSubida(res)
+  // Lo de los usuarios (su sesión, sus apps por /u/<id>, entrar, alta, cuenta, la administración) antes que nada.
+  if (puerta && await puerta.atender(req, res, url)) return
   // Las apps conectadas entran con su token, no con la clave.
   if (url.pathname.startsWith('/api/apps/')) return atenderApp(req, res, url)
   if (url.pathname === '/mcp') return atenderMcp(req, res)
@@ -1551,7 +1565,8 @@ const servidor = http.createServer(async (req, res) => {
     const { crearCodigo } = await import('./dispositivos.ts')
     const { codigo, vence } = crearCodigo(db)
     const hora = new Date(vence).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
-    const host = req.headers.host ?? ''
+    // En el Deprocast de un usuario, su dirección lleva /u/<id> (así el teléfono llega a su base y no a la del dueño).
+    const host = (req.headers.host ?? '') + (enUsuario() ? `/u/${process.env.MASTRO_USUARIO}` : '')
     return void res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }).end(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vincular · Deprocast</title>
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f1012;color:#e6e6e8;font:16px system-ui,sans-serif;text-align:center;padding:24px;box-sizing:border-box}b{display:block;font-size:56px;letter-spacing:.15em;color:#c4a062;margin:16px 0}small{color:#9a9ca4;display:block;margin-top:8px;line-height:1.5}code{color:#e6e6e8}a{color:#c4a062}</style></head>
 <body><div><div>☿ Código para vincular tu teléfono</div><b>${codigo.slice(0, 3)} ${codigo.slice(3)}</b>
@@ -1865,7 +1880,11 @@ const servidor = http.createServer(async (req, res) => {
   }
   // La página pide cada script y la hoja de estilos con el hash de su contenido (?v=…): eso se guarda un año (inmutable)
   // y un deploy cambia la URL de lo que cambió. El index.html se revalida siempre (ETag), y todo viaja comprimido.
-  if (path.basename(archivo) === 'index.html') return void servirEstatico(req, res, archivo, 'text/html; charset=utf-8', { contenido: indexConVersiones(WEB) })
+  if (path.basename(archivo) === 'index.html') {
+    // En el Deprocast de un usuario, la pantalla sabe su dirección pública (/u/<id>) para mostrar la de sus apps y su MCP.
+    const html = indexConVersiones(WEB)
+    return void servirEstatico(req, res, archivo, 'text/html; charset=utf-8', { contenido: enUsuario() ? html.replace('<html lang="es">', `<html lang="es" data-base="/u/${Number(process.env.MASTRO_USUARIO)}">`) : html })
+  }
   const v = url.searchParams.get('v')
   let inmutable = false
   if (v) { try { inmutable = v === versionDe(archivo) } catch { /* sin versión */ } }

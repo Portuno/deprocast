@@ -5,6 +5,8 @@ const $ = (s, el = document) => el.querySelector(s)
 const $$ = (s, el = document) => [...el.querySelectorAll(s)]
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms))
+/** La dirección por la que entran tus apps, tu MCP y tu teléfono: en el Deprocast de un usuario lleva /u/<id> (plan v33). */
+const ORIGEN_PUBLICO = location.origin + (document.documentElement.dataset.base || '')
 /** Lo que se sondea mientras algo se hace: con la pestaña oculta espera a que vuelvas (no gasta nada mientras tanto). */
 function cuandoSeVea(f) {
   if (!document.hidden) return f()
