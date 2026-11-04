@@ -3,7 +3,8 @@
  * local-first) y Escucha (la conciencia acústica). Desvincular borra el token y todo lo guardado en el teléfono.
  */
 import { useEffect, useState } from 'react'
-import { Alert, Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native'
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import { leerCredenciales, olvidarCredenciales, type Credenciales } from './src/api'
 import { borrarTodo } from './src/almacen'
@@ -26,8 +27,10 @@ export default function App() {
   ])
 
   if (c === undefined) return <View style={{ flex: 1, backgroundColor: t.fondo }} />
+  // La pantalla respeta las barras del sistema arriba y abajo (en Android, la de estado y la de navegación la tapaban).
   return (
-    <SafeAreaView style={[s.raiz, { backgroundColor: t.fondo }]}>
+    <SafeAreaProvider>
+    <SafeAreaView edges={['top', 'bottom', 'left', 'right']} style={[s.raiz, { backgroundColor: t.fondo }]}>
       <StatusBar style="auto" />
       {!c ? <Vincular alVincular={setC} /> : (
         <>
@@ -43,6 +46,7 @@ export default function App() {
         </>
       )}
     </SafeAreaView>
+    </SafeAreaProvider>
   )
 }
 

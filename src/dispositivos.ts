@@ -12,7 +12,7 @@ import crypto from 'node:crypto'
 import type { Db } from './db.ts'
 
 export type Dispositivo = { id: number; nombre: string; plataforma: string; prefijo: string; creadoEn: number; ultimaVez: number | null; revocadoEn: number | null }
-export type ModoVoz = 'dictado' | 'pasivo'
+export type ModoVoz = 'dictado' | 'pasivo' | 'conversacion'
 export type MetaVoz = { modo: ModoVoz; inicio?: number; fin?: number; proximidad?: boolean; ruidoDb?: number; caminando?: boolean }
 
 const CODIGO_MS = 10 * 60_000
@@ -71,11 +71,22 @@ export function autenticarDispositivo(db: Db, autorizacion: string | undefined, 
  * Un segmento de voz: se transcribe (el audio no se guarda) y va a donde corresponde según el modo. Devuelve el texto y
  * a dónde fue.
  */
-export async function recibirVoz(db: Db, d: Dispositivo, audio: Buffer, nombre: string, meta: MetaVoz, ahora = Date.now()): Promise<{ texto: string; destino: 'chat' | 'nota'; piezaId?: number }> {
+export async function recibirVoz(db: Db, d: Dispositivo, audio: Buffer, nombre: string, meta: MetaVoz, ahora = Date.now()): Promise<{ texto: string; destino: 'chat' | 'nota' | 'conversacion'; piezaId?: number; hablante?: import('./hablantes.ts').Hablante | null }> {
   if (!audio.length) throw new Error('El audio vino vacío')
   const texto = (await transcribir(db, audio, nombre || 'voz.m4a')).trim()
   if (!texto) throw new Error('El audio no tenía voz que transcribir')
   const datos = JSON.stringify({ ...meta, dispositivo: d.nombre })
+  // Quién habló: la huella de la voz (si el audio es un WAV que se entiende) contra los hablantes conocidos.
+  const { huellaDe, leerWav } = await import('./conciencia/huella.ts')
+  const voces = await import('./hablantes.ts')
+  const wav = leerWav(new Uint8Array(audio))
+  const huella = wav ? huellaDe(wav.muestras, wav.sr) : null
+  const quien = huella ? voces.identificar(db, huella, ahora) : null
+  voces.anotarTurno(db, { dispositivoId: d.id, hablanteId: quien?.hablante.id ?? null, texto, inicio: meta.inicio ?? ahora, fin: meta.fin, modo: meta.modo }, ahora)
+  if (meta.modo === 'conversacion') {
+    db.prepare('INSERT INTO voz_segmentos (dispositivo_id, modo, texto, meta, destino, creado_en) VALUES (?, ?, ?, ?, ?, ?)').run(d.id, meta.modo, texto, datos, 'conversacion', ahora)
+    return { texto, destino: 'conversacion', hablante: quien?.hablante ?? null }
+  }
   if (meta.modo === 'dictado') {
     const { conversacionHoy, enviar } = await import('./chat/index.ts')
     void enviar(db, conversacionHoy(db).id, texto).catch((e) => console.error('  voz → chat:', e instanceof Error ? e.message : e))

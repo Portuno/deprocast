@@ -1096,6 +1096,29 @@ CREATE TABLE IF NOT EXISTS voz_segmentos (
   pieza_id INTEGER,
   creado_en INTEGER NOT NULL
 );
+-- Las voces (plan v33): los hablantes que reconoce el teléfono (su huella de voz: un dato biométrico, solo acá y
+-- borrable), vinculables a una entidad, y cada turno dicho con su hablante (el texto, nunca el audio).
+CREATE TABLE IF NOT EXISTS voz_hablantes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  numero INTEGER NOT NULL,
+  etiqueta TEXT NOT NULL,
+  entidad_id INTEGER,
+  huella TEXT NOT NULL,
+  tramos INTEGER NOT NULL DEFAULT 1,
+  creado_en INTEGER NOT NULL,
+  actualizado_en INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS voz_turnos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  dispositivo_id INTEGER NOT NULL,
+  hablante_id INTEGER,
+  texto TEXT NOT NULL,
+  inicio INTEGER NOT NULL,
+  fin INTEGER,
+  modo TEXT NOT NULL,
+  creado_en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS voz_turnos_inicio ON voz_turnos (inicio);
 -- Explorar internet (plan v31): la caché de 30 min de cada pedido (no se le pide dos veces lo mismo a nadie) y la salud
 -- de cada backend de cada canal (último ok, último error y hasta cuándo está en pausa si lo limitaron o bloquearon).
 CREATE TABLE IF NOT EXISTS explorar_cache (

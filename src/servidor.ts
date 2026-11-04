@@ -1413,13 +1413,27 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
       return responder(202, { ok: true })
     }
     if (ruta === 'voz' && req.method === 'POST') {
-      const modo = url.searchParams.get('modo') === 'pasivo' ? 'pasivo' : 'dictado'
+      const pedido = url.searchParams.get('modo')
+      const modo = pedido === 'pasivo' || pedido === 'conversacion' ? pedido : 'dictado'
       const n = (k: string) => (url.searchParams.get(k) != null ? Number(url.searchParams.get(k)) : undefined)
       const audio = await leerCrudo(req, 25 * 1024 * 1024)
       const r = await d.recibirVoz(db, disp, audio, url.searchParams.get('nombre') || 'voz.m4a', {
         modo, inicio: n('inicio'), fin: n('fin'), ruidoDb: n('ruidoDb'), proximidad: url.searchParams.get('proximidad') === '1', caminando: url.searchParams.get('caminando') === '1',
       })
       return responder(201, r)
+    }
+    // Las voces: lo último que se dijo (con su hablante), los hablantes, vincular uno a una persona, olvidarlo.
+    const voces = await import('./hablantes.ts')
+    if (ruta === 'turnos' && req.method === 'GET') return responder(200, { turnos: voces.ultimosTurnos(db, { desde: Number(url.searchParams.get('desde')) || 0 }), hablantes: voces.listarHablantes(db) })
+    if (ruta === 'personas' && req.method === 'GET') return responder(200, { personas: voces.buscarPersonas(db, url.searchParams.get('q') ?? '') })
+    const mh = /^hablantes\/(\d+)(\/olvidar)?$/.exec(ruta)
+    if (mh && req.method === 'POST') {
+      if (mh[2]) { voces.olvidarHablante(db, Number(mh[1])); return responder(200, { ok: true }) }
+      const b = JSON.parse((await leerCrudo(req, 16 * 1024)).toString('utf8') || '{}')
+      // «yo»: el hablante sos vos (tu entidad de operador).
+      const entidad = b.yo ? (db.prepare(`SELECT id FROM entidades WHERE json_extract(meta, '$.operador') = 1 ORDER BY id LIMIT 1`).get() as { id: number } | undefined)?.id ?? null : b.entidadId == null ? null : Number(b.entidadId)
+      if (b.yo && entidad == null) return responder(400, { error: 'Todavía no hay una entidad tuya (Jugador → «Soy yo»)' })
+      return responder(200, voces.vincularHablante(db, Number(mh[1]), entidad))
     }
     return responder(404, { error: 'Ruta desconocida' })
   } catch (e) {
