@@ -27,12 +27,12 @@ export async function shaDeRama(repo: string, rama: string, f: typeof fetch = fe
   return m?.[1] ?? null
 }
 
-/** Baja el código de ese commit a DIR/<sha> (si ya está, no hace nada) y le presta los node_modules de la imagen. */
-async function bajar(sha: string): Promise<string> {
-  const destino = path.join(DIR, sha)
+/** Baja el código de ese commit a <dir>/<sha> (si ya está, no hace nada) y le presta los node_modules de la imagen. */
+export async function bajar(sha: string, dir = DIR, repo = REPO): Promise<string> {
+  const destino = path.join(dir, sha)
   if (fs.existsSync(path.join(destino, 'src', 'servidor.ts'))) return destino
-  fs.mkdirSync(DIR, { recursive: true })
-  const r = await fetch(`https://codeload.github.com/${REPO}/tar.gz/${sha}`, { signal: AbortSignal.timeout(120_000) })
+  fs.mkdirSync(dir, { recursive: true })
+  const r = await fetch(`https://codeload.github.com/${repo}/tar.gz/${sha}`, { signal: AbortSignal.timeout(120_000) })
   if (!r.ok) throw new Error(`GitHub respondió ${r.status}`)
   const tgz = Buffer.from(await r.arrayBuffer())
   const tmp = `${destino}.tmp`
@@ -51,7 +51,7 @@ async function bajar(sha: string): Promise<string> {
     }
   }
   const nm = path.join(PROPIO, 'node_modules')
-  if (fs.existsSync(nm)) try { fs.symlinkSync(nm, path.join(destino, 'node_modules'), 'junction') } catch { /* sin dependencias, también anda */ }
+  if (fs.existsSync(nm)) try { fs.symlinkSync(fs.realpathSync(nm), path.join(destino, 'node_modules'), 'junction') } catch { /* sin dependencias, también anda */ }
   return destino
 }
 

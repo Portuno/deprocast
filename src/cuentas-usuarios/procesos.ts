@@ -16,6 +16,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
+import net from 'node:net'
 import path from 'node:path'
 import { CABECERA_HUB } from '../acceso.ts'
 
@@ -24,6 +25,7 @@ export type Hijo = { id: number; puerto: number; proc: ChildProcess; listo: Prom
 export type OpcionesHub = {
   /** Donde van las carpetas: `<datos>/usuarios/<id>/`. */
   datos: string
+  /** Puertos fijos (base + id). Sin esto, cada uno toma un puerto libre (así dos servidores en un relevo no chocan). */
   puertoBase?: number
   /** El tope duro de tokens por día de ese usuario (0 = sin tope). */
   topeDe?: (id: number) => number
@@ -45,17 +47,25 @@ export const dirDeUsuario = (datos: string, id: number) => path.join(datos, 'usu
 export function crearHub(o: OpcionesHub) {
   const token = crypto.randomBytes(32).toString('hex')
   const hijos = new Map<number, Hijo>()
-  const puertoBase = o.puertoBase ?? 7600
+  const prendiendo = new Map<number, Promise<Hijo>>()
   /** Los que tienen que estar prendidos: si se caen, vuelven. */
   const quieren = new Set<number>()
   const caidas = new Map<number, number>()
   let apagando = false
   const script = path.resolve(import.meta.dirname, '..', 'servidor.ts')
 
-  function prender(id: number): Hijo {
+  /** Lo prende una sola vez aunque lo pidan varios a la vez. */
+  function prenderUna(id: number): Promise<Hijo> {
+    const ya = prendiendo.get(id)
+    if (ya) return ya
+    const p = (async () => prender(id, o.puertoBase ? o.puertoBase + id : await puertoLibre()))().finally(() => prendiendo.delete(id))
+    prendiendo.set(id, p)
+    return p
+  }
+
+  function prender(id: number, puerto: number): Hijo {
     const dir = dirDeUsuario(o.datos, id)
     fs.mkdirSync(dir, { recursive: true })
-    const puerto = puertoBase + id
     const env = entornoDeUsuario(process.env, {
       MASTRO_USUARIO: String(id),
       MASTRO_HUB_TOKEN: token,
@@ -78,7 +88,7 @@ export function crearHub(o: OpcionesHub) {
           caidas.set(id, n)
           const espera = Math.min(300_000, 5000 * 2 ** n)
           process.stdout.write(`  [u${id}] salió (${codigo}): lo vuelvo a prender en ${Math.round(espera / 1000)} s\n`)
-          setTimeout(() => { if (quieren.has(id) && !apagando && !hijos.has(id)) prender(id) }, espera).unref()
+          setTimeout(() => { if (quieren.has(id) && !apagando && !hijos.has(id)) void prenderUna(id).catch(() => {}) }, espera).unref()
         }
       }
       ok()
@@ -94,7 +104,7 @@ export function crearHub(o: OpcionesHub) {
   async function asegurar(id: number): Promise<Hijo> {
     quieren.add(id)
     let h = hijos.get(id)
-    if (!h || h.proc.exitCode !== null) h = prender(id)
+    if (!h || h.proc.exitCode !== null) h = await prenderUna(id)
     h.ultimo = Date.now()
     await h.listo
     return h
@@ -157,6 +167,15 @@ export function crearHub(o: OpcionesHub) {
 }
 
 export type Hub = ReturnType<typeof crearHub>
+
+/** Un puerto libre de esta compu (lo pide al sistema y lo suelta). */
+function puertoLibre(): Promise<number> {
+  return new Promise((ok, mal) => {
+    const s = net.createServer()
+    s.on('error', mal)
+    s.listen(0, '127.0.0.1', () => { const { port } = s.address() as net.AddressInfo; s.close(() => ok(port)) })
+  })
+}
 
 /** Espera a que el proceso conteste /version (o que se caiga). */
 function esperarListo(puerto: number, proc: ChildProcess, maxMs: number): Promise<void> {

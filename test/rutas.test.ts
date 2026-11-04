@@ -8,7 +8,7 @@ import path from 'node:path'
  * «Ruta desconocida» porque la ruta nunca se escribió.) Se lee el código, no se levanta el servidor.
  */
 test('rutas: todo lo que la pantalla pide a /api existe en el servidor', () => {
-  const srv = fs.readFileSync('src/servidor.ts', 'utf8')
+  const srv = fs.readFileSync('src/servidor-app.ts', 'utf8')
   const rutas = [...srv.matchAll(/\['(GET|POST)', (\/\^\\\/api.*?\$\/),/g)].map((m) => new Function(`return ${m[2]}`)() as RegExp)
   const crudas = [...srv.matchAll(/url\.pathname === '(\/api\/[^']+)'/g)].map((m) => m[1])
   const crudasRe = [...srv.matchAll(/\/\^\\\/api\\\/[^ ]*?\$\/\.exec\(url\.pathname\)/g)].map((m) => new Function(`return ${m[0].replace('.exec(url.pathname)', '')}`)() as RegExp)
