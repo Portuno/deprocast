@@ -57,6 +57,7 @@ export function guardarCliente(db: Db, entrada: { json?: string; id?: string; se
   if (!/\.apps\.googleusercontent\.com$/.test(id) || secreto.length < 10) throw new Error('Falta el ID de cliente (termina en .apps.googleusercontent.com) o el secreto.')
   fijarAjuste(db, 'google_cliente_id', id)
   fijarAjuste(db, 'google_cliente_secreto', secreto)
+  fijarAjuste(db, 'google_cliente_uris', JSON.stringify(uris.filter((u) => /\/google\/volver$/.test(u))))
   const esperada = origen ? `${origen}/google/volver` : null
   return { ok: true, id, aviso: esperada && uris.length && !uris.includes(esperada) ? `En Google Cloud, la URI de redirección registrada no es ${esperada}: agregala en el cliente o la conexión va a fallar.` : null }
 }
@@ -74,14 +75,26 @@ export function estadoGoogle(db: Db) {
   }
 }
 
+/**
+ * La URI de vuelta: la registrada en el cliente para este mismo host (así lo que se manda es exactamente lo que Google
+ * tiene); si no hay una para este host, <origen>/google/volver.
+ */
+export function redireccion(db: Db, origen: string): string {
+  let registradas: string[] = []
+  try { registradas = JSON.parse(ajuste(db, 'google_cliente_uris') ?? '[]') } catch { /* sin lista */ }
+  const host = (() => { try { return new URL(origen).host } catch { return '' } })()
+  return registradas.find((u) => { try { return new URL(u).host === host } catch { return false } }) ?? `${origen}/google/volver`
+}
+
 /** El link para conectar: a Google, que vuelve a <origen>/google/volver con un código de un solo uso. */
 export function urlDeConexion(db: Db, origen: string, ahora = Date.now()): string {
   const c = cliente(db)
   if (!c) throw new Error('Falta configurar Google: pegá el JSON del cliente en tu perfil.')
   const estado = crypto.randomBytes(24).toString('base64url')
-  fijarAjuste(db, 'google_estado', JSON.stringify({ estado, vence: ahora + 10 * 60_000, origen }))
+  const redirect = redireccion(db, origen)
+  fijarAjuste(db, 'google_estado', JSON.stringify({ estado, vence: ahora + 10 * 60_000, redirect }))
   const q = new URLSearchParams({
-    client_id: c.id, redirect_uri: `${origen}/google/volver`, response_type: 'code', scope: ALCANCES.join(' '),
+    client_id: c.id, redirect_uri: redirect, response_type: 'code', scope: ALCANCES.join(' '),
     access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true', state: estado,
   })
   return `${AUTORIZAR}?${q}`
@@ -100,13 +113,13 @@ async function pedirToken(campos: Record<string, string>): Promise<any> {
 
 /** La vuelta de Google: valida el estado (un solo uso, 10 min), cambia el código por los tokens y los guarda. */
 export async function volverDeGoogle(db: Db, p: { code?: string | null; state?: string | null; error?: string | null }, ahora = Date.now()) {
-  const guardado = (() => { try { return JSON.parse(ajuste(db, 'google_estado') ?? 'null') } catch { return null } })() as { estado: string; vence: number; origen: string } | null
+  const guardado = (() => { try { return JSON.parse(ajuste(db, 'google_estado') ?? 'null') } catch { return null } })() as { estado: string; vence: number; redirect: string } | null
   fijarAjuste(db, 'google_estado', '')
   if (p.error) throw new Error(p.error === 'access_denied' ? 'No diste el permiso en Google.' : `Google dijo: ${p.error}`)
   if (!guardado || !p.state || p.state !== guardado.estado || guardado.vence < ahora) throw new Error('El pedido de conexión venció o no es este. Probá conectar de nuevo.')
   const c = cliente(db)
   if (!c || !p.code) throw new Error('Falta el código de Google.')
-  const t = await pedirToken({ code: p.code, client_id: c.id, client_secret: c.secreto, redirect_uri: `${guardado.origen}/google/volver`, grant_type: 'authorization_code' })
+  const t = await pedirToken({ code: p.code, client_id: c.id, client_secret: c.secreto, redirect_uri: guardado.redirect, grant_type: 'authorization_code' })
   if (!t.refresh_token) throw new Error('Google no dio un permiso duradero. Sacale el acceso a Deprocast en tu cuenta de Google y volvé a conectar.')
   let email: string | null = null
   try { email = JSON.parse(Buffer.from(String(t.id_token).split('.')[1], 'base64url').toString('utf8')).email ?? null } catch { /* sin id_token */ }

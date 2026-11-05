@@ -1667,8 +1667,10 @@ const servidor = http.createServer(async (req, res) => {
   // nube; en el Deprocast de un usuario, la que trae el pedido) es la que Google tiene registrada.
   if ((url.pathname === '/google/conectar' || url.pathname === '/google/volver') && req.method === 'GET') {
     const g = await import('./google/oauth.ts')
-    const proto = String(req.headers['x-forwarded-proto'] ?? '').split(',')[0].trim() || (detrasDeProxy() ? 'https' : 'http')
-    const origen = `${proto}://${req.headers.host ?? 'localhost'}`
+    // En la nube es siempre https (el proxy de la plataforma puede decir http hacia adentro); en la compu, http.
+    const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? 'localhost').split(',')[0].trim()
+    const local = /^(localhost|\d+\.\d+\.\d+\.\d+|\[[0-9a-f:]+\])(:\d+)?$/i.test(host)
+    const origen = `${detrasDeProxy() || !local ? 'https' : 'http'}://${host}`
     const pagina = (titulo: string, texto: string) => `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Google · Deprocast</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f1012;color:#e6e6e8;font:16px system-ui,sans-serif;padding:24px;box-sizing:border-box}div{max-width:420px}a{color:#c4a062}p{color:#9a9ca4}</style></head><body><div><h1>${titulo}</h1><p>${texto.replace(/[<>&]/g, '')}</p><a href="/">Volver a Deprocast</a></div></body></html>`
     try {
       if (url.pathname === '/google/conectar') return void res.writeHead(303, { location: g.urlDeConexion(db, origen), 'cache-control': 'no-store' }).end()

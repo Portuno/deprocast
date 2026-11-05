@@ -128,6 +128,10 @@ describe('Google y Gmail (plan v35, fase 1)', () => {
       assert.match(r.aviso ?? '', /https:\/\/mi.deprocast\/google\/volver/)
       assert.equal(estadoGoogle(db).configurado, true)
       assert.equal(new URL(urlDeConexion(db, 'https://mi.deprocast')).searchParams.get('client_id'), '123-abc.apps.googleusercontent.com')
+      // Se manda exactamente la URI registrada para ese host (aunque el pedido llegue como http detrás de un proxy).
+      guardarCliente(db, { json: JSON.stringify({ web: { client_id: '123-abc.apps.googleusercontent.com', client_secret: 'GOCSPX-secreto', redirect_uris: ['http://127.0.0.1:7272/google/volver', 'https://mi.deprocast/google/volver'] } }) })
+      assert.equal(new URL(urlDeConexion(db, 'http://mi.deprocast')).searchParams.get('redirect_uri'), 'https://mi.deprocast/google/volver')
+      assert.equal(new URL(urlDeConexion(db, 'http://127.0.0.1:7272')).searchParams.get('redirect_uri'), 'http://127.0.0.1:7272/google/volver')
     } finally { process.env.GOOGLE_OAUTH_ID = 'cliente' }
   })
 
