@@ -3111,3 +3111,6 @@ span.ej-chip { cursor: default; }
   .prg-fila { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .prg-lista { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
 }
+
+/* YouTube por dominio (plan v34, #46) */
+.yt-sub { margin: var(--e-3) 0 var(--e-1); font-size: var(--t-4); }

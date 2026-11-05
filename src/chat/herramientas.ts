@@ -215,9 +215,10 @@ export const HERRAMIENTAS: Herramienta[] = [
   {
     nombre: 'buscar_corpus', familia: 'lectura',
     descripcion: 'Busca en el corpus por palabras y por significado (encuentra también lo que dice lo mismo con otras palabras, aunque esté en el medio de una charla larga). Devuelve piezas con id, nivel, extracto y, si lo encontró adentro, el fragmento. Filtros opcionales por nivel, fuente o tipo.',
-    parametros: S({ consulta: str('Qué buscar'), nivel: str('Nivel', { enum: NIVEL_ENUM }), fuente: str('id de fuente'), tipo: str('Tipo', { enum: ['materia', 'referencia', 'ficha', 'lista', 'enlace'] }), limite: int('Cuántas (máx. 20)') }, ['consulta']),
+    parametros: S({ consulta: str('Qué buscar'), nivel: str('Nivel', { enum: NIVEL_ENUM }), fuente: str('id de fuente'), tipo: str('Tipo', { enum: ['materia', 'referencia', 'ficha', 'lista', 'enlace'] }), dominio: str('Un bloque del corpus (idiomas, productividad, ia…): solo lo etiquetado con ese dominio'), limite: int('Cuántas (máx. 20)') }, ['consulta']),
     ejecutar: async (a, { db, lecturaMax }) => {
       const limite = Math.min(a.limite ?? 8, lecturaMax ?? 20)
+      if (a.dominio) { const r = listarPiezas(db, { q: a.consulta, dominio: a.dominio, nivel: a.nivel, limite }); return { total: r.total, piezas: r.piezas.map((p) => piezaCorta(p)) } }
       if (!a.fuente && !a.tipo) {
         const ps = await buscarHibrido(db, a.consulta, limite, a.nivel && esNivel(a.nivel) ? [a.nivel as Nivel] : undefined)
         // Lo encontrado por un pasaje del medio trae ese fragmento: lo que de verdad responde.
@@ -1657,8 +1658,8 @@ export const HERRAMIENTAS: Herramienta[] = [
   {
     nombre: 'importar_youtube', familia: 'accion',
     descripcion: 'Importa de YouTube: uno o varios videos, o un canal entero (todos sus videos, hasta «max_por_canal»). Cada video entra con su transcripción y se analiza solo: qué plantea, si el título cumple, ideas (protoquántomos), personas y las fuentes que recomienda (que también se leen). La nube no puede leer YouTube: la transcripción la trae el servicio de transcripciones o su compu (npm run mastro -- youtube <url de la nube>). Los links de YouTube que él escribe ya entran solos: usalo para un canal con límite o para varios de una.',
-    parametros: S({ links: str('Los links (videos o canales), separados por espacios o saltos de línea'), max_por_canal: int('Cuántos videos traer de cada canal (por defecto 50; para «todos», hasta 5000)') }, ['links']),
-    ejecutar: async (a, { db }) => (await import('../youtube.ts')).importarYoutube(db, String(a.links ?? ''), { max: Number(a.max_por_canal) || null }),
+    parametros: S({ links: str('Los links (videos o canales), separados por espacios o saltos de línea'), max_por_canal: int('Cuántos videos traer de cada canal (por defecto 50; para «todos», hasta 5000)'), dominio: str('El bloque al que alimenta (idiomas, productividad, ia, racionalidad, filosofía, negocio…): sus videos lo llevan como etiqueta') }, ['links']),
+    ejecutar: async (a, { db }) => (await import('../youtube.ts')).importarYoutube(db, String(a.links ?? ''), { max: Number(a.max_por_canal) || null, dominio: a.dominio || null }),
     resumen: (a) => `importó de YouTube ${recorte(String(a.links ?? ''), 50)}`,
   },
   {

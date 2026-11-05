@@ -62,9 +62,13 @@ async function cascara(id: string): Promise<{ titulo: string | null; canal: stri
  * Un video o un canal a la cola. El video nace como pieza pendiente (con su título, si se puede), así el chat la puede
  * nombrar ya; el canal, como una pieza que después dice cuántos videos trajo. Pedirlo de nuevo reintenta lo que no salió.
  */
-export async function encolarYoutube(db: Db, url: string, o: { de?: string | null; max?: number | null; nota?: string | null } = {}, ahora = Date.now()): Promise<{ tipo: 'video' | 'canal'; id: string; piezaId: number; nueva: boolean; estado: string } | null> {
+/** El dominio (el bloque del corpus): en minúsculas, corto. */
+export const dominioDe = (d?: string | null) => (d ?? '').trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 40) || null
+
+export async function encolarYoutube(db: Db, url: string, o: { de?: string | null; max?: number | null; nota?: string | null; dominio?: string | null } = {}, ahora = Date.now()): Promise<{ tipo: 'video' | 'canal'; id: string; piezaId: number; nueva: boolean; estado: string } | null> {
   const c = clasificarYoutube(url)
   if (!c) return null
+  const dominio = dominioDe(o.dominio)
   asegurarFuente(db, FUENTE)
   const clave = c.tipo === 'canal' ? `canal:${c.id}` : c.id
   const ya = fila(db, clave)
@@ -73,6 +77,7 @@ export async function encolarYoutube(db: Db, url: string, o: { de?: string | nul
     if (ya.estado !== 'listo' || (c.tipo === 'canal' && (o.max ?? 0) > (ya.max_videos ?? 0))) {
       db.prepare(`UPDATE youtube_cola SET estado = 'pendiente', intentos = 0, motivo = NULL, max_videos = COALESCE(?, max_videos) WHERE id = ?`).run(o.max ?? null, clave)
     }
+    if (dominio) { db.prepare('UPDATE youtube_cola SET dominio = ? WHERE id = ?').run(dominio, clave); if (ya.pieza_id) etiquetarDominio(db, ya.pieza_id, dominio) }
     return { tipo: c.tipo, id: c.id, piezaId: ya.pieza_id ?? 0, nueva: false, estado: fila(db, clave)!.estado }
   }
   let piezaId: number
@@ -84,17 +89,18 @@ export async function encolarYoutube(db: Db, url: string, o: { de?: string | nul
       piezaId = insertar(db, {
         fuente: FUENTE.id, nivel: 'primaria', estado: 'pendiente', titulo: k.titulo ?? `Video de YouTube ${c.id}`, url: urlDeVideo(c.id), autor: k.canal,
         contenido: [`# ${k.titulo ?? c.id}`, k.canal ? `Canal: ${k.canal}` : '', o.nota ? `> Nota: ${o.nota}` : '', '_(La transcripción está en camino.)_'].filter(Boolean).join('\n\n'),
-        etiquetas: ['youtube', 'sin-transcripcion'], origenId: origenDeVideo(c.id), meta: { youtube: c.id, sinTranscripcion: true, nota: o.nota ?? null, de: o.de ?? null },
+        etiquetas: ['youtube', 'sin-transcripcion', ...(dominio ? [dominio] : [])], origenId: origenDeVideo(c.id), meta: { youtube: c.id, sinTranscripcion: true, nota: o.nota ?? null, de: o.de ?? null, ...(dominio ? { dominio } : {}) },
       }, ahora)!
     }
   } else {
     piezaId = insertar(db, {
       fuente: FUENTE.id, nivel: 'primaria', estado: 'pendiente', titulo: `Canal de YouTube · ${c.id}`, url: urlDeCanal(c.id),
-      contenido: `# Canal de YouTube · ${c.id}\n\n_(Trayendo la lista de videos.)_`, etiquetas: ['youtube', 'canal'], origenId: `url:${urlDeCanal(c.id).replace('www.', '')}`, meta: { youtubeCanal: c.id },
+      contenido: `# Canal de YouTube · ${c.id}\n\n_(Trayendo la lista de videos.)_`, etiquetas: ['youtube', 'canal', ...(dominio ? [dominio] : [])], origenId: `url:${urlDeCanal(c.id).replace('www.', '')}`, meta: { youtubeCanal: c.id, ...(dominio ? { dominio } : {}) },
     }, ahora) ?? (db.prepare('SELECT id FROM corpus WHERE origen_id = ?').get(`url:${urlDeCanal(c.id).replace('www.', '')}`) as { id: number }).id
   }
-  db.prepare(`INSERT INTO youtube_cola (id, tipo, url, estado, pieza_id, de, max_videos, creado_en) VALUES (?, ?, ?, 'pendiente', ?, ?, ?, ?)`)
-    .run(clave, c.tipo, c.tipo === 'video' ? urlDeVideo(c.id) : urlDeCanal(c.id), piezaId, o.de ?? null, c.tipo === 'canal' ? Math.max(1, Math.min(5000, o.max ?? MAX_POR_CANAL)) : null, ahora)
+  db.prepare(`INSERT INTO youtube_cola (id, tipo, url, estado, pieza_id, de, max_videos, creado_en, dominio) VALUES (?, ?, ?, 'pendiente', ?, ?, ?, ?, ?)`)
+    .run(clave, c.tipo, c.tipo === 'video' ? urlDeVideo(c.id) : urlDeCanal(c.id), piezaId, o.de ?? null, c.tipo === 'canal' ? Math.max(1, Math.min(5000, o.max ?? MAX_POR_CANAL)) : null, ahora, dominio)
+  if (dominio) etiquetarDominio(db, piezaId, dominio)
   return { tipo: c.tipo, id: c.id, piezaId, nueva: true, estado: 'pendiente' }
 }
 
@@ -163,6 +169,12 @@ const loteDeHoy = (ahora: number) => `youtube-${fechaLocal(ahora).replace(/-/g, 
  * Llegó un video leído (de la nube, del servicio o de la compu). Con transcripción: la pieza se completa, se destila y se
  * exploran los links que recomienda. Sin: queda pendiente con el motivo.
  */
+/** La pieza lleva el dominio como etiqueta (y en su meta): así el corpus se consulta por bloque. */
+function etiquetarDominio(db: Db, piezaId: number, dominio: string) {
+  db.prepare(`UPDATE corpus SET etiquetas = json_insert(COALESCE(etiquetas, '[]'), '$[#]', ?), meta = json_set(COALESCE(meta, '{}'), '$.dominio', ?)
+    WHERE id = ? AND NOT EXISTS (SELECT 1 FROM json_each(COALESCE(corpus.etiquetas, '[]')) WHERE value = ?)`).run(dominio, dominio, piezaId, dominio)
+}
+
 export async function completarVideo(db: Db, id: string, v: VideoLeido, ahora = Date.now()): Promise<{ piezaId: number; listo: boolean }> {
   let item = fila(db, id)
   if (!item) { await encolarYoutube(db, urlDeVideo(id), {}, ahora); item = fila(db, id)! }
@@ -226,7 +238,9 @@ export async function completarCanal(db: Db, id: string, d: { titulo?: string | 
   if (!item) throw new Error(`No conozco el canal ${id}`)
   const nombre = id.replace(/^canal:/, '')
   let nuevos = 0
-  for (const v of d.videos.slice(0, item.max_videos ?? MAX_POR_CANAL)) if ((await encolarYoutube(db, urlDeVideo(v), { de: id }, ahora))?.nueva) nuevos++
+  // Los videos heredan el dominio del canal.
+  const dominio = (db.prepare('SELECT dominio FROM youtube_cola WHERE id = ?').get(id) as { dominio: string | null } | undefined)?.dominio ?? null
+  for (const v of d.videos.slice(0, item.max_videos ?? MAX_POR_CANAL)) if ((await encolarYoutube(db, urlDeVideo(v), { de: id, dominio }, ahora))?.nueva) nuevos++
   if (item.pieza_id) {
     db.prepare(`UPDATE corpus SET titulo = ?, contenido = ?, estado = 'disponible' WHERE id = ?`).run(`Canal de YouTube · ${d.titulo ?? nombre}`.slice(0, 300),
       `# Canal de YouTube · ${d.titulo ?? nombre}\n\n${urlDeCanal(nombre)}\n\nSe pidieron ${d.videos.length} videos (hasta ${item.max_videos ?? MAX_POR_CANAL}); ${nuevos} nuevos entraron a la cola.\n\n${d.videos.map((v) => `- ${urlDeVideo(v)}`).join('\n')}`, item.pieza_id)
@@ -313,6 +327,13 @@ export function estadoYoutube(db: Db, ahora = Date.now()) {
   return {
     cuenta: { pendiente: cuenta.pendiente ?? 0, compu: cuenta.compu ?? 0, listo: cuenta.listo ?? 0, sin_subtitulos: cuenta.sin_subtitulos ?? 0, fallo: cuenta.fallo ?? 0 },
     canales: (db.prepare(`SELECT COUNT(*) AS n FROM youtube_cola WHERE tipo = 'canal' AND estado != 'listo'`).get() as { n: number }).n,
+    // Cada canal: si todavía espera su lista (la nube no lista canales), cuántos videos trajo y cuántos ya se leyeron.
+    listaCanales: (db.prepare(`SELECT y.id, y.estado, y.motivo, y.dominio, y.max_videos, y.pieza_id, c.titulo,
+        (SELECT COUNT(*) FROM youtube_cola v WHERE v.de = y.id) AS videos,
+        (SELECT COUNT(*) FROM youtube_cola v WHERE v.de = y.id AND v.estado = 'listo') AS leidos
+      FROM youtube_cola y LEFT JOIN corpus c ON c.id = y.pieza_id WHERE y.tipo = 'canal' ORDER BY y.creado_en DESC LIMIT 30`).all() as any[])
+      .map((x) => ({ id: x.id, titulo: x.titulo, estado: x.estado, motivo: x.motivo, dominio: x.dominio, pedidos: x.max_videos, videos: x.videos, leidos: x.leidos, piezaId: x.pieza_id })),
+    dominios: (db.prepare(`SELECT DISTINCT dominio FROM youtube_cola WHERE dominio IS NOT NULL ORDER BY dominio`).all() as { dominio: string }[]).map((x) => x.dominio),
     servicio: { configurado: !!claveServicio(), disponible: servicioDisponible(db, ahora), motivo: servicioDisponible(db, ahora) ? null : ajuste(db, 'youtube_servicio_motivo') },
     compu: { vista: visto || null, activa: visto > ahora - 5 * 60_000 },
     ultimos: ultimos.map((u) => ({ id: u.id, tipo: u.tipo, estado: u.estado, motivo: u.motivo, piezaId: u.pieza_id, titulo: u.titulo, recomendado: !!u.de?.startsWith('video:') })),
@@ -321,11 +342,11 @@ export function estadoYoutube(db: Db, ahora = Date.now()) {
 }
 
 /** Para importar varios de una: videos y canales, uno por línea (o separados por espacios). */
-export async function importarYoutube(db: Db, texto: string, o: { max?: number | null } = {}) {
+export async function importarYoutube(db: Db, texto: string, o: { max?: number | null; dominio?: string | null } = {}) {
   const links = [...new Set(texto.match(/https?:\/\/[^\s<>)"']+/g) ?? [])]
   const r = { videos: 0, canales: 0, yaEstaban: 0, noSonDeYoutube: 0 }
   for (const u of links) {
-    const x = await encolarYoutube(db, u, { max: o.max ?? null })
+    const x = await encolarYoutube(db, u, { max: o.max ?? null, dominio: o.dominio ?? null })
     if (!x) r.noSonDeYoutube++
     else if (!x.nueva) r.yaEstaban++
     else if (x.tipo === 'canal') r.canales++

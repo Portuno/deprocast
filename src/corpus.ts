@@ -231,7 +231,7 @@ export function buscar(db: Db, consulta: string, limite: number, dominio?: strin
     .map((x) => x.p)
 }
 
-export type FiltroPiezas = { fuente?: string; nivel?: string; tipo?: string; estado?: string; q?: string; cargaId?: number; entidad?: number; desde?: number; limite?: number }
+export type FiltroPiezas = { fuente?: string; nivel?: string; tipo?: string; estado?: string; q?: string; cargaId?: number; entidad?: number; dominio?: string; desde?: number; limite?: number }
 
 /** Para la pantalla: listado paginado con filtros y búsqueda. */
 export function listarPiezas(db: Db, f: FiltroPiezas = {}): { total: number; piezas: Pieza[] } {
@@ -250,6 +250,7 @@ export function listarPiezas(db: Db, f: FiltroPiezas = {}): { total: number; pie
   else where.push("c.estado != 'retirada'") // lo retirado se ve solo si se pide
   if (f.cargaId) where.push('c.carga_id = ?'), args.push(f.cargaId)
   if (f.entidad) where.push('c.id IN (SELECT pieza_id FROM corpus_entidades WHERE entidad_id = ?)'), args.push(f.entidad)
+  if (f.dominio) where.push('EXISTS (SELECT 1 FROM json_each(COALESCE(c.etiquetas, \'[]\')) WHERE value = ?)'), args.push(f.dominio.trim().toLowerCase())
   const desde = q ? 'corpus_fts JOIN corpus c ON c.id = corpus_fts.rowid' : 'corpus c'
   const w = where.length ? `WHERE ${where.join(' AND ')}` : ''
   const total = (db.prepare(`SELECT COUNT(*) AS n FROM ${desde} ${w}`).get(...args) as { n: number }).n

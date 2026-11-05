@@ -79,6 +79,7 @@ async function pintarYoutube() {
     <p>${[c.listo ? `✓ ${c.listo} leídos` : '', c.pendiente ? `⏳ ${c.pendiente} en cola` : '', c.compu ? `🖥 ${c.compu} esperan tu compu` : '', c.sin_subtitulos ? `∅ ${c.sin_subtitulos} sin subtítulos` : '', c.fallo ? `✗ ${c.fallo} fallaron` : '', d.canales ? `📺 ${d.canales} canales por listar` : ''].filter(Boolean).join(' · ') || 'Todavía no importaste videos.'}</p>
     <p class="tenue chico">Servicio de transcripciones: ${d.servicio.configurado ? (d.servicio.disponible ? 'activo' : `en pausa (${esc(d.servicio.motivo ?? 'sin cupo')})`) : 'no configurado (SUPADATA_API_KEY)'} · Tu compu: ${d.compu.activa ? 'leyendo ahora' : d.compu.vista ? `la última vez ${hace(d.compu.vista)}` : 'nunca se conectó'}</p>
     ${c.compu && !d.compu.activa ? `<p class="chico">Para que tu compu los lea, dejá corriendo en la carpeta de Deprocast:</p><pre>npm run mastro -- youtube ${esc(location.origin)}</pre>` : ''}
+    ${d.listaCanales?.length ? `<h4 class="yt-sub">Canales</h4><div class="cu-fuentes">${d.listaCanales.map((x) => `<div class="cu-fuente"><span>📺 ${esc(x.titulo ?? x.id.replace(/^canal:/, ''))}${x.dominio ? ` <span class="chip">${esc(x.dominio)}</span>` : ''} <small class="tenue">${x.estado === 'listo' ? `${x.leidos} de ${x.videos} videos leídos` : `en espera: ${esc(x.motivo ?? 'trayendo la lista de videos')} (se pidieron hasta ${x.pedidos ?? 50})`}</small></span>${x.piezaId ? `<a href="#" data-pieza="${x.piezaId}">ver</a>` : ''}</div>`).join('')}</div>` : ''}
     ${d.ultimos.length ? `<div class="cu-fuentes">${d.ultimos.slice(0, 25).map((u) => `<div class="cu-fuente"><span title="${esc(u.motivo ?? '')}">${ICONO_YT[u.estado] ?? '·'} ${u.tipo === 'canal' ? '📺' : '▶'} ${esc(u.titulo ?? u.id)}${u.recomendado ? ' <small class="tenue">recomendado</small>' : ''}${u.motivo && u.estado !== 'listo' ? ` <small class="tenue">${esc(u.motivo.slice(0, 90))}</small>` : ''}</span>${u.piezaId ? `<a href="#" data-pieza="${u.piezaId}">ver</a>` : ''}</div>`).join('')}</div>` : ''}
     ${c.fallo || c.sin_subtitulos ? '<button class="btn btn-chico" id="yt-reintentar">Reintentar los que no salieron</button>' : ''}`
   $('#yt-reintentar')?.addEventListener('click', async () => { try { const r = await api('/youtube/reintentar', {}); toast(`${r.reintentados} de vuelta a la cola`, 'suave'); pintarYoutube() } catch (e) { error(e) } })
@@ -90,14 +91,15 @@ async function modalTakeout() {
     <div class="yt-caja"><h3>▶ YouTube</h3>
       <p class="tenue chico">Videos o canales enteros, uno por línea. Cada video entra con su transcripción y se analiza solo: qué plantea, si el título cumple, ideas (protoquántomos) y las fuentes que recomienda, que también se leen. También podés mandarlos por el chat.</p>
       <textarea id="yt-links" class="campo" rows="3" placeholder="https://www.youtube.com/watch?v=…&#10;https://www.youtube.com/@canal"></textarea>
-      <div class="fila"><label class="chico">Videos por canal <input id="yt-max" class="campo-suelto" type="number" min="1" max="5000" value="50" style="width:90px"></label><button class="btn btn-primario" id="yt-importar">Importar</button></div>
+      <div class="fila"><label class="chico">Videos por canal <input id="yt-max" class="campo-suelto" type="number" min="1" max="5000" value="50" style="width:90px"></label><label class="chico">Dominio <input id="yt-dominio" class="campo-suelto" list="yt-dominios" placeholder="idiomas, ia, foco…" autocomplete="off"></label><datalist id="yt-dominios">${['idiomas', 'productividad', 'ia y poder', 'racionalidad', 'filosofía', 'negocio'].map((x) => `<option value="${x}">`).join('')}</datalist><button class="btn btn-primario" id="yt-importar">Importar</button></div>
+      <p class="tenue chico">El dominio es el bloque al que alimenta (sus videos lo llevan como etiqueta): después podés pedirle a Mastropiero «buscá en lo de idiomas…».</p>
       <div id="yt-estado"><p class="tenue" role="status">Viendo cómo va YouTube…</p></div></div>
     <h3>Google Takeout, ChatGPT y carpetas</h3><div id="tk-cuerpo"><p class="tenue" role="status">Viendo cómo van las importaciones…</p></div>`)
   $('#yt-importar').onclick = async () => {
     const texto = $('#yt-links').value
     if (!texto.trim()) return toast('Pegá uno o más links de YouTube')
     try {
-      const r = await api('/youtube/importar', { texto, max: Number($('#yt-max').value) || 50 })
+      const r = await api('/youtube/importar', { texto, max: Number($('#yt-max').value) || 50, dominio: $('#yt-dominio').value.trim() || null })
       toast([r.videos ? `${r.videos} videos` : '', r.canales ? `${r.canales} canales` : '', r.yaEstaban ? `${r.yaEstaban} ya estaban` : '', r.noSonDeYoutube ? `${r.noSonDeYoutube} no son de YouTube` : ''].filter(Boolean).join(' · ') || 'Nada nuevo', 'suave')
       $('#yt-links').value = ''
       pintarYoutube()

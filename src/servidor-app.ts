@@ -1145,7 +1145,7 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/academia\/sesion\/(\d+)\/cerrar$/, async (_, [s]) => (await import('./academia.ts')).cerrarSesionTutor(db, id(s))],
   // YouTube: la cola (videos y canales), importar varios, y lo que lee la compu (la nube no puede leer YouTube).
   ['GET', /^\/api\/youtube$/, async () => (await import('./youtube.ts')).estadoYoutube(db)],
-  ['POST', /^\/api\/youtube\/importar$/, async (b) => (await import('./youtube.ts')).importarYoutube(db, String(b.texto ?? ''), { max: Number(b.max) || null })],
+  ['POST', /^\/api\/youtube\/importar$/, async (b) => (await import('./youtube.ts')).importarYoutube(db, String(b.texto ?? ''), { max: Number(b.max) || null, dominio: b.dominio ? String(b.dominio) : null })],
   ['GET', /^\/api\/youtube\/compu$/, async () => ({ items: (await import('./youtube.ts')).paraLaCompu(db) })],
   ['POST', /^\/api\/youtube\/leido$/, async (b) => (await import('./youtube.ts')).recibirDeLaCompu(db, b)],
   ['POST', /^\/api\/youtube\/reintentar$/, async () => {
