@@ -3083,3 +3083,12 @@ span.ej-chip { cursor: default; }
 .perfil-copiar { display: inline-flex; align-items: center; gap: var(--e-2); flex-wrap: wrap; max-width: 100%; }
 .perfil-copiar code { word-break: break-all; }
 .perfil-codigo { font-size: var(--t-8); font-weight: 700; letter-spacing: .15em; color: var(--acento-texto); margin: var(--e-1) 0; }
+
+/* Drive en el perfil */
+.perfil-drive { display: grid; gap: var(--e-2); border-top: 1px solid var(--linea); padding-top: var(--e-3); margin-top: var(--e-2); }
+.perfil-drive h4 { margin: var(--e-2) 0 0; font-size: var(--t-4); }
+.perfil-drive a { color: var(--acento-texto); }
+.perfil-drive form input { flex: 1; min-width: 0; }
+.perfil-carpetas { display: flex; flex-wrap: wrap; gap: var(--e-2); }
+.perfil-carpetas .btn-x { background: none; border: 0; color: var(--tenue); cursor: pointer; padding: 0 0 0 var(--e-1); }
+.perfil-carpetas .btn-x:hover { color: var(--mal); }

@@ -128,7 +128,11 @@ function piezaDeEncargo(db: Db, e: Encargo, tipo: 'entrevista' | 'documento' | '
 export async function agregarEntrevista(db: Db, encargoId: number, x: { quien?: string | null; rol?: string | null; area?: string | null; texto?: string | null; audio?: Buffer | null; nombreAudio?: string }, ahora = Date.now()) {
   const e = encargoOError(db, encargoId)
   let texto = String(x.texto ?? '').trim()
-  if (x.audio?.length) texto = [texto, (await transcribir(db, x.audio, x.nombreAudio || 'entrevista.m4a')).trim()].filter(Boolean).join('\n\n')
+  if (x.audio?.length) {
+    texto = [texto, (await transcribir(db, x.audio, x.nombreAudio || 'entrevista.m4a')).trim()].filter(Boolean).join('\n\n')
+    const audio = x.audio
+    void import('./google/drive.ts').then((d) => d.alDrive(db, { datos: audio, nombre: x.nombreAudio || 'entrevista.m4a', tipo: 'audio', origen: 'entrevista', descripcion: texto })).catch(() => {})
+  }
   if (texto.length < 20) throw new Error('La entrevista vino vacía: pegá las notas o subí el audio')
   const quien = [x.quien?.trim(), x.rol?.trim()].filter(Boolean).join(', ')
   const id = piezaDeEncargo(db, e, 'entrevista', `Entrevista · ${e.cliente}${quien ? ` · ${quien}` : ''}${x.area ? ` (${x.area})` : ''}`, texto, { quien: x.quien ?? null, rol: x.rol ?? null, area: x.area ?? null }, ahora)

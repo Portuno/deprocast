@@ -43,7 +43,11 @@ export const PARECE_SUENO = /^\s*(?:anoche\s+|hoy\s+|recién\s+)?(?:(?:me\s+)?so
 /** Guarda un sueño (texto o audio, que se transcribe y no se guarda). Devuelve el sueño, todavía sin destilar. */
 export async function registrarSueno(db: Db, x: { texto?: string | null; audio?: Buffer | null; nombreAudio?: string; fecha?: string | null; despertar?: string | null; duracionMin?: number | null; lucido?: boolean | null; emociones?: string[] | string | null; nota?: string | null; origen: string }, ahora = Date.now()): Promise<Sueno> {
   let texto = String(x.texto ?? '').trim()
-  if (x.audio?.length) texto = [texto, (await transcribir(db, x.audio, x.nombreAudio || 'sueno.m4a')).trim()].filter(Boolean).join('\n\n')
+  if (x.audio?.length) {
+    texto = [texto, (await transcribir(db, x.audio, x.nombreAudio || 'sueno.m4a')).trim()].filter(Boolean).join('\n\n')
+    const audio = x.audio
+    void import('./google/drive.ts').then((d) => d.alDrive(db, { datos: audio, nombre: x.nombreAudio || 'sueno.m4a', tipo: 'audio', origen: 'sueño', descripcion: texto })).catch(() => {})
+  }
   if (texto.length < 3) throw new Error('El sueño vino vacío: contalo por escrito o en un audio')
   const fecha = x.fecha && /^\d{4}-\d{2}-\d{2}$/.test(x.fecha) ? x.fecha : fechaLocal(ahora)
   const despertar = x.despertar && /^([01]\d|2[0-3]):[0-5]\d$/.test(x.despertar) ? x.despertar : null

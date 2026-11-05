@@ -878,6 +878,23 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/correo\/([\w-]+)\/proponer$/, async (b, [m]) => (await import('./google/correo.ts')).proponerRespuesta(db, m, b.indicacion ? String(b.indicacion) : null)],
   ['POST', /^\/api\/correo\/([\w-]+)\/borrador$/, async (b, [m]) => (await import('./google/correo.ts')).guardarBorrador(db, m, String(b.texto ?? ''))],
   ['POST', /^\/api\/correo\/([\w-]+)\/atendido$/, async (b, [m]) => (await import('./google/correo.ts')).marcarAtendido(db, m, b.atendido !== false)],
+  // Drive (plan v35): la carpeta Mastropiero (lo que va), las carpetas que entran al corpus (lo que viene) y sincronizar.
+  ['GET', /^\/api\/drive$/, async () => (await import('./google/drive.ts')).estadoDrive(db)],
+  ['POST', /^\/api\/drive\/ajustes$/, async (b) => {
+    if (b.medios != null) fijarAjuste(db, 'drive_medios', b.medios ? '1' : '0')
+    if (b.conversaciones != null) fijarAjuste(db, 'drive_conversaciones', b.conversaciones ? '1' : '0')
+    return (await import('./google/drive.ts')).estadoDrive(db)
+  }],
+  ['GET', /^\/api\/drive\/carpetas$/, async (_, __, q) => (await import('./google/sheets.ts')).buscarEnDrive(db, q.get('q') || '', 'carpeta', 15)],
+  ['POST', /^\/api\/drive\/carpetas$/, async (b) => (await import('./google/drive.ts')).sumarCarpetaCorpus(db, { id: String(b.id ?? ''), nombre: String(b.nombre ?? '') })],
+  ['POST', /^\/api\/drive\/carpetas\/([\w-]+)\/sacar$/, async (_, [c]) => (await import('./google/drive.ts')).sacarCarpetaCorpus(db, c)],
+  ['POST', /^\/api\/drive\/sincronizar$/, async () => {
+    const d = await import('./google/drive.ts')
+    const corpus = await d.sincronizarCorpus(db)
+    const conversaciones = await d.archivarConversaciones(db)
+    const subidos = await d.trabajarCola(db)
+    return { corpus, conversaciones, subidos }
+  }],
   // WhatsApp (plan v35): configurar, el estado, desvincular y una prueba.
   ['GET', /^\/api\/whatsapp$/, async () => (await import('./whatsapp.ts')).estadoWhatsapp(db)],
   ['POST', /^\/api\/whatsapp\/config$/, async (b) => (await import('./whatsapp.ts')).configurarWhatsapp(db, { numeroId: b.numeroId, token: b.token, secreto: b.secreto })],
@@ -1803,6 +1820,7 @@ const servidor = http.createServer(async (req, res) => {
       if (req.method === 'POST' && url.pathname === '/api/captura/foto') {
         const foto = guardarFoto(url.searchParams.get('nombre') || 'foto.jpg', await leerCrudo(req, 30 * 1024 * 1024))
         const c = await clasificar(db, { imagen: { datos: foto.datos, mime: foto.mime }, texto: url.searchParams.get('texto') || '' })
+        void import('./google/drive.ts').then((d) => d.alDrive(db, { datos: foto.datos, nombre: url.searchParams.get('nombre') || 'foto.jpg', tipo: 'imagen', origen: 'registro', descripcion: [url.searchParams.get('texto'), c.descripcion].filter(Boolean).join('\n\n') })).catch(() => {})
         const registrado = c.tipo !== 'otro' && c.confianza >= 0.5 ? registrarCaptura(db, c, { foto: foto.url, fuente: 'pantalla' }) : null
         return void res.end(JSON.stringify({ captura: c, registrado, foto: foto.url }))
       }
@@ -1941,6 +1959,7 @@ const servidor = http.createServer(async (req, res) => {
         const audio = await leerCrudo(req, 50 * 1024 * 1024)
         const texto = await nanTranscribir(db, audio, url.searchParams.get('nombre') || 'audio.m4a')
         if (!texto) throw new Error('El audio no tenía voz que transcribir')
+        void import('./google/drive.ts').then((d) => d.alDrive(db, { datos: audio, nombre: url.searchParams.get('nombre') || 'audio.m4a', tipo: 'audio', origen: 'diario', descripcion: texto })).catch(() => {})
         void enviar(db, cid, texto)
         return void res.end(JSON.stringify({ texto }))
       }
@@ -2189,6 +2208,25 @@ deFondo(() => setInterval(async () => {
     } finally { fin() }
   } catch (e) { console.error('  gmail:', e instanceof Error ? e.message : e) }
 }, 5 * 60_000).unref())
+
+// Drive (plan v35): lo que espera para subir a su carpeta Mastropiero (cada 2 minutos), y cada media hora las
+// conversaciones de hoy (y las de ayer, para cerrarlas) y las carpetas de su Drive que entran al corpus.
+deFondo(() => setInterval(async () => {
+  try { const { googleConectado } = await import('./google/oauth.ts'); if (googleConectado(db)) await (await import('./google/drive.ts')).trabajarCola(db) } catch (e) { console.error('  drive:', e instanceof Error ? e.message : e) }
+}, 2 * 60_000).unref())
+deFondo(() => setInterval(async () => {
+  try {
+    const { googleConectado } = await import('./google/oauth.ts')
+    if (!googleConectado(db)) return
+    const d = await import('./google/drive.ts')
+    const fin = marcar('drive')
+    try {
+      await d.archivarConversaciones(db, fechaLocal(Date.now() - 86_400_000))
+      await d.archivarConversaciones(db)
+      await d.sincronizarCorpus(db)
+    } finally { fin() }
+  } catch (e) { console.error('  drive:', e instanceof Error ? e.message : e) }
+}, 30 * 60_000).unref())
 
 // Las cuentas: lo aprobado se publica en su horario (solo con conector; «redacta» solo lo que él aprobó).
 deFondo(() => {

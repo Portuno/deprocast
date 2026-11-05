@@ -91,6 +91,7 @@ export function subir(db: Db, nombre: string, contenido: Buffer | string, ahora 
   fs.mkdirSync(dirCargas(), { recursive: true })
   const ruta = path.join(dirCargas(), `${ahora}-${limpio}`)
   fs.writeFileSync(ruta, contenido)
+  void import('../google/drive.ts').then((d) => d.alDrive(db, { datos: Buffer.isBuffer(contenido) ? contenido : Buffer.from(contenido, 'utf8'), nombre: limpio, tipo: 'archivo', origen: 'carga' })).catch(() => {})
   try {
     const d = leerDatos(limpio, ruta)
     const imp = importadorDe(d)

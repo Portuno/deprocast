@@ -820,6 +820,8 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
   if (voz) {
     const { datos, nombre } = await bajarDe(voz.file_id)
     const t = await transcribir(db, datos, nombre.endsWith('.oga') ? nombre.replace(/\.oga$/, '.ogg') : nombre)
+    // A su Drive (carpeta Mastropiero/Audios), con la transcripción.
+    void import('./google/drive.ts').then((d) => d.alDrive(db, { datos, nombre: nombre.replace(/\.oga$/, '.ogg'), tipo: 'audio', origen: nombreCanal(), descripcion: t })).catch(() => {})
     if (!t.trim()) return decir('No entendí el audio.')
     // Un audio que cuenta un sueño («soñé que…») va a Sueños, no a la charla.
     if (PARECE_SUENO.test(t)) return guardarSuenoTelegram(db, { texto: t })
@@ -839,8 +841,9 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
     let foto: ReturnType<typeof guardarFoto> | null = null
     try { foto = guardarFoto(nombre, datos) } catch { /* sin ffmpeg ni nada raro: se sigue con la original */ }
     const c = await clasificar(db, { imagen: foto ? { datos: foto.datos, mime: foto.mime } : { datos, mime: 'image/jpeg' }, texto }).catch(() => null)
-    if (await registrarYContar(db, c, { foto: foto?.url ?? null, texto: texto ?? '' })) return
+    if (await registrarYContar(db, c, { foto: foto?.url ?? null, texto: texto ?? '' })) { void import('./google/drive.ts').then((d) => d.alDrive(db, { datos, nombre, tipo: 'imagen', origen: nombreCanal(), descripcion: [texto, c?.descripcion].filter(Boolean).join('\n\n') })).catch(() => {}); return }
     const descripcion = c?.descripcion || await ver(db, datos)
+    void import('./google/drive.ts').then((d) => d.alDrive(db, { datos, nombre, tipo: 'imagen', origen: nombreCanal(), descripcion: [texto, descripcion].filter(Boolean).join('\n\n') })).catch(() => {})
     return conversar(db, `(Te mandé una foto por ${nombreCanal()}. Lo que se ve: ${descripcion})${texto ? `\n${texto}` : ''}`)
   }
   if (texto && !/https?:\/\//.test(texto) && PARECE_REGISTRO.test(texto)) {

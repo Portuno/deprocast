@@ -82,6 +82,7 @@ export async function guardarImagen(db: Db, nombre: string, datos: Buffer, ahora
   const { url, datos: jpeg, mime } = guardarFoto(nombre, datos, ahora)
   let descripcion = ''
   try { descripcion = limpia(await describir(db, jpeg, mime)) } catch { /* sin descripción: igual se ve en el turno */ }
+  void import('../google/drive.ts').then((d) => d.alDrive(db, { datos, nombre, tipo: 'imagen', origen: 'chat', descripcion })).catch(() => {})
   return { url, descripcion, marca: `[imagen:${url}|${descripcion || 'sin descripción'}]` }
 }
 

@@ -75,6 +75,7 @@ export async function recibirVoz(db: Db, d: Dispositivo, audio: Buffer, nombre: 
   if (!audio.length) throw new Error('El audio vino vacío')
   const texto = (await transcribir(db, audio, nombre || 'voz.m4a')).trim()
   if (!texto) throw new Error('El audio no tenía voz que transcribir')
+  if (meta.modo !== 'conversacion') void import('./google/drive.ts').then((d) => d.alDrive(db, { datos: audio, nombre: nombre || 'voz.m4a', tipo: 'audio', origen: 'teléfono', descripcion: texto })).catch(() => {})
   const datos = JSON.stringify({ ...meta, dispositivo: d.nombre })
   // Quién habló: la huella de la voz (si el audio es un WAV que se entiende) contra los hablantes conocidos.
   const { huellaDe, leerWav } = await import('./conciencia/huella.ts')

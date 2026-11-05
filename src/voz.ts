@@ -59,6 +59,7 @@ export async function escucharTurno(db: Db, cid: number, audio: Buffer, o: { nom
   if (audio.length < 1500) return { texto: null }
   const texto = (await transcribir(db, audio, o.nombre || 'voz.webm')).trim()
   if (!texto || esRuido(texto)) return { texto: null }
+  void import('./google/drive.ts').then((d) => d.alDrive(db, { datos: audio, nombre: o.nombre || 'voz.webm', tipo: 'audio', origen: 'chat', descripcion: texto })).catch(() => {})
   const s = sesionActiva(db)
   if (s) {
     db.prepare(`INSERT INTO directo_momentos (sesion_id, tipo, desde, hasta, texto) VALUES (?, 'voz', ?, ?, ?)`)

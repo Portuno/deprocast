@@ -105,10 +105,13 @@ function pintarGooglePerfil(g) {
   } else {
     const m = g.gmail
     cuerpo = `<p class="chico">Conectado como <b>${esc(g.email || 'tu cuenta')}</b>${g.desde ? ` desde el ${new Date(g.desde).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })}` : ''}.</p>
-      <p class="tenue chico">Correo: ${m.correos.toLocaleString('es-AR')} guardados · ${m.noLeidos} sin leer · ${m.suyos} tuyos en el corpus · última pasada ${m.sincronizado ? new Date(m.sincronizado).toTimeString().slice(0, 5) : 'todavía no'}.${g.alcances.some((a) => a.includes('spreadsheets')) ? '' : ' <b>Volvé a conectar para sumar Google Sheets.</b>'}</p>
-      <div class="fila"><button class="btn btn-chico" id="g-sinc">Traer lo nuevo</button>${g.alcances.some((a) => a.includes('spreadsheets')) ? '' : '<a class="btn btn-chico" href="/google/conectar">Volver a conectar</a>'}<button class="btn btn-chico btn-peligro" id="g-desc">Desconectar</button></div>`
+      ${g.faltan?.length ? `<p class="aviso chico">Deprocast necesita permisos nuevos (${g.faltan.map(esc).join(', ')}): tocá «Volver a conectar» y aceptá todo.</p>` : ''}
+      <p class="tenue chico">Correo: ${m.correos.toLocaleString('es-AR')} guardados · ${m.noLeidos} sin leer · ${m.suyos} tuyos en el corpus · última pasada ${m.sincronizado ? new Date(m.sincronizado).toTimeString().slice(0, 5) : 'todavía no'}.</p>
+      <div class="fila"><button class="btn btn-chico" id="g-sinc">Traer lo nuevo</button>${g.faltan?.length ? '<a class="btn btn-chico btn-primario" href="/google/conectar">Volver a conectar</a>' : ''}<button class="btn btn-chico btn-peligro" id="g-desc">Desconectar</button></div>
+      <div id="perfil-drive"></div>`
   }
   cont.innerHTML = `<div class="perfil-tarjeta"><h3>🔗 Google</h3>${cuerpo}</div>`
+  if (g.conectado) pintarDrivePerfil()
   const refrescar = async () => pintarGooglePerfil(await api('/google').catch(() => null))
   const form = $('#g-cliente')
   if (form) form.onsubmit = async (ev) => {
@@ -165,4 +168,50 @@ function pintarWhatsappPerfil(w) {
   if (f) f.onsubmit = async (ev) => { ev.preventDefault(); try { await api('/whatsapp/config', Object.fromEntries(new FormData(f))); toast('WhatsApp configurado<small>Ahora el webhook en Meta y el código desde tu teléfono.</small>'); refrescar() } catch (e) { error(e) } }
   if ($('#wa-probar')) $('#wa-probar').onclick = async () => { try { await api('/whatsapp/probar', {}); toast('Mandada<small>Fijate tu WhatsApp.</small>', 'suave') } catch (e) { error(e) } }
   if ($('#wa-desvincular')) $('#wa-desvincular').onclick = async () => { if (!(await confirmar('¿Desvincular tu número? Mastropiero deja de atenderte por WhatsApp hasta que mandes el código nuevo.', { si: 'Desvincular', peligro: true }))) return; try { await api('/whatsapp/desvincular', {}); refrescar() } catch (e) { error(e) } }
+}
+
+/** Drive (plan v35): la carpeta Mastropiero (lo que va: audios, imágenes, archivos y conversaciones) y las carpetas de tu Drive que entran al corpus. */
+async function pintarDrivePerfil() {
+  const cont = $('#perfil-drive')
+  if (!cont) return
+  let d
+  try { d = await api('/drive') } catch { return }
+  const cuando = (ms) => (ms ? new Date(ms).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'todavía no')
+  cont.innerHTML = `<div class="perfil-drive">
+    <h4>📁 Tu carpeta «Mastropiero» en Drive</h4>
+    ${d.puedeEscribir ? '' : '<p class="tenue chico">Para escribir en tu Drive hace falta volver a conectar Google (arriba).</p>'}
+    <p class="tenue chico">Lo que mandás por el chat, Telegram, WhatsApp o el teléfono (audios con su transcripción, imágenes con lo que se ve, archivos) queda en tu Drive, no en Deprocast. Las conversaciones, un documento por día. ${d.carpeta ? `<a href="${esc(d.carpeta)}" target="_blank" rel="noopener">Abrir la carpeta</a>` : '(Se crea con lo primero que guarde.)'}</p>
+    <label class="fila g-1 chico"><input type="checkbox" id="drv-medios" ${d.medios ? 'checked' : ''}> Guardar mis audios, imágenes y archivos</label>
+    <label class="fila g-1 chico"><input type="checkbox" id="drv-conv" ${d.conversaciones ? 'checked' : ''}> Guardar las conversaciones</label>
+    <p class="tenue chico">${d.cola.subidos} subidos${d.cola.pendientes ? ` · ${d.cola.pendientes} esperando` : ''}${d.cola.error ? ` · último problema: ${esc(d.cola.error)}` : ''}</p>
+    <h4>📚 Carpetas de tu Drive en el corpus</h4>
+    <p class="tenue chico">Sus documentos, planillas, presentaciones y PDF entran al corpus (Mastropiero los usa y los cita) y se actualizan cuando cambian. ${d.piezas} piezas de Drive · última pasada ${cuando(d.sincronizado)}.</p>
+    ${d.corpus.length ? `<div class="perfil-carpetas">${d.corpus.map((c) => `<span class="chip">${esc(c.nombre)} <button class="btn-x" data-drv-sacar="${esc(c.id)}" title="Sacar del corpus (lo que ya entró queda)">✕</button></span>`).join('')}</div>` : ''}
+    <form id="drv-buscar" class="fila"><input name="q" placeholder="Buscar una carpeta de tu Drive…" autocomplete="off"><button class="btn btn-chico">Buscar</button></form>
+    <div id="drv-resultados" class="perfil-carpetas"></div>
+    <div class="fila"><button class="btn btn-chico" id="drv-sinc">Sincronizar ahora</button></div>
+  </div>`
+  const ajustar = async (cambio) => { try { await api('/drive/ajustes', cambio); toast('Guardado', 'suave') } catch (e) { error(e) } }
+  $('#drv-medios').onchange = (e) => ajustar({ medios: e.target.checked })
+  $('#drv-conv').onchange = (e) => ajustar({ conversaciones: e.target.checked })
+  $$('[data-drv-sacar]', cont).forEach((b) => (b.onclick = async () => { try { await api(`/drive/carpetas/${encodeURIComponent(b.dataset.drvSacar)}/sacar`, {}); pintarDrivePerfil() } catch (e) { error(e) } }))
+  $('#drv-buscar').onsubmit = async (ev) => {
+    ev.preventDefault()
+    const q = ev.target.q.value.trim()
+    if (!q) return
+    try {
+      const r = await api(`/drive/carpetas?q=${encodeURIComponent(q)}`)
+      $('#drv-resultados').innerHTML = r.length ? r.map((c) => `<button class="btn btn-chico" data-drv-sumar="${esc(c.id)}" data-nombre="${esc(c.nombre)}">＋ ${esc(c.nombre)}</button>`).join('') : '<span class="tenue chico">No encontré carpetas con ese nombre.</span>'
+      $$('[data-drv-sumar]', cont).forEach((b) => (b.onclick = async () => { try { await api('/drive/carpetas', { id: b.dataset.drvSumar, nombre: b.dataset.nombre }); toast(`«${b.dataset.nombre}» va al corpus<small>Tocá «Sincronizar ahora» o esperá la próxima pasada.</small>`, 'suave'); pintarDrivePerfil() } catch (e) { error(e) } }))
+    } catch (e) { error(e) }
+  }
+  $('#drv-sinc').onclick = async (e) => {
+    e.target.disabled = true
+    e.target.textContent = 'Sincronizando…'
+    try {
+      const r = await api('/drive/sincronizar', {})
+      toast(`Drive al día<small>${r.corpus.nuevos} documentos nuevos y ${r.corpus.actualizados} actualizados en el corpus · ${r.conversaciones} conversaciones · ${r.subidos} archivos subidos</small>`)
+      pintarDrivePerfil()
+    } catch (x) { error(x); e.target.disabled = false; e.target.textContent = 'Sincronizar ahora' }
+  }
 }

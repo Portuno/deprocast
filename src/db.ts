@@ -1121,6 +1121,22 @@ CREATE TABLE IF NOT EXISTS voz_turnos (
 CREATE INDEX IF NOT EXISTS voz_turnos_inicio ON voz_turnos (inicio);
 -- Explorar internet (plan v31): la caché de 30 min de cada pedido (no se le pide dos veces lo mismo a nadie) y la salud
 -- de cada backend de cada canal (último ok, último error y hasta cuándo está en pausa si lo limitaron o bloquearon).
+-- Drive (plan v35): lo que va a su carpeta Mastropiero espera acá (con el archivo en disco) hasta que sube.
+CREATE TABLE IF NOT EXISTS drive_cola (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  archivo TEXT NOT NULL,
+  nombre TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  carpeta TEXT NOT NULL,
+  descripcion TEXT,
+  origen TEXT NOT NULL,
+  creado INTEGER NOT NULL,
+  intentos INTEGER NOT NULL DEFAULT 0,
+  error TEXT,
+  hecho INTEGER NOT NULL DEFAULT 0,
+  file_id TEXT,
+  link TEXT
+);
 -- WhatsApp (plan v35): los mensajes ya atendidos (Meta reintenta el webhook; cada uno se atiende una sola vez).
 CREATE TABLE IF NOT EXISTS whatsapp_vistos (
   id TEXT PRIMARY KEY,

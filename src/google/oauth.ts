@@ -15,6 +15,8 @@ export const ALCANCES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.compose',
   'https://www.googleapis.com/auth/drive.readonly',
+  // Escribir solo lo que crea Deprocast (la carpeta Mastropiero y lo que va adentro).
+  'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/spreadsheets',
   'https://www.googleapis.com/auth/calendar',
   'https://www.googleapis.com/auth/contacts.readonly',
@@ -67,6 +69,7 @@ export function estadoGoogle(db: Db) {
   return {
     configurado: googleConfigurado(db),
     clientePropio: !!ajuste(db, 'google_cliente_id'),
+    faltan: googleConectado(db) ? permisosQueFaltan(db).map((a) => a.replace('https://www.googleapis.com/auth/', '')) : [],
     conectado: googleConectado(db),
     email: ajuste(db, 'google_email'),
     desde: Number(ajuste(db, 'google_desde')) || null,
@@ -171,6 +174,27 @@ export async function llamarGoogle<T = any>(db: Db, url: string, init: RequestIn
     }
     return j as T
   }
+}
+
+/** Lo mismo, pero el cuerpo crudo (un PDF, un audio, un archivo exportado). */
+export async function llamarGoogleCrudo(db: Db, url: string): Promise<Buffer> {
+  for (let intento = 0; ; intento++) {
+    const token = await accesoGoogle(db, intento > 0)
+    const r = await red(url, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(120_000) })
+    if (r.status === 401 && intento === 0) continue
+    if (!r.ok) {
+      const e = new Error(`Google ${r.status}: ${(await r.text()).slice(0, 200)}`) as Error & { status?: number }
+      e.status = r.status
+      throw e
+    }
+    return Buffer.from(await r.arrayBuffer())
+  }
+}
+
+/** Los permisos que pide Deprocast y que esta conexión todavía no tiene (hay que volver a conectar). */
+export function permisosQueFaltan(db: Db): string[] {
+  const tiene = ajuste(db, 'google_alcances') ?? ''
+  return ALCANCES.filter((a) => a.startsWith('https://') && !tiene.includes(a.replace('https://www.googleapis.com/auth/', '')))
 }
 
 export async function desconectarGoogle(db: Db) {
