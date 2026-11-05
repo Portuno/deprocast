@@ -16,6 +16,7 @@ async function montarPerfil() {
       <div><h1>${esc(nombre)}</h1>
         <p class="tenue">${[g?.conectado && g.email ? esc(g.email) : null, base ? 'tu Deprocast' : 'el dueño de este Deprocast', p.version ? `versión ${esc(String(p.version).slice(0, 7))}` : null].filter(Boolean).join(' · ')}</p></div>
     </header>
+    <div class="perfil-cuerpo"><div class="perfil-col">
 
     <section class="perfil-bloque"><h2>Uso</h2>
       <div class="perfil-kpis">
@@ -30,6 +31,7 @@ async function montarPerfil() {
     <section class="perfil-bloque"><h2>Tu Deprocast</h2>
       <div class="perfil-numeros">${[['piezas', 'piezas en el corpus'], ['entidades', 'entidades'], ['misiones', 'misiones activas'], ['agentes', 'agentes en la liga'], ['correos', 'mails']].filter(([k]) => p.numeros[k] != null).map(([k, t]) => `<div><b>${p.numeros[k].toLocaleString('es-AR')}</b><small>${t}</small></div>`).join('')}</div>
     </section>
+    </div><div class="perfil-col">
 
     <section class="perfil-bloque"><h2>Acciones rápidas</h2>
       <div class="perfil-acciones">
@@ -50,7 +52,11 @@ async function montarPerfil() {
         <p class="tenue chico">La app de Deprocast en tu teléfono, Morpheon y los agentes que entran por MCP (Claude Code, Claude Desktop…), cada uno con su token.</p>
         <button class="btn" id="perfil-apps-ver">Ver y administrar</button></div>
     </section>
+    </div></div>
   </div>`
+  // Siempre desde arriba (la vista anterior pudo haber dejado el scroll abajo).
+  $('#principal').scrollTop = 0
+  window.scrollTo(0, 0)
   pintarGooglePerfil(g)
   $('#perfil-apps-ver').onclick = () => cargarScript('59-suenos.js').then(() => modalApps())
   $$('[data-perfil-acc]').forEach((b) => (b.onclick = () => {
