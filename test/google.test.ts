@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { after, before, describe, it } from 'node:test'
 import { abrir, ajuste } from '../src/db.ts'
-import { _probarGoogle, accesoGoogle, estadoGoogle, urlDeConexion, volverDeGoogle } from '../src/google/oauth.ts'
+import { _probarGoogle, accesoGoogle, estadoGoogle, guardarCliente, urlDeConexion, volverDeGoogle } from '../src/google/oauth.ts'
+import { agregarFilas, crearHoja, idDeHoja, leerHoja } from '../src/google/sheets.ts'
 import { crearBorrador, sincronizarGmail, sinCitas, textoDe, verMails } from '../src/google/gmail.ts'
 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64url')
@@ -115,6 +116,48 @@ describe('Google y Gmail (plan v35, fase 1)', () => {
     assert.match(crudo, /In-Reply-To: <m4@mail>/)
     assert.match(crudo, /Subject: =\?UTF-8\?B\?/)
     assert.match(Buffer.from(crudo.split('\r\n\r\n')[1].replace(/\r\n/g, ''), 'base64').toString('utf8'), /a las 10 nos vemos/)
+  })
+
+  it('el cliente se pega como JSON (y avisa si la URI de redirección no es la de este Deprocast)', () => {
+    const db = abrir(':memory:')
+    delete process.env.GOOGLE_OAUTH_ID
+    try {
+      assert.throws(() => guardarCliente(db, { json: '{no es json' }), /JSON válido/)
+      assert.throws(() => guardarCliente(db, { json: JSON.stringify({ installed: { client_id: 'x.apps.googleusercontent.com', client_secret: 'secreto-largo' } }) }), /Aplicación web/)
+      const r = guardarCliente(db, { json: JSON.stringify({ web: { client_id: '123-abc.apps.googleusercontent.com', client_secret: 'GOCSPX-secreto', redirect_uris: ['https://otro/google/volver'] } }) }, 'https://mi.deprocast')
+      assert.match(r.aviso ?? '', /https:\/\/mi.deprocast\/google\/volver/)
+      assert.equal(estadoGoogle(db).configurado, true)
+      assert.equal(new URL(urlDeConexion(db, 'https://mi.deprocast')).searchParams.get('client_id'), '123-abc.apps.googleusercontent.com')
+    } finally { process.env.GOOGLE_OAUTH_ID = 'cliente' }
+  })
+
+  it('Sheets: el id desde el link, leer, agregar filas y crear', async () => {
+    const db = abrir(':memory:')
+    db.prepare(`INSERT INTO ajustes (clave, valor) VALUES ('google_refresh', 'r1')`).run()
+    const id = '1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789'
+    assert.equal(idDeHoja(`https://docs.google.com/spreadsheets/d/${id}/edit#gid=0`), id)
+    assert.throws(() => idDeHoja('cualquier cosa'), /No reconozco/)
+    const pedidos: { url: string; metodo: string; cuerpo: any }[] = []
+    _probarGoogle((async (u: string, init: RequestInit = {}) => {
+      const url = String(u)
+      if (url.includes('oauth2.googleapis.com/token')) return json({ access_token: 'a', expires_in: 3600 })
+      pedidos.push({ url, metodo: init.method ?? 'GET', cuerpo: init.body ? JSON.parse(String(init.body)) : null })
+      if (url.includes('?fields=')) return json({ properties: { title: 'Gastos' }, sheets: [{ properties: { title: 'Enero', gridProperties: { rowCount: 100, columnCount: 5 } } }] })
+      if (url.includes('/values/') && !url.includes(':append') && (init.method ?? 'GET') === 'GET') return json({ range: 'Enero!A1:B2', values: [['Fecha', 'Monto'], ['2026-11-01', '1200']] })
+      if (url.includes(':append')) return json({ updates: { updatedRange: 'Enero!A3:B3', updatedRows: 1 } })
+      if (url.endsWith('/spreadsheets')) return json({ spreadsheetId: 'nuevo-id-de-planilla-123456', sheets: [{ properties: { title: 'Hoja 1' } }] })
+      if (init.method === 'PUT') return json({ updatedRange: 'Hoja 1!A1:B2', updatedCells: 4 })
+      return json({}, 404)
+    }) as typeof fetch)
+    const l = await leerHoja(db, id)
+    assert.equal(l.titulo, 'Gastos')
+    assert.deepEqual(l.valores[1], ['2026-11-01', '1200'])
+    assert.match(decodeURIComponent(pedidos[1].url), /'Enero'!A1:Z200/)
+    assert.equal((await agregarFilas(db, id, "'Enero'!A1", [['2026-11-02', '=B2*2']])).filas, 1)
+    assert.match(pedidos.at(-1)!.url, /valueInputOption=USER_ENTERED/)
+    const c = await crearHoja(db, 'Nueva', [['a', 'b'], [1, 2]])
+    assert.equal(c.link, 'https://docs.google.com/spreadsheets/d/nuevo-id-de-planilla-123456/edit')
+    assert.deepEqual(pedidos.at(-1)!.cuerpo, { values: [['a', 'b'], [1, 2]] })
   })
 
   it('texto: el HTML sin etiquetas si no hay texto plano, y lo citado afuera', () => {

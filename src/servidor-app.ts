@@ -198,8 +198,14 @@ alGuardar(() => { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)') } catch { /* 
 
 // Usuarios (plan v33, paso 5). En el proceso del dueño, la puerta: las sesiones de los usuarios van a su propio Deprocast.
 // En el Deprocast de un usuario: el tope duro de tokens por día (cuenta todo) y, si el hub se cae, se apaga con él.
-const puerta = enUsuario() || enVercel() ? null : crearPuerta({ datos: process.env.MASTRO_CUENTAS_DIR ?? path.dirname(resolverRuta()), activo: () => fondoActivo })
+const puerta = enUsuario() || enVercel() ? null : crearPuerta({ datos: process.env.MASTRO_CUENTAS_DIR ?? path.dirname(resolverRuta()), activo: () => fondoActivo, entornoExtra: () => entornoGoogleParaUsuarios() })
 // Recién activado en un relevo, los usuarios ya corren: se adoptan enseguida. En un arranque de cero, después de que el dueño contesta.
+/** El cliente de Google del dueño (el que pegó en su perfil) también les sirve a los usuarios para conectar el suyo. */
+function entornoGoogleParaUsuarios(): Record<string, string> {
+  const id = ajuste(db, 'google_cliente_id')
+  const secreto = ajuste(db, 'google_cliente_secreto')
+  return id && secreto ? { GOOGLE_OAUTH_ID: id, GOOGLE_OAUTH_SECRETO: secreto } : {}
+}
 if (puerta) deFondo(() => setTimeout(() => puerta.prenderTodos(), arrancaEnEspera ? 0 : 20_000).unref())
 // Con el supervisor, apagarse es un relevo: los usuarios siguen corriendo y el servidor nuevo los adopta. Sin él (la
 // compu), apagarse es apagar todo.
@@ -865,6 +871,8 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/dispositivos\/(\d+)\/revocar$/, async (_, [x]) => { (await import('./dispositivos.ts')).revocarDispositivo(db, id(x)); return { ok: true } }],
   // Google (plan v35): el estado de la conexión y de Gmail, sincronizar ya y desconectar.
   ['GET', /^\/api\/google$/, async () => ({ ...(await import('./google/oauth.ts')).estadoGoogle(db), gmail: (await import('./google/gmail.ts')).estadoGmail(db) })],
+  ['GET', /^\/api\/perfil$/, async () => (await import('./perfil.ts')).perfil(db)],
+  ['POST', /^\/api\/google\/cliente$/, async (b) => (await import('./google/oauth.ts')).guardarCliente(db, { json: b.json ? String(b.json) : undefined, id: b.id ? String(b.id) : undefined, secreto: b.secreto ? String(b.secreto) : undefined }, b.origen ? String(b.origen) : undefined)],
   ['POST', /^\/api\/google\/sincronizar$/, async () => (await import('./google/gmail.ts')).sincronizarGmail(db)],
   ['POST', /^\/api\/google\/desconectar$/, async () => { await (await import('./google/oauth.ts')).desconectarGoogle(db); return { ok: true } }],
   ['GET', /^\/api\/apps-conectadas$/, async () => { const a = await import('./apps.ts'); const m = await import('./mcp.ts'); return { apps: a.listarApps(db), permisos: a.PERMISOS, mcp: { herramientas: m.HERRAMIENTAS_MCP, llamadas: m.llamadasMcp(db, 12) } } }],
@@ -1630,6 +1638,11 @@ const servidor = http.createServer(async (req, res) => {
       return void res.writeHead(303, { 'set-cookie': cookie, location: '/' }).end()
     }
     return void res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(PAGINA_ENTRAR())
+  }
+  // Lo que Google pide para publicar la conexión: la página principal y la política de privacidad (públicas).
+  if ((url.pathname === '/acerca' || url.pathname === '/privacidad') && req.method === 'GET') {
+    const { paginaPublica } = await import('./publicas.ts')
+    return void res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=3600' }).end(paginaPublica(url.pathname === '/acerca' ? 'acerca' : 'privacidad'))
   }
   // Qué versión de la pantalla sirve (pública: para saber si un deploy llegó, sin datos de nadie).
   if (url.pathname === '/version') return void res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ web: VERSION_WEB, commit: process.env.MASTRO_COMMIT ?? null, arranco: ARRANCO, caliente, activo: fondoActivo, bloqueos: bloqueos.slice(-8) }))

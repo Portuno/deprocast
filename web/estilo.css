@@ -2986,3 +2986,37 @@ span.ej-chip { cursor: default; }
 .ob-ultimos ul { margin: 2px 0 0; padding-left: 1.1em; display: grid; gap: 2px; font-size: var(--t-2); }
 .ob-ultimos li { overflow-wrap: anywhere; }
 .disp-cod b { font-size: var(--t-7); letter-spacing: .12em; margin-right: var(--e-2); }
+
+/* El perfil (plan v35): quién sos, el uso, acciones rápidas y lo conectado. */
+.perfil { max-width: 920px; margin: 0 auto; padding: var(--e-5); display: grid; gap: var(--e-5); }
+.perfil-cab { display: flex; align-items: center; gap: var(--e-4); }
+.perfil-cab h1 { margin: 0; font-size: var(--t-8); }
+.perfil-cab p { margin: var(--e-1) 0 0; }
+.perfil-avatar { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; background: var(--panel-2); border: 1px solid var(--linea-2); color: var(--acento-texto); font-size: var(--t-7); font-weight: 700; }
+.perfil-bloque { display: grid; gap: var(--e-3); }
+.perfil-bloque h2 { margin: 0; font-size: var(--t-5); }
+.perfil-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--e-3); }
+.perfil-kpi, .perfil-tarjeta { background: var(--panel); border: 1px solid var(--linea); border-radius: var(--r-l); padding: var(--e-4); display: grid; gap: var(--e-1); }
+.perfil-kpi small { color: var(--tenue); }
+.perfil-kpi b { font-size: var(--t-7); }
+.perfil-kpi span { font-size: var(--t-2); }
+.perfil-tarjeta h3 { margin: 0; font-size: var(--t-4); }
+.perfil-grafico { margin: 0; display: grid; gap: var(--e-1); }
+.perfil-grafico svg { width: 100%; height: 72px; }
+.perfil-barra-suyo { fill: var(--acento); }
+.perfil-barra-liga { fill: var(--linea-2); }
+.perfil-ref { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; }
+.perfil-ref.suyo { background: var(--acento); }
+.perfil-ref.liga { background: var(--linea-2); margin-left: var(--e-2); }
+.perfil-numeros { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--e-3); }
+.perfil-numeros div { display: grid; gap: 2px; padding: var(--e-3); border: 1px solid var(--linea); border-radius: var(--r-m); background: var(--panel); }
+.perfil-numeros b { font-size: var(--t-6); }
+.perfil-numeros small { color: var(--tenue); }
+.perfil-acciones { display: flex; flex-wrap: wrap; gap: var(--e-2); }
+.perfil-acciones .btn { display: inline-flex; align-items: center; gap: var(--e-2); text-decoration: none; }
+.perfil-form { display: grid; gap: var(--e-2); }
+.perfil-form textarea { width: 100%; font-family: var(--mono); font-size: var(--t-2); }
+.perfil-ayuda summary { cursor: pointer; color: var(--tenue); font-size: var(--t-2); }
+.perfil-ayuda code { word-break: break-all; }
+#perfil-apps { gap: var(--e-3); }
+@media (max-width: 720px) { .perfil { padding: var(--e-3); } .perfil-cab h1 { font-size: var(--t-7); } }

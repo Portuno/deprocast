@@ -267,6 +267,42 @@ export const HERRAMIENTAS: Herramienta[] = [
     ejecutar: async (a, { db }) => (await import('../google/gmail.ts')).crearBorrador(db, { cuerpo: a.cuerpo, responderA: a.responder_a || null, para: a.para, asunto: a.asunto }),
     resumen: (_, r) => `dejó un borrador para ${r?.para ?? '…'} en tu Gmail`,
   },
+  // ─── Drive y Sheets (plan v35) ───
+  {
+    nombre: 'buscar_en_drive', familia: 'lectura',
+    descripcion: 'Busca en su Google Drive por nombre (lo más reciente primero): planillas, documentos, presentaciones, carpetas o PDF. Devuelve id, nombre, tipo y link. Para abrir una planilla, leer_hoja con su id.',
+    parametros: S({ consulta: str('Parte del nombre'), tipo: str('Tipo', { enum: ['planilla', 'documento', 'presentacion', 'carpeta', 'pdf'] }), limite: int('Cuántos (máx. 50)') }, ['consulta']),
+    ejecutar: async (a, { db }) => (await import('../google/sheets.ts')).buscarEnDrive(db, a.consulta, a.tipo || undefined, a.limite ?? 15),
+    resumen: (a, r) => `buscó «${a.consulta}» en tu Drive → ${Array.isArray(r) ? r.length : 0}`,
+  },
+  {
+    nombre: 'leer_hoja', familia: 'lectura',
+    descripcion: 'Lee una planilla de Google Sheets (link o id): sus pestañas y los valores. Sin rango, las primeras 200 filas de la primera pestaña; con rango en notación A1 («\'Gastos\'!A1:F50»).',
+    parametros: S({ hoja: str('Link o id de la planilla'), rango: str('Rango A1, opcional') }, ['hoja']),
+    ejecutar: async (a, { db }) => (await import('../google/sheets.ts')).leerHoja(db, a.hoja, a.rango || undefined),
+    resumen: (_, r) => `leyó la planilla «${r?.titulo ?? ''}» (${r?.valores?.length ?? 0} filas)`,
+  },
+  {
+    nombre: 'escribir_hoja', familia: 'accion',
+    descripcion: 'Escribe en una planilla de Google Sheets: reemplaza el rango (A1) con esas filas. Las fórmulas («=SUMA(B2:B9)») y fechas se escriben como si las tipeara él. Antes de pisar algo que ya tiene datos, leelo y confirmalo con él.',
+    parametros: S({ hoja: str('Link o id'), rango: str('Desde dónde, en A1 (p. ej. «\'Hoja 1\'!B2»)'), valores: { type: 'array', items: { type: 'array', items: { type: ['string', 'number', 'boolean'] } }, description: 'Filas de celdas' } }, ['hoja', 'rango', 'valores']),
+    ejecutar: async (a, { db }) => (await import('../google/sheets.ts')).escribirHoja(db, a.hoja, a.rango, a.valores),
+    resumen: (_, r) => `escribió ${r?.celdas ?? 0} celdas en tu planilla`,
+  },
+  {
+    nombre: 'agregar_filas', familia: 'accion',
+    descripcion: 'Agrega filas al final de una tabla de Google Sheets (no pisa nada): para registros, listas y bitácoras.',
+    parametros: S({ hoja: str('Link o id'), pestana: str('La pestaña (o un rango de la tabla); vacío = la primera'), filas: { type: 'array', items: { type: 'array', items: { type: ['string', 'number', 'boolean'] } }, description: 'Las filas nuevas' } }, ['hoja', 'filas']),
+    ejecutar: async (a, { db }) => { const s = await import('../google/sheets.ts'); return s.agregarFilas(db, a.hoja, a.pestana ? (a.pestana.includes('!') ? a.pestana : `'${a.pestana}'!A1`) : 'A1', a.filas) },
+    resumen: (_, r) => `agregó ${r?.filas ?? 0} filas a tu planilla`,
+  },
+  {
+    nombre: 'crear_hoja', familia: 'accion',
+    descripcion: 'Crea una planilla nueva en su Google Drive, con encabezados y filas si se las pasás (la primera fila = encabezados). Devuelve el link.',
+    parametros: S({ titulo: str('El nombre de la planilla'), filas: { type: 'array', items: { type: 'array', items: { type: ['string', 'number', 'boolean'] } }, description: 'Encabezados y filas, opcional' } }, ['titulo']),
+    ejecutar: async (a, { db }) => (await import('../google/sheets.ts')).crearHoja(db, a.titulo, a.filas ?? []),
+    resumen: (_, r) => `creó la planilla «${r?.titulo ?? ''}»`,
+  },
   {
     nombre: 'ver_linea', familia: 'lectura',
     descripcion: 'Su línea temporal: los eventos con fecha que salen de todo su archivo (lo que pasó y lo que iba a pasar), y la crónica de cada mes. Por rango de fechas, por una persona, proyecto o lugar (id de entidad), o por tema. Para «¿qué pasó en marzo?», «¿cuándo fue la última vez que…?», «¿qué hice con X?».',
@@ -357,8 +393,8 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'pedir_herramientas', familia: 'lectura',
-    descripcion: 'Suma herramientas para este turno. Tenés a mano lo de todos los días; para lo demás pedí el grupo: liga (agentes, encargos, ticks, propuestas, La Fragua), corpus (fuentes, cargas, quántomos, entidades, ingerir), misiones (primarias, runs, reportes, ayudantes, personajes, inventario), vida (personas, plata, salud, plan, aprendizaje, bitácora, gemelo, brújula, preguntas), correo (su Gmail: leer, buscar, borradores), web (buscar en internet, leer y guardar links, radar), crear (cuadernos, librería, taller, cuentas, Directo).',
-    parametros: S({ grupos: { type: 'array', items: { type: 'string', enum: ['liga', 'corpus', 'misiones', 'vida', 'correo', 'web', 'crear', 'grafo', 'observatorio'] }, description: 'Uno o varios grupos' } }, ['grupos']),
+    descripcion: 'Suma herramientas para este turno. Tenés a mano lo de todos los días; para lo demás pedí el grupo: liga (agentes, encargos, ticks, propuestas, La Fragua), corpus (fuentes, cargas, quántomos, entidades, ingerir), misiones (primarias, runs, reportes, ayudantes, personajes, inventario), vida (personas, plata, salud, plan, aprendizaje, bitácora, gemelo, brújula, preguntas), correo (su Gmail: leer, buscar, borradores), drive (buscar en su Drive; leer, escribir y crear planillas de Google Sheets), web (buscar en internet, leer y guardar links, radar), crear (cuadernos, librería, taller, cuentas, Directo).',
+    parametros: S({ grupos: { type: 'array', items: { type: 'string', enum: ['liga', 'corpus', 'misiones', 'vida', 'correo', 'drive', 'web', 'crear', 'grafo', 'observatorio'] }, description: 'Uno o varios grupos' } }, ['grupos']),
     ejecutar: (a, ctx) => ({ activadas: ctx.activar?.(Array.isArray(a.grupos) ? a.grupos.map(String) : []) ?? [] }),
     resumen: (a) => `sumó herramientas de ${Array.isArray(a.grupos) ? a.grupos.join(', ') : '…'}`,
   },
@@ -1894,6 +1930,7 @@ export const GRUPOS: Record<string, string[]> = {
   misiones: ['ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail'],
+  drive: ['buscar_en_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],
   web: ['buscar_web', 'buscar_en', 'explorar', 'usar_alexandria', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus'],
   observatorio: ['seguir_tema', 'ver_observatorio', 'crear_campana', 'armar_campana'],
@@ -1909,6 +1946,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/primaria|reporte|informe|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
   if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')
   if (/\bmails?\b|correo|gmail|bandeja|inbox|borrador|me escribi[oó]|contest(ar|[aá]le) a/.test(t)) g.push('correo')
+  if (/drive|planilla|sheets?\b|hoja de c[aá]lculo|spreadsheet|excel|docs\.google/.test(t)) g.push('drive')
   if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal|reddit|subreddit|github|repo\b|twitter|tweet|tuit|linkedin|instagram|facebook/.test(t)) g.push('web')
   if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo|mis redes|difund/.test(t)) g.push('crear')
   if (/grafo|mis temas|de qu[eé] hablo|qu[eé] conecta|me repito|mis zonas|zonas de mi|bisagra|hueco/.test(t)) g.push('grafo')

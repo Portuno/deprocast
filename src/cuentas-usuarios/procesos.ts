@@ -37,6 +37,8 @@ export type OpcionesHub = {
   topeDe?: (id: number) => number
   /** Cuánto esperar a que arranque. */
   esperaMs?: number
+  /** Variables de más para cada usuario (el cliente de Google del dueño, por ejemplo). */
+  entornoExtra?: () => Record<string, string>
   /** Si este hub ya es el que manda (en un relevo, el nuevo no revive a nadie hasta que se va el viejo). */
   activo?: () => boolean
 }
@@ -118,6 +120,7 @@ export function crearHub(o: OpcionesHub) {
     const dir = dirDeUsuario(o.datos, id)
     fs.mkdirSync(dir, { recursive: true })
     const env = entornoDeUsuario(process.env, {
+      ...(o.entornoExtra?.() ?? {}),
       MASTRO_USUARIO: String(id),
       MASTRO_HUB_TOKEN: token,
       MASTRO_HUB_REGISTRO: registro,

@@ -34,6 +34,7 @@ const VISTAS = {
   libreria: { montar: montarLibreria, refrescar: () => {} },
   fragua: { montar: montarFragua, refrescar: refrescarFragua },
   revision: { montar: montarRevision, refrescar: () => {} },
+  perfil: { montar: montarPerfil, refrescar: () => {} },
   agsala: { montar: montarAgSala, refrescar: () => {} },
   agmisiones: { montar: montarAgMisiones, refrescar: () => {} },
   agtemporada: { montar: montarAgTemporada, refrescar: () => {} },
@@ -87,6 +88,7 @@ const ESPACIOS = [
   { id: 'saber', nombre: 'Saber', ico: 'library', tecla: 's', vistas: [['corpus', 'Corpus'], ['cuadernos', 'Cuadernos'], ['libreria', 'Librería'], ['entidades', 'Entidades']] },
   { id: 'afuera', nombre: 'Afuera', ico: 'globe', tecla: 'f', vistas: [['taller', 'Taller'], ['radar', 'Radar'], ['observatorio', 'Observatorio'], ['campanas', 'Campañas'], ['cuentas', 'Cuentas'], ['discovery', 'Discovery']] },
   { id: 'maquina', nombre: 'La máquina', ico: 'cog', tecla: 'm', vistas: [['fragua', 'La Fragua'], ['revision', 'Revisión']] },
+  { id: 'perfil', nombre: 'Perfil', ico: 'user', tecla: 'y', vistas: [['perfil', 'Perfil']] },
 ]
 /** Las vistas que viven adentro de otra (se marcan como esa pestaña). */
 const VISTA_PADRE = { quantomos: 'corpus', estudio: 'taller' }
