@@ -68,12 +68,19 @@ function modalSueno() {
 async function modalApps() {
   let d
   let disp = { dispositivos: [] }
-  try { [d, disp] = await Promise.all([api('/apps-conectadas'), api('/dispositivos')]) } catch (e) { return error(e) }
+  let g = null
+  try { [d, disp, g] = await Promise.all([api('/apps-conectadas'), api('/dispositivos'), api('/google').catch(() => null)]) } catch (e) { return error(e) }
   const fecha = (ms) => (ms ? new Date(ms).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }) : 'nunca')
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>🔌 Apps conectadas</h2>
     <p class="tenue">Otras apps tuyas que le hablan a Deprocast (Morpheon manda tus sueños). Cada una con su token: se ve una sola vez al crearla y se puede revocar. El contrato para pegar en la app está en <code>docs/apps/morpheon.md</code>.</p>
     <p class="tenue chico">Con el permiso <b>leer</b>, la app entra por la puerta MCP (<code>${esc(ORIGEN_PUBLICO)}/mcp</code>): Claude Code, Claude Desktop u otro agente tuyo leen tu archivo, tu grafo, tu Observatorio, tus misiones y tu día. Solo lectura: ${d.mcp.herramientas.length} herramientas, nada que escriba o publique.</p>
     ${d.apps.length ? d.apps.map((a) => `<div class="fila app-fila ${a.revocadaEn ? 'revocada' : ''}"><b>${esc(a.nombre)}</b><code>${esc(a.prefijo)}…</code><small class="tenue">${a.permisos.join(', ')} · ${a.usos} usos · último ${fecha(a.ultimaVez)}${a.revocadaEn ? ' · revocada' : ''}</small>${a.revocadaEn ? '' : `<button class="btn btn-chico btn-peligro" data-app-revocar="${a.id}">Revocar</button>`}</div>`).join('') : '<p class="tenue chico">Ninguna todavía.</p>'}
+    ${g ? `<section class="seccion"><h3 class="sub">🔗 Google</h3>
+      ${!g.configurado ? '<p class="tenue chico">Falta configurar el cliente de Google (GOOGLE_OAUTH_ID y GOOGLE_OAUTH_SECRETO en las variables del servicio).</p>'
+        : g.conectado ? `<p class="tenue chico">Conectado como <b>${esc(g.email || 'tu cuenta')}</b> desde el ${fecha(g.desde)}. Correo: ${g.gmail.correos} guardados, ${g.gmail.noLeidos} sin leer, ${g.gmail.suyos} tuyos al corpus · última pasada ${g.gmail.sincronizado ? new Date(g.gmail.sincronizado).toTimeString().slice(0, 5) : 'todavía no'}.</p>
+          <div class="fila"><button class="btn btn-chico" id="g-sinc">Traer lo nuevo</button><button class="btn btn-chico btn-peligro" id="g-desc">Desconectar</button></div>`
+        : `<p class="tenue chico">${g.error ? `${esc(g.error)} ` : ''}Conectá tu cuenta: Deprocast lee tu correo (y deja borradores, nunca envía), tu Drive, tu agenda, tus contactos y tus tareas.</p><a class="btn" href="/google/conectar">Conectar Google</a>`}
+    </section>` : ''}
     <section class="seccion"><h3 class="sub">📱 Tus dispositivos</h3>
       <p class="tenue chico">La app de Deprocast en tu teléfono: se vincula con un código de 6 dígitos (vale 10 minutos). Lo que dictás va al chat de Hoy; lo que pensás en voz alta queda como nota. El audio nunca se guarda.</p>
       ${disp.dispositivos.length ? disp.dispositivos.map((x) => `<div class="fila app-fila ${x.revocadoEn ? 'revocada' : ''}"><b>${esc(x.nombre)}</b><code>${esc(x.plataforma)}</code><small class="tenue">último uso ${fecha(x.ultimaVez)}${x.revocadoEn ? ' · revocado' : ''}</small>${x.revocadoEn ? '' : `<button class="btn btn-chico btn-peligro" data-disp-revocar="${x.id}">Revocar</button>`}</div>`).join('') : ''}
@@ -86,6 +93,8 @@ async function modalApps() {
     </form>
     <div id="app-token"></div>
     ${d.mcp.llamadas.length ? `<details class="seccion"><summary class="sub">Lo último que pidieron por MCP</summary>${d.mcp.llamadas.map((l) => `<div class="fila app-fila"><b>${esc(l.app)}</b><code>${esc(l.herramienta)}</code><small class="tenue">${l.ok ? '' : 'falló · '}${l.ms} ms · ${new Date(l.en).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</small></div>`).join('')}</details>` : ''}`)
+  if ($('#g-sinc')) $('#g-sinc').onclick = async (e) => { e.target.disabled = true; try { const r = await api('/google/sincronizar', {}); toast(`Correo al día<small>${r.nuevos} nuevos</small>`, 'suave'); modalApps() } catch (x) { error(x); e.target.disabled = false } }
+  if ($('#g-desc')) $('#g-desc').onclick = async () => { if (!(await confirmar('¿Desconectar Google? Deprocast deja de leer tu correo y tu Drive (lo ya guardado queda).', { si: 'Desconectar', peligro: true }))) return; try { await api('/google/desconectar', {}); modalApps() } catch (x) { error(x) } }
   $$('[data-disp-revocar]').forEach((b) => (b.onclick = async () => { if (!(await confirmar('¿Revocar este dispositivo? Deja de poder hablarle a Deprocast.', { si: 'Revocar', peligro: true }))) return; try { await api(`/dispositivos/${b.dataset.dispRevocar}/revocar`, {}); modalApps() } catch (e) { error(e) } }))
   $('#disp-codigo').onclick = async () => {
     try {

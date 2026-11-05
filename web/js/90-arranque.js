@@ -421,6 +421,10 @@ iniciar().catch(error)
 
 // La app instalable (PWA): el service worker solo guarda la cáscara; los datos siempre van al servidor.
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {})
+if (new URLSearchParams(location.search).get('google') === 'ok') {
+  history.replaceState(null, '', '/')
+  setTimeout(() => toast('Google conectado<small>Estoy trayendo tu correo de los últimos 30 días.</small>'), 1200)
+}
 if (new URLSearchParams(location.search).has('compartido')) {
   history.replaceState(null, '', '/')
   setTimeout(() => toast('Recibido<small>Lo guardé y se lo pasé a Mastropiero.</small>'), 1500)

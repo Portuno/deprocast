@@ -238,6 +238,35 @@ export const HERRAMIENTAS: Herramienta[] = [
     },
     resumen: (_, r) => `procesó tus anotaciones: ${r?.recuerdos ?? 0} recuerdos, ${r?.propuestas?.length ?? 0} propuestas, ${r?.quantomos ?? 0} ideas`,
   },
+  // ─── Gmail (plan v35): leer, buscar y dejar borradores (nunca envía) ───
+  {
+    nombre: 'ver_mails', familia: 'lectura',
+    descripcion: 'Su bandeja de Gmail: lo que le llegó estos días (sin promociones, redes ni spam), lo no leído primero, con remitente, asunto y extracto. Para «¿qué me llegó?», «¿tengo algo para contestar?». Si Google no está conectado, decile que lo conecte en Apps conectadas.',
+    parametros: S({ no_leidos: { type: 'boolean', description: 'Solo lo no leído' }, dias: int('De los últimos N días (7 por defecto)'), limite: int('Cuántos (máx. 100)') }),
+    ejecutar: async (a, { db }) => { const { googleConectado } = await import('../google/oauth.ts'); if (!googleConectado(db)) return { error: 'Google no está conectado: se conecta en Apps conectadas.' }; return (await import('../google/gmail.ts')).verMails(db, { noLeidos: !!a.no_leidos, dias: a.dias, limite: a.limite }) },
+    resumen: (_, r) => `miró tu correo → ${r?.no_leidos ?? 0} sin leer`,
+  },
+  {
+    nombre: 'buscar_mails', familia: 'lectura',
+    descripcion: 'Busca en su Gmail entero, en vivo, con la sintaxis de Gmail: from:ana, to:, subject:, "frase exacta", has:attachment, newer_than:30d, older_than:, label:. Devuelve id, remitente, asunto, fecha y extracto; para el texto completo, leer_mail.',
+    parametros: S({ consulta: str('La búsqueda, con la sintaxis de Gmail'), limite: int('Cuántos (máx. 25)') }, ['consulta']),
+    ejecutar: async (a, { db }) => (await import('../google/gmail.ts')).buscarMails(db, a.consulta, a.limite ?? 10),
+    resumen: (a, r) => `buscó en tu Gmail «${a.consulta}» → ${Array.isArray(r) ? r.length : 0}`,
+  },
+  {
+    nombre: 'leer_mail', familia: 'lectura',
+    descripcion: 'Un mail completo de su Gmail (por id, de ver_mails o buscar_mails): remitente, destinatarios, asunto, fecha, texto y link.',
+    parametros: S({ id: str('id del mail') }, ['id']),
+    ejecutar: async (a, { db }) => { const m = await (await import('../google/gmail.ts')).leerMail(db, a.id); return { ...m, cuerpo: recorte(m.cuerpo, 8000) } },
+    resumen: (_, r) => `leyó el mail «${r?.asunto ?? ''}»`,
+  },
+  {
+    nombre: 'borrador_mail', familia: 'accion',
+    descripcion: 'Deja un BORRADOR en su Gmail (nunca lo envía: lo manda él). Para responder, pasá responder_a con el id del mail (va en el mismo hilo, al remitente). Escribilo en SU voz: como escribe él en sus mails (mirá los suyos con buscar_mails «in:sent» si hace falta), corto y directo. Después decile que quedó en Borradores.',
+    parametros: S({ cuerpo: str('El texto del mail, en su voz'), responder_a: str('id del mail al que responde'), para: str('Destinatario (si no es respuesta)'), asunto: str('Asunto (si no es respuesta)') }, ['cuerpo']),
+    ejecutar: async (a, { db }) => (await import('../google/gmail.ts')).crearBorrador(db, { cuerpo: a.cuerpo, responderA: a.responder_a || null, para: a.para, asunto: a.asunto }),
+    resumen: (_, r) => `dejó un borrador para ${r?.para ?? '…'} en tu Gmail`,
+  },
   {
     nombre: 'ver_linea', familia: 'lectura',
     descripcion: 'Su línea temporal: los eventos con fecha que salen de todo su archivo (lo que pasó y lo que iba a pasar), y la crónica de cada mes. Por rango de fechas, por una persona, proyecto o lugar (id de entidad), o por tema. Para «¿qué pasó en marzo?», «¿cuándo fue la última vez que…?», «¿qué hice con X?».',
@@ -328,8 +357,8 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'pedir_herramientas', familia: 'lectura',
-    descripcion: 'Suma herramientas para este turno. Tenés a mano lo de todos los días; para lo demás pedí el grupo: liga (agentes, encargos, ticks, propuestas, La Fragua), corpus (fuentes, cargas, quántomos, entidades, ingerir), misiones (primarias, runs, reportes, ayudantes, personajes, inventario), vida (personas, plata, salud, plan, aprendizaje, bitácora, gemelo, brújula, preguntas), web (buscar en internet, leer y guardar links, radar), crear (cuadernos, librería, taller, cuentas, Directo).',
-    parametros: S({ grupos: { type: 'array', items: { type: 'string', enum: ['liga', 'corpus', 'misiones', 'vida', 'web', 'crear', 'grafo', 'observatorio'] }, description: 'Uno o varios grupos' } }, ['grupos']),
+    descripcion: 'Suma herramientas para este turno. Tenés a mano lo de todos los días; para lo demás pedí el grupo: liga (agentes, encargos, ticks, propuestas, La Fragua), corpus (fuentes, cargas, quántomos, entidades, ingerir), misiones (primarias, runs, reportes, ayudantes, personajes, inventario), vida (personas, plata, salud, plan, aprendizaje, bitácora, gemelo, brújula, preguntas), correo (su Gmail: leer, buscar, borradores), web (buscar en internet, leer y guardar links, radar), crear (cuadernos, librería, taller, cuentas, Directo).',
+    parametros: S({ grupos: { type: 'array', items: { type: 'string', enum: ['liga', 'corpus', 'misiones', 'vida', 'correo', 'web', 'crear', 'grafo', 'observatorio'] }, description: 'Uno o varios grupos' } }, ['grupos']),
     ejecutar: (a, ctx) => ({ activadas: ctx.activar?.(Array.isArray(a.grupos) ? a.grupos.map(String) : []) ?? [] }),
     resumen: (a) => `sumó herramientas de ${Array.isArray(a.grupos) ? a.grupos.join(', ') : '…'}`,
   },
@@ -1864,6 +1893,7 @@ export const GRUPOS: Record<string, string[]> = {
   corpus: ['procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   vida: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
+  correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail'],
   web: ['buscar_web', 'buscar_en', 'explorar', 'usar_alexandria', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus'],
   observatorio: ['seguir_tema', 'ver_observatorio', 'crear_campana', 'armar_campana'],
@@ -1878,6 +1908,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|\[confirmado\]|\[inferido\]/.test(t)) g.push('corpus')
   if (/primaria|reporte|informe|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
   if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')
+  if (/\bmails?\b|correo|gmail|bandeja|inbox|borrador|me escribi[oó]|contest(ar|[aá]le) a/.test(t)) g.push('correo')
   if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal|reddit|subreddit|github|repo\b|twitter|tweet|tuit|linkedin|instagram|facebook/.test(t)) g.push('web')
   if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo|mis redes|difund/.test(t)) g.push('crear')
   if (/grafo|mis temas|de qu[eé] hablo|qu[eé] conecta|me repito|mis zonas|zonas de mi|bisagra|hueco/.test(t)) g.push('grafo')

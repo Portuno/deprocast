@@ -44,7 +44,7 @@ export type OpcionesHub = {
 type Registro = { token: string; hub: number; hijos: Record<string, { pid: number; puerto: number }> }
 
 /** Lo que pasa del entorno del dueño al de un usuario. Todo lo demás (claves, tokens, su calendario) se queda. */
-const PASAN = /^(PATH|Path|PATHEXT|SYSTEMROOT|SystemRoot|WINDIR|windir|COMSPEC|ComSpec|TEMP|TMP|TMPDIR|HOME|USERPROFILE|APPDATA|LOCALAPPDATA|LANG|LC_ALL|TZ|NAN_API_KEY|NAN_BASE_URL|NAN_CADENA_[A-Z_]+|NAN_MIMO_ID|MASTRO_MOTOR|MASTRO_EMBED_MODEL|MASTRO_ZONA|MASTRO_COMMIT)$/
+const PASAN = /^(PATH|Path|PATHEXT|SYSTEMROOT|SystemRoot|WINDIR|windir|COMSPEC|ComSpec|TEMP|TMP|TMPDIR|HOME|USERPROFILE|APPDATA|LOCALAPPDATA|LANG|LC_ALL|TZ|NAN_API_KEY|NAN_BASE_URL|NAN_CADENA_[A-Z_]+|NAN_MIMO_ID|GOOGLE_OAUTH_ID|GOOGLE_OAUTH_SECRETO|MASTRO_MOTOR|MASTRO_EMBED_MODEL|MASTRO_ZONA|MASTRO_COMMIT)$/
 
 export function entornoDeUsuario(base: NodeJS.ProcessEnv, extra: Record<string, string>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}

@@ -1121,6 +1121,25 @@ CREATE TABLE IF NOT EXISTS voz_turnos (
 CREATE INDEX IF NOT EXISTS voz_turnos_inicio ON voz_turnos (inicio);
 -- Explorar internet (plan v31): la caché de 30 min de cada pedido (no se le pide dos veces lo mismo a nadie) y la salud
 -- de cada backend de cada canal (último ok, último error y hasta cuándo está en pausa si lo limitaron o bloquearon).
+-- Gmail (plan v35): lo que trajo de su correo. Lo suyo (suyo = 1) entra también al corpus; el ruido (promociones,
+-- redes, foros) queda guardado pero no se muestra como correo para atender.
+CREATE TABLE IF NOT EXISTS correos (
+  id TEXT PRIMARY KEY,
+  hilo TEXT NOT NULL,
+  de TEXT NOT NULL,
+  para TEXT NOT NULL,
+  asunto TEXT NOT NULL,
+  fecha INTEGER NOT NULL,
+  etiquetas TEXT NOT NULL,
+  extracto TEXT NOT NULL,
+  cuerpo TEXT NOT NULL,
+  leido INTEGER NOT NULL,
+  suyo INTEGER NOT NULL,
+  ruido INTEGER NOT NULL,
+  mensaje_id TEXT
+);
+CREATE INDEX IF NOT EXISTS correos_fecha ON correos (fecha);
+CREATE INDEX IF NOT EXISTS correos_hilo ON correos (hilo, fecha);
 CREATE TABLE IF NOT EXISTS explorar_cache (
   clave TEXT PRIMARY KEY,
   valor TEXT NOT NULL,

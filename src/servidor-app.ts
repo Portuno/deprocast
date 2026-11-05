@@ -18,7 +18,7 @@ import {
 } from './misiones.ts'
 import { catalogo } from './menciones.ts'
 import { pensar } from './alertas.ts'
-import { autorizado, cookieDeEntrada, enUsuario, enVercel, expuesto, host, leerFormulario, PAGINA_ENTRAR, validarAcceso } from './acceso.ts'
+import { autorizado, cookieDeEntrada, detrasDeProxy, enUsuario, enVercel, expuesto, host, leerFormulario, PAGINA_ENTRAR, validarAcceso } from './acceso.ts'
 import { crearPuerta } from './cuentas-usuarios/index.ts'
 import { hayHub } from './cuentas-usuarios/procesos.ts'
 import { alGuardar, bajarNube, esperarSubida, subirAhora } from './nube.ts'
@@ -863,6 +863,10 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/dispositivos$/, async () => { const d = await import('./dispositivos.ts'); return { dispositivos: d.listarDispositivos(db) } }],
   ['POST', /^\/api\/dispositivos\/codigo$/, async () => (await import('./dispositivos.ts')).crearCodigo(db)],
   ['POST', /^\/api\/dispositivos\/(\d+)\/revocar$/, async (_, [x]) => { (await import('./dispositivos.ts')).revocarDispositivo(db, id(x)); return { ok: true } }],
+  // Google (plan v35): el estado de la conexión y de Gmail, sincronizar ya y desconectar.
+  ['GET', /^\/api\/google$/, async () => ({ ...(await import('./google/oauth.ts')).estadoGoogle(db), gmail: (await import('./google/gmail.ts')).estadoGmail(db) })],
+  ['POST', /^\/api\/google\/sincronizar$/, async () => (await import('./google/gmail.ts')).sincronizarGmail(db)],
+  ['POST', /^\/api\/google\/desconectar$/, async () => { await (await import('./google/oauth.ts')).desconectarGoogle(db); return { ok: true } }],
   ['GET', /^\/api\/apps-conectadas$/, async () => { const a = await import('./apps.ts'); const m = await import('./mcp.ts'); return { apps: a.listarApps(db), permisos: a.PERMISOS, mcp: { herramientas: m.HERRAMIENTAS_MCP, llamadas: m.llamadasMcp(db, 12) } } }],
   ['POST', /^\/api\/apps-conectadas$/, async (b) => (await import('./apps.ts')).crearApp(db, String(b.nombre ?? ''), Array.isArray(b.permisos) ? b.permisos : ['suenos'])],
   ['POST', /^\/api\/apps-conectadas\/(\d+)\/revocar$/, async (_, [a]) => { (await import('./apps.ts')).revocarApp(db, id(a)); return { ok: true } }],
@@ -1646,6 +1650,23 @@ const servidor = http.createServer(async (req, res) => {
 <body><div><div>☿ Código para vincular tu teléfono</div><b>${codigo.slice(0, 3)} ${codigo.slice(3)}</b>
 <small>En la app: servidor <code>${host.replace(/[<>&"]/g, '')}</code> y este código.<br>Vale hasta las ${hora} y una sola vez. <a href="/vincular">Otro código</a></small></div></body></html>`)
   }
+  // Conectar Google (plan v35): ida a Google y vuelta con el código. La dirección pública (https detrás del proxy de la
+  // nube; en el Deprocast de un usuario, la que trae el pedido) es la que Google tiene registrada.
+  if ((url.pathname === '/google/conectar' || url.pathname === '/google/volver') && req.method === 'GET') {
+    const g = await import('./google/oauth.ts')
+    const proto = String(req.headers['x-forwarded-proto'] ?? '').split(',')[0].trim() || (detrasDeProxy() ? 'https' : 'http')
+    const origen = `${proto}://${req.headers.host ?? 'localhost'}`
+    const pagina = (titulo: string, texto: string) => `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Google · Deprocast</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f1012;color:#e6e6e8;font:16px system-ui,sans-serif;padding:24px;box-sizing:border-box}div{max-width:420px}a{color:#c4a062}p{color:#9a9ca4}</style></head><body><div><h1>${titulo}</h1><p>${texto.replace(/[<>&]/g, '')}</p><a href="/">Volver a Deprocast</a></div></body></html>`
+    try {
+      if (url.pathname === '/google/conectar') return void res.writeHead(303, { location: g.urlDeConexion(db, origen), 'cache-control': 'no-store' }).end()
+      await g.volverDeGoogle(db, { code: url.searchParams.get('code'), state: url.searchParams.get('state'), error: url.searchParams.get('error') })
+      // La primera pasada por el correo, de fondo (la pantalla no espera).
+      void import('./google/gmail.ts').then((m) => m.sincronizarGmail(db)).catch((e) => console.error('  gmail:', e instanceof Error ? e.message : e))
+      return void res.writeHead(303, { location: '/?google=ok', 'cache-control': 'no-store' }).end()
+    } catch (e) {
+      return void res.writeHead(400, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }).end(pagina('No se pudo conectar Google', e instanceof Error ? e.message : String(e)))
+    }
+  }
   // Compartir desde el celular (la app instalada): un link, un reel o un texto llega a Mastropiero.
   if (url.pathname === '/compartir' && req.method === 'POST') {
     const f = leerFormulario(await leerCrudo(req, 2 * 1024 * 1024), String(req.headers['content-type'] ?? ''))
@@ -2093,6 +2114,16 @@ deFondo(() => {
     setTimeout(() => { if (!topeAlcanzado(db)) void import('./adelantar.ts').then((a) => a.adelantar(db)).catch((e) => console.error('  adelantar:', e instanceof Error ? e.message : e)) }, 3 * 60_000).unref()
   }
 })
+
+// Gmail (plan v35): cada 5 minutos, lo nuevo del correo (si Google está conectado).
+deFondo(() => setInterval(async () => {
+  try {
+    const { googleConectado } = await import('./google/oauth.ts')
+    if (!googleConectado(db)) return
+    const fin = marcar('gmail')
+    try { await (await import('./google/gmail.ts')).sincronizarGmail(db) } finally { fin() }
+  } catch (e) { console.error('  gmail:', e instanceof Error ? e.message : e) }
+}, 5 * 60_000).unref())
 
 // Las cuentas: lo aprobado se publica en su horario (solo con conector; «redacta» solo lo que él aprobó).
 deFondo(() => {
