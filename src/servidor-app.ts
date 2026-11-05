@@ -878,6 +878,15 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/correo\/([\w-]+)\/proponer$/, async (b, [m]) => (await import('./google/correo.ts')).proponerRespuesta(db, m, b.indicacion ? String(b.indicacion) : null)],
   ['POST', /^\/api\/correo\/([\w-]+)\/borrador$/, async (b, [m]) => (await import('./google/correo.ts')).guardarBorrador(db, m, String(b.texto ?? ''))],
   ['POST', /^\/api\/correo\/([\w-]+)\/atendido$/, async (b, [m]) => (await import('./google/correo.ts')).marcarAtendido(db, m, b.atendido !== false)],
+  // WhatsApp (plan v35): configurar, el estado, desvincular y una prueba.
+  ['GET', /^\/api\/whatsapp$/, async () => (await import('./whatsapp.ts')).estadoWhatsapp(db)],
+  ['POST', /^\/api\/whatsapp\/config$/, async (b) => (await import('./whatsapp.ts')).configurarWhatsapp(db, { numeroId: b.numeroId, token: b.token, secreto: b.secreto })],
+  ['POST', /^\/api\/whatsapp\/desvincular$/, async () => (await import('./whatsapp.ts')).desvincularWhatsapp(db)],
+  ['POST', /^\/api\/whatsapp\/probar$/, async () => {
+    const wa = await import('./whatsapp.ts')
+    if (!(await wa.decirPorWhatsapp(db, '☿ Prueba desde Deprocast: si lees esto, WhatsApp anda.'))) throw new Error('No hay ventana abierta: WhatsApp solo deja escribirte si vos escribiste en las últimas 24 horas. Mandale cualquier cosa al número y probá de nuevo.')
+    return { ok: true }
+  }],
   ['GET', /^\/api\/perfil$/, async () => (await import('./perfil.ts')).perfil(db)],
   ['POST', /^\/api\/google\/cliente$/, async (b) => (await import('./google/oauth.ts')).guardarCliente(db, { json: b.json ? String(b.json) : undefined, id: b.id ? String(b.id) : undefined, secreto: b.secreto ? String(b.secreto) : undefined }, b.origen ? String(b.origen) : undefined)],
   ['POST', /^\/api\/google\/sincronizar$/, async () => (await import('./google/gmail.ts')).sincronizarGmail(db)],
@@ -1638,6 +1647,23 @@ const servidor = http.createServer(async (req, res) => {
   if (url.pathname.startsWith('/api/apps/')) return atenderApp(req, res, url)
   if (url.pathname === '/mcp') return atenderMcp(req, res)
   if (url.pathname.startsWith('/api/dispositivo/')) return atenderDispositivo(req, res, url)
+  // WhatsApp (plan v35): el webhook de Meta es público; lo valida su firma (y la verificación, el token del perfil).
+  if (url.pathname === '/api/whatsapp/webhook') {
+    const wa = await import('./whatsapp.ts')
+    if (req.method === 'GET') {
+      const reto = wa.verificarWebhook(db, url.searchParams)
+      return void res.writeHead(reto ? 200 : 403, { 'content-type': 'text/plain' }).end(reto ?? 'no')
+    }
+    if (req.method !== 'POST') return void res.writeHead(405).end()
+    const cuerpo = await leerCrudo(req, 5 * 1024 * 1024)
+    if (!wa.firmaValida(db, cuerpo, String(req.headers['x-hub-signature-256'] ?? ''))) return void res.writeHead(401, { 'content-type': 'text/plain' }).end('firma')
+    // Meta quiere el 200 enseguida (si no, reintenta): lo demás se atiende de fondo.
+    res.writeHead(200, { 'content-type': 'text/plain' }).end('ok')
+    let datos: unknown = null
+    try { datos = JSON.parse(cuerpo.toString('utf8')) } catch { return }
+    void wa.recibirWebhook(db, datos).catch((e) => console.error('  whatsapp:', e instanceof Error ? e.message : e))
+    return
+  }
   // Expuesto a la red: primero la clave (salvo desde esta misma compu).
   if (url.pathname === '/entrar') {
     if (req.method === 'POST') {
@@ -2208,6 +2234,9 @@ deFondo(() => {
     alDecirSolo((texto) => void decirPorTelegram(texto).catch(() => {}))
   }
 })
+
+// WhatsApp: lo que Mastropiero dice solo también sale por ahí (si escribió en las últimas 24 horas).
+deFondo(() => alDecirSolo((texto) => void import('./whatsapp.ts').then((wa) => wa.decirPorWhatsapp(db, texto)).catch(() => {})))
 
 // Las runs las arranca él: su latido (reporte por hora, cierre de la run vencida) corre aunque las rutinas estén apagadas.
 let enRuns = false

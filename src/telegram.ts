@@ -7,6 +7,7 @@
  * Sin URL pública: el servidor le pregunta a Telegram si hay mensajes (long polling). Solo atiende a su chat
  * (TELEGRAM_CHAT_ID): a cualquier otro le dice su id y nada más.
  */
+import { AsyncLocalStorage } from 'node:async_hooks'
 import crypto from 'node:crypto'
 import { anotarUso } from './uso.ts'
 import { asegurarFuente, insertar } from './corpus.ts'
@@ -146,7 +147,27 @@ function pedazos(texto: string, max = 3500): string[] {
   return out
 }
 
-type Botones = { texto: string; dato: string }[][]
+export type Botones = { texto: string; dato: string }[][]
+
+/**
+ * El canal (plan v35): lo que entra por WhatsApp se atiende con este mismo cerebro (sueños, registros, notas de voz,
+ * links, prácticas, botones). Mientras se atiende un mensaje de otro canal, decir, bajar un archivo, «escribiendo» y el
+ * audio van por ese canal; fuera de eso, todo sigue yendo por Telegram.
+ */
+export type Canal = {
+  nombre: string
+  decir: (texto: string, botones?: Botones) => Promise<number | null>
+  bajar: (id: string) => Promise<{ datos: Buffer; nombre: string }>
+  escribiendo?: () => Promise<unknown>
+  audio?: (datos: Buffer, titulo: string, texto?: string) => Promise<boolean>
+  archivo?: (datos: Buffer, nombre: string) => Promise<unknown>
+}
+const canalActual = new AsyncLocalStorage<Canal>()
+export const conCanal = <T>(c: Canal, f: () => Promise<T>): Promise<T> => canalActual.run(c, f)
+const otroCanal = () => canalActual.getStore() ?? null
+const nombreCanal = () => otroCanal()?.nombre ?? 'Telegram'
+const bajarDe = (id: string) => otroCanal()?.bajar(id) ?? bajar(id)
+const escribiendo = () => (otroCanal() ? otroCanal()!.escribiendo?.() ?? Promise.resolve() : pedir('sendChatAction', { chat_id: suChat(), action: 'typing' }))
 const teclado = (b?: Botones) => (b ? { reply_markup: { inline_keyboard: b.map((f) => f.map((x) => ({ text: x.texto, callback_data: x.dato }))) } } : {})
 
 /** Lo último que se mandó (texto → cuándo): el mismo mensaje largo dos veces en 2 minutos no sale dos veces. */
@@ -161,6 +182,8 @@ function repetido(texto: string, ahora = Date.now()): boolean {
 
 /** Manda un texto a su chat, con formato y botones opcionales. Devuelve el id del último mensaje. */
 export async function decir(texto: string, botones?: Botones): Promise<number | null> {
+  const c = otroCanal()
+  if (c) return texto.trim() ? c.decir(texto.replace(/\[#\d+\]/g, '').trim(), botones) : null
   const chat = suChat()
   if (!telegramActivo() || !chat || !texto.trim()) return null
   if (!botones && repetido(texto.trim())) return null
@@ -177,6 +200,8 @@ export async function decir(texto: string, botones?: Botones): Promise<number | 
 
 /** Manda un audio (mp3) a su chat, con un texto corto debajo. */
 export async function mandarAudio(datos: Buffer, titulo: string, texto?: string): Promise<boolean> {
+  const c = otroCanal()
+  if (c) return c.audio ? c.audio(datos, titulo, texto) : false
   const chat = suChat()
   if (!telegramActivo() || !chat) return false
   const r = await enviarArchivo('sendAudio', { chat_id: chat, title: titulo, ...(texto ? { caption: texto.slice(0, 1000) } : {}) }, 'audio', datos, 'mastropiero.mp3')
@@ -184,6 +209,7 @@ export async function mandarAudio(datos: Buffer, titulo: string, texto?: string)
 }
 
 async function editar(mensajeId: number, texto: string, botones?: Botones) {
+  if (otroCanal()) return void (await decir(texto, botones)) // otro canal: no se edita, se manda de nuevo
   const r = await enviar_('editMessageText', { chat_id: suChat(), message_id: mensajeId, text: aHtml(texto), parse_mode: 'HTML', disable_web_page_preview: true, ...teclado(botones) })
   if (r && r.ok === false) await decir(texto, botones)
 }
@@ -449,11 +475,11 @@ async function conversar(db: Db, texto: string, o: { porVoz?: boolean } = {}) {
   const c = conversacionHoy(db)
   // Si ya está contestando, esto se suma a ese turno: la respuesta de todo junto la manda el mensaje que lo empezó.
   if (estaPensando(c.id)) {
-    await pedir('sendChatAction', { chat_id: suChat(), action: 'typing' }).catch(() => {})
+    await escribiendo()?.catch(() => {})
     return void (await enviar(db, c.id, texto))
   }
   const desde = mensajes(db, c.id).at(-1)?.id ?? 0
-  await pedir('sendChatAction', { chat_id: suChat(), action: 'typing' }).catch(() => {})
+  await escribiendo()?.catch(() => {})
   await enviar(db, c.id, texto)
   const respuesta = mensajes(db, c.id, desde).filter((m) => m.rol === 'asistente' && m.texto).map((m) => m.texto).join('\n\n')
   const error = mensajes(db, c.id, desde).find((m) => m.rol === 'error')
@@ -461,8 +487,12 @@ async function conversar(db: Db, texto: string, o: { porVoz?: boolean } = {}) {
   const voz = ajuste(db, 'telegram_voz') ?? '0'
   if (respuesta && (voz === 'siempre' || (voz === '1' && o.porVoz))) {
     try {
-      await pedir('sendChatAction', { chat_id: suChat(), action: 'upload_voice' }).catch(() => {})
-      await enviarArchivo('sendAudio', { chat_id: suChat()!, title: 'Mastropiero' }, 'audio', await hablar(sinMarcas(respuesta).slice(0, 2500)), 'mastropiero.mp3')
+      const mp3 = await hablar(sinMarcas(respuesta).slice(0, 2500))
+      if (otroCanal()) await otroCanal()!.audio?.(mp3, 'Mastropiero')
+      else {
+        await pedir('sendChatAction', { chat_id: suChat(), action: 'upload_voice' }).catch(() => {})
+        await enviarArchivo('sendAudio', { chat_id: suChat()!, title: 'Mastropiero' }, 'audio', mp3, 'mastropiero.mp3')
+      }
     } catch { /* el texto ya llegó */ }
   }
 }
@@ -605,7 +635,7 @@ async function comando(db: Db, cmd: string, resto: string) {
 // ─── botones ────────────────────────────────────────────────────────────
 
 async function boton(db: Db, q: any) {
-  await pedir('answerCallbackQuery', { callback_query_id: q.id }).catch(() => {})
+  if (!otroCanal()) await pedir('answerCallbackQuery', { callback_query_id: q.id }).catch(() => {})
   const [k, a, b] = String(q.data ?? '').split(':')
   const mensajeId = q.message?.message_id
   if (k === 'md') {
@@ -614,6 +644,7 @@ async function boton(db: Db, q: any) {
       return mensajeId ? editar(mensajeId, '🗑 No lo guardé.') : decir('🗑 No lo guardé.')
     }
     const md = a === 'c' ? cuadernoComoMd(db, Number(b)) : piezaComoMd(db, Number(b))
+    if (otroCanal()) return otroCanal()!.archivo ? otroCanal()!.archivo!(Buffer.from(md.texto, 'utf8'), md.nombre) : decir(md.texto.slice(0, 3500))
     return enviarArchivo('sendDocument', { chat_id: suChat()! }, 'document', Buffer.from(md.texto, 'utf8'), md.nombre)
   }
   if (k === 'x') {
@@ -716,7 +747,7 @@ async function boton(db: Db, q: any) {
 
 async function archivo(db: Db, doc: any) {
   if ((doc.file_size ?? 0) > 20 * 1024 * 1024) return decir('Es más grande que lo que Telegram me deja bajar (20 MB). Subilo desde Corpus → Ingerir.')
-  const { datos } = await bajar(doc.file_id)
+  const { datos } = await bajarDe(doc.file_id)
   const nombre = String(doc.file_name ?? 'archivo')
   const esCsv = /\.csv$/i.test(nombre)
   let carga
@@ -740,12 +771,12 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
   const msg = u.message ?? u.edited_message
   const chatId = String(msg?.chat?.id ?? u.callback_query?.message?.chat?.id ?? '')
   if (!chatId) return
-  if (!suChat()) {
+  if (otroCanal()) { /* lo verificó el canal (WhatsApp: su número vinculado) */ } else if (!suChat()) {
     // Sin chat configurado: no atiende a nadie; le dice a quien escribe su id para que lo pongan en .env.
     await enviar_('sendMessage', { chat_id: chatId, text: `Hola. Para que te atienda, poné en .env: TELEGRAM_CHAT_ID=${chatId} y reiniciá Mastropiero.` })
     return
   }
-  if (chatId !== suChat()) return // otro: silencio
+  else if (chatId !== suChat()) return // otro: silencio
   estado.ultimoMensaje = Date.now()
   if (u.callback_query) return boton(db, u.callback_query)
   const texto: string | undefined = msg.text ?? msg.caption
@@ -768,7 +799,7 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
   const vozPractica = msg.voice ?? msg.audio
   if (practica && !msg.document && !msg.photo?.length && (vozPractica || (texto && !texto.startsWith('/') && !/https?:\/\//.test(texto)))) {
     if (vozPractica) {
-      const { datos, nombre } = await bajar(vozPractica.file_id)
+      const { datos, nombre } = await bajarDe(vozPractica.file_id)
       return responderPracticaTelegram(db, practica.aprendizajeId, { audio: datos, nombreAudio: nombre.endsWith('.oga') ? nombre.replace(/\.oga$/, '.ogg') : nombre, segundos: vozPractica.duration ?? null })
     }
     return responderPracticaTelegram(db, practica.aprendizajeId, { texto })
@@ -776,7 +807,7 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
   // Después de /sueno, lo siguiente que diga (texto o audio) es el sueño.
   const vozSueno = msg.voice ?? msg.audio
   if (esperandoSueno && Date.now() - esperandoSueno < 10 * 60_000 && (vozSueno || (texto && !texto.startsWith('/')))) {
-    if (vozSueno) { const { datos, nombre } = await bajar(vozSueno.file_id); return guardarSuenoTelegram(db, { audio: datos, nombreAudio: nombre.endsWith('.oga') ? nombre.replace(/\.oga$/, '.ogg') : nombre }) }
+    if (vozSueno) { const { datos, nombre } = await bajarDe(vozSueno.file_id); return guardarSuenoTelegram(db, { audio: datos, nombreAudio: nombre.endsWith('.oga') ? nombre.replace(/\.oga$/, '.ogg') : nombre }) }
     return guardarSuenoTelegram(db, { texto })
   }
   if (texto && !texto.startsWith('/') && PARECE_SUENO.test(texto)) return guardarSuenoTelegram(db, { texto })
@@ -787,7 +818,7 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
   if (msg.document) return archivo(db, msg.document)
   const voz = msg.voice ?? msg.audio
   if (voz) {
-    const { datos, nombre } = await bajar(voz.file_id)
+    const { datos, nombre } = await bajarDe(voz.file_id)
     const t = await transcribir(db, datos, nombre.endsWith('.oga') ? nombre.replace(/\.oga$/, '.ogg') : nombre)
     if (!t.trim()) return decir('No entendí el audio.')
     // Un audio que cuenta un sueño («soñé que…») va a Sueños, no a la charla.
@@ -800,17 +831,17 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
     if (g?.repetida) await decir(`🎙 Ya lo tenía: es la nota${g.repetida.fecha ? ` del ${g.repetida.fecha.slice(8, 10)}/${g.repetida.fecha.slice(5, 7)}` : ''} (#${g.repetida.id}). No la guardo de nuevo.`)
     else if (pieza) await decir(`🎙 Guardé tu nota de voz${voz.duration ? ` (${Math.max(1, Math.round(voz.duration / 60))} min)` : ''} en tu corpus, como tuya.`)
     const guardada = pieza ?? g?.repetida?.id
-    return conversar(db, guardada ? `(Nota de voz por Telegram, ya guardada en su corpus [#${guardada}]. Si trae algo para anotar —una side quest, un gasto, una idea de proyecto— anotalo.) ${t}` : t, { porVoz: true })
+    return conversar(db, guardada ? `(Nota de voz por ${nombreCanal()}, ya guardada en su corpus [#${guardada}]. Si trae algo para anotar —una side quest, un gasto, una idea de proyecto— anotalo.) ${t}` : t, { porVoz: true })
   }
   if (msg.photo?.length) {
     // Una foto (una comida, un ticket, la balanza…): se registra sola si es un registro; si no, se charla.
-    const { datos, nombre } = await bajar(msg.photo.at(-1).file_id)
+    const { datos, nombre } = await bajarDe(msg.photo.at(-1).file_id)
     let foto: ReturnType<typeof guardarFoto> | null = null
     try { foto = guardarFoto(nombre, datos) } catch { /* sin ffmpeg ni nada raro: se sigue con la original */ }
     const c = await clasificar(db, { imagen: foto ? { datos: foto.datos, mime: foto.mime } : { datos, mime: 'image/jpeg' }, texto }).catch(() => null)
     if (await registrarYContar(db, c, { foto: foto?.url ?? null, texto: texto ?? '' })) return
     const descripcion = c?.descripcion || await ver(db, datos)
-    return conversar(db, `(Te mandé una foto por Telegram. Lo que se ve: ${descripcion})${texto ? `\n${texto}` : ''}`)
+    return conversar(db, `(Te mandé una foto por ${nombreCanal()}. Lo que se ve: ${descripcion})${texto ? `\n${texto}` : ''}`)
   }
   if (texto && !/https?:\/\//.test(texto) && PARECE_REGISTRO.test(texto)) {
     if (await registrarYContar(db, await clasificar(db, { texto }).catch(() => null), { texto })) return
@@ -820,7 +851,7 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
     const link = /https?:\/\/\S+/.exec(texto)?.[0]
     if (!link) return conversar(db, texto)
     const g = await guardarLinkTelegram(db, link, texto.replace(link, '').trim())
-    return conversar(db, `Te comparto esto por Telegram:\n${texto}${g ? `\n(Ya quedó guardado en el corpus como pieza #${g.piezaId}: «${g.titulo}».)` : ''}`)
+    return conversar(db, `Te comparto esto por ${nombreCanal()}:\n${texto}${g ? `\n(Ya quedó guardado en el corpus como pieza #${g.piezaId}: «${g.titulo}».)` : ''}`)
   }
 }
 

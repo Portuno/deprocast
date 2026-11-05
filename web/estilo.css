@@ -3075,3 +3075,11 @@ span.ej-chip { cursor: default; }
   .correo.leyendo .correo-lista-col { display: flex; }
   .correo-volver { display: none; }
 }
+
+/* WhatsApp en el perfil */
+.perfil-pasos { margin: var(--e-2) 0; padding-left: var(--e-5); display: grid; gap: var(--e-1); color: var(--tenue); }
+.perfil-pasos a { color: var(--acento-texto); }
+.perfil-datos { display: grid; gap: var(--e-2); }
+.perfil-copiar { display: inline-flex; align-items: center; gap: var(--e-2); flex-wrap: wrap; max-width: 100%; }
+.perfil-copiar code { word-break: break-all; }
+.perfil-codigo { font-size: var(--t-8); font-weight: 700; letter-spacing: .15em; color: var(--acento-texto); margin: var(--e-1) 0; }

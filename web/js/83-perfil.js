@@ -6,7 +6,8 @@ async function montarPerfil() {
   $('#principal').innerHTML = '<div class="perfil"><p class="tenue">Cargando tu perfil…</p></div>'
   let p
   let g = null
-  try { [p, g] = await Promise.all([api('/perfil'), api('/google').catch(() => null)]) } catch (e) { return error(e) }
+  let w = null
+  try { [p, g, w] = await Promise.all([api('/perfil'), api('/google').catch(() => null), api('/whatsapp').catch(() => null)]) } catch (e) { return error(e) }
   const base = document.documentElement.dataset.base
   const nombre = p.nombre || 'Tu perfil'
   const hoy = p.uso.hoy
@@ -48,6 +49,7 @@ async function montarPerfil() {
 
     <section class="perfil-bloque" id="perfil-apps"><h2>Apps conectadas</h2>
       <div id="perfil-google"></div>
+      <div id="perfil-whatsapp"></div>
       <div class="perfil-tarjeta"><h3>📱 Teléfonos, apps y la puerta MCP</h3>
         <p class="tenue chico">La app de Deprocast en tu teléfono, Morpheon y los agentes que entran por MCP (Claude Code, Claude Desktop…), cada uno con su token.</p>
         <button class="btn" id="perfil-apps-ver">Ver y administrar</button></div>
@@ -58,6 +60,7 @@ async function montarPerfil() {
   $('#principal').scrollTop = 0
   window.scrollTo(0, 0)
   pintarGooglePerfil(g)
+  pintarWhatsappPerfil(w)
   $('#perfil-apps-ver').onclick = () => cargarScript('59-suenos.js').then(() => modalApps())
   $$('[data-perfil-acc]').forEach((b) => (b.onclick = () => {
     const a = b.dataset.perfilAcc
@@ -119,4 +122,47 @@ function pintarGooglePerfil(g) {
   if ($('#g-cambiar')) $('#g-cambiar').onclick = () => { cont.querySelector('.perfil-tarjeta').insertAdjacentHTML('beforeend', `<form id="g-cliente2" class="perfil-form"><textarea name="json" rows="4" required placeholder="El JSON nuevo"></textarea><button class="btn">Guardar</button></form>`); $('#g-cliente2').onsubmit = async (ev) => { ev.preventDefault(); try { await api('/google/cliente', { json: new FormData(ev.target).get('json'), origen }); refrescar() } catch (e) { error(e) } } }
   if ($('#g-sinc')) $('#g-sinc').onclick = async (e) => { e.target.disabled = true; try { const r = await api('/google/sincronizar', {}); toast(`Correo al día<small>${r.nuevos} nuevos</small>`, 'suave'); refrescar() } catch (x) { error(x); e.target.disabled = false } }
   if ($('#g-desc')) $('#g-desc').onclick = async () => { if (!(await confirmar('¿Desconectar Google? Deprocast deja de leer tu correo, tu Drive y tus planillas (lo ya guardado queda).', { si: 'Desconectar', peligro: true }))) return; try { await api('/google/desconectar', {}); refrescar() } catch (x) { error(x) } }
+}
+
+/** WhatsApp (plan v35): Mastropiero en WhatsApp. Se configura con lo de Meta y se vincula con un código desde tu número. */
+function pintarWhatsappPerfil(w) {
+  const cont = $('#perfil-whatsapp')
+  if (!cont || !w) return
+  const webhook = `${ORIGEN_PUBLICO}/api/whatsapp/webhook`
+  const copiable = (id, valor) => `<span class="perfil-copiar"><code id="${id}">${esc(valor)}</code><button class="btn btn-chico" data-copiar-de="${id}">Copiar</button></span>`
+  const formulario = (abierto) => `<details class="perfil-ayuda" ${abierto ? 'open' : ''}><summary>${w.configurado ? 'Cambiar la configuración' : 'Cómo se configura (unos 15 minutos, en Meta)'}</summary>
+      <ol class="chico perfil-pasos">
+        <li>En <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener">developers.facebook.com</a>: <b>Crear app</b> → tipo <b>Empresa</b> → agregale el producto <b>WhatsApp</b>.</li>
+        <li>WhatsApp → <b>Configuración de la API</b>: anotá el <b>ID del número de teléfono</b> (el número de prueba es gratis) y agregá tu número como destinatario (te llega un código).</li>
+        <li>Token permanente: en <b>Configuración del negocio → Usuarios del sistema</b>, creá uno (admin), asignale la app y la cuenta de WhatsApp, y generá un token con <code>whatsapp_business_messaging</code> y <code>whatsapp_business_management</code>.</li>
+        <li>El secreto: <b>Configuración de la app → Básica → Clave secreta de la app</b>.</li>
+        <li>Pegá los tres acá y guardá. Después, en WhatsApp → <b>Configuración</b> → Webhook, poné la dirección y el token de verificación que aparecen abajo, y suscribí el campo <b>messages</b>.</li>
+      </ol>
+      <form id="wa-config" class="perfil-form">
+        <input name="numeroId" placeholder="ID del número de teléfono" value="${esc(w.numeroId ?? '')}" required autocomplete="off">
+        <input name="token" placeholder="Token de acceso permanente" required autocomplete="off">
+        <input name="secreto" placeholder="Clave secreta de la app" required autocomplete="off">
+        <button class="btn btn-primario">Guardar</button>
+      </form></details>`
+  let cuerpo
+  if (!w.configurado) {
+    cuerpo = `<p class="tenue chico">Le escribís a Mastropiero por WhatsApp como a cualquier contacto: texto, audios, fotos y archivos, con todas sus herramientas (tu correo, tu Drive, tu agenda). El reemplazo de Instinct.</p>${formulario(true)}`
+  } else {
+    const webhookInfo = `<div class="perfil-datos chico"><div>Webhook: ${copiable('wa-url', webhook)}</div><div>Token de verificación: ${copiable('wa-verif', w.verificar ?? '')}</div></div>`
+    if (!w.vinculado) {
+      cuerpo = `<p class="chico">Configurado. Falta vincular tu número: desde tu WhatsApp, mandale este código al número de Deprocast:</p><p class="perfil-codigo">${esc(w.codigo ?? '')}</p>
+        <p class="tenue chico">Si no contesta, revisá en Meta que el webhook esté verificado y suscripto a <b>messages</b>:</p>${webhookInfo}${formulario(false)}`
+    } else {
+      cuerpo = `<p class="chico">Vinculado con <b>${esc(w.vinculado)}</b>${w.ultimoMensaje ? ` · tu último mensaje: ${new Date(w.ultimoMensaje).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}.</p>
+        <p class="tenue chico">${w.ventanaAbierta ? 'Ventana abierta: lo que Mastropiero dice solo (el matinal, un aviso) también te llega por WhatsApp.' : 'Ventana cerrada: WhatsApp solo deja que Mastropiero te escriba primero si le escribiste en las últimas 24 horas. Mandale cualquier cosa y se abre.'}</p>
+        <div class="fila"><button class="btn btn-chico" id="wa-probar">Mandar una prueba</button><button class="btn btn-chico btn-peligro" id="wa-desvincular">Desvincular</button></div>${webhookInfo}${formulario(false)}`
+    }
+  }
+  cont.innerHTML = `<div class="perfil-tarjeta"><h3>💬 WhatsApp</h3>${cuerpo}</div>`
+  const refrescar = async () => pintarWhatsappPerfil(await api('/whatsapp').catch(() => null))
+  $$('[data-copiar-de]', cont).forEach((b) => (b.onclick = async () => { try { await navigator.clipboard.writeText($(`#${b.dataset.copiarDe}`).textContent); toast('Copiado', 'suave') } catch (e) { error(e) } }))
+  const f = $('#wa-config')
+  if (f) f.onsubmit = async (ev) => { ev.preventDefault(); try { await api('/whatsapp/config', Object.fromEntries(new FormData(f))); toast('WhatsApp configurado<small>Ahora el webhook en Meta y el código desde tu teléfono.</small>'); refrescar() } catch (e) { error(e) } }
+  if ($('#wa-probar')) $('#wa-probar').onclick = async () => { try { await api('/whatsapp/probar', {}); toast('Mandada<small>Fijate tu WhatsApp.</small>', 'suave') } catch (e) { error(e) } }
+  if ($('#wa-desvincular')) $('#wa-desvincular').onclick = async () => { if (!(await confirmar('¿Desvincular tu número? Mastropiero deja de atenderte por WhatsApp hasta que mandes el código nuevo.', { si: 'Desvincular', peligro: true }))) return; try { await api('/whatsapp/desvincular', {}); refrescar() } catch (e) { error(e) } }
 }

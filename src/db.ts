@@ -1121,6 +1121,11 @@ CREATE TABLE IF NOT EXISTS voz_turnos (
 CREATE INDEX IF NOT EXISTS voz_turnos_inicio ON voz_turnos (inicio);
 -- Explorar internet (plan v31): la caché de 30 min de cada pedido (no se le pide dos veces lo mismo a nadie) y la salud
 -- de cada backend de cada canal (último ok, último error y hasta cuándo está en pausa si lo limitaron o bloquearon).
+-- WhatsApp (plan v35): los mensajes ya atendidos (Meta reintenta el webhook; cada uno se atiende una sola vez).
+CREATE TABLE IF NOT EXISTS whatsapp_vistos (
+  id TEXT PRIMARY KEY,
+  en INTEGER NOT NULL
+);
 -- Gmail (plan v35): lo que trajo de su correo. Lo suyo (suyo = 1) entra también al corpus; el ruido (promociones,
 -- redes, foros) queda guardado pero no se muestra como correo para atender.
 CREATE TABLE IF NOT EXISTS correos (
