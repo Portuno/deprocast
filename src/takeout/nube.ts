@@ -18,7 +18,7 @@ import crypto from 'node:crypto'
 import { correr } from '../proceso.ts'
 import { fechaLocal, json, resolverRuta, type Db } from '../db.ts'
 import { anotar } from '../decisiones.ts'
-import { asegurarFuente, insertar, slug } from '../corpus.ts'
+import { asegurarFuente, insertar, retirarPieza, slug } from '../corpus.ts'
 import { asegurarEntidad, buscadorDeEntidades, editarEntidad } from '../entidades.ts'
 import { crearQuantomo } from '../quantomos.ts'
 import { memoriaParaPrompt, recordar } from '../memoria.ts'
@@ -630,7 +630,7 @@ function guardarDestilado(db: Db, fila: { pieza_id: number; lote: string }, p: a
 // ─── 4. historia de cada proyecto ───────────────────────────────────────
 
 const SISTEMA_HISTORIA = (yo: string) => `Sos Mastropiero. Tenés, en orden de fecha, todo lo que el archivo de un año dice de un proyecto de ${yo} (de sus charlas con Gemini, sus notas de voz y sus cuadernos de NotebookLM), y lo poco que se sabe de HOY (material reciente, notas de la entidad, recuerdos).
-Un proyecto cambia: lo viejo NO es el estado actual. Armá su historia:
+Un proyecto cambia: lo viejo NO es el estado actual. Sus correcciones y lo que te dijo hace poco MANDAN sobre el archivo: si una corrección o un recuerdo dice algo (un nombre, una decisión), nunca escribas lo contrario aunque el material viejo lo diga; si el archivo lo contradice, contalo como lo que pensaba antes. Armá su historia:
 - "eras": las etapas por las que pasó, en orden: [{"desde": "YYYY-MM", "hasta": "YYYY-MM", "nombre": corto, "como_era": 2 o 3 frases}].
 - "hoy": lo que se sabe del estado actual SOLO por el material reciente o las notas (o null si no hay nada reciente; no lo deduzcas del archivo).
 - "cambios": qué cambió entre las eras viejas y lo de hoy (o null).
@@ -672,7 +672,9 @@ export async function historiaDe(db: Db, lote_: string, x: ReturnType<typeof pro
   const hace = ahora - 60 * 86_400_000
   const recientes = x.entidad ? (db.prepare(`SELECT titulo, contenido, fecha FROM corpus WHERE creado_en >= ? AND id IN (SELECT pieza_id FROM corpus_entidades WHERE entidad_id = ?) AND (origen_id IS NULL OR origen_id NOT LIKE 'takeout:%') ORDER BY creado_en DESC LIMIT 10`).all(hace, x.entidad) as { titulo: string; contenido: string; fecha: string | null }[]) : []
   const recuerdos = memoriaParaPrompt(db, 80).split('\n').filter((l) => claveDe(l).includes(claveDe(x.nombre))).slice(0, 12).join('\n')
-  const hoy = [ent?.notas ? `Notas de la entidad: ${ent.notas}` : '', recientes.length ? `Material de los últimos 60 días:\n${recientes.map((r) => `- ${r.fecha ?? ''} ${r.titulo}: ${r.contenido.slice(0, 500)}`).join('\n')}` : '', recuerdos ? `Recuerdos:\n${recuerdos}` : ''].filter(Boolean).join('\n\n') || '(no hay nada reciente sobre este proyecto)'
+  const { correccionesParaPrompt } = await import('../chat/correcciones.ts')
+  const corr = correccionesParaPrompt(db, null)
+  const hoy = [corr ? `Sus correcciones vigentes (mandan):\n${corr}` : '', ent?.notas ? `Notas de la entidad: ${ent.notas}` : '', recientes.length ? `Material de los últimos 60 días:\n${recientes.map((r) => `- ${r.fecha ?? ''} ${r.titulo}: ${r.contenido.slice(0, 500)}`).join('\n')}` : '', recuerdos ? `Recuerdos:\n${recuerdos}` : ''].filter(Boolean).join('\n\n') || '(no hay nada reciente sobre este proyecto)'
   const d = await historiar(db, SISTEMA_HISTORIA(yo), `Proyecto: ${ent?.nombre ?? x.nombre}${x.entidad ? '' : ' (todavía no es una entidad: lo propuso el archivo)'} · ${ms.length} menciones en el archivo · hoy es ${fechaLocal(ahora)}\n\nLo que dice el archivo, en orden:\n${archivo}\n\nLo que se sabe de hoy:\n${hoy}`)
   const eras = lista(d?.eras).map((e) => `- **${txt(e?.nombre, 80)}** (${txt(e?.desde, 10)} → ${txt(e?.hasta, 10)}): ${txt(e?.como_era)}`).join('\n')
   const ideas = lista(d?.ideas_para_revisar).slice(0, 5)
@@ -686,14 +688,22 @@ export async function historiaDe(db: Db, lote_: string, x: ReturnType<typeof pro
     d?.pregunta ? `## Para vos\n${txt(d.pregunta, 300)}` : '',
   ].filter(Boolean).join('\n\n')
   asegurarFuente(db, FUENTES.historia)
-  // La del reproceso se rehace cada vez que hay material nuevo: la misma pieza, actualizada.
-  const origenH = `takeout:historia:${lote_}:${x.entidad ?? claveDe(x.nombre)}`
-  const yaH = lote_ === REPROCESO ? porOrigen(db, origenH) : null
+  // Una sola historia por proyecto (plan v34, #48): la clave es la entidad (o el nombre, si todavía no es entidad), no el
+  // lote ni la variante del nombre. Si ya había una (de cualquier lote), se actualiza esa; las demás del mismo proyecto
+  // (de otro lote, o de un nombre viejo que ahora es esta entidad) se retiran con rastro.
+  const clave = x.entidad ?? claveDe(x.nombre)
+  const origenH = `historia:${x.entidad ? 'e' : 'n'}:${clave}`
+  const previas = (db.prepare(`SELECT id, origen_id FROM corpus WHERE fuente = ? AND estado != 'retirada' AND (origen_id = ? OR origen_id LIKE ? ${x.entidad ? 'OR id IN (SELECT pieza_id FROM corpus_entidades WHERE entidad_id = ?) OR titulo IN (SELECT ? UNION SELECT ? || value FROM json_each(COALESCE((SELECT alias FROM entidades WHERE id = ?), \'[]\')))' : ''}) ORDER BY id DESC`)
+    .all(FUENTES.historia.id, origenH, `takeout:historia:%:${clave}`, ...(x.entidad ? [x.entidad, `Historia de ${ent?.nombre ?? x.nombre}`, 'Historia de ', x.entidad] : [])) as { id: number; origen_id: string | null }[])
+  // Se queda la de la clave nueva; si no, la que ya era de esta entidad (otro lote); si no, cualquiera.
+  const yaH = (previas.find((h) => h.origen_id === origenH) ?? previas.find((h) => h.origen_id?.startsWith('takeout:historia:') && h.origen_id.endsWith(`:${clave}`)) ?? previas[0])?.id ?? null
+  for (const h of previas) if (h.id !== yaH) retirarPieza(db, h.id, `Había otra historia del mismo proyecto: quedó una sola (#${yaH})`, 'historia', ahora)
+  if (yaH) db.prepare('UPDATE corpus SET origen_id = ?, titulo = ? WHERE id = ?').run(origenH, `Historia de ${ent?.nombre ?? x.nombre}`, yaH)
   if (yaH) db.prepare('UPDATE corpus SET contenido = ?, fecha = ? WHERE id = ?').run(contenido, fechaLocal(ahora), yaH)
   if (yaH) db.prepare('DELETE FROM pasajes WHERE pieza_id = ?').run(yaH) // cambió el texto: sus pasajes se rehacen
   const p = yaH ? { id: yaH, nueva: false } : pieza(db, {
     fuente: FUENTES.historia.id, nivel: 'investigacion', titulo: `Historia de ${ent?.nombre ?? x.nombre}`, fecha: fechaLocal(ahora), contenido,
-    etiquetas: ['takeout', 'historia', 'proyecto'], entidades: x.entidad ? [x.entidad] : undefined, origenId: `takeout:historia:${lote_}:${x.entidad ?? claveDe(x.nombre)}`,
+    etiquetas: ['takeout', 'historia', 'proyecto'], entidades: x.entidad ? [x.entidad] : undefined, origenId: origenH,
     meta: { takeout: lote_, menciones: ms.length, propuesto: !x.entidad },
   }, ahora)
   ideas.forEach((i, k) => {

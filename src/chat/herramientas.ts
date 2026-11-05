@@ -43,7 +43,7 @@ import { arrancarBloque, terminarBloque } from '../bloques.ts'
 import { agregarItem, editarItem, entidadPorNombre, escribirHistoria, inventarioDe, inventarioDerivado, leerHistoria, personaje, personaPorNombre, resolverPersonaje, TIPOS_INVENTARIO } from '../personajes.ts'
 import { asientos, especializacion } from '../auditor.ts'
 import { enEspera, leerTarea, pausarIngesta, publicar, reanudarIngesta, tareas } from '../bus.ts'
-import { asegurarFuente, buscar, esNivel, fuentes, leerPieza, listarPiezas, NIVELES, type Nivel, type Pieza } from '../corpus.ts'
+import { asegurarFuente, buscar, corregirPieza, esNivel, fuentes, leerPieza, listarPiezas, NIVELES, retirarPieza, type Nivel, type Pieza } from '../corpus.ts'
 import { buscarHibrido } from '../semantica.ts'
 import { compartidas } from '../bitacora.ts'
 import { crearCuaderno, leerCuaderno, listarCuadernos, preguntar, sumarFuentes } from '../cuadernos.ts'
@@ -1923,6 +1923,20 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a, r) => (r?.requiere_confirmacion ? 'pidió confirmación para fijar la misión principal' : `fijó la misión principal: ${recorte(r?.titulo ?? a.titulo ?? '', 50)}`),
   },
   {
+    nombre: 'retirar_pieza', familia: 'destructiva',
+    descripcion: 'Retira una pieza del corpus que está mal (mal generada, duplicada, o que contradice algo que él corrigió): deja de usarse y de aparecer en las búsquedas, pero no se borra (queda el rastro de quién, cuándo y por qué). Requiere su confirmación. Si se puede arreglar, mejor corregir_pieza.',
+    parametros: S({ id: int('id de la pieza'), motivo: str('Por qué se retira'), confirmado: bool('true solo si él confirmó') }, ['id', 'motivo']),
+    ejecutar: (a, { db }) => exigirConfirmacion(a, `retira la pieza #${a.id} del corpus`) ?? (() => { const p = retirarPieza(db, a.id, a.motivo, 'operador'); return { retirada: p.id, titulo: p.titulo } })(),
+    resumen: (a, r) => (r?.requiere_confirmacion ? `pidió confirmación para retirar #${a.id}` : `retiró «${r?.titulo ?? a.id}» del corpus`),
+  },
+  {
+    nombre: 'corregir_pieza', familia: 'accion',
+    descripcion: 'Reemplaza el texto de una pieza del corpus por una versión corregida (por ejemplo, una historia que contradice lo que él corrigió). Se queda con su id, sus quántomos y sus entidades; la versión anterior queda guardada. Pasá el texto COMPLETO nuevo, no solo el cambio.',
+    parametros: S({ id: int('id de la pieza'), contenido: str('El texto completo corregido'), motivo: str('Qué se corrigió') }, ['id', 'contenido', 'motivo']),
+    ejecutar: (a, { db }) => { const p = corregirPieza(db, a.id, a.contenido, a.motivo, 'operador'); return { corregida: p.id, titulo: p.titulo } },
+    resumen: (_, r) => `corrigió «${r?.titulo ?? ''}»`,
+  },
+  {
     nombre: 'olvidar', familia: 'destructiva', descripcion: 'Archiva un recuerdo del operador (deja de usarse). Requiere confirmación.',
     parametros: S({ id: int('id del recuerdo'), confirmado: bool('true solo si el operador confirmó') }, ['id']),
     ejecutar: (a, { db }) => exigirConfirmacion(a, `archiva el recuerdo #${a.id}`) ?? (archivar(db, a.id), { archivado: a.id }),
@@ -1968,7 +1982,7 @@ export const NUCLEO = [
 ]
 export const GRUPOS: Record<string, string[]> = {
   liga: ['crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
-  corpus: ['procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
+  corpus: ['retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   vida: ['buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado'],
@@ -1985,7 +1999,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   const t = mensaje.toLowerCase()
   const g: string[] = []
   if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox|misi[oó]n|pista|me respondi|reuni[oó]n con/.test(t)) g.push('liga')
-  if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|\[confirmado\]|\[inferido\]/.test(t)) g.push('corpus')
+  if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|retir[aá]|pieza|historia de|mal generad|est[aá] mal|correg[ií] (la|esa|esta) (pieza|historia)|\[confirmado\]|\[inferido\]/.test(t)) g.push('corpus')
   if (/primaria|reporte|informe|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
   if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')
   if (/\bcada (lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|d[ií]a|ma[ñn]ana|noche|semana|mes|\d+ horas|hora)|todos los (d[ií]as|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bados|domingos)|todas las (ma[ñn]anas|noches)|program[aá]|encargo programado|de lunes a viernes/.test(t)) g.push('programados')

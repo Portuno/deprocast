@@ -160,6 +160,33 @@ export function leerPieza(db: Db, id: number): Pieza | null {
   return r ? deFila(r) : null
 }
 
+/**
+ * Retirar una pieza (plan v34, #48): una mal generada (o que contradice una corrección suya) deja de usarse sin borrarse.
+ * Queda con el rastro (quién, cuándo y por qué); sus vectores y pasajes se van, así ninguna búsqueda la encuentra.
+ */
+export function retirarPieza(db: Db, id: number, motivo: string, por = 'operador', ahora = Date.now()): Pieza {
+  const p = leerPieza(db, id)
+  if (!p) throw new Error(`No existe la pieza ${id}`)
+  if (!motivo.trim()) throw new Error('Falta el motivo (queda como rastro)')
+  db.prepare(`UPDATE corpus SET estado = 'retirada', meta = json_set(COALESCE(meta, '{}'), '$.retirada', json(?)) WHERE id = ?`).run(JSON.stringify({ motivo: motivo.trim().slice(0, 500), por, en: ahora, estadoAntes: p.estado }), id)
+  db.prepare('DELETE FROM vectores WHERE pieza_id = ?').run(id)
+  db.prepare('DELETE FROM pasajes WHERE pieza_id = ?').run(id)
+  return leerPieza(db, id)!
+}
+
+/** Corregir el texto de una pieza: se queda con su id (sus quántomos y entidades) y guarda la versión anterior. */
+export function corregirPieza(db: Db, id: number, contenido: string, motivo: string, por = 'operador', ahora = Date.now()): Pieza {
+  const p = leerPieza(db, id)
+  if (!p) throw new Error(`No existe la pieza ${id}`)
+  if (!contenido.trim()) throw new Error('El texto nuevo está vacío')
+  const versiones = [...(((p.meta as Record<string, unknown> | null)?.versiones as unknown[]) ?? []), { en: ahora, por, motivo: motivo.trim().slice(0, 500), antes: p.contenido.slice(0, 20_000) }].slice(-3)
+  db.prepare(`UPDATE corpus SET contenido = ?, estado = CASE WHEN estado = 'retirada' THEN 'disponible' ELSE estado END, meta = json_set(COALESCE(meta, '{}'), '$.versiones', json(?)) WHERE id = ?`).run(contenido.trim(), JSON.stringify(versiones), id)
+  // Cambió el texto: sus vectores y pasajes se rehacen.
+  db.prepare('DELETE FROM vectores WHERE pieza_id = ?').run(id)
+  db.prepare('DELETE FROM pasajes WHERE pieza_id = ?').run(id)
+  return leerPieza(db, id)!
+}
+
 export function piezaPorOrigen(db: Db, origenId: string): Pieza | null {
   const r = db.prepare('SELECT * FROM corpus WHERE origen_id = ?').get(origenId)
   return r ? deFila(r) : null
@@ -194,7 +221,7 @@ export function buscar(db: Db, consulta: string, limite: number, dominio?: strin
   const filas = q
     ? db.prepare(
       `SELECT c.* FROM corpus_fts JOIN corpus c ON c.id = corpus_fts.rowid
-       WHERE corpus_fts MATCH ? ${filtroNivel} ORDER BY c.nivel = 'generada', c.peso IS 0, c.estado = 'disponible' DESC, bm25(corpus_fts, 3.0, 1.0, 2.0, 1.0) - COALESCE(c.peso, 0) * 0.15 LIMIT ?`,
+       WHERE corpus_fts MATCH ? AND c.estado != 'retirada' ${filtroNivel} ORDER BY c.nivel = 'generada', c.peso IS 0, c.estado = 'disponible' DESC, bm25(corpus_fts, 3.0, 1.0, 2.0, 1.0) - COALESCE(c.peso, 0) * 0.15 LIMIT ?`,
     ).all(q, ...(niveles ?? []), limite * 3)
     : []
   return (filas as any[])
@@ -220,6 +247,7 @@ export function listarPiezas(db: Db, f: FiltroPiezas = {}): { total: number; pie
   if (f.nivel) where.push('c.nivel = ?'), args.push(f.nivel)
   if (f.tipo) where.push('c.tipo = ?'), args.push(f.tipo)
   if (f.estado) where.push('c.estado = ?'), args.push(f.estado)
+  else where.push("c.estado != 'retirada'") // lo retirado se ve solo si se pide
   if (f.cargaId) where.push('c.carga_id = ?'), args.push(f.cargaId)
   if (f.entidad) where.push('c.id IN (SELECT pieza_id FROM corpus_entidades WHERE entidad_id = ?)'), args.push(f.entidad)
   const desde = q ? 'corpus_fts JOIN corpus c ON c.id = corpus_fts.rowid' : 'corpus c'
