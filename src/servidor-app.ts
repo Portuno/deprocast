@@ -880,6 +880,18 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/correo\/([\w-]+)\/proponer$/, async (b, [m]) => (await import('./google/correo.ts')).proponerRespuesta(db, m, b.indicacion ? String(b.indicacion) : null)],
   ['POST', /^\/api\/correo\/([\w-]+)\/borrador$/, async (b, [m]) => (await import('./google/correo.ts')).guardarBorrador(db, m, String(b.texto ?? ''))],
   ['POST', /^\/api\/correo\/([\w-]+)\/atendido$/, async (b, [m]) => (await import('./google/correo.ts')).marcarAtendido(db, m, b.atendido !== false)],
+  // Encargos programados (plan v35, fase 7).
+  ['GET', /^\/api\/programados$/, async () => (await import('./programados.ts')).listarProgramados(db)],
+  ['POST', /^\/api\/programados$/, async (b) => (await import('./programados.ts')).crearProgramado(db, { titulo: b.titulo, pedido: String(b.pedido ?? ''), cuando: String(b.cuando ?? ''), drive: !!b.drive })],
+  ['POST', /^\/api\/programados\/interpretar$/, async (b) => { const p = await import('./programados.ts'); const c = p.interpretarCuando(String(b.cuando ?? '')); return { cuando: p.describirCuando(c), proximo: p.proximoDe(c, Date.now()) } }],
+  ['POST', /^\/api\/programados\/(\d+)$/, async (b, [x]) => (await import('./programados.ts')).cambiarProgramado(db, id(x), { titulo: b.titulo, pedido: b.pedido, cuando: b.cuando, drive: b.drive, activo: b.activo })],
+  ['POST', /^\/api\/programados\/(\d+)\/correr$/, async (_, [x]) => {
+    const p = await import('./programados.ts')
+    // De fondo: un informe puede tardar minutos (la pantalla pregunta después).
+    void p.correrProgramado(db, id(x)).catch((e) => console.error('  programado:', e instanceof Error ? e.message : e))
+    return { empezado: true }
+  }],
+  ['POST', /^\/api\/programados\/(\d+)\/borrar$/, async (_, [x]) => (await import('./programados.ts')).borrarProgramado(db, id(x))],
   // Agenda, contactos y tareas de Google (plan v35, fase 3).
   ['GET', /^\/api\/google\/mas$/, async () => ({
     calendario: (await import('./google-calendario.ts')).viaCalendario(),
@@ -2219,6 +2231,11 @@ deFondo(() => setInterval(async () => {
     } finally { fin() }
   } catch (e) { console.error('  gmail:', e instanceof Error ? e.message : e) }
 }, 5 * 60_000).unref())
+
+// Encargos programados: cada minuto, los que tocan.
+deFondo(() => setInterval(async () => {
+  try { await (await import('./programados.ts')).latidoProgramados(db) } catch (e) { console.error('  programados:', e instanceof Error ? e.message : e) }
+}, 60_000).unref())
 
 // Google Tasks (cada 10 minutos, si lo prendió) y sus contactos (cada 6 horas).
 deFondo(() => setInterval(async () => {

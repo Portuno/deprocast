@@ -238,6 +238,27 @@ export const HERRAMIENTAS: Herramienta[] = [
     },
     resumen: (_, r) => `procesó tus anotaciones: ${r?.recuerdos ?? 0} recuerdos, ${r?.propuestas?.length ?? 0} propuestas, ${r?.quantomos ?? 0} ideas`,
   },
+  // ─── Encargos programados (plan v35, fase 7) ───
+  {
+    nombre: 'programar_encargo', familia: 'accion',
+    descripcion: 'Deja un encargo que hacés SOLO, cada tanto, y del que le mandás el informe (a Hoy, Telegram o WhatsApp; y a su Drive si quiere): «cada lunes a las 9 revisá qué salió sobre X», «todos los días a las 8 resumime los mails importantes», «el 1 de cada mes mirá mis gastos». El pedido, tal como lo harías; el cuándo en castellano («todos los días a las 8», «los lunes y jueves 9:30», «de lunes a viernes a las 8», «cada 6 horas», «el 1 de cada mes a las 10»).',
+    parametros: S({ pedido: str('Qué hacer, completo y concreto'), cuando: str('Cuándo, en castellano'), titulo: str('Un nombre corto'), drive: { type: 'boolean', description: 'Guardar también cada informe en su Drive (Mastropiero/Informes)' } }, ['pedido', 'cuando']),
+    ejecutar: async (a, { db }) => { const p = await (await import('../programados.ts')).crearProgramado(db, { pedido: a.pedido, cuando: a.cuando, titulo: a.titulo, drive: !!a.drive }); return { id: p.id, titulo: p.titulo, cuando: p.cuandoTexto, proximo: p.proximo ? new Date(p.proximo).toLocaleString('es-AR') : null } },
+    resumen: (_, r) => `programó «${r?.titulo ?? ''}» (${r?.cuando ?? ''})`,
+  },
+  {
+    nombre: 'ver_programados', familia: 'lectura',
+    descripcion: 'Sus encargos programados: qué hacen, cuándo, cuándo es el próximo y el último informe (recortado).',
+    parametros: S({}),
+    ejecutar: async (_, { db }) => (await import('../programados.ts')).listarProgramados(db).map((p) => ({ id: p.id, titulo: p.titulo, pedido: recorte(p.pedido, 300), cuando: p.cuandoTexto, activo: p.activo, proximo: p.proximo ? new Date(p.proximo).toLocaleString('es-AR') : null, ultimo: p.ultimo ? new Date(p.ultimo).toLocaleString('es-AR') : null, ultimo_informe: p.resultado ? recorte(p.resultado, 800) : null, error: p.error })),
+  },
+  {
+    nombre: 'cambiar_programado', familia: 'accion',
+    descripcion: 'Cambia un encargo programado (por id): pausarlo o reanudarlo (activo), otro pedido, otro cuándo, o guardar los informes en Drive.',
+    parametros: S({ id: int('id del encargo'), activo: { type: 'boolean', description: 'false = pausado' }, pedido: str('El pedido nuevo'), cuando: str('El cuándo nuevo'), drive: { type: 'boolean', description: 'Informes también a su Drive' } }, ['id']),
+    ejecutar: async (a, { db }) => { const p = (await import('../programados.ts')).cambiarProgramado(db, a.id, { activo: a.activo, pedido: a.pedido, cuando: a.cuando, drive: a.drive }); return { id: p.id, titulo: p.titulo, cuando: p.cuandoTexto, activo: p.activo } },
+    resumen: (_, r) => `cambió «${r?.titulo ?? ''}»`,
+  },
   // ─── Gmail (plan v35): leer, buscar y dejar borradores (nunca envía) ───
   {
     nombre: 'ver_mails', familia: 'lectura',
@@ -414,8 +435,8 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'pedir_herramientas', familia: 'lectura',
-    descripcion: 'Suma herramientas para este turno. Tenés a mano lo de todos los días; para lo demás pedí el grupo: liga (agentes, encargos, ticks, propuestas, La Fragua), corpus (fuentes, cargas, quántomos, entidades, ingerir), misiones (primarias, runs, reportes, ayudantes, personajes, inventario), vida (personas, plata, salud, plan, aprendizaje, bitácora, gemelo, brújula, preguntas), correo (su Gmail: leer, buscar, borradores), drive (buscar y leer en su Drive, guardar documentos en su carpeta Mastropiero; leer, escribir y crear planillas), web (buscar en internet, leer y guardar links, radar), crear (cuadernos, librería, taller, cuentas, Directo).',
-    parametros: S({ grupos: { type: 'array', items: { type: 'string', enum: ['liga', 'corpus', 'misiones', 'vida', 'correo', 'drive', 'web', 'crear', 'grafo', 'observatorio'] }, description: 'Uno o varios grupos' } }, ['grupos']),
+    descripcion: 'Suma herramientas para este turno. Tenés a mano lo de todos los días; para lo demás pedí el grupo: liga (agentes, encargos, ticks, propuestas, La Fragua), corpus (fuentes, cargas, quántomos, entidades, ingerir), misiones (primarias, runs, reportes, ayudantes, personajes, inventario), vida (personas, plata, salud, plan, aprendizaje, bitácora, gemelo, brújula, preguntas), programados (encargos que hacés solo cada tanto, con informe), correo (su Gmail: leer, buscar, borradores), drive (buscar y leer en su Drive, guardar documentos en su carpeta Mastropiero; leer, escribir y crear planillas), web (buscar en internet, leer y guardar links, radar), crear (cuadernos, librería, taller, cuentas, Directo).',
+    parametros: S({ grupos: { type: 'array', items: { type: 'string', enum: ['liga', 'corpus', 'misiones', 'vida', 'correo', 'drive', 'programados', 'web', 'crear', 'grafo', 'observatorio'] }, description: 'Uno o varios grupos' } }, ['grupos']),
     ejecutar: (a, ctx) => ({ activadas: ctx.activar?.(Array.isArray(a.grupos) ? a.grupos.map(String) : []) ?? [] }),
     resumen: (a) => `sumó herramientas de ${Array.isArray(a.grupos) ? a.grupos.join(', ') : '…'}`,
   },
@@ -1950,6 +1971,7 @@ export const GRUPOS: Record<string, string[]> = {
   corpus: ['procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   vida: ['buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
+  programados: ['programar_encargo', 'ver_programados', 'cambiar_programado'],
   correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'buscar_contacto'],
   drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],
   web: ['buscar_web', 'buscar_en', 'explorar', 'usar_alexandria', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
@@ -1966,6 +1988,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|\[confirmado\]|\[inferido\]/.test(t)) g.push('corpus')
   if (/primaria|reporte|informe|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
   if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')
+  if (/\bcada (lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|d[ií]a|ma[ñn]ana|noche|semana|mes|\d+ horas|hora)|todos los (d[ií]as|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bados|domingos)|todas las (ma[ñn]anas|noches)|program[aá]|encargo programado|de lunes a viernes/.test(t)) g.push('programados')
   if (/\bmails?\b|correo|gmail|bandeja|inbox|borrador|me escribi[oó]|contest(ar|[aá]le) a/.test(t)) g.push('correo')
   if (/drive|planilla|sheets?\b|hoja de c[aá]lculo|spreadsheet|excel|docs\.google/.test(t)) g.push('drive')
   if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal|reddit|subreddit|github|repo\b|twitter|tweet|tuit|linkedin|instagram|facebook/.test(t)) g.push('web')

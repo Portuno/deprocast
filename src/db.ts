@@ -1121,6 +1121,21 @@ CREATE TABLE IF NOT EXISTS voz_turnos (
 CREATE INDEX IF NOT EXISTS voz_turnos_inicio ON voz_turnos (inicio);
 -- Explorar internet (plan v31): la caché de 30 min de cada pedido (no se le pide dos veces lo mismo a nadie) y la salud
 -- de cada backend de cada canal (último ok, último error y hasta cuándo está en pausa si lo limitaron o bloquearon).
+-- Encargos programados (plan v35, fase 7): lo que Mastropiero hace solo, cada tanto, y el último informe.
+CREATE TABLE IF NOT EXISTS programados (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  titulo TEXT NOT NULL,
+  pedido TEXT NOT NULL,
+  cuando TEXT NOT NULL,
+  drive INTEGER NOT NULL DEFAULT 0,
+  activo INTEGER NOT NULL DEFAULT 1,
+  proximo INTEGER,
+  ultimo INTEGER,
+  resultado TEXT,
+  error TEXT,
+  conversacion_id INTEGER,
+  creado INTEGER NOT NULL
+);
 -- Sus contactos de Google (plan v35): para buscarlos; entidad_id si es una de sus personas.
 CREATE TABLE IF NOT EXISTS contactos_google (
   recurso TEXT PRIMARY KEY,

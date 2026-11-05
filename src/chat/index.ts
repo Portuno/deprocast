@@ -481,8 +481,9 @@ export const estaPensando = (id: number) => pensando.has(id)
 /** Hasta qué mensaje suyo ya vio el turno en curso (lo de después le llega en la próxima vuelta o en otro turno). */
 const visto = new Map<number, number>()
 /** Las opciones de lo que escribió mientras contestaba (el panel que miraba, si fue por voz, un pedido de consejo). */
-const opcionesEnCola = new Map<number, { hud?: string | null; via?: 'voz' | 'copiloto' | null; extra?: string | null }>()
-type OpcionesEnvio = { hud?: string | null; via?: 'voz' | 'copiloto' | null; extra?: string | null }
+const opcionesEnCola = new Map<number, { hud?: string | null; via?: 'voz' | 'copiloto' | 'encargo' | null; extra?: string | null }>()
+/** via 'encargo': un encargo programado que corre solo (su pedido no va a la memoria ni sus links al corpus cada vez). */
+type OpcionesEnvio = { hud?: string | null; via?: 'voz' | 'copiloto' | 'encargo' | null; extra?: string | null }
 
 /**
  * Manda un mensaje. Nunca se bloquea: lo suyo se guarda en el acto, y si Mastropiero ya está contestando, entra a ese
@@ -495,7 +496,7 @@ export async function enviar(db: Db, cid: number, texto: string, o: OpcionesEnvi
   if (!c) throw new Error(`No existe la conversación ${cid}`)
   if (!texto.trim()) throw new Error('Mensaje vacío')
   const id = guardar(db, cid, { rol: 'operador', texto: texto.trim(), via: o.via ?? null })
-  alRecibir(db, cid, c, texto)
+  if (o.via !== 'encargo') alRecibir(db, cid, c, texto)
   if (pensando.has(cid)) {
     const ya = opcionesEnCola.get(cid)
     opcionesEnCola.set(cid, { hud: o.hud ?? ya?.hud, via: o.via ?? ya?.via, extra: [ya?.extra, o.extra].filter(Boolean).join('\n\n') || null })
@@ -662,7 +663,7 @@ ${vozPara('ceremonia')}` : ''}`, hs, previos, clase: 'mastropiero', agenteId: o.
     try { db.prepare(`UPDATE mensajes SET via = 'voz' WHERE conversacion_id = ? AND rol = 'asistente' AND id > (SELECT MAX(id) FROM mensajes WHERE conversacion_id = ? AND rol = 'operador')`).run(cid, cid) } catch { /* es solo una marca */ }
   }
   // Lo que vale recordar de lo que dijo (solo con Mastropiero; nunca de lo que dicen otros). No frena la respuesta.
-  const guardados = c.con === MASTROPIERO ? await escriba(db, comoTexto(texto), cid).catch(() => null) : null
+  const guardados = c.con === MASTROPIERO && o.via !== 'encargo' ? await escriba(db, comoTexto(texto), cid).catch(() => null) : null
   // Si dijo que anotó o arregló algo y en el turno no se guardó nada, se avisa en la charla (no queda la mentira suelta).
   if (c.con === MASTROPIERO && c.modo !== 'diario' && final && afirmaAccion(final)) {
     const escribio = corregido.length > 0 || usadas.some((n) => HERRAMIENTAS.find((h) => h.nombre === n)?.familia !== 'lectura') || (Array.isArray(guardados) && guardados.length > 0)

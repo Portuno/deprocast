@@ -3092,3 +3092,22 @@ span.ej-chip { cursor: default; }
 .perfil-carpetas { display: flex; flex-wrap: wrap; gap: var(--e-2); }
 .perfil-carpetas .btn-x { background: none; border: 0; color: var(--tenue); cursor: pointer; padding: 0 0 0 var(--e-1); }
 .perfil-carpetas .btn-x:hover { color: var(--mal); }
+
+/* Encargos programados (plan v35, fase 7) */
+.programados { max-width: 1240px; margin: 0 auto; padding: var(--e-5); display: grid; gap: var(--e-4); }
+.prg-form { display: grid; gap: var(--e-3); padding: var(--e-4); }
+.prg-form textarea { width: 100%; font: inherit; }
+.prg-fila { display: grid; gap: var(--e-3); }
+.prg-fila input { width: 100%; }
+.prg-lista { display: grid; gap: var(--e-3); }
+.prg-item { display: grid; gap: var(--e-2); padding: var(--e-4); }
+.prg-item h3 { margin: 0; font-size: var(--t-5); }
+.prg-item p { margin: 0; }
+.prg-item.pausado { opacity: .7; }
+.prg-item .mal { color: var(--mal); }
+.prg-informe summary { cursor: pointer; font-size: var(--t-3); color: var(--acento-texto); }
+.prg-texto { white-space: pre-wrap; line-height: 1.55; font-size: var(--t-3); margin-top: var(--e-2); max-height: 420px; overflow-y: auto; }
+@media (min-width: 1000px) {
+  .prg-fila { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .prg-lista { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
