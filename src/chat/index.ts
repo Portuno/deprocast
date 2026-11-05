@@ -32,7 +32,7 @@ import { leerEntidad as leerEnt } from '../entidades.ts'
 import { escribaDeMemoria, memoriaParaPrompt } from '../memoria.ts'
 import { listarEntidades } from '../entidades.ts'
 import { estadoLiga, numeroDeTick } from '../mastropiero.ts'
-import { cadena, topeAlcanzado, type LlamadaHerramienta } from '../nan.ts'
+import { cadena, M, topeAlcanzado, type LlamadaHerramienta } from '../nan.ts'
 import { llamarModelo } from '../modelo.ts'
 import { alias, leer, nivel, type Ficha } from '../roster.ts'
 import { capa } from '../xp.ts'
@@ -266,6 +266,41 @@ const HUD: Record<string, string> = {
   oraculo: 'Oráculo (la brújula del día, la pregunta pendiente y lo del Directo por revisar)',
 }
 
+/**
+ * Qué tipo de turno es (plan v34, #129): de eso depende cuánto contexto se arma. Sin modelo, por la forma del mensaje.
+ * - breve: un saludo, un gracias, «¿estás?», la hora o el día. Se contesta con lo mínimo, sin herramientas y con el
+ *   modelo rápido (antes armaba el expediente entero y buscaba en el corpus para decir «acá estoy»).
+ * - confirmacion: «dale», «sí», «el primero»… Responde a lo que se le propuso: con herramientas (para hacerlo) pero sin
+ *   la búsqueda en su archivo.
+ * - completo: todo lo demás, como siempre.
+ */
+export type TipoTurno = 'breve' | 'confirmacion' | 'completo'
+export function tipoDeTurno(texto: string): TipoTurno {
+  if (texto.length > 80 || /https?:\/\/|\[(imagen|archivo):|\n/.test(texto)) return 'completo'
+  const t = texto.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/^[¡¿\s]+/, '').replace(/[¡!¿?.…,;:)(\s]+$/g, '')
+  if (/^(hola|holi|buenas|buen dia|buenos dias|buenas (tardes|noches)|hey|ey|che|gracias|muchas gracias|mil gracias|genial|perfecto|joya|barbaro|excelente|buenisimo|ok|okey|okay|listo|entendido|de nada|chau|nos vemos|hasta (manana|luego))(\s+(mastropiero|mastro|che|loco|amigo|crack))?$/.test(t)) return 'breve'
+  if (/^(estas|estas ahi|seguis ahi|me escuchas|me lees|andas|anda|funciona|funcionas|que hora es|que dia es( hoy)?|que fecha es( hoy)?)$/.test(t)) return 'breve'
+  if (/^(si|sip|sii+|dale|dale dale|de una|hacelo|metele|mandale|adelante|confirmo|confirmado|va|vamos|no|nop|nah|mejor no|cancela|cancelalo|para|espera|ninguno|ninguna|el primero|la primera|el segundo|la segunda|el tercero|la tercera|ambos|los dos|las dos|todos|todas|ya esta)(\b.{0,40})?$/.test(t)) return 'confirmacion'
+  return 'completo'
+}
+
+/** El prompt de un turno breve: quién sos, cómo hablás, la hora y el día. Nada más. */
+export function promptBreve(db: Db): string {
+  const yo = db.prepare(`SELECT nombre FROM entidades WHERE tipo = 'persona' AND json_extract(meta, '$.operador') = 1 LIMIT 1`).get() as { nombre: string } | undefined
+  const nombre = yo?.nombre?.split(' ')[0] ?? 'el operador'
+  return `Sos Mastropiero, lo que piensa adentro de Deprocast, el exoesqueleto cognitivo de ${nombre}.
+
+${VOZ_USTED}
+
+${vozPara('chat')}
+
+Este es un mensaje breve (un saludo, un gracias, si estás, la hora o el día): contestá en una o dos frases, natural y con calidez, sin agregar pendientes, consejos ni preguntas de relleno. Si en el historial reciente le propusiste algo y esto lo responde, tenelo en cuenta.
+
+Ahora: ${ahoraEnPalabras()}
+Calendario: ${calendarioCorto()}
+${hoy(db).split('\n')[0]}`
+}
+
 export function promptMastropiero(db: Db, mensaje = '', hud?: string | null, cid?: number | null, archivo?: { texto: string; vec: Float32Array | null }): string {
   const op = operador(db, mensaje, archivo?.vec ?? null)
   const corr = correccionesParaPrompt(db, cid)
@@ -276,7 +311,7 @@ ${VOZ_USTED}
 ${vozPara('chat')}
 
 Cómo trabajás
-- Antes de hablar de su mundo, mirá el corpus: buscá lo justo (dos a cuatro consultas suelen alcanzar), no todo.
+- Antes de hablar de su mundo, fijate si lo que ya tenés abajo (lo de su archivo que tiene que ver con lo que dijo, su memoria, su día) alcanza: si alcanza, contestá directo. Si falta, buscá en el corpus lo justo (una a tres consultas), no todo.
 - Lo que no consultaste, no lo afirmes. No inventes nombres, fechas ni contenidos.
 - Separá siempre el hecho (con su fuente: una pieza [#id], una tarea del plan, un evento de su agenda, algo que te dijo) de tu deducción («mi lectura es…», «supongo que…»). Si no tenés fuente, decí que no lo tenés anotado; no lo rellenes.
 - Las fechas relativas («el viernes», «mañana», «la semana que viene») de una tarea o de un mensaje se resuelven contra el día en que se escribieron, no contra hoy: si una tarea que vencía el 4/10 dice «el viernes», es el viernes 9/10. Usá el calendario de abajo; si no sabés cuándo es algo, preguntá.
@@ -373,6 +408,8 @@ type Turno = {
   grupos?: Set<string>
   /** Lo que el operador escribió mientras el turno trabajaba: entra antes de la próxima vuelta. */
   nuevos?: () => Record<string, unknown>[]
+  /** Los modelos de este turno (un turno breve va primero al rápido). */
+  modelos?: string[]
 }
 
 /**
@@ -398,7 +435,7 @@ async function bucle(t: Turno): Promise<string> {
     if (vuelta > 0 && t.nuevos) conv.push(...t.nuevos())
     recortarYaLeido(conv, desde)
     const cierre = vuelta >= AVISO_VUELTAS ? [{ role: 'system', content: `Llevás ${vuelta} vueltas de herramientas en este turno: cerrá con lo que ya tenés y contestá (como mucho una vuelta más).` }] : []
-    const r = await llamarModelo({ db: t.db, clase, agenteId: t.agenteId }, {
+    const r = await llamarModelo({ db: t.db, clase, agenteId: t.agenteId, modelos: t.modelos }, {
       mensajes: [{ role: 'system', content: t.sistema }, ...conv, ...cierre], herramientas: esquemas(t.grupos ? activas(t.hs, t.grupos) : t.hs), temperatura: 0.5, maxTokens: 4096,
     }, t.vivo ? (parcial) => (t.vivo!.borrador = parcial) : undefined)
     t.alGuardar({ rol: 'asistente', texto: r.texto || null, llamadas: r.llamadas, razonamiento: r.razonamiento, modelo: r.modelo, tokens: r.tokens })
@@ -526,6 +563,10 @@ function recienLlegados(db: Db, cid: number): Record<string, unknown>[] {
 
 /** Un turno completo sobre lo que escribió (uno o varios mensajes ya guardados, hasta el id `hasta`). */
 async function turno(db: Db, cid: number, c: Conversacion, texto: string, o: OpcionesEnvio, hasta: number): Promise<void> {
+  const inicio = Date.now()
+  const etapas: Record<string, number> = {}
+  let tipo: TipoTurno = 'completo'
+  let vueltas = 0
   const usadas: string[] = []
   let corregido: string[] = []
   let final = ''
@@ -534,8 +575,18 @@ async function turno(db: Db, cid: number, c: Conversacion, texto: string, o: Opc
   try {
     const historial = mensajes(db, cid)
     visto.set(cid, Math.max(hasta, ...historial.filter((m) => m.rol === 'operador').map((m) => m.id)))
+    // Con Mastropiero (fuera del diario), el tipo de turno decide cuánto contexto se arma; el historial y lo de su archivo
+    // se buscan a la vez (antes, uno después del otro).
+    const conMastro = c.con === MASTROPIERO && c.modo !== 'diario'
+    tipo = conMastro && !o.extra && o.via !== 'copiloto' ? tipoDeTurno(texto) : 'completo'
+    const tHist = Date.now()
+    const archivoP: Promise<{ texto: string; vec: Float32Array | null }> = conMastro && tipo === 'completo' ? archivoRelevante(db, comoTexto(texto)).catch(() => ({ texto: '', vec: null })) : Promise.resolve({ texto: '', vec: null })
+    const tArch = Date.now()
+    archivoP.then(() => { etapas.archivo = Date.now() - tArch }, () => {})
     const previos = await armarHistorial(db, historial, { cid, resumirViejo: !(c.con === MASTROPIERO && c.modo === 'diario'), verImagenes: true })
+    etapas.historial = Date.now() - tHist
     const alGuardar = (m: Partial<Mensaje> & { rol: Mensaje['rol'] }) => {
+      if (m.rol === 'asistente') { vueltas++; if (!etapas.primera) etapas.primera = Date.now() - inicio }
       if (m.rol === 'herramienta' && m.herramienta) { usadas.push(m.herramienta); try { anotarUso(db, 'herramienta', m.herramienta) } catch { /* no frena */ } }
       guardar(db, cid, m)
     }
@@ -556,22 +607,35 @@ async function turno(db: Db, cid: number, c: Conversacion, texto: string, o: Opc
       // Si lo está corrigiendo, primero se anota la corrección: este mismo turno ya la obedece.
       if (pareceCorreccion(texto)) corregido = await registrarCorreccion(db, cid, texto).catch(() => [])
       const hs = herramientasPara('mastropiero')
-      const grupos = new Set(gruposDelMensaje(texto))
-      // Lo de su archivo que tiene que ver con lo que dijo (pasajes, quántomos y recuerdos por sentido): sin esperar a que lo pida.
-      const archivo = await archivoRelevante(db, comoTexto(texto)).catch(() => ({ texto: '', vec: null }))
-      final = await bucle({
-        db, sistema: `${promptMastropiero(db, texto, o.hud, cid, archivo)}${o.extra ? `
+      // Un «dale» trae las herramientas de lo que se venía hablando (para poder hacer lo que se le confirma).
+      const anterior = [...historial].reverse().find((m) => m.rol === 'operador' && m.texto && m.texto !== texto)?.texto ?? ''
+      const grupos = new Set([...gruposDelMensaje(texto), ...(tipo === 'confirmacion' ? gruposDelMensaje(anterior) : [])])
+      if (tipo === 'breve') {
+        // Un saludo, un gracias, la hora: lo mínimo, sin herramientas, el modelo rápido y los últimos mensajes.
+        const tPrompt = Date.now()
+        const sistema = promptBreve(db)
+        etapas.prompt = Date.now() - tPrompt
+        final = await bucle({ db, sistema, hs: [], previos: previos.slice(-6), clase: 'mastropiero', agenteId: MASTROPIERO, modelos: [M.qwen, M.deepseek], ctx: { db, conversacionId: cid }, alGuardar, vivo, nuevos })
+      } else {
+        // Lo de su archivo que tiene que ver con lo que dijo (pasajes, quántomos y recuerdos por sentido): sin esperar a que lo pida.
+        const archivo = await archivoP
+        const tPrompt = Date.now()
+        const prompt = promptMastropiero(db, texto, o.hud, cid, archivo)
+        etapas.prompt = Date.now() - tPrompt
+        final = await bucle({
+          db, sistema: `${prompt}${o.extra ? `
 
 ${o.extra}` : ''}${enCierre && o.via === 'voz' ? `
 
 ${REGLAS_DE_CIERRE}
 ${vozPara('ceremonia')}` : ''}`, hs, previos, clase: 'mastropiero', agenteId: o.via === 'copiloto' ? 'copiloto' : MASTROPIERO, grupos,
-        ctx: {
-          db, conversacionId: cid, hablarConAgente: (id, m) => hablarConAgente(db, id, m),
-          activar: (gs) => { for (const g of gs) if (GRUPOS[g]) grupos.add(g); return activas(hs, grupos).map((h) => h.nombre) },
-        },
-        alGuardar, vivo, nuevos,
-      })
+          ctx: {
+            db, conversacionId: cid, hablarConAgente: (id, m) => hablarConAgente(db, id, m),
+            activar: (gs) => { for (const g of gs) if (GRUPOS[g]) grupos.add(g); return activas(hs, grupos).map((h) => h.nombre) },
+          },
+          alGuardar, vivo, nuevos,
+        })
+      }
     } else if (/^modelo:\d+$/.test(c.con)) {
       // Hablar con un modelo del consejo: desde su manual, sin herramientas.
       const { promptModelo } = await import('../modelos.ts')
@@ -588,6 +652,10 @@ ${vozPara('ceremonia')}` : ''}`, hs, previos, clase: 'mastropiero', agenteId: o.
     guardar(db, cid, { rol: 'error', texto: e instanceof Error ? e.message : String(e) })
   } finally {
     enVivo.delete(cid)
+    // Cuánto tardó y en qué (para ver dónde se va el tiempo): solo los turnos con Mastropiero.
+    if (c.con === MASTROPIERO) {
+      try { db.prepare('INSERT INTO chat_tiempos (conversacion_id, tipo, total_ms, etapas, vueltas, en) VALUES (?, ?, ?, ?, ?, ?)').run(cid, c.modo === 'diario' ? 'diario' : tipo, Date.now() - inicio, JSON.stringify(etapas), vueltas, inicio) } catch { /* medir no frena */ }
+    }
   }
   // Si habló por voz, lo que contestó Mastropiero en ese turno también queda marcado (se escuchó).
   if (o.via === 'voz') {

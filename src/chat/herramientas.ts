@@ -444,9 +444,9 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `guardó tu horario fijo (${Array.isArray(a.bloques) ? a.bloques.length : 0} bloques)`,
   },
   {
-    nombre: 'ver_uso', familia: 'lectura', descripcion: 'Qué usa de verdad de Deprocast: vistas que abre, herramientas que le corrés, comandos de Telegram y el rastro de cada módulo (runs, salud, plata, plan, prácticas, Directo, cargas…). Para rankear funciones con datos.',
+    nombre: 'ver_uso', familia: 'lectura', descripcion: 'Qué usa de verdad de Deprocast: vistas que abre, herramientas que le corrés, comandos de Telegram y el rastro de cada módulo (runs, salud, plata, plan, prácticas, Directo, cargas…). Para rankear funciones con datos. Trae también la velocidad del chat (cuánto tardás en contestar, por tipo de turno, y en qué se va el tiempo): si te pregunta por qué tardás, mirá eso.',
     parametros: S({ dias: int('Período en días (por defecto 30)') }),
-    ejecutar: (a, { db }) => verUso(db, Number(a.dias) || 30),
+    ejecutar: async (a, { db }) => ({ ...verUso(db, Number(a.dias) || 30), velocidad_del_chat: (await import('../perfil.ts')).velocidadChat(db, Math.min(Number(a.dias) || 7, 30)) }),
   },
   {
     nombre: 'listar_propuestas', familia: 'lectura', descripcion: 'Las propuestas de mejora a la plataforma ya registradas y su estado.', parametros: S({}),

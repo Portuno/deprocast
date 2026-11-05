@@ -12,6 +12,23 @@ const contar = (db: Db, sql: string): number | null => {
   try { return Number((db.prepare(sql).get() as { n: number }).n) } catch { return null }
 }
 
+/**
+ * La velocidad del chat (plan v34, #129): por tipo de turno, la respuesta típica (mediana) y la lenta (p95), y en
+ * promedio cuánto se fue en cada etapa (historial, archivo, prompt, la primera respuesta del modelo).
+ */
+export function velocidadChat(db: Db, dias = 7, ahora = Date.now()) {
+  const filas = db.prepare(`SELECT tipo, total_ms, etapas, vueltas FROM chat_tiempos WHERE en >= ? ORDER BY total_ms`).all(ahora - dias * 86_400_000) as { tipo: string; total_ms: number; etapas: string; vueltas: number }[]
+  const por = new Map<string, typeof filas>()
+  for (const f of filas) por.set(f.tipo, [...(por.get(f.tipo) ?? []), f])
+  const pct = (xs: number[], p: number) => xs.length ? xs[Math.min(xs.length - 1, Math.floor(p * xs.length))] : null
+  return [...por].map(([tipo, xs]) => {
+    const totales = xs.map((x) => x.total_ms).sort((a, b) => a - b)
+    const etapas: Record<string, number> = {}
+    for (const x of xs) { try { for (const [k, v] of Object.entries(JSON.parse(x.etapas) as Record<string, number>)) etapas[k] = (etapas[k] ?? 0) + v / xs.length } catch { /* una fila rota no frena */ } }
+    return { tipo, turnos: xs.length, tipico_ms: pct(totales, 0.5), lento_ms: pct(totales, 0.95), vueltas: Math.round((xs.reduce((s, x) => s + x.vueltas, 0) / xs.length) * 10) / 10, etapas_ms: Object.fromEntries(Object.entries(etapas).map(([k, v]) => [k, Math.round(v)])) }
+  }).sort((a, b) => b.turnos - a.turnos)
+}
+
 export function perfil(db: Db, ahora = Date.now()) {
   const yo = entidadDelJugador(db)
   const nombre = yo ? ((db.prepare('SELECT nombre FROM entidades WHERE id = ?').get(yo) as { nombre: string } | undefined)?.nombre ?? null) : null
@@ -42,6 +59,7 @@ export function perfil(db: Db, ahora = Date.now()) {
       agentes: contar(db, `SELECT COUNT(*) AS n FROM agentes WHERE estado IN ('prueba', 'activo')`),
       correos: contar(db, 'SELECT COUNT(*) AS n FROM correos'),
     },
+    chat: velocidadChat(db, 7, ahora),
     version: process.env.MASTRO_COMMIT ?? null,
   }
 }

@@ -222,7 +222,8 @@ export function cuerpoChat(modelo: string, o: { mensajes: Record<string, unknown
   return body
 }
 
-type Llamada = { db: Db; clase: ClaseId | 'mastropiero'; agenteId: string }
+/** modelos: una cadena propia para esta llamada (un turno breve del chat va primero al modelo rápido). */
+type Llamada = { db: Db; clase: ClaseId | 'mastropiero'; agenteId: string; modelos?: string[] }
 
 function anotar(l: Llamada, modelo: string, r: Respuesta, ms: number) {
   const u = r.json?.usage
@@ -266,7 +267,7 @@ export async function nanChat(
   l: Llamada,
   o: { mensajes: { role: string; content: string }[]; temperatura: number; maxTokens: number; json: boolean },
 ): Promise<{ texto: string; modelo: string }> {
-  const { modelo, r } = await recorrer(l, cadena(l.clase), (m, razonarPoco) => pedir('POST', '/chat/completions', cuerpoChat(m, { ...o, razonarPoco })))
+  const { modelo, r } = await recorrer(l, l.modelos?.length ? l.modelos : cadena(l.clase), (m, razonarPoco) => pedir('POST', '/chat/completions', cuerpoChat(m, { ...o, razonarPoco })))
   const contenido = r.json?.choices?.[0]?.message?.content
   return { texto: typeof contenido === 'string' ? contenido.trim() : '', modelo }
 }
@@ -278,7 +279,7 @@ export async function nanChatHerramientas(
   l: Llamada,
   o: { mensajes: Record<string, unknown>[]; herramientas: unknown[]; temperatura: number; maxTokens: number; razonarPoco?: boolean; json?: boolean },
 ): Promise<{ texto: string; llamadas: LlamadaHerramienta[]; razonamiento: string | null; modelo: string; tokens: number }> {
-  const { modelo, r } = await recorrer(l, cadena(l.clase), (m, razonarPoco) =>
+  const { modelo, r } = await recorrer(l, l.modelos?.length ? l.modelos : cadena(l.clase), (m, razonarPoco) =>
     pedir('POST', '/chat/completions', cuerpoChat(m, { ...o, json: !!o.json && !o.herramientas.length, razonarPoco: o.razonarPoco || razonarPoco })))
   const msg = r.json?.choices?.[0]?.message ?? {}
   return {
@@ -339,7 +340,7 @@ export async function nanChatHerramientasStream(
   o: { mensajes: Record<string, unknown>[]; herramientas: unknown[]; temperatura: number; maxTokens: number; razonarPoco?: boolean; json?: boolean },
   alTexto: (parcial: string) => void,
 ): ReturnType<typeof nanChatHerramientas> {
-  const modelo = cadena(l.clase)[0]
+  const modelo = (l.modelos?.length ? l.modelos : cadena(l.clase))[0]
   const t0 = Date.now()
   // Se corta por silencio (90 s sin un byte), no por duración: una respuesta larga (un juego de 20K tokens) que
   // sigue llegando no se corta. Tope total de 15 minutos.

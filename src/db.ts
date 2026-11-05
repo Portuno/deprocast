@@ -1121,6 +1121,18 @@ CREATE TABLE IF NOT EXISTS voz_turnos (
 CREATE INDEX IF NOT EXISTS voz_turnos_inicio ON voz_turnos (inicio);
 -- Explorar internet (plan v31): la caché de 30 min de cada pedido (no se le pide dos veces lo mismo a nadie) y la salud
 -- de cada backend de cada canal (último ok, último error y hasta cuándo está en pausa si lo limitaron o bloquearon).
+-- La velocidad del chat (plan v34, #129): cuánto tardó cada turno con Mastropiero y en qué (historial, archivo,
+-- prompt, la primera respuesta del modelo), por tipo de turno.
+CREATE TABLE IF NOT EXISTS chat_tiempos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conversacion_id INTEGER NOT NULL,
+  tipo TEXT NOT NULL,
+  total_ms INTEGER NOT NULL,
+  etapas TEXT NOT NULL,
+  vueltas INTEGER NOT NULL,
+  en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chat_tiempos_en ON chat_tiempos (en);
 -- Drive (plan v35): lo que va a su carpeta Mastropiero espera acá (con el archivo en disco) hasta que sube.
 CREATE TABLE IF NOT EXISTS drive_cola (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
