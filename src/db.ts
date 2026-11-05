@@ -1121,6 +1121,26 @@ CREATE TABLE IF NOT EXISTS voz_turnos (
 CREATE INDEX IF NOT EXISTS voz_turnos_inicio ON voz_turnos (inicio);
 -- Explorar internet (plan v31): la caché de 30 min de cada pedido (no se le pide dos veces lo mismo a nadie) y la salud
 -- de cada backend de cada canal (último ok, último error y hasta cuándo está en pausa si lo limitaron o bloquearon).
+-- Sus contactos de Google (plan v35): para buscarlos; entidad_id si es una de sus personas.
+CREATE TABLE IF NOT EXISTS contactos_google (
+  recurso TEXT PRIMARY KEY,
+  nombre TEXT NOT NULL,
+  emails TEXT NOT NULL,
+  telefonos TEXT NOT NULL,
+  trabajo TEXT,
+  cumple TEXT,
+  entidad_id INTEGER,
+  actualizado INTEGER NOT NULL
+);
+-- Google Tasks ↔ sus tareas (plan v35): qué tarea de Google es cada misión, y cómo estaban en la última pasada.
+CREATE TABLE IF NOT EXISTS tareas_google (
+  mision_id INTEGER PRIMARY KEY,
+  task_id TEXT NOT NULL,
+  lista TEXT NOT NULL,
+  titulo TEXT NOT NULL,
+  vence TEXT,
+  hecha INTEGER NOT NULL
+);
 -- La velocidad del chat (plan v34, #129): cuánto tardó cada turno con Mastropiero y en qué (historial, archivo,
 -- prompt, la primera respuesta del modelo), por tipo de turno.
 CREATE TABLE IF NOT EXISTS chat_tiempos (

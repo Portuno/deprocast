@@ -109,10 +109,11 @@ function pintarGooglePerfil(g) {
       ${g.faltan?.length ? `<p class="aviso chico">Deprocast necesita permisos nuevos (${g.faltan.map(esc).join(', ')}): tocá «Volver a conectar» y aceptá todo.</p>` : ''}
       <p class="tenue chico">Correo: ${m.correos.toLocaleString('es-AR')} guardados · ${m.noLeidos} sin leer · ${m.suyos} tuyos en el corpus · última pasada ${m.sincronizado ? new Date(m.sincronizado).toTimeString().slice(0, 5) : 'todavía no'}.</p>
       <div class="fila"><button class="btn btn-chico" id="g-sinc">Traer lo nuevo</button>${g.faltan?.length ? '<a class="btn btn-chico btn-primario" href="/google/conectar">Volver a conectar</a>' : ''}<button class="btn btn-chico btn-peligro" id="g-desc">Desconectar</button></div>
+      <div id="perfil-google-mas"></div>
       <div id="perfil-drive"></div>`
   }
   cont.innerHTML = `<div class="perfil-tarjeta"><h3>🔗 Google</h3>${cuerpo}</div>`
-  if (g.conectado) pintarDrivePerfil()
+  if (g.conectado) { pintarDrivePerfil(); pintarGoogleMasPerfil() }
   const refrescar = async () => pintarGooglePerfil(await api('/google').catch(() => null))
   const form = $('#g-cliente')
   if (form) form.onsubmit = async (ev) => {
@@ -214,5 +215,33 @@ async function pintarDrivePerfil() {
       toast(`Drive al día<small>${r.corpus.nuevos} documentos nuevos y ${r.corpus.actualizados} actualizados en el corpus · ${r.conversaciones} conversaciones · ${r.subidos} archivos subidos</small>`)
       pintarDrivePerfil()
     } catch (x) { error(x); e.target.disabled = false; e.target.textContent = 'Sincronizar ahora' }
+  }
+}
+
+/** Agenda, contactos y tareas de Google (plan v35, fase 3). */
+async function pintarGoogleMasPerfil() {
+  const cont = $('#perfil-google-mas')
+  if (!cont) return
+  let d
+  try { d = await api('/google/mas') } catch { return }
+  const cuando = (ms) => (ms ? new Date(ms).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'todavía no')
+  cont.innerHTML = `<div class="perfil-drive">
+    <h4>📅 Agenda, contactos y tareas</h4>
+    <p class="tenue chico">Calendario: ${d.calendario === 'cuenta' ? 'tu calendario principal, por tu cuenta de Google (ida y vuelta)' : d.calendario === 'servicio' ? 'por la cuenta de servicio (volvé a conectar Google para usar tu cuenta)' : 'sin conectar'}.</p>
+    <p class="tenue chico">Contactos: ${d.contactos.total.toLocaleString('es-AR')}${d.contactos.total ? `, ${d.contactos.vinculados} son personas de tu Deprocast` : ''} · última pasada ${cuando(d.contactos.sincronizado)}. Mastropiero los usa para el mail o el teléfono de alguien.</p>
+    <div class="fila"><button class="btn btn-chico" id="gm-contactos">Traer los contactos</button></div>
+    <label class="fila g-1 chico"><input type="checkbox" id="gm-tareas" ${d.tareas.activa ? 'checked' : ''}> Sincronizar mis tareas con Google Tasks (las de Google entran; las que creás acá desde ahora van a «Mis tareas»; tachar en un lado tacha en el otro)</label>
+    ${d.tareas.activa ? `<p class="tenue chico">${d.tareas.enlazadas} tareas enlazadas · última pasada ${cuando(d.tareas.sincronizado)} <button class="btn btn-chico" id="gm-tareas-sinc">Sincronizar ahora</button></p>` : ''}
+  </div>`
+  $('#gm-contactos').onclick = async (e) => {
+    e.target.disabled = true
+    try { const r = await api('/google/contactos/sincronizar', {}); toast(`Contactos al día<small>${r.contactos} contactos · ${r.vinculados} son personas tuyas</small>`, 'suave'); pintarGoogleMasPerfil() } catch (x) { error(x); e.target.disabled = false }
+  }
+  $('#gm-tareas').onchange = async (e) => {
+    try { const r = await api('/google/tareas', { activa: e.target.checked }); if (e.target.checked) toast(`Tareas sincronizadas<small>${r.deGoogle ?? 0} entraron de Google</small>`, 'suave'); pintarGoogleMasPerfil() } catch (x) { error(x) }
+  }
+  if ($('#gm-tareas-sinc')) $('#gm-tareas-sinc').onclick = async (e) => {
+    e.target.disabled = true
+    try { const r = await api('/google/tareas/sincronizar', {}); toast(`Tareas al día<small>${r.deGoogle} de Google · ${r.aGoogle} a Google · ${r.cambios} cambios</small>`, 'suave'); pintarGoogleMasPerfil() } catch (x) { error(x); e.target.disabled = false }
   }
 }

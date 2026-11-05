@@ -135,6 +135,8 @@ const MAX_CARGA = 1024 * 1024 * 1024
 const mudanza = aplicarBaseEntrante()
 if (mudanza) console.log(`  ⇣ Arranco con la base que llegó por mudanza${mudanza.anterior ? ` (la anterior quedó en ${mudanza.anterior})` : ''}`)
 const db = abrir()
+// Su Google Calendar por su propia conexión de Google (si la hay), antes que por la cuenta de servicio.
+void import('./google-calendario.ts').then((g) => g.usarConexionGoogle(db))
 /**
  * Arranque sin corte (plan v33, paso 6). En la nube, cada versión nueva arranca «en espera» al lado de la que está
  * atendiendo: contesta pedidos, pero no corre nada de fondo (rutinas, liga, Telegram, retomar lo que quedó a medias,
@@ -878,6 +880,15 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/correo\/([\w-]+)\/proponer$/, async (b, [m]) => (await import('./google/correo.ts')).proponerRespuesta(db, m, b.indicacion ? String(b.indicacion) : null)],
   ['POST', /^\/api\/correo\/([\w-]+)\/borrador$/, async (b, [m]) => (await import('./google/correo.ts')).guardarBorrador(db, m, String(b.texto ?? ''))],
   ['POST', /^\/api\/correo\/([\w-]+)\/atendido$/, async (b, [m]) => (await import('./google/correo.ts')).marcarAtendido(db, m, b.atendido !== false)],
+  // Agenda, contactos y tareas de Google (plan v35, fase 3).
+  ['GET', /^\/api\/google\/mas$/, async () => ({
+    calendario: (await import('./google-calendario.ts')).viaCalendario(),
+    contactos: { ...(await import('./google/contactos.ts')).estadoContactos(db), sincronizado: Number(ajuste(db, 'contactos_sincronizado')) || null },
+    tareas: (await import('./google/tareas.ts')).estadoTareas(db),
+  })],
+  ['POST', /^\/api\/google\/contactos\/sincronizar$/, async () => (await import('./google/contactos.ts')).sincronizarContactos(db)],
+  ['POST', /^\/api\/google\/tareas$/, async (b) => { const t = await import('./google/tareas.ts'); t.prenderTareas(db, !!b.activa); return b.activa ? t.sincronizarTareas(db) : { ok: true } }],
+  ['POST', /^\/api\/google\/tareas\/sincronizar$/, async () => (await import('./google/tareas.ts')).sincronizarTareas(db)],
   // Drive (plan v35): la carpeta Mastropiero (lo que va), las carpetas que entran al corpus (lo que viene) y sincronizar.
   ['GET', /^\/api\/drive$/, async () => (await import('./google/drive.ts')).estadoDrive(db)],
   ['POST', /^\/api\/drive\/ajustes$/, async (b) => {
@@ -2208,6 +2219,14 @@ deFondo(() => setInterval(async () => {
     } finally { fin() }
   } catch (e) { console.error('  gmail:', e instanceof Error ? e.message : e) }
 }, 5 * 60_000).unref())
+
+// Google Tasks (cada 10 minutos, si lo prendió) y sus contactos (cada 6 horas).
+deFondo(() => setInterval(async () => {
+  try { const t = await import('./google/tareas.ts'); const { googleConectado } = await import('./google/oauth.ts'); if (googleConectado(db) && t.tareasActivas(db)) await t.sincronizarTareas(db) } catch (e) { console.error('  tareas de Google:', e instanceof Error ? e.message : e) }
+}, 10 * 60_000).unref())
+deFondo(() => setInterval(async () => {
+  try { const { googleConectado } = await import('./google/oauth.ts'); if (googleConectado(db) && (ajuste(db, 'google_alcances') ?? '').includes('contacts')) await (await import('./google/contactos.ts')).sincronizarContactos(db) } catch (e) { console.error('  contactos de Google:', e instanceof Error ? e.message : e) }
+}, 6 * 3_600_000).unref())
 
 // Drive (plan v35): lo que espera para subir a su carpeta Mastropiero (cada 2 minutos), y cada media hora las
 // conversaciones de hoy (y las de ayer, para cerrarlas) y las carpetas de su Drive que entran al corpus.

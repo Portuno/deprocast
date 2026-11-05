@@ -8,6 +8,16 @@
  */
 import crypto from 'node:crypto'
 import { zonaActual } from './zona.ts'
+import { ajuste, type Db } from './db.ts'
+import { accesoGoogle, googleConectado as conexionGoogle } from './google/oauth.ts'
+
+/**
+ * Plan v35, fase 3: si él conectó su cuenta de Google (OAuth, con permiso de calendario), se usa esa: su calendario
+ * principal, sin cuenta de servicio ni compartir nada. La cuenta de servicio queda de respaldo.
+ */
+let base: Db | null = null
+export function usarConexionGoogle(db: Db) { base = db }
+const porConexion = () => !!base && conexionGoogle(base) && (ajuste(base, 'google_alcances') ?? '').includes('auth/calendar')
 
 type Cuenta = { client_email: string; private_key: string; token_uri?: string }
 /** Un evento de Google, en lo que Deprocast necesita. deDeprocast: «origen:id» si lo creó Deprocast. */
@@ -29,9 +39,11 @@ function cuenta(): Cuenta | null {
   }
   return null
 }
-const calendarioId = () => process.env.GOOGLE_CALENDARIO_ID?.trim() || null
+const calendarioId = () => (porConexion() ? 'primary' : process.env.GOOGLE_CALENDARIO_ID?.trim() || null)
 /** ¿Está conectado su calendario (ida y vuelta)? */
-export const googleConectado = () => !!cuenta() && !!calendarioId()
+export const googleConectado = () => porConexion() || (!!cuenta() && !!calendarioId())
+/** Por dónde: su cuenta (OAuth) o la cuenta de servicio. */
+export const viaCalendario = () => (porConexion() ? 'cuenta' : cuenta() && calendarioId() ? 'servicio' : null)
 /** El mail de la cuenta de servicio (para decirle con quién compartir el calendario). */
 export const mailDeLaCuenta = () => cuenta()?.client_email ?? null
 
@@ -53,7 +65,8 @@ export function _probarGoogle(f: typeof pedir) {
   token = null
 }
 
-async function tokenDeAcceso(ahora = Date.now()): Promise<string> {
+async function tokenDeAcceso(ahora = Date.now(), forzar = false): Promise<string> {
+  if (porConexion()) return accesoGoogle(base!, forzar)
   if (token && token.vence > ahora + 60_000) return token.valor
   const c = cuenta()
   if (!c) throw new Error('Google Calendar no está conectado (falta GOOGLE_CUENTA_SERVICIO)')
@@ -72,7 +85,7 @@ async function api(metodo: string, ruta: string, cuerpo?: unknown): Promise<any>
   if (!id) throw new Error('Google Calendar no está conectado (falta GOOGLE_CALENDARIO_ID)')
   for (let intento = 0; ; intento++) {
     const r = await pedir(`${API}/calendars/${encodeURIComponent(id)}${ruta}`, {
-      method: metodo, headers: { authorization: `Bearer ${await tokenDeAcceso()}`, ...(cuerpo ? { 'content-type': 'application/json' } : {}) },
+      method: metodo, headers: { authorization: `Bearer ${await tokenDeAcceso(Date.now(), intento > 0)}`, ...(cuerpo ? { 'content-type': 'application/json' } : {}) },
       body: cuerpo ? JSON.stringify(cuerpo) : undefined,
     })
     if (r.status === 401 && intento === 0) { token = null; continue }
@@ -80,7 +93,7 @@ async function api(metodo: string, ruta: string, cuerpo?: unknown): Promise<any>
     const j: any = await r.json().catch(() => ({}))
     if (!r.ok) {
       const m = j?.error?.message ?? `respondió ${r.status}`
-      throw new Error(r.status === 404 || r.status === 403 ? `Google Calendar: ${m} (¿compartiste el calendario con ${mailDeLaCuenta()} con permiso para hacer cambios?)` : `Google Calendar: ${m}`)
+      throw new Error((r.status === 404 || r.status === 403) && !porConexion() ? `Google Calendar: ${m} (¿compartiste el calendario con ${mailDeLaCuenta()} con permiso para hacer cambios?)` : `Google Calendar: ${m}`)
     }
     return j
   }
