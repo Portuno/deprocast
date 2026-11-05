@@ -88,3 +88,17 @@ test('Sin cerrar, la sesión se cierra sola; la rutina respeta el ritmo, saltea 
   assert.equal(mi.leerMisionAgente(db, v.id)!.estado, 'fallida')
   assert.throws(() => mi.crearMisionAgente(db, { titulo: 'Otra', brief: BRIEF, agenteId: m.agenteId }, T), /ya está en otra misión/)
 })
+
+test('Una sesión que se corta (#122) deja en el diario en qué paso, con qué herramienta y por qué; la misión sigue activa', async () => {
+  const db = base()
+  const m = mi.crearMisionAgente(db, { titulo: 'Tres clientes nuevos', brief: BRIEF, criterio: { metrica: 'clientes', meta: 3 } }, T)
+  let i = 0
+  _probarModelo(async () => {
+    if (i++ === 0) return { texto: '', llamadas: [{ id: 'l1', nombre: 'anotar_en_diario', argumentos: JSON.stringify({ tipo: 'hallazgo', texto: 'Una productora en el puerto.' }) }], razonamiento: null, modelo: 'falso', tokens: 10 }
+    throw new Error('The operation was aborted due to timeout')
+  })
+  await assert.rejects(mi.trabajarMision(db, m.id, { ahora: T }), /«Tres clientes nuevos» se interrumpió en el paso 2 \(después de anotar_en_diario\): The operation was aborted/)
+  const sesion = mi.diarioDe(db, m.id).find((d) => d.tipo === 'sesion')!
+  assert.match(sesion.texto, /se interrumpió en el paso 2 \(después de anotar_en_diario\): The operation was aborted due to timeout\. La retoma/)
+  assert.equal(mi.leerMisionAgente(db, m.id)!.estado, 'activa')
+})

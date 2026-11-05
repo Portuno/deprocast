@@ -14,7 +14,7 @@ import { CLASES } from '../clases.ts'
 import { alias, forjar, leer, PRUEBA_EXITOS, type Ficha } from '../roster.ts'
 import { efectosAgente } from '../xp.ts'
 import type { Ctx, Herramienta } from '../chat/herramientas.ts'
-import { herramientasDeAgente, trabajar, type Resultado } from './motor.ts'
+import { herramientasDeAgente, trabajar, type Paso, type Resultado } from './motor.ts'
 
 export const METRICAS = ['clientes', 'reuniones', 'respuestas', 'pistas', 'otro'] as const
 export type Criterio = { metrica: (typeof METRICAS)[number]; meta: number; texto: string }
@@ -226,10 +226,23 @@ export async function trabajarMision(db: Db, id: number, o: { ahora?: number } =
   try {
     const n = (db.prepare(`SELECT COUNT(*) AS n FROM agente_diario WHERE mision_id = ? AND tipo = 'sesion'`).get(id) as { n: number }).n + 1
     const ctxMision: NonNullable<Ctx['mision']> = { id, agenteId: f.id, urlsVistas: new Set<string>(), desde: ahora, preguntas: 0 }
-    const resultado = await trabajar(db, f, {
-      sistema: promptMision(db, f, m, ahora), herramientas: herramientasDeAgente(f, [...HERRAMIENTAS_MISION, ...extras]), ctx: { mision: ctxMision }, ahora,
-      mensajes: [{ role: 'user', content: `Sesión ${n}. ${m.proximo ? `El próximo paso que dejaste: ${m.proximo}` : 'Es la primera: armá tu plan y arrancá.'}` }],
-    })
+    // Si la sesión se corta (un timeout, la red), el diario dice en qué paso y con qué herramienta, y por qué (plan v34,
+    // #122): antes quedaba solo un error suelto en la consola y la sesión no dejaba rastro.
+    const hechos: Paso[] = []
+    let resultado: Resultado
+    try {
+      resultado = await trabajar(db, f, {
+        sistema: promptMision(db, f, m, ahora), herramientas: herramientasDeAgente(f, [...HERRAMIENTAS_MISION, ...extras]), ctx: { mision: ctxMision }, ahora,
+        mensajes: [{ role: 'user', content: `Sesión ${n}. ${m.proximo ? `El próximo paso que dejaste: ${m.proximo}` : 'Es la primera: armá tu plan y arrancá.'}` }],
+        alPaso: (p) => hechos.push(p),
+      })
+    } catch (e) {
+      const motivo = e instanceof Error ? e.message : String(e)
+      const ultimo = hechos.at(-1)
+      const donde = ultimo ? `en el paso ${hechos.length + 1} (después de ${ultimo.herramienta})` : 'antes del primer paso'
+      anotarDiario(db, m, 'sesion', `Sesión ${n}: se interrumpió ${donde}: ${motivo}. La retoma en la próxima sesión.`, { pasos: hechos.map((p) => p.herramienta), interrumpida: true, motivo }, ahora)
+      throw new Error(`«${m.titulo}» se interrumpió ${donde}: ${motivo}`)
+    }
     const cerrada = !!ctxMision.fin
     const herramientas = resultado.pasos.map((p) => p.herramienta)
     if (!cerrada && resultado.texto.trim()) anotarDiario(db, m, 'resultado', resultado.texto.trim().slice(0, 1200), null, ahora)
@@ -261,7 +274,7 @@ export async function trabajarMisiones(db: Db, ahora = Date.now()): Promise<{ se
     try {
       const r = await trabajarMision(db, m.id, { ahora })
       out.push({ mision: m.titulo, agente: alias(f), pasos: r.resultado.pasos.length, cerrada: r.cerrada })
-    } catch (e) { console.error(`  misión ${m.id}:`, e instanceof Error ? e.message : e) }
+    } catch (e) { console.error(`  misión ${m.id}:`, e instanceof Error ? e.message : e) } // el mensaje ya trae el título y el paso
   }
   return { sesiones: out, frenado: null }
 }
