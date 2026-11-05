@@ -20,6 +20,7 @@ import { catalogo } from './menciones.ts'
 import { pensar } from './alertas.ts'
 import { autorizado, cookieDeEntrada, enUsuario, enVercel, expuesto, host, leerFormulario, PAGINA_ENTRAR, validarAcceso } from './acceso.ts'
 import { crearPuerta } from './cuentas-usuarios/index.ts'
+import { hayHub } from './cuentas-usuarios/procesos.ts'
 import { alGuardar, bajarNube, esperarSubida, subirAhora } from './nube.ts'
 import { CONECTORES, guardarCuenta, leerAgente, listarCuentas, listarPublicaciones, MODOS, publicarPendientes, redactarPublicaciones, resolverPublicacion } from './cuentas.ts'
 import { decir as decirPorTelegram, escucharTelegram, estadoTelegram, latidoTelegram, telegramActivo, telegramConfigurado } from './telegram.ts'
@@ -157,6 +158,33 @@ if (arrancaEnEspera) {
   process.channel?.unref()
 }
 let caliente = false
+
+/**
+ * Bloqueos (paso 6): cada medio segundo se fija cuánto se atrasó el reloj. Si algo frenó todo más de un segundo, queda
+ * anotado con lo que estaba en marcha en ese rato (tareas de fondo y pedidos). /version muestra los últimos (solo
+ * nombres de tareas y rutas, nada de datos) para poder verlo desde afuera.
+ */
+const enMarcha: { nombre: string; desde: number; hasta: number | null }[] = []
+function marcar(nombre: string): () => void {
+  const m = { nombre, desde: Date.now(), hasta: null as number | null }
+  enMarcha.push(m)
+  return () => { m.hasta = Date.now() }
+}
+const bloqueos: { en: string; ms: number; durante: string[] }[] = []
+let tic = performance.now()
+setInterval(() => {
+  const ahora = performance.now()
+  const atraso = ahora - tic - 500
+  tic = ahora
+  const t = Date.now()
+  if (atraso > 1000) {
+    const durante = [...new Set(enMarcha.filter((m) => m.desde <= t && (m.hasta === null || m.hasta >= t - atraso - 600)).map((m) => m.nombre))]
+    bloqueos.push({ en: new Date(t).toISOString(), ms: Math.round(atraso), durante })
+    if (bloqueos.length > 15) bloqueos.shift()
+    try { registrarError(db, 'lento', `bloqueo de ${Math.round(atraso)} ms (${durante.join(', ') || 'nada anotado'})`) } catch { /* medir no rompe nada */ }
+  }
+  for (let i = enMarcha.length - 1; i >= 0; i--) if (enMarcha[i].hasta !== null && t - enMarcha[i].hasta! > 10_000) enMarcha.splice(i, 1)
+}, 500).unref()
 // La hora del operador, no la del servidor (la nube corre en UTC): antes de que nada formatee una hora.
 const zona = aplicarZona(db)
 // Adiós a los Cien Días (plan v23): una sola vez, su conocimiento al corpus, respaldo y fuera sus tablas.
@@ -170,14 +198,35 @@ alGuardar(() => { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)') } catch { /* 
 
 // Usuarios (plan v33, paso 5). En el proceso del dueño, la puerta: las sesiones de los usuarios van a su propio Deprocast.
 // En el Deprocast de un usuario: el tope duro de tokens por día (cuenta todo) y, si el hub se cae, se apaga con él.
-const puerta = enUsuario() || enVercel() ? null : crearPuerta({ datos: process.env.MASTRO_CUENTAS_DIR ?? path.dirname(resolverRuta()) })
-if (puerta) deFondo(() => setTimeout(() => puerta.prenderTodos(), 20_000).unref())
-if (puerta) for (const s of ['SIGTERM', 'SIGINT'] as const) process.once(s, () => { void puerta.hub.pararTodos().finally(() => process.exit(0)) })
+const puerta = enUsuario() || enVercel() ? null : crearPuerta({ datos: process.env.MASTRO_CUENTAS_DIR ?? path.dirname(resolverRuta()), activo: () => fondoActivo })
+// Recién activado en un relevo, los usuarios ya corren: se adoptan enseguida. En un arranque de cero, después de que el dueño contesta.
+if (puerta) deFondo(() => setTimeout(() => puerta.prenderTodos(), arrancaEnEspera ? 0 : 20_000).unref())
+// Con el supervisor, apagarse es un relevo: los usuarios siguen corriendo y el servidor nuevo los adopta. Sin él (la
+// compu), apagarse es apagar todo.
+if (puerta) for (const s of ['SIGTERM', 'SIGINT'] as const) process.once(s, () => {
+  if (process.env.MASTRO_SUPERVISADO) { puerta.hub.dejar(); process.exit(0) }
+  void puerta.hub.pararTodos().finally(() => process.exit(0))
+})
 if (enUsuario()) {
   const tope = Number(process.env.MASTRO_TOPE_DIA) || 0
   if (tope) fijarTopeDuro(() => { const t = tokensHoy(db).total; return t >= tope ? `Llegaste al tope de hoy (${tope.toLocaleString('es-AR')} tokens). Mañana sigue; si necesitás más, pedíselo a quien te invitó.` : null })
+  // Se apaga solo si no queda ningún hub vivo (en un relevo, el registro pasa del hub viejo al nuevo).
+  const registro = process.env.MASTRO_HUB_REGISTRO
   const padre = process.ppid
-  setInterval(() => { try { process.kill(padre, 0) } catch { process.exit(0) } }, 10_000).unref()
+  let sinHub = 0
+  setInterval(() => {
+    let hay: boolean
+    if (registro) hay = hayHub(registro)
+    else try { process.kill(padre, 0); hay = true } catch { hay = false }
+    sinHub = hay ? 0 : sinHub + 1
+    if (sinHub >= 3) process.exit(0)
+  }, 10_000).unref()
+  // Su consola, con su número adelante (va directo a la del sistema).
+  for (const k of ['log', 'error', 'warn'] as const) {
+    const f = console[k].bind(console)
+    console[k] = (...xs: unknown[]) => f(`  [u${process.env.MASTRO_USUARIO}]`, ...xs)
+  }
+  for (const s of [process.stdout, process.stderr]) s.on('error', () => { /* sin consola: sigue igual */ })
 }
 
 function vista(db: Db, f: Ficha) {
@@ -1539,6 +1588,7 @@ async function atenderApp(req: http.IncomingMessage, res: http.ServerResponse, u
 let reprocesoReciente: { en: number; valor: ReturnType<typeof estadoReproceso> } | null = null
 
 const servidor = http.createServer(async (req, res) => {
+  res.once('close', marcar(`${req.method} ${(req.url ?? '/').split('?')[0].replace(/\/\d+/g, '/:n')}`))
   medirPedido(req, res, (ruta, ms) => { try { registrarError(db, 'lento', `${ruta} tardó ${Math.round(ms)} ms`) } catch { /* medir no rompe nada */ } })
   const url = new URL(req.url ?? '/', 'http://localhost')
   if (enVercel() && url.pathname === '/api/latido' && req.method === 'GET') {
@@ -1578,7 +1628,7 @@ const servidor = http.createServer(async (req, res) => {
     return void res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(PAGINA_ENTRAR())
   }
   // Qué versión de la pantalla sirve (pública: para saber si un deploy llegó, sin datos de nadie).
-  if (url.pathname === '/version') return void res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ web: VERSION_WEB, commit: process.env.MASTRO_COMMIT ?? null, arranco: ARRANCO, caliente, activo: fondoActivo }))
+  if (url.pathname === '/version') return void res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ web: VERSION_WEB, commit: process.env.MASTRO_COMMIT ?? null, arranco: ARRANCO, caliente, activo: fondoActivo, bloqueos: bloqueos.slice(-8) }))
   if (!autorizado(req) && !['/manifest.webmanifest', '/icono.svg'].includes(url.pathname)) {
     if (url.pathname.startsWith('/api/')) return void res.writeHead(401, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify({ error: 'Falta la clave' }))
     return void res.writeHead(303, { location: '/entrar' }).end()
@@ -1920,6 +1970,7 @@ let enRutinas = false
 async function latido() {
   if (enRutinas || process.env.MASTRO_SIN_RUTINAS) return
   enRutinas = true
+  const finMarca = marcar('rutinas')
   try {
     // Lo nuevo (primarias, aprendizajes, metas) busca lo que ya había hecho hacia eso. En la nube (o sin NaN: por palabras).
     if (enLaNube() || !nanConfigurado()) await (await import('./evidencia.ts')).buscarPreviosPendientes(db).catch((e) => console.error('  previos:', e instanceof Error ? e.message : e))
@@ -1928,6 +1979,7 @@ async function latido() {
     console.error('  ⏰ rutinas:', e instanceof Error ? e.message : e)
   } finally {
     enRutinas = false
+    finMarca()
   }
 }
 deFondo(() => setInterval(latido, 60_000).unref())
@@ -1938,12 +1990,14 @@ let enVueltaLiga = false
 async function latidoLiga() {
   if (enVueltaLiga || process.env.MASTRO_SIN_RUTINAS) return
   enVueltaLiga = true
+  const finMarca = marcar('liga')
   try {
     await (await import('./casa.ts')).vueltaDeLiga(db, { nube: enLaNube(), tick: () => tickUnico(db) })
   } catch (e) {
     if (!/ya está en un tick/.test(String(e))) console.error('  liga:', e instanceof Error ? e.message : e)
   } finally {
     enVueltaLiga = false
+    finMarca()
   }
 }
 deFondo(() => setInterval(latidoLiga, 15_000).unref())
@@ -1983,12 +2037,14 @@ let pensando = false
 async function latidoPensar() {
   if (pensando || process.env.MASTRO_SIN_RUTINAS) return
   pensando = true
+  const finMarca = marcar('pensar')
   try {
     for (const t of await pensar(db)) mensajeDeMastropiero(db, conversacionHoy(db).id, t)
   } catch (e) {
     console.error('  pensar:', e instanceof Error ? e.message : e)
   } finally {
     pensando = false
+    finMarca()
   }
 }
 deFondo(() => setInterval(latidoPensar, 15 * 60_000).unref())
@@ -2000,14 +2056,15 @@ deFondo(() => {
   setInterval(async () => {
     if (vectorizando || process.env.MASTRO_SIN_RUTINAS || topeAlcanzado(db) || ajuste(db, 'vectorizar_auto') === '0') return
     vectorizando = true
-    try { await vectorizarPendientes(db, { limite: 48 }) } catch (e) { console.error('  vectores:', e instanceof Error ? e.message : e) } finally { vectorizando = false }
+    const fin = marcar('vectores')
+    try { await vectorizarPendientes(db, { limite: 48 }) } catch (e) { console.error('  vectores:', e instanceof Error ? e.message : e) } finally { vectorizando = false; fin() }
   }, 10 * 60_000).unref()
 })
 
 // El reproceso: si él lo prendió, sigue solo (en la nube) con lo que falte y con lo nuevo que entra.
 deFondo(() => {
   if (enLaNube() && !enVercel()) {
-    const reprocesar = () => { if (ajuste(db, 'reproceso_activo') === '1') void trabajarReproceso(db).catch((e) => console.error('  reproceso:', e instanceof Error ? e.message : e)) }
+    const reprocesar = () => { if (ajuste(db, 'reproceso_activo') === '1') { const fin = marcar('reproceso'); void trabajarReproceso(db).catch((e) => console.error('  reproceso:', e instanceof Error ? e.message : e)).finally(fin) } }
     setTimeout(reprocesar, 90_000).unref()
     setInterval(reprocesar, 10 * 60_000).unref()
   }
@@ -2020,10 +2077,11 @@ deFondo(() => {
     setInterval(async () => {
       if (observando || topeAlcanzado(db)) return
       observando = true
+      const fin = marcar('observatorio')
       try {
         for (const t of await (await import('./observatorio.ts')).latidoObservatorio(db)) mensajeDeMastropiero(db, conversacionHoy(db).id, t)
         for (const t of await (await import('./campanas.ts')).latidoCampanas(db)) mensajeDeMastropiero(db, conversacionHoy(db).id, t)
-      } catch (e) { console.error('  observatorio:', e instanceof Error ? e.message : e) } finally { observando = false }
+      } catch (e) { console.error('  observatorio:', e instanceof Error ? e.message : e) } finally { observando = false; fin() }
     }, 10 * 60_000).unref()
   }
 })
@@ -2086,12 +2144,14 @@ let enRuns = false
 async function latidoDeRuns() {
   if (enRuns) return
   enRuns = true
+  const finMarca = marcar('runs')
   try {
     for (const texto of await latidoRuns(db)) mensajeDeMastropiero(db, conversacionHoy(db).id, texto)
   } catch (e) {
     console.error('  ⏱ runs:', e instanceof Error ? e.message : e)
   } finally {
     enRuns = false
+    finMarca()
   }
 }
 deFondo(() => setInterval(latidoDeRuns, 60_000).unref())
@@ -2116,6 +2176,7 @@ if (!enVercel()) {
  * corren una vez de fondo, de a una y cediendo el turno entre cada una, así cuando él abre ya están calientes.
  */
 async function precalentar() {
+  const fin = marcar('precalentar')
   for (const ruta of ['/api/estado', '/api/meta', '/api/hoy', '/api/hoy/hud', '/api/hoy/tablero', '/api/bandeja', '/api/menciones', '/api/chat', '/api/personas', '/api/reproceso', '/api/academia', '/api/taller', '/api/mano']) {
     const r = rutas.find(([m, re]) => m === 'GET' && re.test(ruta))
     if (!r) continue
@@ -2123,6 +2184,7 @@ async function precalentar() {
     await new Promise((ok) => setImmediate(ok))
   }
   caliente = true
+  fin()
 }
 
 export { servidor }

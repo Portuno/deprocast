@@ -88,12 +88,12 @@ ${o.error ? `<p class="error">${esc(o.error)}</p>` : ''}${o.ok ? `<p class="ok">
 
 // ─── la puerta ─────────────────────────────────────────────────────────
 
-export type OpcionesPuerta = { datos: string; hub?: Hub }
+export type OpcionesPuerta = { datos: string; hub?: Hub; activo?: () => boolean }
 
 export function crearPuerta(o: OpcionesPuerta) {
   let cuentas: Cuentas | null = null
   const db = () => (cuentas ??= abrirCuentas(path.join(o.datos, 'cuentas.db')))
-  const hub: Hub = o.hub ?? crearHub({ datos: o.datos, topeDe: (id) => usuario(db(), id)?.topeDia ?? 0 })
+  const hub: Hub = o.hub ?? crearHub({ datos: o.datos, activo: o.activo, topeDe: (id) => usuario(db(), id)?.topeDia ?? 0 })
   /** Los usuarios quedan prendidos siempre: al arrancar se prenden todos los activos (si ya hay cuentas), escalonados. */
   function prenderTodos() {
     if (!fs.existsSync(path.join(o.datos, 'cuentas.db'))) return

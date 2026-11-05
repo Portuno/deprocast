@@ -7,7 +7,7 @@ import { after, describe, it } from 'node:test'
 import {
   abrirCuentas, alta, cambiarClave, cambiarEstado, crearInvitacion, crearLimitador, crearSesion, entrar, sesionDe, verInvitacion,
 } from '../src/cuentas-usuarios/cuentas.ts'
-import { entornoDeUsuario } from '../src/cuentas-usuarios/procesos.ts'
+import { crearHub, entornoDeUsuario } from '../src/cuentas-usuarios/procesos.ts'
 import { crearPuerta } from '../src/cuentas-usuarios/index.ts'
 import { autorizado, CABECERA_HUB } from '../src/acceso.ts'
 
@@ -148,6 +148,16 @@ describe('la puerta, de punta a punta (con un Deprocast de usuario de verdad)', 
     }
     assert.ok(vuelto, 'volvió a prenderse solo')
     assert.equal((await pedir('/api/meta', { cookie })).status, 200)
+
+    // Relevo del servidor del dueño: el hub viejo se va sin apagarlo y el nuevo adopta el mismo proceso (sin corte).
+    const pidVivo = puerta.hub.vivos().find((v) => v.id === 1)!.pid
+    puerta.hub.dejar()
+    const hub2 = crearHub({ datos })
+    try {
+      const h = await hub2.asegurar(1)
+      assert.equal(h.pid, pidVivo, 'adoptó el mismo proceso')
+      assert.equal(hub2.token, puerta.hub.token, 'mismo token: el proceso sigue aceptando los pedidos')
+    } finally { await hub2.pararTodos() }
 
     // Salir: la cookie ya no vale y vuelve a lo del dueño.
     await pedir('/salir', { cookie })
