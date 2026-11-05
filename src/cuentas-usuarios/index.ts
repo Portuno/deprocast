@@ -60,7 +60,7 @@ const pagina = (titulo: string, cuerpo: string) => `<!doctype html><html lang="e
 export const PAGINA_LOGIN = (o: { error?: string; email?: string } = {}) => pagina('Entrar', `<form method="post" action="/entrar" class="angosto"><h1>☿ Deprocast</h1>${o.error ? `<p class="error">${esc(o.error)}</p>` : ''}
 <input type="email" name="email" placeholder="Email" value="${esc(o.email)}" autocomplete="username" autofocus>
 <input type="password" name="clave" placeholder="Contraseña" autocomplete="current-password" required>
-<button>Entrar</button><p class="tenue">¿Sos el dueño? Dejá el email vacío y poné tu clave.</p></form>`)
+<button>Entrar</button><p class="tenue">¿Sos el dueño? Tu clave de siempre (con o sin email).</p></form>`)
 
 const PAGINA_ALTA = (o: { codigo: string; email?: string | null; nombre?: string; error?: string }) => pagina('Crear tu cuenta', `<form method="post" action="/alta" class="angosto"><h1>☿ Tu Deprocast</h1>
 <p class="tenue">Te invitaron. Vas a tener tu propio Deprocast: tu base, tu memoria y tus agentes, separados de los de cualquier otro.</p>
@@ -151,7 +151,12 @@ export function crearPuerta(o: OpcionesPuerta) {
         return ir(res, '/', { 'set-cookie': [c, borrarCookie(COOKIE)] }), true
       }
       const u = await entrar(db(), email, f.clave ?? '')
-      if (!u) return html(res, 401, PAGINA_LOGIN({ error: 'Email o contraseña incorrectos.', email })), true
+      if (!u) {
+        // El dueño que puso su email: con su clave de siempre, entra igual (no hace falta dejar el email vacío).
+        const c = cookieDeEntrada(f.clave ?? '')
+        if (c) { cerrarSesion(db(), token); return ir(res, '/', { 'set-cookie': [c, borrarCookie(COOKIE)] }), true }
+        return html(res, 401, PAGINA_LOGIN({ error: 'Email o contraseña incorrectos.', email })), true
+      }
       cerrarSesion(db(), token)
       void hub.asegurar(u.id).catch(() => {}) // que vaya arrancando mientras redirige
       return ir(res, '/', { 'set-cookie': cookieSesion(crearSesion(db(), u.id)) }), true

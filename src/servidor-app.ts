@@ -1639,6 +1639,29 @@ const servidor = http.createServer(async (req, res) => {
     }
     return void res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(PAGINA_ENTRAR())
   }
+  // Conectar Google (plan v35): ida a Google y vuelta con el código. La dirección pública (https detrás del proxy de la
+  // nube; en el Deprocast de un usuario, la que trae el pedido) es la que Google tiene registrada.
+  // La vuelta va ANTES de pedir la clave: el navegador no manda la cookie del dueño (SameSite=Strict) en una navegación
+  // que viene de Google. La valida el estado de un solo uso que se generó con la sesión puesta (10 minutos).
+  if ((url.pathname === '/google/conectar' || url.pathname === '/google/volver') && req.method === 'GET') {
+    if (url.pathname === '/google/conectar' && !autorizado(req)) return void res.writeHead(303, { location: '/entrar' }).end()
+    const g = await import('./google/oauth.ts')
+    // En la nube es siempre https (el proxy de la plataforma puede decir http hacia adentro); en la compu, http.
+    const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? 'localhost').split(',')[0].trim()
+    const local = /^(localhost|\d+\.\d+\.\d+\.\d+|\[[0-9a-f:]+\])(:\d+)?$/i.test(host)
+    const origen = `${detrasDeProxy() || !local ? 'https' : 'http'}://${host}`
+    const pagina = (titulo: string, texto: string) => `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Google · Deprocast</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f1012;color:#e6e6e8;font:16px system-ui,sans-serif;padding:24px;box-sizing:border-box}div{max-width:420px}a{color:#c4a062}p{color:#9a9ca4}</style></head><body><div><h1>${titulo}</h1><p>${texto.replace(/[<>&]/g, '')}</p><a href="/">Volver a Deprocast</a></div></body></html>`
+    try {
+      if (url.pathname === '/google/conectar') return void res.writeHead(303, { location: g.urlDeConexion(db, origen), 'cache-control': 'no-store' }).end()
+      await g.volverDeGoogle(db, { code: url.searchParams.get('code'), state: url.searchParams.get('state'), error: url.searchParams.get('error') })
+      // La primera pasada por el correo, de fondo (la pantalla no espera).
+      void import('./google/gmail.ts').then((m) => m.sincronizarGmail(db)).catch((e) => console.error('  gmail:', e instanceof Error ? e.message : e))
+      // Una página propia que lleva a Deprocast: esa navegación ya sale de este sitio y viaja con la cookie.
+      return void res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }).end(pagina('Google conectado', 'Te llevo a Deprocast…').replace('</head>', '<meta http-equiv="refresh" content="1;url=/?google=ok"></head>').replace('<a href="/">', '<a href="/?google=ok">'))
+    } catch (e) {
+      return void res.writeHead(400, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }).end(pagina('No se pudo conectar Google', e instanceof Error ? e.message : String(e)))
+    }
+  }
   // Lo que Google pide para publicar la conexión: la página principal y la política de privacidad (públicas).
   if ((url.pathname === '/acerca' || url.pathname === '/privacidad') && req.method === 'GET') {
     const { paginaPublica } = await import('./publicas.ts')
@@ -1662,25 +1685,6 @@ const servidor = http.createServer(async (req, res) => {
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f1012;color:#e6e6e8;font:16px system-ui,sans-serif;text-align:center;padding:24px;box-sizing:border-box}b{display:block;font-size:56px;letter-spacing:.15em;color:#c4a062;margin:16px 0}small{color:#9a9ca4;display:block;margin-top:8px;line-height:1.5}code{color:#e6e6e8}a{color:#c4a062}</style></head>
 <body><div><div>☿ Código para vincular tu teléfono</div><b>${codigo.slice(0, 3)} ${codigo.slice(3)}</b>
 <small>En la app: servidor <code>${host.replace(/[<>&"]/g, '')}</code> y este código.<br>Vale hasta las ${hora} y una sola vez. <a href="/vincular">Otro código</a></small></div></body></html>`)
-  }
-  // Conectar Google (plan v35): ida a Google y vuelta con el código. La dirección pública (https detrás del proxy de la
-  // nube; en el Deprocast de un usuario, la que trae el pedido) es la que Google tiene registrada.
-  if ((url.pathname === '/google/conectar' || url.pathname === '/google/volver') && req.method === 'GET') {
-    const g = await import('./google/oauth.ts')
-    // En la nube es siempre https (el proxy de la plataforma puede decir http hacia adentro); en la compu, http.
-    const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? 'localhost').split(',')[0].trim()
-    const local = /^(localhost|\d+\.\d+\.\d+\.\d+|\[[0-9a-f:]+\])(:\d+)?$/i.test(host)
-    const origen = `${detrasDeProxy() || !local ? 'https' : 'http'}://${host}`
-    const pagina = (titulo: string, texto: string) => `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Google · Deprocast</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f1012;color:#e6e6e8;font:16px system-ui,sans-serif;padding:24px;box-sizing:border-box}div{max-width:420px}a{color:#c4a062}p{color:#9a9ca4}</style></head><body><div><h1>${titulo}</h1><p>${texto.replace(/[<>&]/g, '')}</p><a href="/">Volver a Deprocast</a></div></body></html>`
-    try {
-      if (url.pathname === '/google/conectar') return void res.writeHead(303, { location: g.urlDeConexion(db, origen), 'cache-control': 'no-store' }).end()
-      await g.volverDeGoogle(db, { code: url.searchParams.get('code'), state: url.searchParams.get('state'), error: url.searchParams.get('error') })
-      // La primera pasada por el correo, de fondo (la pantalla no espera).
-      void import('./google/gmail.ts').then((m) => m.sincronizarGmail(db)).catch((e) => console.error('  gmail:', e instanceof Error ? e.message : e))
-      return void res.writeHead(303, { location: '/?google=ok', 'cache-control': 'no-store' }).end()
-    } catch (e) {
-      return void res.writeHead(400, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }).end(pagina('No se pudo conectar Google', e instanceof Error ? e.message : String(e)))
-    }
   }
   // Compartir desde el celular (la app instalada): un link, un reel o un texto llega a Mastropiero.
   if (url.pathname === '/compartir' && req.method === 'POST') {
