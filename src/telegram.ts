@@ -75,11 +75,16 @@ let hablar = (texto: string) => sintetizar(texto, 'em_alex')
  * veces (a los 1,5 y a los 4 s) antes de darlo por perdido. Un 4xx no: el problema es el mensaje, no la red.
  */
 let esperar = (ms: number) => new Promise<void>((ok) => setTimeout(ok, ms))
-async function conReintento<T extends { ok?: boolean; error_code?: number } | undefined>(metodo: string, f: () => Promise<T>): Promise<T> {
+async function conReintento<T extends { ok?: boolean; error_code?: number; parameters?: { retry_after?: number } } | undefined>(metodo: string, f: () => Promise<T>): Promise<T> {
   const esperas = [1500, 4000]
   for (let i = 0; ; i++) {
     try {
       const r = await f()
+      // 429: Telegram dice cuánto esperar (retry_after); se espera eso (hasta un minuto) en vez de reintentar a ciegas.
+      if (r && r.ok === false && r.error_code === 429 && i < esperas.length) {
+        await esperar(Math.min(60, Math.max(1, Number(r.parameters?.retry_after) || 5)) * 1000)
+        continue
+      }
       if (!(r && r.ok === false && (r.error_code ?? 0) >= 500) || i === esperas.length) return r
     } catch (e) {
       if (i === esperas.length) { console.error(`  telegram: ${metodo} no salió: ${e instanceof Error ? e.message : e}`); throw e }
@@ -832,6 +837,9 @@ export const AVISO_OTRA_INSTANCIA = 'Otra instancia está escuchando este bot (�
 const racha = { conflictos: 0, fallas: 0 }
 /** Una vuelta del polling; devuelve cuánto esperar antes de la siguiente (para los tests, sin timers). */
 export async function vueltaTelegram(db: Db): Promise<number> {
+  // El último mensaje ya procesado vive en la base: un servidor que recién arranca (un relevo) no vuelve a contestar
+  // lo que ya contestó el anterior.
+  if (!offset) offset = Number(ajuste(db, 'telegram_offset')) || 0
   try {
     const r = await pedir('getUpdates', { offset, timeout: 50, allowed_updates: ['message', 'edited_message', 'callback_query'] })
     if (r?.ok === false && (r.error_code === 409 || /conflict/i.test(r.description ?? ''))) {
@@ -848,6 +856,7 @@ export async function vueltaTelegram(db: Db): Promise<number> {
     estado.ultimoError = null
     for (const u of r.result ?? []) {
       offset = u.update_id + 1
+      fijarAjuste(db, 'telegram_offset', String(offset))
       await procesarActualizacion(db, u).catch((e) => decir(`Se me trabó algo: ${e instanceof Error ? e.message : e}`))
     }
     return 300

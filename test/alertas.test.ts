@@ -56,3 +56,33 @@ test('pensar: una reflexión cada tantas horas, que puede ser nada', async () =>
   assert.equal(llamadas, 2)
   assert.deepEqual(await pensar(db, new Date(2026, 9, 7, 7).getTime()), [], 'fuera de la jornada, nada')
 })
+
+test('vencidos: un solo bloque por proyecto; sin los de un proyecto en pausa; tres avisos sin respuesta, silencio; nunca en medio de una charla', async () => {
+  const db = abrir(':memory:')
+  _probarCalendario(sinAgenda)
+  fijarAjuste(db, 'pensar_cada_horas', '0')
+  const juego = asegurarEntidad(db, { tipo: 'proyecto', nombre: 'El juego' })
+  const pausado = asegurarEntidad(db, { tipo: 'proyecto', nombre: 'La app en pausa', meta: { estado: 'pausa' } })
+  crearMision(db, { nivel: 'primaria', titulo: 'Cerrar el mapa del tablero', vence: '2026-10-05', estado: 'activa', entidadId: juego }, { ahora: T })
+  crearMision(db, { nivel: 'primaria', titulo: 'Probar las cartas nuevas', vence: '2026-10-06', estado: 'activa', entidadId: juego }, { ahora: T })
+  crearMision(db, { nivel: 'primaria', titulo: 'Renovar el pasaporte', vence: '2026-10-04', estado: 'activa' }, { ahora: T })
+  crearMision(db, { nivel: 'primaria', titulo: 'Grabar el demo de sonido', vence: '2026-10-03', estado: 'activa', entidadId: pausado }, { ahora: T })
+
+  const [a] = alertasPendientes(db, T)
+  assert.match(a.texto, /^Tenés 3 cosas vencidas/)
+  assert.match(a.texto, /El juego:\n- «Cerrar el mapa del tablero» \(venció el 2026-10-05\)\n- «Probar las cartas nuevas»/)
+  assert.doesNotMatch(a.texto, /demo de sonido/, 'el proyecto en pausa no se anuncia')
+  assert.equal(a.marcas?.length, 3)
+
+  // Charlando (escribió hace 5 minutos): espera.
+  const c = crearConversacion(db, 'mastropiero', 'chat', T)
+  db.prepare(`INSERT INTO mensajes (conversacion_id, rol, texto, en) VALUES (?, 'operador', 'otra cosa', ?)`).run(c.id, T - 5 * 60_000)
+  assert.deepEqual(await pensar(db, T), [])
+  // Un rato después, el bloque, una sola vez ese día.
+  assert.equal((await pensar(db, T + 30 * 60_000)).length, 1)
+  assert.equal((await pensar(db, T + 60 * 60_000)).length, 0)
+  // Avisado tres días sin que lo toque: silencio.
+  assert.equal((await pensar(db, T + 86_400_000)).length, 1)
+  assert.equal((await pensar(db, T + 2 * 86_400_000)).length, 1)
+  assert.deepEqual(await pensar(db, T + 3 * 86_400_000), [])
+})

@@ -35,7 +35,7 @@ export function materialDeAutocritica(db: Db, ahora = Date.now(), dias = 2): str
   const errores = db.prepare('SELECT origen, texto, veces FROM errores WHERE ultima >= ? ORDER BY veces DESC, ultima DESC LIMIT 25').all(desde) as { origen: string; texto: string; veces: number }[]
   const quejas = (db.prepare(`SELECT m.texto FROM mensajes m JOIN conversaciones c ON c.id = m.conversacion_id WHERE m.rol = 'operador' AND c.con = 'mastropiero' AND m.en >= ? ORDER BY m.id DESC LIMIT 200`).all(desde) as { texto: string }[])
     .map((m) => m.texto).filter((t) => QUEJA.test(t)).slice(0, 12)
-  const rutinas = (db.prepare(`SELECT texto FROM mensajes WHERE rol = 'asistente' AND modelo = 'rutina' AND texto LIKE 'No pude %' AND en >= ? ORDER BY id DESC LIMIT 10`).all(desde) as { texto: string }[]).map((m) => m.texto)
+  const rutinas = (db.prepare(`SELECT texto FROM mensajes WHERE rol = 'asistente' AND modelo = 'rutina' AND (texto LIKE 'No pude %' OR texto LIKE 'Falló «%') AND en >= ? ORDER BY id DESC LIMIT 10`).all(desde) as { texto: string }[]).map((m) => m.texto)
   const forjas = db.prepare(`SELECT id, pedido, estado, salida FROM fragua WHERE estado IN ('fallo', 'rota') AND creada_en >= ? ORDER BY id DESC LIMIT 5`).all(desde) as { id: number; pedido: string; estado: string; salida: string | null }[]
   const tandas = (db.prepare(`SELECT archivo, error FROM tandas WHERE estado = 'fallo' AND creada_en >= ? ORDER BY id DESC LIMIT 8`).all(desde) as { archivo: string; error: string | null }[])
   return [

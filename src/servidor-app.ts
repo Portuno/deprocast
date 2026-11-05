@@ -59,7 +59,7 @@ import { listarRecomendaciones, recomendar, resolverRecomendacion } from './ment
 import { listarPuentes, proponerPuentes, resolverPuente } from './puentes.ts'
 import { aCsv, agregarObra, avisoLibreria, conteos as conteosLibreria, cuadernoDeObra, editarObra, expandiendo, expandirObra, expandirTanda, listarObras, panorama, poblando, poblarLibreria } from './libreria.ts'
 import { esErrorDeCodigo, registrarError } from './autocritica.ts'
-import { aplicarForja, descartarForja, forjarMejora, leerForja, listarForjas, pasoDeForja, ramaActual, retomarFragua } from './fragua.ts'
+import { aplicarForja, descartarForja, forjarMejora, leerForja, listarForjas, pasoDeForja, porQueNoSePuedeForjar, ramaActual, retomarFragua } from './fragua.ts'
 import { borrarCuaderno, charla, componentesDeEntidad, crearCuaderno, guia, haciendo, leerCuaderno, listarCuadernos, notas, preguntar, quitarFuente, sumarFuentes } from './cuadernos.ts'
 import { buscarHibrido, estadoVectores, nivelesDe, vectorizarPendientes } from './semantica.ts'
 import { editarMovimiento, importarCSV, listarMovimientos, registrarMovimiento, resolverSugerido, resumenMes, resumenPorProyecto, ritmoMeta, sugeridos } from './finanzas.ts'
@@ -1132,9 +1132,11 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
 
   // La Fragua (forjar corre en segundo plano; aplicar es solo desde acá, con su ok)
-  ['GET', /^\/api\/fragua$/, () => ({ rama: ramaActual(), forjas: listarForjas(db).map(({ diff: _, ...f }) => ({ ...f, paso: pasoDeForja.get(f.id) ?? null })), propuestas: db.prepare(`SELECT id, titulo, detalle, area, prioridad, estado FROM propuestas WHERE estado = 'abierta' ORDER BY id DESC`).all() })],
+  ['GET', /^\/api\/fragua$/, () => ({ rama: ramaActual(), noSePuede: corta('fragua-puede', 60_000, () => porQueNoSePuedeForjar()), forjas: listarForjas(db).map(({ diff: _, ...f }) => ({ ...f, paso: pasoDeForja.get(f.id) ?? null })), propuestas: db.prepare(`SELECT id, titulo, detalle, area, prioridad, estado FROM propuestas WHERE estado = 'abierta' ORDER BY id DESC`).all() })],
   ['GET', /^\/api\/fragua\/(\d+)$/, (_, [f]) => leerForja(db, id(f)) ?? (() => { throw new Error(`No existe la forja ${f}`) })()],
   ['POST', /^\/api\/fragua$/, (b) => {
+    const motivo = porQueNoSePuedeForjar()
+    if (motivo) throw new Error(motivo)
     void forjarMejora(db, { propuestaId: b.propuestaId ? Number(b.propuestaId) : null, pedido: b.pedido || null }).then((f) => {
       const que = f.estado === 'lista' ? 'pasó el typecheck y los tests: está en La Fragua para que la leas y la apliques' : f.estado === 'rota' ? 'quedó hecha pero no pasa los tests' : `no salió (${(f.salida ?? '').slice(0, 160)})`
       mensajeDeMastropiero(db, conversacionHoy(db).id, `La forja #${f.id} ${que}.`)
@@ -1912,6 +1914,13 @@ const servidor = http.createServer(async (req, res) => {
       const crudo = req.method === 'POST' ? /^\/api\/directo\/(\d+)\/(cuadro|audio)$/.exec(url.pathname) : null
       if (crudo) {
         const sesion = Number(crudo[1])
+        // Un Directo que ya se cerró (por ejemplo, 10 minutos sin señal): 410 y la pantalla se apaga sola. No es un error
+        // del servidor (antes quedaba anotado cientos de veces).
+        if (leerSesion(db, sesion)?.estado !== 'activa') {
+          req.resume()
+          res.statusCode = 410
+          return void res.end(JSON.stringify({ error: 'Ese Directo ya se cerró', cerrado: true }))
+        }
         const cuerpo = await leerCrudo(req, 25 * 1024 * 1024)
         const desde = Number(url.searchParams.get('desde')) || undefined
         encolarDirecto(sesion, () => crudo[2] === 'cuadro'

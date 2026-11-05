@@ -33,7 +33,7 @@ async function refrescarFragua() {
   try { d = await api('/fragua') } catch (e) { return error(e) }
   const haciendo = d.forjas.some((f) => f.estado === 'haciendo')
   const fecha = (ms) => new Date(ms).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-  cont.innerHTML = `
+  cont.innerHTML = `${d.noSePuede ? `<p class="aviso">${esc(d.noSePuede)}</p>` : ''}
     <section class="seccion">
       <div class="seccion-cab"><h3>Propuestas abiertas · ${d.propuestas.length}</h3><span class="tenue">Las deja Mastropiero cuando ve algo para mejorar (o se las pedís en el chat). Forjar una la convierte en un cambio para revisar.</span></div>
       ${d.propuestas.length ? `<div class="tarjetas">${d.propuestas.map((p) => `
@@ -41,7 +41,7 @@ async function refrescarFragua() {
           <div class="tarjeta-cab">#${p.id}${p.area ? `<span class="chip">${esc(p.area)}</span>` : ''}${p.prioridad ? `<span class="estado-chip ${p.prioridad === 'alta' ? 'vivo' : ''}">${esc(p.prioridad)}</span>` : ''}</div>
           <h4>${esc(p.titulo)}</h4>
           ${p.detalle ? `<p class="recorte" title="Tocá para ver todo">${esc(p.detalle)}</p>` : ''}
-          <div class="tarjeta-pie"><button class="btn btn-chico btn-primario" data-forjar ${haciendo ? 'disabled title="Hay una forja en curso"' : ''}>⚒ Forjar</button><span class="espacio"></span><button class="btn btn-chico" data-hecha title="Ya se resolvió por otro lado: queda como forjada">✓ Ya está</button><button class="btn btn-chico" data-descartar title="Descartar la propuesta">Descartar</button></div>
+          <div class="tarjeta-pie">${d.noSePuede ? '<button class="btn btn-chico btn-primario" data-copiar title="Copia la propuesta como pedido, para pegarla en Claude Code">Copiar para Claude Code</button>' : `<button class="btn btn-chico btn-primario" data-forjar ${haciendo ? 'disabled title="Hay una forja en curso"' : ''}>⚒ Forjar</button>`}<span class="espacio"></span><button class="btn btn-chico" data-hecha title="Ya se resolvió por otro lado: queda como forjada">✓ Ya está</button><button class="btn btn-chico" data-descartar title="Descartar la propuesta">Descartar</button></div>
         </article>`).join('')}</div>` : '<p class="vacio">No hay propuestas abiertas. Pedí una mejora arriba o contale al chat qué cambiarías.</p>'}
     </section>
     <section class="seccion">
@@ -59,7 +59,17 @@ async function refrescarFragua() {
     </section>`
   $$('[data-prop]', cont).forEach((el) => {
     const id = Number(el.dataset.prop)
-    $('[data-forjar]', el).onclick = async () => { try { await api('/fragua', { propuestaId: id }); toast('A la fragua<small>Te aviso en Hoy cuando termine.</small>'); refrescarFragua() } catch (e) { error(e) } }
+    const copiar = $('[data-copiar]', el)
+    if (copiar) copiar.onclick = async () => {
+      const p = d.propuestas.find((x) => x.id === id)
+      try { await navigator.clipboard.writeText(`Propuesta #${p.id} de La Fragua de Deprocast${p.area ? ` (${p.area})` : ''}: ${p.titulo}
+
+${p.detalle ?? ''}
+
+Revisá si sigue vigente en el código, implementala con tests y marcala hecha.`); toast(`#${id} copiada<small>Pegala en Claude Code.</small>`, 'suave') } catch (e) { error(e) }
+    }
+    const forjar = $('[data-forjar]', el)
+    if (forjar) forjar.onclick = async () => { try { await api('/fragua', { propuestaId: id }); toast('A la fragua<small>Te aviso en Hoy cuando termine.</small>'); refrescarFragua() } catch (e) { error(e) } }
     $('[data-descartar]', el).onclick = async () => { try { await api(`/propuestas/${id}`, { estado: 'descartada' }); refrescarFragua() } catch (e) { error(e) } }
     $('[data-hecha]', el).onclick = async () => { try { await api(`/propuestas/${id}`, { estado: 'hecha' }); toast(`#${id} forjada`, 'suave'); refrescarFragua() } catch (e) { error(e) } }
     const det = $('.recorte', el)

@@ -134,3 +134,22 @@ test('chat: lo ya leído en vueltas anteriores viaja recortado, desde la 5.ª se
   assert.ok(!vistos[4].some((m) => m.role === 'system' && /cerrá con lo que ya tenés/.test(m.content)))
   assert.ok(vistos[5].some((m) => m.role === 'system' && /Llevás 5 vueltas/.test(m.content)), 'desde la 5.ª se le pide cerrar')
 })
+
+test('Telegram: un 429 espera lo que pide retry_after; el último mensaje procesado queda en la base (un relevo no contesta dos veces)', async () => {
+  const tg = await import('../src/telegram.ts')
+  process.env.TELEGRAM_BOT_TOKEN = 'falso'
+  process.env.TELEGRAM_CHAT_ID = '1'
+  const esperas: number[] = []
+  let respuestas: any[] = [{ ok: false, error_code: 429, description: 'Too Many Requests: retry after 5', parameters: { retry_after: 5 } }, { ok: true, result: { message_id: 9 } }]
+  const pedidos: { metodo: string; cuerpo: any }[] = []
+  tg._probarTelegram({ esperar: async (ms) => { esperas.push(ms) }, pedir: async (metodo, cuerpo) => { pedidos.push({ metodo, cuerpo }); return respuestas.shift() } })
+  assert.equal(await tg.decir('Un mensaje que choca con el límite de Telegram una vez y después pasa.'), 9)
+  assert.deepEqual(esperas, [5000], 'esperó los 5 segundos que pidió')
+
+  const db = abrir(':memory:')
+  db.prepare(`INSERT INTO ajustes (clave, valor) VALUES ('telegram_offset', '41')`).run()
+  pedidos.length = 0
+  respuestas = [{ ok: true, result: [] }]
+  await tg.vueltaTelegram(db)
+  assert.equal(pedidos[0].cuerpo.offset, 41, 'arranca desde lo que ya se procesó')
+})

@@ -169,10 +169,25 @@ export function aplicarCambios(dir: string, cambios: { archivo: string; buscar: 
 
 const dirDe = (repo: string, id: number) => path.join(repo, 'data', 'fragua', String(id))
 
+/**
+ * ¿Se puede forjar acá? (plan v34, #132) La forja necesita git y el repositorio. En la nube no hay ninguno de los
+ * dos (el código baja de GitHub como paquete): antes moría con «spawnSync git ENOENT» a mitad de camino.
+ * Devuelve el motivo si no se puede, o null.
+ */
+export function porQueNoSePuedeForjar(repo = process.cwd()): string | null {
+  if (process.env.MASTRO_USUARIO) return 'La Fragua es solo del dueño de este Deprocast.'
+  const g = spawnSync('git', ['--version'], { encoding: 'utf8', windowsHide: true })
+  if (g.error || g.status !== 0) return 'Acá no hay git, y La Fragua lo necesita para trabajar en una rama aparte. En la nube no se puede forjar: copiá la propuesta y pasásela a Claude Code, o forjala desde Deprocast en tu compu.'
+  if (!fs.existsSync(path.join(repo, '.git'))) return 'Este Deprocast no corre desde el repositorio (en la nube el código baja como paquete, sin git). Copiá la propuesta y pasásela a Claude Code, o forjala desde Deprocast en tu compu.'
+  return null
+}
+
 /** Forja una propuesta (o un pedido en palabras) en su propia rama. No toca main. */
 export async function forjarMejora(db: Db, p: { propuestaId?: number | null; pedido?: string | null }, o: Opciones = {}, ahora = Date.now()): Promise<Forja> {
   soloDelDueno()
   const repo = path.resolve(o.repo ?? process.cwd())
+  const motivo = o.repo ? null : porQueNoSePuedeForjar(repo)
+  if (motivo) throw new Error(motivo)
   const prop = p.propuestaId ? db.prepare('SELECT * FROM propuestas WHERE id = ?').get(p.propuestaId) as any : null
   if (p.propuestaId && !prop) throw new Error(`No existe la propuesta ${p.propuestaId}`)
   const pedido = prop ? `${prop.titulo}\n\n${prop.detalle}` : String(p.pedido ?? '').trim()

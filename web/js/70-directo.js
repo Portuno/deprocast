@@ -4,7 +4,10 @@
 const directo = { sesion: null, pantalla: null, mic: null, video: null, timer: null, reloj: null, grabadores: [], subidas: new Set(), huella: null, ultimoEnvio: 0, inicio: 0, pausado: false, sinMic: false }
 
 function subirDirecto(ruta, blob, tipo) {
-  const p = fetch(ruta, { method: 'POST', headers: { 'content-type': tipo }, body: blob }).catch(() => {})
+  const p = fetch(ruta, { method: 'POST', headers: { 'content-type': tipo }, body: blob })
+    // 410: el servidor ya lo cerró (sin señal un rato). Se apaga acá también, sin pedir el informe de nuevo.
+    .then((r) => { if (r.status === 410 && directo.sesion) apagarDirectoCerrado() })
+    .catch(() => {})
   directo.subidas.add(p)
   p.finally(() => directo.subidas.delete(p))
   return p
@@ -124,6 +127,20 @@ function capturarCuadro() {
   c.height = Math.round((v.videoHeight * w) / v.videoWidth)
   c.getContext('2d').drawImage(v, 0, 0, c.width, c.height)
   c.toBlob((b) => b && subirDirecto(`/api/directo/${directo.sesion}/cuadro`, b, 'image/jpeg'), 'image/jpeg', 0.6)
+}
+
+/** El servidor ya cerró este Directo: se sueltan la pantalla y el micrófono, y se avisa una vez. */
+function apagarDirectoCerrado() {
+  directo.sesion = null
+  directo.pausado = false
+  clearInterval(directo.timer)
+  clearInterval(directo.reloj)
+  directo.grabadores.forEach((r) => r.state !== 'inactive' && r.stop())
+  directo.pantalla?.getTracks().forEach((t) => t.stop())
+  directo.mic?.getTracks().forEach((t) => t.stop())
+  Object.assign(directo, { pantalla: null, mic: null, video: null })
+  pintarIndicadorDirecto()
+  toast('El Directo se cerró<small>Pasaron 10 minutos sin señal; el informe ya está en Hoy.</small>')
 }
 
 async function detenerDirecto() {

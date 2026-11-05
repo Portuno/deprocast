@@ -358,7 +358,8 @@ export async function correrRutinas(db: Db, ahora = Date.now(), acciones: Accion
       else if (mensaje) mensajeDeMastropiero(db, conversacionHoy(db).id, mensaje)
       salida.push({ id: r.id, ok: true, mensaje })
     } catch (e) {
-      const mensaje = `No pude ${r.nombre.toLowerCase()}: ${e instanceof Error ? e.message : e}`
+      // «Falló «El radar sale a buscar oportunidades»: …» (antes salía «No pude el radar sale…», que no se entendía).
+      const mensaje = `Falló «${r.nombre}»: ${e instanceof Error ? e.message : e}`
       mensajeDeMastropiero(db, conversacionHoy(db).id, mensaje)
       salida.push({ id: r.id, ok: false, mensaje })
     }

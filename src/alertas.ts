@@ -14,7 +14,8 @@ import { oportunidadesQueCierran } from './radar.ts'
 import { aContactar } from './personas.ts'
 import { alertasSalud } from './salud.ts'
 
-export type Alerta = { clave: string; texto: string }
+/** marcas: claves que se anotan junto con esta (los ítems de un bloque, para contar cuántas veces se avisó cada uno). */
+export type Alerta = { clave: string; texto: string; marcas?: string[] }
 
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9ñ ]+/g, ' ').replace(/\s+/g, ' ').trim()
 const VACIAS = new Set(['para', 'con', 'los', 'las', 'del', 'que', 'una', 'uno', 'por', 'sobre', 'hacer', 'mandar', 'escribir', 'cerrar'])
@@ -34,12 +35,7 @@ export function alertasPendientes(db: Db, ahora = Date.now()): Alerta[] {
   const hoy = fechaLocal(ahora)
   const charla = norm(charlaReciente(db, ahora, 72, 200).join(' '))
   const out: Alerta[] = []
-  const propias = listarMisiones(db, { personaje: 'jugador', estados: ['activa'] }).filter((m) => m.vence && m.vence <= fechaMas(ahora, 2))
-  for (const m of propias) {
-    if (loVieneHablando(charla, m.titulo)) continue
-    const cuando = m.vence! < hoy ? `venció el ${m.vence}` : m.vence === hoy ? 'vence hoy' : 'vence mañana'
-    out.push({ clave: `vence:${m.id}:${hoy}`, texto: `Ojo: «${m.titulo}» ${cuando} y no lo venimos hablando. ¿Lo encaramos, lo corremos de fecha o lo soltamos?` })
-  }
+  out.push(...alertaDeVencidos(db, charla, ahora))
   for (const m of seguimientos(db, ahora)) {
     let quien = m.personaje
     try { quien = personaje(db, m.personaje).nombre } catch { /* se fue */ }
@@ -54,6 +50,48 @@ export function alertasPendientes(db: Db, ahora = Date.now()): Alerta[] {
   }
   out.push(...alertasSalud(db, ahora))
   return out.filter((a) => !db.prepare('SELECT 1 FROM alertas WHERE clave = ?').get(a.clave))
+}
+
+/**
+ * Los vencidos (plan v34): UN bloque al día, agrupado por proyecto, en vez de un aviso por tarea. Fuera quedan:
+ * - lo que viene hablando;
+ * - lo de un proyecto en pausa (la entidad con meta.estado «pausa» o meta.pausado);
+ * - lo que ya se le avisó 3 veces sin que lo tocara (silencio hasta que lo mueva).
+ */
+export const AVISOS_SIN_RESPUESTA = 3
+export function alertaDeVencidos(db: Db, charla: string, ahora = Date.now()): Alerta[] {
+  const hoy = fechaLocal(ahora)
+  if (db.prepare('SELECT 1 FROM alertas WHERE clave = ?').get(`vencidos:${hoy}`)) return []
+  const enPausa = (entidadId: number | null) => {
+    if (!entidadId) return false
+    const e = db.prepare('SELECT meta FROM entidades WHERE id = ?').get(entidadId) as { meta: string | null } | undefined
+    try { const m = JSON.parse(e?.meta ?? 'null'); return !!m && (m.pausado === true || /^(en )?pausa(do|da)?$/i.test(String(m.estado ?? ''))) } catch { return false }
+  }
+  const avisos = db.prepare(`SELECT COUNT(*) AS n FROM alertas WHERE clave LIKE ?`)
+  const items = listarMisiones(db, { personaje: 'jugador', estados: ['activa'] })
+    .filter((m) => m.vence && m.vence <= fechaMas(ahora, 2))
+    .filter((m) => !loVieneHablando(charla, m.titulo) && !enPausa(m.entidadId))
+    .filter((m) => (avisos.get(`vence:${m.id}:%`) as { n: number }).n < AVISOS_SIN_RESPUESTA)
+  if (!items.length) return []
+  const cuando = (v: string) => (v < hoy ? `venció el ${v}` : v === hoy ? 'vence hoy' : 'vence mañana')
+  // Cada ítem queda anotado (para contar cuántas veces se le avisó), pero sale un solo mensaje.
+  const marcas = items.map((m) => `vence:${m.id}:${hoy}`)
+  if (items.length === 1) {
+    const m = items[0]
+    return [{ clave: `vencidos:${hoy}`, texto: `Ojo: «${m.titulo}» ${cuando(m.vence!)} y no lo venimos hablando. ¿Lo encaramos, lo corremos de fecha o lo soltamos?`, marcas }]
+  }
+  const nombre = new Map<number, string>()
+  for (const m of items) if (m.entidadId && !nombre.has(m.entidadId)) nombre.set(m.entidadId, (db.prepare('SELECT nombre FROM entidades WHERE id = ?').get(m.entidadId) as { nombre: string } | undefined)?.nombre ?? 'Sin proyecto')
+  const grupos = new Map<string, typeof items>()
+  for (const m of items) { const g = m.entidadId ? nombre.get(m.entidadId)! : 'Sin proyecto'; grupos.set(g, [...(grupos.get(g) ?? []), m]) }
+  const lineas = [...grupos].sort((a, b) => b[1].length - a[1].length).map(([g, ms]) => `${g}:\n${ms.map((m) => `- «${m.titulo}» (${cuando(m.vence!)})`).join('\n')}`)
+  return [{ clave: `vencidos:${hoy}`, texto: `Tenés ${items.length} cosas vencidas o por vencer que no venimos hablando:\n\n${lineas.join('\n\n')}\n\nDecime con cuáles seguimos, cuáles corremos de fecha y cuáles soltamos (sirve «soltá todo lo de X»).`, marcas }]
+}
+
+/** ¿Está charlando ahora? (Lo último que escribió, hace menos de 20 minutos.) Los avisos esperan a que termine. */
+function charlando(db: Db, ahora: number): boolean {
+  const u = db.prepare(`SELECT MAX(en) AS en FROM mensajes WHERE rol = 'operador'`).get() as { en: number | null }
+  return !!u.en && ahora - u.en < 20 * 60_000
 }
 
 /** ¿Está en una reunión? Un evento del calendario (no de día entero) en curso. */
@@ -106,9 +144,13 @@ export async function pensar(db: Db, ahora = Date.now(), o: { conModelo?: boolea
   if (await enReunion(ahora)) return []
   const dichos: string[] = []
   const alta = db.prepare('INSERT OR IGNORE INTO alertas (clave, texto, en) VALUES (?, ?, ?)')
-  for (const a of alertasPendientes(db, ahora)) {
-    alta.run(a.clave, a.texto, ahora)
-    dichos.push(a.texto)
+  // Nunca en medio de una charla: los avisos esperan a que haga una pausa.
+  if (!charlando(db, ahora)) {
+    for (const a of alertasPendientes(db, ahora)) {
+      alta.run(a.clave, a.texto, ahora)
+      for (const k of a.marcas ?? []) alta.run(k, '', ahora)
+      dichos.push(a.texto)
+    }
   }
   const cada = Number(ajuste(db, 'pensar_cada_horas') ?? 3)
   const ultima = Number(ajuste(db, 'pensar_ultima') ?? 0)
