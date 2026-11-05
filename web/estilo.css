@@ -3025,3 +3025,53 @@ span.ej-chip { cursor: default; }
 #perfil-apps { gap: var(--e-3); }
 @media (min-width: 1000px) { .perfil-cuerpo { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: start; } .perfil { padding: var(--e-6); } }
 @media (max-width: 720px) { .perfil { padding: var(--e-3); } .perfil-cab h1 { font-size: var(--t-7); } }
+
+/* El correo (plan v35): lista a la izquierda, el mail y su respuesta a la derecha. En el celular, uno por vez. */
+.correo { display: grid; grid-template-columns: minmax(0, 1fr); height: 100%; min-height: 0; }
+.correo-lista-col { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--linea); }
+.correo-barra { display: grid; gap: var(--e-2); padding: var(--e-3) var(--e-4); border-bottom: 1px solid var(--linea); background: var(--fondo); }
+.correo-filtros { display: flex; gap: var(--e-1); flex-wrap: wrap; }
+.correo-filtros button { background: none; border: 1px solid transparent; border-radius: var(--r-pill); padding: var(--e-1) var(--e-3); color: var(--tenue); cursor: pointer; font-size: var(--t-3); display: inline-flex; gap: var(--e-1); align-items: center; }
+.correo-filtros button[aria-selected='true'] { color: var(--texto); background: var(--panel-2); border-color: var(--linea-2); }
+.correo-filtros b { font-weight: 600; color: var(--acento-texto); }
+.correo-buscar input { width: 100%; }
+.correo-acciones { display: flex; align-items: center; gap: var(--e-2); }
+.correo-lista { overflow-y: auto; min-height: 0; flex: 1; }
+.correo-item { display: grid; gap: 2px; width: 100%; text-align: left; padding: var(--e-3) var(--e-4); border: 0; border-bottom: 1px solid var(--linea); background: none; color: var(--texto); cursor: pointer; }
+.correo-item:hover { background: var(--panel-2); }
+.correo-item.activo { background: var(--panel-2); box-shadow: inset 3px 0 0 var(--acento); }
+.correo-item.no-leido .correo-cab b, .correo-item.no-leido .correo-asunto { font-weight: 700; }
+.correo-cab { display: flex; justify-content: space-between; gap: var(--e-2); }
+.correo-cab b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.correo-cab small { color: var(--tenue); flex-shrink: 0; }
+.correo-asunto { font-size: var(--t-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.correo-linea { font-size: var(--t-2); color: var(--tenue); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.correo-urg { font-style: normal; font-weight: 600; margin-right: var(--e-1); font-size: var(--t-1); text-transform: uppercase; letter-spacing: .03em; }
+.correo-urg.alta { color: var(--mal); }
+.correo-urg.media { color: var(--acento-texto); }
+.correo-urg.baja { color: var(--tenue); }
+.correo-lectura { overflow-y: auto; min-height: 0; display: none; }
+.correo-mail { max-width: 860px; padding: var(--e-5); display: grid; gap: var(--e-4); }
+.correo-mail h2 { margin: 0; font-size: var(--t-7); }
+.correo-mail header p { margin: var(--e-1) 0 0; }
+.correo-triaje { background: var(--panel); border: 1px solid var(--linea); border-radius: var(--r-m); padding: var(--e-2) var(--e-3); font-size: var(--t-3); }
+.correo-texto { white-space: pre-wrap; word-break: break-word; line-height: 1.6; font-size: var(--t-4); }
+.correo-hilo { display: grid; gap: var(--e-2); }
+.correo-previo { border: 1px solid var(--linea); border-radius: var(--r-m); padding: var(--e-2) var(--e-3); background: var(--panel); }
+.correo-previo summary { cursor: pointer; font-size: var(--t-3); color: var(--tenue); }
+.correo-previo .correo-texto { font-size: var(--t-3); margin-top: var(--e-2); }
+.correo-botones { display: flex; flex-wrap: wrap; gap: var(--e-2); align-items: center; }
+.correo-botones a.btn { text-decoration: none; color: var(--texto); }
+.correo-resp { display: grid; gap: var(--e-3); border-top: 1px solid var(--linea); padding-top: var(--e-4); }
+.correo-resp form input { flex: 1; min-width: 0; }
+.correo-resp textarea { width: 100%; font: inherit; line-height: 1.55; }
+.correo-hecho { color: var(--ok); }
+.correo-cargando { padding: var(--e-4); }
+.correo.leyendo .correo-lista-col { display: none; }
+.correo.leyendo .correo-lectura { display: block; }
+@media (min-width: 1000px) {
+  .correo { grid-template-columns: minmax(340px, 420px) minmax(0, 1fr); }
+  .correo-lectura, .correo.leyendo .correo-lectura { display: block; }
+  .correo.leyendo .correo-lista-col { display: flex; }
+  .correo-volver { display: none; }
+}

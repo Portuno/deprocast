@@ -1720,6 +1720,8 @@ CREATE INDEX IF NOT EXISTS quantomos_etapa ON quantomos(etapa);
 
 /** Columnas que se sumaron después de la primera versión: se agregan sin tocar los datos. */
 const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
+  // El correo en la web (plan v35): el triaje del modelo y «listo» (sale de lo pendiente).
+  correos: [['triaje', 'TEXT'], ['triado_en', 'INTEGER'], ['atendido', 'INTEGER NOT NULL DEFAULT 0']],
   // El genoma de un agente (plan v26): la estrategia que aprendió, si él lo fijó, de quién viene y qué mutó.
   agentes: [['estrategia', 'TEXT'], ['genoma_fijo', 'INTEGER NOT NULL DEFAULT 0'], ['padre', 'TEXT'], ['mutacion', 'TEXT']],
   // Una misión rival: la misma meta, trabajada por un clon con una variación; la temporada decide cuál sigue.

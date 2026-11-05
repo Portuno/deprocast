@@ -35,6 +35,7 @@ const VISTAS = {
   fragua: { montar: montarFragua, refrescar: refrescarFragua },
   revision: { montar: montarRevision, refrescar: () => {} },
   perfil: { montar: montarPerfil, refrescar: () => {} },
+  correo: { montar: montarCorreo, refrescar: () => {} },
   agsala: { montar: montarAgSala, refrescar: () => {} },
   agmisiones: { montar: montarAgMisiones, refrescar: () => {} },
   agtemporada: { montar: montarAgTemporada, refrescar: () => {} },
@@ -78,7 +79,7 @@ const firmaDeVista = (v) => (FIRMA_VISTA[v] && E ? JSON.stringify(FIRMA_VISTA[v]
  * pestaña se entra la primera vez. Los links de siempre (#salud, #mano…) siguen andando. tecla: «g» + esa letra.
  */
 const ESPACIOS = [
-  { id: 'hoy', nombre: 'Hoy', ico: 'sun', tecla: 'h', vistas: [['hoy', 'Hoy'], ['informe', 'Informe'], ['directo', 'Directo']] },
+  { id: 'hoy', nombre: 'Hoy', ico: 'sun', tecla: 'h', vistas: [['hoy', 'Hoy'], ['correo', 'Correo'], ['informe', 'Informe'], ['directo', 'Directo']] },
   { id: 'chat', nombre: 'Chat', ico: 'message-circle', tecla: 'c', vistas: [['chat', 'Chat']] },
   { id: 'plan', nombre: 'Plan', ico: 'target', tecla: 'p', vistas: [['misiones', 'Misiones'], ['calendario', 'Calendario'], ['linea', 'Línea'], ['mapa', 'Mapa']] },
   { id: 'vida', nombre: 'Vida', ico: 'heart-pulse', tecla: 'v', vistas: [['salud', 'Salud'], ['personas', 'Personas'], ['jugador', 'Jugador'], ['suenos', 'Sueños']] },

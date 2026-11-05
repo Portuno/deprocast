@@ -3,6 +3,8 @@ import { after, before, describe, it } from 'node:test'
 import { abrir, ajuste } from '../src/db.ts'
 import { _probarGoogle, accesoGoogle, estadoGoogle, guardarCliente, urlDeConexion, volverDeGoogle } from '../src/google/oauth.ts'
 import { agregarFilas, crearHoja, idDeHoja, leerHoja } from '../src/google/sheets.ts'
+import { bandeja, guardarBorrador, hiloDe, marcarAtendido, proponerRespuesta, triarCorreos } from '../src/google/correo.ts'
+import { _probarModelo } from '../src/modelo.ts'
 import { crearBorrador, sincronizarGmail, sinCitas, textoDe, verMails } from '../src/google/gmail.ts'
 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64url')
@@ -162,6 +164,55 @@ describe('Google y Gmail (plan v35, fase 1)', () => {
     const c = await crearHoja(db, 'Nueva', [['a', 'b'], [1, 2]])
     assert.equal(c.link, 'https://docs.google.com/spreadsheets/d/nuevo-id-de-planilla-123456/edit')
     assert.deepEqual(pedidos.at(-1)!.cuerpo, { values: [['a', 'b'], [1, 2]] })
+  })
+
+  it('el correo en la web: triaje, lo que pide respuesta primero, una respuesta en su voz y el borrador (sale de pendientes)', async () => {
+    const db = abrir(':memory:')
+    db.prepare(`INSERT INTO ajustes (clave, valor) VALUES ('google_refresh', 'r1')`).run()
+    const ahora = Date.now()
+    const ins = db.prepare(`INSERT INTO correos (id, hilo, de, para, asunto, fecha, etiquetas, extracto, cuerpo, leido, suyo, ruido, mensaje_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`)
+    ins.run('a1', 'h1', 'Ana <ana@ejemplo.com>', 'yo@ejemplo.com', 'Presupuesto', ahora - 7200_000, 'INBOX UNREAD', '¿Me pasás…', '¿Me pasás el presupuesto antes del viernes?', 0, 0, '<a1@m>')
+    ins.run('b1', 'h2', 'Boletín <news@x.com>', 'yo@ejemplo.com', 'Novedades', ahora - 3600_000, 'INBOX UNREAD', 'Este mes…', 'Las novedades del mes.', 0, 0, '<b1@m>')
+    ins.run('c1', 'h3', 'Beto <beto@ejemplo.com>', 'yo@ejemplo.com', 'Cena', ahora - 1800_000, 'INBOX', '¿Vamos?', '¿Vamos a cenar el sábado?', 1, 0, '<c1@m>')
+    ins.run('s1', 'h9', 'yo@ejemplo.com', 'Ana <ana@ejemplo.com>', 'Re: Otra cosa', ahora - 86_400_000, 'SENT', 'Dale', 'Dale Ana, te lo mando a la tarde. Abrazo, L.', 1, 1, '<s1@m>')
+
+    const prompts: string[] = []
+    _probarModelo(async (_l: any, o: any) => {
+      const u = String(o.mensajes.at(-1).content)
+      prompts.push(u)
+      const texto = /id: a1/.test(u)
+        ? JSON.stringify({ correos: [{ id: 'a1', pide_respuesta: true, urgencia: 'alta', resumen: 'Ana pide el presupuesto antes del viernes', accion: 'responder' }, { id: 'b1', pide_respuesta: false, urgencia: 'baja', resumen: 'Boletín del mes', accion: 'nada' }, { id: 'c1', pide_respuesta: true, urgencia: 'media', resumen: 'Beto propone cenar el sábado', accion: 'responder' }, { id: 'inventado', pide_respuesta: true }] })
+        : JSON.stringify({ texto: 'Hola Ana, te lo mando el jueves. Abrazo, L.' })
+      return { texto, llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }
+    })
+    assert.equal(await triarCorreos(db), 3, 'lo inventado por el modelo no entra')
+    assert.equal(await triarCorreos(db), 0, 'no vuelve a triar lo ya triado')
+
+    let b = await bandeja(db)
+    assert.deepEqual(b.correos.map((m) => m.id), ['a1', 'c1'], 'lo que pide respuesta, lo urgente primero')
+    assert.equal(b.cuantos.responder, 2)
+    assert.equal(b.cuantos.no_leidos, 2)
+    assert.equal((await bandeja(db, { filtro: 'enviados' })).correos[0].id, 's1')
+
+    const r = await proponerRespuesta(db, 'a1', 'decile que el jueves')
+    assert.match(r.texto, /jueves/)
+    const p = prompts.at(-1)!
+    assert.match(p, /Dale Ana, te lo mando a la tarde/, 'sus mails a esa persona, como muestra de su voz')
+    assert.match(p, /Su indicación: decile que el jueves/)
+
+    let borrador: any = null
+    _probarGoogle((async (u: string, init: RequestInit = {}) => {
+      if (String(u).includes('oauth2.googleapis.com/token')) return json({ access_token: 'a', expires_in: 3600 })
+      if (String(u).endsWith('/drafts')) { borrador = JSON.parse(String(init.body)); return json({ id: 'd9' }) }
+      return json({}, 404)
+    }) as typeof fetch)
+    await guardarBorrador(db, 'a1', r.texto)
+    assert.equal(borrador.message.threadId, 'h1')
+    b = await bandeja(db)
+    assert.deepEqual(b.correos.map((m) => m.id), ['c1'], 'con el borrador hecho, sale de pendientes')
+    marcarAtendido(db, 'a1', false)
+    assert.equal((await bandeja(db)).correos.length, 2)
+    assert.equal(hiloDe(db, 'a1')?.triaje?.urgencia, 'alta')
   })
 
   it('texto: el HTML sin etiquetas si no hay texto plano, y lo citado afuera', () => {

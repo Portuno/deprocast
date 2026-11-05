@@ -871,6 +871,13 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/dispositivos\/(\d+)\/revocar$/, async (_, [x]) => { (await import('./dispositivos.ts')).revocarDispositivo(db, id(x)); return { ok: true } }],
   // Google (plan v35): el estado de la conexión y de Gmail, sincronizar ya y desconectar.
   ['GET', /^\/api\/google$/, async () => ({ ...(await import('./google/oauth.ts')).estadoGoogle(db), gmail: (await import('./google/gmail.ts')).estadoGmail(db) })],
+  // El correo en la web (plan v35): la bandeja ordenada, el hilo, una respuesta propuesta y el borrador en Gmail.
+  ['GET', /^\/api\/correo$/, async (_, __, q) => (await import('./google/correo.ts')).bandeja(db, { filtro: (q.get('filtro') || 'responder') as 'responder', q: q.get('q') || undefined, dias: Number(q.get('dias')) || undefined })],
+  ['POST', /^\/api\/correo\/triar$/, async () => ({ triados: await (await import('./google/correo.ts')).triarCorreos(db) })],
+  ['GET', /^\/api\/correo\/([\w-]+)$/, async (_, [m]) => (await import('./google/correo.ts')).hiloDe(db, m) ?? (async () => { const g = await import('./google/gmail.ts'); await g.leerMail(db, m); return (await import('./google/correo.ts')).hiloDe(db, m) })()],
+  ['POST', /^\/api\/correo\/([\w-]+)\/proponer$/, async (b, [m]) => (await import('./google/correo.ts')).proponerRespuesta(db, m, b.indicacion ? String(b.indicacion) : null)],
+  ['POST', /^\/api\/correo\/([\w-]+)\/borrador$/, async (b, [m]) => (await import('./google/correo.ts')).guardarBorrador(db, m, String(b.texto ?? ''))],
+  ['POST', /^\/api\/correo\/([\w-]+)\/atendido$/, async (b, [m]) => (await import('./google/correo.ts')).marcarAtendido(db, m, b.atendido !== false)],
   ['GET', /^\/api\/perfil$/, async () => (await import('./perfil.ts')).perfil(db)],
   ['POST', /^\/api\/google\/cliente$/, async (b) => (await import('./google/oauth.ts')).guardarCliente(db, { json: b.json ? String(b.json) : undefined, id: b.id ? String(b.id) : undefined, secreto: b.secreto ? String(b.secreto) : undefined }, b.origen ? String(b.origen) : undefined)],
   ['POST', /^\/api\/google\/sincronizar$/, async () => (await import('./google/gmail.ts')).sincronizarGmail(db)],
@@ -2149,7 +2156,11 @@ deFondo(() => setInterval(async () => {
     const { googleConectado } = await import('./google/oauth.ts')
     if (!googleConectado(db)) return
     const fin = marcar('gmail')
-    try { await (await import('./google/gmail.ts')).sincronizarGmail(db) } finally { fin() }
+    try {
+      await (await import('./google/gmail.ts')).sincronizarGmail(db)
+      // Lo que llegó, ordenado para atender (si no corre solo con tope alcanzado).
+      if (!topeAlcanzado(db)) await (await import('./google/correo.ts')).triarCorreos(db)
+    } finally { fin() }
   } catch (e) { console.error('  gmail:', e instanceof Error ? e.message : e) }
 }, 5 * 60_000).unref())
 
