@@ -2344,6 +2344,8 @@ deFondo(() => {
 
 // WhatsApp: lo que Mastropiero dice solo también sale por ahí (si escribió en las últimas 24 horas).
 deFondo(() => alDecirSolo((texto) => void import('./whatsapp.ts').then((wa) => wa.decirPorWhatsapp(db, texto)).catch(() => {})))
+// WhatsApp: lo que un reinicio (una actualización) cortó a mitad de respuesta, se retoma al minuto de arrancar.
+setTimeout(() => void import('./whatsapp.ts').then((wa) => wa.retomarWhatsapp(db)).catch((e) => console.error('  whatsapp retomar:', e instanceof Error ? e.message : e)), 70_000).unref?.()
 
 // Las runs las arranca él: su latido (reporte por hora, cierre de la run vencida) corre aunque las rutinas estén apagadas.
 let enRuns = false

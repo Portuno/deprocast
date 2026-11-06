@@ -161,6 +161,10 @@ export type Canal = {
   escribiendo?: () => Promise<unknown>
   audio?: (datos: Buffer, titulo: string, texto?: string) => Promise<boolean>
   archivo?: (datos: Buffer, nombre: string) => Promise<unknown>
+  /** Avisa que el mensaje ya quedó en la charla (la cola del canal puede seguir con el próximo sin esperar la respuesta). */
+  entregado?: () => void
+  /** Cómo escribir en este canal (va al prompt sin cambiar el tipo de turno). */
+  estilo?: string
 }
 const canalActual = new AsyncLocalStorage<Canal>()
 export const conCanal = <T>(c: Canal, f: () => Promise<T>): Promise<T> => canalActual.run(c, f)
@@ -473,15 +477,25 @@ export function guardarNotaDeVoz(db: Db, texto: string, segundos: number | null,
 
 async function conversar(db: Db, texto: string, o: { porVoz?: boolean } = {}) {
   const c = conversacionHoy(db)
-  // Si ya está contestando, esto se suma a ese turno: la respuesta de todo junto la manda el mensaje que lo empezó.
+  const canal = canalActual.getStore()
+  const opc = { canal: canal?.estilo ?? null }
+  // Si ya está contestando, esto se suma a ese turno: la respuesta de todo junto la manda el mensaje que lo empezó. Lo
+  // que resuelve el carril rápido («ya la hice») se contesta en el acto, sin esperar ese turno.
   if (estaPensando(c.id)) {
     await escribiendo()?.catch(() => {})
-    return void (await enviar(db, c.id, texto))
+    const p = enviar(db, c.id, texto, opc)
+    canal?.entregado?.()
+    const r = await p
+    if (r?.rapida) await decir(r.rapida)
+    return
   }
   const desde = mensajes(db, c.id).at(-1)?.id ?? 0
   await escribiendo()?.catch(() => {})
-  await enviar(db, c.id, texto)
-  const respuesta = mensajes(db, c.id, desde).filter((m) => m.rol === 'asistente' && m.texto).map((m) => m.texto).join('\n\n')
+  const p = enviar(db, c.id, texto, opc)
+  canal?.entregado?.()
+  const r = await p
+  if (r?.rapida) return void (await decir(r.rapida))
+  const respuesta = mensajes(db, c.id, desde).filter((m) => m.rol === 'asistente' && m.texto && m.via !== ('rapida' as any)).map((m) => m.texto).join('\n\n')
   const error = mensajes(db, c.id, desde).find((m) => m.rol === 'error')
   await decir(respuesta || (error ? `No pude: ${error.texto}` : 'Listo.'))
   const voz = ajuste(db, 'telegram_voz') ?? '0'

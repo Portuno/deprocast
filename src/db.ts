@@ -1224,6 +1224,15 @@ CREATE TABLE IF NOT EXISTS whatsapp_vistos (
   id TEXT PRIMARY KEY,
   en INTEGER NOT NULL
 );
+-- Lo que Mastropiero le sugirió hace poco en cada charla (plan v37): «ya la hice» sabe de qué habla.
+CREATE TABLE IF NOT EXISTS chat_sugeridas (
+  conversacion_id INTEGER NOT NULL,
+  mision_id INTEGER NOT NULL,
+  titulo TEXT NOT NULL,
+  en INTEGER NOT NULL,
+  ultima INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (conversacion_id, mision_id)
+);
 -- Gmail (plan v35): lo que trajo de su correo. Lo suyo (suyo = 1) entra también al corpus; el ruido (promociones,
 -- redes, foros) queda guardado pero no se muestra como correo para atender.
 CREATE TABLE IF NOT EXISTS correos (
@@ -1916,6 +1925,12 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
     ['mision_id', 'INTEGER'],
     ['foto', 'TEXT'], // el ticket, si entró por foto
     ['nota', 'TEXT'],
+  ],
+  // WhatsApp (plan v37): el mensaje crudo y si ya se atendió, para retomar lo que un reinicio cortó.
+  whatsapp_vistos: [
+    ['crudo', 'TEXT'],
+    ['hecho', 'INTEGER NOT NULL DEFAULT 0'],
+    ['intentos', 'INTEGER NOT NULL DEFAULT 0'],
   ],
 }
 

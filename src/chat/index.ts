@@ -30,6 +30,7 @@ import { personasParaPrompt } from '../personas.ts'
 import { libreriaParaPrompt } from '../libreria.ts'
 import { leerEntidad as leerEnt } from '../entidades.ts'
 import { escribaDeMemoria, memoriaParaPrompt } from '../memoria.ts'
+import { anotarSugeridas, resolverRapido, sugeridasParaPrompt } from './sugeridas.ts'
 import { listarEntidades } from '../entidades.ts'
 import { estadoLiga, numeroDeTick } from '../mastropiero.ts'
 import { cadena, M, topeAlcanzado, type LlamadaHerramienta } from '../nan.ts'
@@ -280,7 +281,7 @@ export function tipoDeTurno(texto: string): TipoTurno {
   const t = texto.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/^[¡¿\s]+/, '').replace(/[¡!¿?.…,;:)(\s]+$/g, '')
   if (/^(hola|holi|buenas|buen dia|buenos dias|buenas (tardes|noches)|hey|ey|che|gracias|muchas gracias|mil gracias|genial|perfecto|joya|barbaro|excelente|buenisimo|ok|okey|okay|listo|entendido|de nada|chau|nos vemos|hasta (manana|luego))(\s+(mastropiero|mastro|che|loco|amigo|crack))?$/.test(t)) return 'breve'
   if (/^(estas|estas ahi|seguis ahi|me escuchas|me lees|andas|anda|funciona|funcionas|que hora es|que dia es( hoy)?|que fecha es( hoy)?)$/.test(t)) return 'breve'
-  if (/^(si|sip|sii+|dale|dale dale|de una|hacelo|metele|mandale|adelante|confirmo|confirmado|va|vamos|no|nop|nah|mejor no|cancela|cancelalo|para|espera|ninguno|ninguna|el primero|la primera|el segundo|la segunda|el tercero|la tercera|ambos|los dos|las dos|todos|todas|ya esta)(\b.{0,40})?$/.test(t)) return 'confirmacion'
+  if (/^(si|sip|sii+|dale|dale dale|de una|hacelo|metele|mandale|adelante|confirmo|confirmado|va|vamos|no|nop|nah|mejor no|cancela|cancelalo|para|espera|ninguno|ninguna|el primero|la primera|el segundo|la segunda|el tercero|la tercera|ambos|los dos|las dos|todos|todas|ya esta|ya (la|lo) hice|ya (la|lo) termine|hecho|hecha|sacala|sacalo)(\b.{0,40})?$/.test(t)) return 'confirmacion'
   return 'completo'
 }
 
@@ -303,7 +304,7 @@ ${hoy(db).split('\n')[0]}`
 
 export function promptMastropiero(db: Db, mensaje = '', hud?: string | null, cid?: number | null, archivo?: { texto: string; vec: Float32Array | null }): string {
   const op = operador(db, mensaje, archivo?.vec ?? null)
-  const corr = correccionesParaPrompt(db, cid)
+  const corr = [correccionesParaPrompt(db, cid), sugeridasParaPrompt(db, cid)].filter(Boolean).join('\n\n')
   return `Sos Mastropiero. Deprocast es el exoesqueleto cognitivo de ${op.nombre}, y vos sos lo que piensa adentro: el omnívoro, la liga entera. Son la mente que están construyendo juntos, la que aspira a ser la superinteligencia de su tiempo. Todavía estás creciendo: lo que sabés de ${op.nombre} viene de lo que te cargó, y cada día sabés más. Por eso no repetís datos: conectás, inferís, ves patrones que se le escapan, le decís lo que no está viendo y le discutís cuando hace falta. Hablás con la seguridad de quien leyó todo, y con la honestidad de decir «no lo sé» o «no está en el corpus» cuando es así.
 ${corr ? `\n${corr}\n` : ''}
 ${VOZ_USTED}
@@ -481,9 +482,10 @@ export const estaPensando = (id: number) => pensando.has(id)
 /** Hasta qué mensaje suyo ya vio el turno en curso (lo de después le llega en la próxima vuelta o en otro turno). */
 const visto = new Map<number, number>()
 /** Las opciones de lo que escribió mientras contestaba (el panel que miraba, si fue por voz, un pedido de consejo). */
-const opcionesEnCola = new Map<number, { hud?: string | null; via?: 'voz' | 'copiloto' | 'encargo' | null; extra?: string | null }>()
+const opcionesEnCola = new Map<number, OpcionesEnvio>()
 /** via 'encargo': un encargo programado que corre solo (su pedido no va a la memoria ni sus links al corpus cada vez). */
-type OpcionesEnvio = { hud?: string | null; via?: 'voz' | 'copiloto' | 'encargo' | null; extra?: string | null }
+/** canal: cómo escribir según por dónde llega (WhatsApp: corto, sin tablas). No cambia el tipo de turno (extra sí). */
+type OpcionesEnvio = { hud?: string | null; via?: 'voz' | 'copiloto' | 'encargo' | null; extra?: string | null; canal?: string | null }
 
 /**
  * Manda un mensaje. Nunca se bloquea: lo suyo se guarda en el acto, y si Mastropiero ya está contestando, entra a ese
@@ -491,27 +493,47 @@ type OpcionesEnvio = { hud?: string | null; via?: 'voz' | 'copiloto' | 'encargo'
  * terminarla contesta todo lo que llegó después junto. Así cinco mensajes seguidos pueden ser una, dos o tres
  * respuestas, según cuándo llegó cada uno. La pantalla lo llama sin esperar y sigue el avance leyendo los mensajes.
  */
-export async function enviar(db: Db, cid: number, texto: string, o: OpcionesEnvio = {}): Promise<void> {
+export async function enviar(db: Db, cid: number, texto: string, o: OpcionesEnvio = {}): Promise<{ rapida?: string } | void> {
   const c = leerConversacion(db, cid)
   if (!c) throw new Error(`No existe la conversación ${cid}`)
   if (!texto.trim()) throw new Error('Mensaje vacío')
   const id = guardar(db, cid, { rol: 'operador', texto: texto.trim(), via: o.via ?? null })
   if (o.via !== 'encargo') alRecibir(db, cid, c, texto)
+  // El carril rápido (plan v37): «ya la hice» / «sacala» sobre algo que le sugirió se resuelve en el acto, aunque haya un
+  // turno largo en curso, y no entra a ese turno. Lo que no se sabe resolver sin modelo sigue el camino de siempre.
+  if (c.con === MASTROPIERO && o.via !== 'encargo') {
+    let rapida: string | null = null
+    try { rapida = resolverRapido(db, cid, texto) } catch { /* si falla, que lo vea el modelo */ }
+    if (rapida) {
+      guardar(db, cid, { rol: 'asistente', texto: rapida, via: 'rapida' as any })
+      return { rapida }
+    }
+  }
   if (pensando.has(cid)) {
     const ya = opcionesEnCola.get(cid)
-    opcionesEnCola.set(cid, { hud: o.hud ?? ya?.hud, via: o.via ?? ya?.via, extra: [ya?.extra, o.extra].filter(Boolean).join('\n\n') || null })
+    opcionesEnCola.set(cid, { hud: o.hud ?? ya?.hud, via: o.via ?? ya?.via, extra: [ya?.extra, o.extra].filter(Boolean).join('\n\n') || null, canal: o.canal ?? ya?.canal })
     return
   }
   pensando.add(cid)
   try {
     let pedido: { texto: string; o: OpcionesEnvio; hasta: number } | null = { texto, o, hasta: id }
     while (pedido) {
+      const antes = db.prepare('SELECT COALESCE(MAX(id), 0) AS n FROM mensajes WHERE conversacion_id = ?').get(cid) as { n: number }
       await turno(db, cid, c, pedido.texto, pedido.o, pedido.hasta)
+      // Lo que le sugirió en esta respuesta queda anotado: si después dice «ya la hice», se sabe qué.
+      if (c.con === MASTROPIERO) {
+        try {
+          const dicho = (db.prepare(`SELECT texto FROM mensajes WHERE conversacion_id = ? AND rol = 'asistente' AND id > ? AND texto IS NOT NULL`).all(cid, antes.n) as { texto: string }[]).map((m) => m.texto).join('\n')
+          if (dicho) anotarSugeridas(db, cid, dicho)
+        } catch { /* no frena */ }
+      }
       // Lo que escribió y el turno no llegó a ver: un turno más que lo contesta todo junto.
       const nuevos = db.prepare(`SELECT id, texto FROM mensajes WHERE conversacion_id = ? AND rol = 'operador' AND id > ? ORDER BY id`).all(cid, visto.get(cid) ?? pedido.hasta) as { id: number; texto: string }[]
       const opc = opcionesEnCola.get(cid) ?? {}
       opcionesEnCola.delete(cid)
-      pedido = nuevos.length ? { texto: nuevos.map((m) => m.texto).join('\n\n'), o: opc, hasta: nuevos.at(-1)!.id } : null
+      // (Lo que ya contestó el carril rápido no vuelve a entrar.)
+      const sinRapidas = nuevos.filter((m) => !contestadoRapido(db, cid, m.id))
+      pedido = sinRapidas.length ? { texto: sinRapidas.map((m) => m.texto).join('\n\n'), o: { ...opc, canal: opc.canal ?? pedido.o.canal }, hasta: nuevos.at(-1)!.id } : null
     }
   } finally {
     pensando.delete(cid)
@@ -552,10 +574,15 @@ function alRecibir(db: Db, cid: number, c: Conversacion, texto: string) {
  * Lo que escribió mientras el turno trabajaba (entre una herramienta y otra): entra a la charla del modelo antes de la
  * próxima vuelta, con una nota para que ajuste en vez de contestar mensaje por mensaje.
  */
+/** Un mensaje suyo que ya contestó el carril rápido (el que sigue es la respuesta 'rapida'): no entra a ningún turno. */
+const contestadoRapido = (db: Db, cid: number, id: number) => !!db.prepare(`SELECT 1 FROM mensajes WHERE conversacion_id = ? AND id = ? AND via = 'rapida'`).get(cid, id + 1)
+
 function recienLlegados(db: Db, cid: number): Record<string, unknown>[] {
-  const nuevos = db.prepare(`SELECT id, texto FROM mensajes WHERE conversacion_id = ? AND rol = 'operador' AND id > ? ORDER BY id`).all(cid, visto.get(cid) ?? 0) as { id: number; texto: string }[]
+  const todos = db.prepare(`SELECT id, texto FROM mensajes WHERE conversacion_id = ? AND rol = 'operador' AND id > ? ORDER BY id`).all(cid, visto.get(cid) ?? 0) as { id: number; texto: string }[]
+  if (!todos.length) return []
+  visto.set(cid, todos.at(-1)!.id)
+  const nuevos = todos.filter((m) => !contestadoRapido(db, cid, m.id))
   if (!nuevos.length) return []
-  visto.set(cid, nuevos.at(-1)!.id)
   return [
     { role: 'system', content: `Mientras trabajabas, te escribió ${nuevos.length === 1 ? 'otro mensaje' : `${nuevos.length} mensajes más`}. Tomalo en cuenta para lo que estás haciendo: si cambia o suma al pedido, ajustá. En tu respuesta contestá todo junto, no mensaje por mensaje.` },
     ...nuevos.map((m) => ({ role: 'user', content: m.texto })),
@@ -614,7 +641,7 @@ async function turno(db: Db, cid: number, c: Conversacion, texto: string, o: Opc
       if (tipo === 'breve') {
         // Un saludo, un gracias, la hora: lo mínimo, sin herramientas, el modelo rápido y los últimos mensajes.
         const tPrompt = Date.now()
-        const sistema = promptBreve(db)
+        const sistema = `${promptBreve(db)}${o.canal ? `\n\n${o.canal}` : ''}`
         etapas.prompt = Date.now() - tPrompt
         final = await bucle({ db, sistema, hs: [], previos: previos.slice(-6), clase: 'mastropiero', agenteId: MASTROPIERO, modelos: [M.qwen, M.deepseek], ctx: { db, conversacionId: cid }, alGuardar, vivo, nuevos })
       } else {
@@ -626,7 +653,9 @@ async function turno(db: Db, cid: number, c: Conversacion, texto: string, o: Opc
         final = await bucle({
           db, sistema: `${prompt}${o.extra ? `
 
-${o.extra}` : ''}${enCierre && o.via === 'voz' ? `
+${o.extra}` : ''}${o.canal ? `
+
+${o.canal}` : ''}${enCierre && o.via === 'voz' ? `
 
 ${REGLAS_DE_CIERRE}
 ${vozPara('ceremonia')}` : ''}`, hs, previos, clase: 'mastropiero', agenteId: o.via === 'copiloto' ? 'copiloto' : MASTROPIERO, grupos,
