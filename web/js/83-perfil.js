@@ -144,9 +144,9 @@ function pintarWhatsappPerfil(w) {
         <li>Pegá los tres acá y guardá. Después, en WhatsApp → <b>Configuración</b> → Webhook, poné la dirección y el token de verificación que aparecen abajo, y suscribí el campo <b>messages</b>.</li>
       </ol>
       <form id="wa-config" class="perfil-form">
-        <input name="numeroId" placeholder="ID del número de teléfono" value="${esc(w.numeroId ?? '')}" required autocomplete="off">
-        <input name="token" placeholder="Token de acceso permanente" required autocomplete="off">
-        <input name="secreto" placeholder="Clave secreta de la app" required autocomplete="off">
+        <label class="campo">ID del número de teléfono <small class="tenue">(solo dígitos: el «Phone Number ID»)</small><input name="numeroId" placeholder="1234567890123456" value="${esc(w.numeroId ?? '')}" required autocomplete="off"></label>
+        <label class="campo">Token de acceso permanente <small class="tenue">(empieza con EAA…; el del usuario del sistema, no el de prueba de 24 h)</small><input name="token" placeholder="EAA…" required autocomplete="off"></label>
+        <label class="campo">Clave secreta de la app <small class="tenue">(32 letras y números, en Configuración de la app → Básica; no es un token)</small><input name="secreto" placeholder="a1b2c3… (32 caracteres)" required autocomplete="off"></label>
         <button class="btn btn-primario">Guardar</button>
       </form></details>`
   let cuerpo

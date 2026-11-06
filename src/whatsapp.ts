@@ -56,6 +56,7 @@ export function configurarWhatsapp(db: Db, d: { numeroId?: string; token?: strin
   const secreto = String(d.secreto ?? '').trim()
   if (!/^\d{6,20}$/.test(numeroId)) throw new Error('El ID del número de teléfono son solo dígitos (está en WhatsApp → Configuración de la API).')
   if (token.length < 30) throw new Error('Falta el token de acceso (el permanente, del usuario del sistema).')
+  if (/^EAA/.test(secreto)) throw new Error('En «Clave secreta de la app» pegaste un token (empieza con EAA). El secreto es otra cosa: 32 letras y números, en Configuración de la app → Básica → Clave secreta de la app → Mostrar.')
   if (!/^[0-9a-f]{32}$/i.test(secreto)) throw new Error('El secreto de la app son 32 caracteres (Configuración de la app → Básica → Clave secreta).')
   fijarAjuste(db, 'whatsapp_numero_id', numeroId)
   fijarAjuste(db, 'whatsapp_token', token)
