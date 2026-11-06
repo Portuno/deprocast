@@ -949,7 +949,7 @@ const rutas: [string, RegExp, Ruta][] = [
   // WhatsApp (plan v35): configurar, el estado, desvincular y una prueba.
   ['GET', /^\/api\/whatsapp$/, async () => (await import('./whatsapp.ts')).estadoWhatsapp(db)],
   ['POST', /^\/api\/whatsapp\/config$/, async (b) => (await import('./whatsapp.ts')).configurarWhatsapp(db, { numeroId: b.numeroId, token: b.token, secreto: b.secreto })],
-  ['POST', /^\/api\/whatsapp\/suscribir$/, async () => (await import('./whatsapp.ts')).suscribirApp(db)],
+  ['POST', /^\/api\/whatsapp\/suscribir$/, async (b) => (await import('./whatsapp.ts')).suscribirApp(db, b.cuentaId)],
   ['POST', /^\/api\/whatsapp\/desvincular$/, async () => (await import('./whatsapp.ts')).desvincularWhatsapp(db)],
   ['POST', /^\/api\/whatsapp\/probar$/, async () => {
     const wa = await import('./whatsapp.ts')

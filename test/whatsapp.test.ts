@@ -112,3 +112,19 @@ test('WhatsApp: suscribir la cuenta a la app sale del token (debug_token → sub
   assert.deepEqual(pedidos, ['GET debug_token', 'POST 555/subscribed_apps', 'GET 555/subscribed_apps'])
   assert.match(wa.estadoWhatsapp(db).diag!.que, /suscripta a la app/)
 })
+
+test('WhatsApp: si el token no dice la cuenta, se suscribe con el ID que él pega (y queda guardado)', async () => {
+  const wa = await import('../src/whatsapp.ts')
+  const db = abrir(':memory:')
+  wa.configurarWhatsapp(db, { numeroId: '1234567', token: 'EAA'.padEnd(40, 'x'), secreto: 'a'.repeat(32) })
+  const pedidos: string[] = []
+  wa._probarWhatsapp((async (url: string, init?: RequestInit) => {
+    pedidos.push(`${init?.method ?? 'GET'} ${String(url).replace(/^https:\/\/graph\.facebook\.com\/v[\d.]+\//, '').replace(/\?.*/, '')}`)
+    if (String(url).includes('debug_token')) return Response.json({ data: { granular_scopes: [{ scope: 'whatsapp_business_messaging' }] } })
+    return Response.json(init?.method === 'POST' ? { success: true } : { data: [] })
+  }) as typeof fetch)
+  await assert.rejects(wa.suscribirApp(db), /^Error: FALTA_CUENTA/)
+  assert.deepEqual((await wa.suscribirApp(db, ' 1926 4925 ')).cuentas, ['19264925'])
+  assert.deepEqual((await wa.suscribirApp(db)).cuentas, ['19264925'], 'la segunda vez, la guardada')
+  assert.ok(pedidos.includes('POST 19264925/subscribed_apps'))
+})

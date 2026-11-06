@@ -171,7 +171,19 @@ function pintarWhatsappPerfil(w) {
   $$('[data-copiar-de]', cont).forEach((b) => (b.onclick = async () => { try { await navigator.clipboard.writeText($(`#${b.dataset.copiarDe}`).textContent); toast('Copiado', 'suave') } catch (e) { error(e) } }))
   const f = $('#wa-config')
   if (f) f.onsubmit = async (ev) => { ev.preventDefault(); try { await api('/whatsapp/config', Object.fromEntries(new FormData(f))); toast('WhatsApp configurado<small>Ahora el webhook en Meta y el código desde tu teléfono.</small>'); refrescar() } catch (e) { error(e) } }
-  if ($('#wa-suscribir')) $('#wa-suscribir').onclick = async () => { try { const r = await api('/whatsapp/suscribir', {}); toast(`Suscripta<small>${esc(r.apps.join(', ') || 'listo')}: mandá el código de nuevo.</small>`, 'suave'); refrescar() } catch (e) { error(e) } }
+  if ($('#wa-suscribir')) $('#wa-suscribir').onclick = async () => {
+    const ir = (cuentaId) => api('/whatsapp/suscribir', { cuentaId })
+    try {
+      let r
+      try { r = await ir() } catch (e) {
+        if (!String(e.message ?? e).startsWith('FALTA_CUENTA')) throw e
+        const id = await preguntar('El ID de tu cuenta de WhatsApp: el «Identificador de la cuenta de mensajes» (en Meta, Paso 1. Probar, al lado del número de test).', '', { ok: 'Suscribir', placeholder: '1926…' })
+        if (!id) return
+        r = await ir(id)
+      }
+      toast(`Suscripta<small>${esc(r.apps.join(', ') || 'listo')}: mandá el código de nuevo.</small>`, 'suave'); refrescar()
+    } catch (e) { error(e) }
+  }
   if ($('#wa-probar')) $('#wa-probar').onclick = async () => { try { await api('/whatsapp/probar', {}); toast('Mandada<small>Fijate tu WhatsApp.</small>', 'suave') } catch (e) { error(e) } }
   if ($('#wa-desvincular')) $('#wa-desvincular').onclick = async () => { if (!(await confirmar('¿Desvincular tu número? Mastropiero deja de atenderte por WhatsApp hasta que mandes el código nuevo.', { si: 'Desvincular', peligro: true }))) return; try { await api('/whatsapp/desvincular', {}); refrescar() } catch (e) { error(e) } }
 }
