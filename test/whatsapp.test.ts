@@ -95,3 +95,20 @@ test('WhatsApp: el perfil dice qué fue lo último que llegó de Meta (para ver 
   assert.match(wa.estadoWhatsapp(db).diag!.que, /no es el código/)
   assert.throws(() => wa.configurarWhatsapp(db, { numeroId: '1234567', token: 'EAA'.padEnd(40, 'x'), secreto: 'EAA'.padEnd(40, 'y') }), /pegaste un token/)
 })
+
+test('WhatsApp: suscribir la cuenta a la app sale del token (debug_token → subscribed_apps)', async () => {
+  const wa = await import('../src/whatsapp.ts')
+  const db = abrir(':memory:')
+  wa.configurarWhatsapp(db, { numeroId: '1234567', token: 'EAA'.padEnd(40, 'x'), secreto: 'a'.repeat(32) })
+  const pedidos: string[] = []
+  wa._probarWhatsapp((async (url: string, init?: RequestInit) => {
+    pedidos.push(`${init?.method ?? 'GET'} ${String(url).replace(/^https:\/\/graph\.facebook\.com\/v[\d.]+\//, '').replace(/\?.*/, '')}`)
+    if (String(url).includes('debug_token')) return Response.json({ data: { granular_scopes: [{ scope: 'whatsapp_business_messaging', target_ids: ['555'] }, { scope: 'whatsapp_business_management', target_ids: ['555'] }] } })
+    if (init?.method === 'POST') return Response.json({ success: true })
+    return Response.json({ data: [{ whatsapp_business_api_data: { name: 'Mastropiero' } }] })
+  }) as typeof fetch)
+  const r = await wa.suscribirApp(db)
+  assert.deepEqual(r, { cuentas: ['555'], apps: ['Mastropiero'] })
+  assert.deepEqual(pedidos, ['GET debug_token', 'POST 555/subscribed_apps', 'GET 555/subscribed_apps'])
+  assert.match(wa.estadoWhatsapp(db).diag!.que, /suscripta a la app/)
+})

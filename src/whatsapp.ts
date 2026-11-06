@@ -103,6 +103,28 @@ async function graph(db: Db, ruta: string, init: RequestInit = {}) {
   return j
 }
 
+/**
+ * Suscribe la cuenta de WhatsApp a la app. Sin esto, Meta verifica el webhook y manda las pruebas del panel, pero NO los
+ * mensajes reales (y el panel no lo muestra). Las cuentas salen del token: `debug_token` dice a qué cuentas de WhatsApp
+ * tiene acceso (granular_scopes). Devuelve qué quedó suscripto.
+ */
+export async function suscribirApp(db: Db): Promise<{ cuentas: string[]; apps: string[] }> {
+  const c = cfg(db)
+  if (!c.token) throw new Error('Falta configurar WhatsApp')
+  const dbg = await graph(db, `debug_token?input_token=${encodeURIComponent(c.token)}`)
+  const scopes = (dbg?.data?.granular_scopes ?? []) as { scope: string; target_ids?: string[] }[]
+  const cuentas = [...new Set(scopes.filter((s) => s.scope.startsWith('whatsapp_business')).flatMap((s) => s.target_ids ?? []))]
+  if (!cuentas.length) throw new Error('El token no tiene acceso a ninguna cuenta de WhatsApp: en el usuario del sistema, asignale la cuenta de WhatsApp y generá el token de nuevo.')
+  const apps: string[] = []
+  for (const id of cuentas) {
+    await graph(db, `${id}/subscribed_apps`, { method: 'POST', body: '{}' })
+    const r = await graph(db, `${id}/subscribed_apps`)
+    for (const a of r?.data ?? []) apps.push(String(a?.whatsapp_business_api_data?.name ?? a?.name ?? a?.id ?? '?'))
+  }
+  anotarWhatsapp(db, `Cuenta de WhatsApp suscripta a la app (${apps.join(', ') || 'sin nombre'}): ahora sí llegan los mensajes reales`)
+  return { cuentas, apps }
+}
+
 /** El formato de WhatsApp: *negrita*, _cursiva_, sin encabezados de Markdown. */
 export function aWhatsapp(t: string): string {
   return t
