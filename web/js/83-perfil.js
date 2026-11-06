@@ -163,7 +163,9 @@ function pintarWhatsappPerfil(w) {
         <div class="fila"><button class="btn btn-chico" id="wa-probar">Mandar una prueba</button><button class="btn btn-chico btn-peligro" id="wa-desvincular">Desvincular</button></div>${webhookInfo}${formulario(false)}`
     }
   }
-  cont.innerHTML = `<div class="perfil-tarjeta"><h3>💬 WhatsApp</h3>${cuerpo}</div>`
+  // Lo último que pasó con Meta: si no contesta, acá se ve por qué (no llega nada, la firma no cierra, falla la respuesta).
+  const diag = w?.configurado ? `<p class="tenue chico perfil-diag">Último aviso de Meta: ${w.diag ? `${esc(w.diag.que)} · ${new Date(w.diag.en).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : 'ninguno todavía (Meta no mandó nada a Deprocast)'}</p>` : ''
+  cont.innerHTML = `<div class="perfil-tarjeta"><h3>💬 WhatsApp</h3>${cuerpo}${diag}</div>`
   const refrescar = async () => pintarWhatsappPerfil(await api('/whatsapp').catch(() => null))
   $$('[data-copiar-de]', cont).forEach((b) => (b.onclick = async () => { try { await navigator.clipboard.writeText($(`#${b.dataset.copiarDe}`).textContent); toast('Copiado', 'suave') } catch (e) { error(e) } }))
   const f = $('#wa-config')

@@ -33,6 +33,10 @@ const cfg = (db: Db) => ({
   suyo: ajuste(db, 'whatsapp_wa_id') ?? '',
   codigo: ajuste(db, 'whatsapp_codigo') ?? '',
 })
+/** Lo último que pasó con Meta (para ver en el perfil por qué no contesta): cuándo y qué. */
+export function anotarWhatsapp(db: Db, que: string, ahora = Date.now()) { fijarAjuste(db, 'whatsapp_diag', JSON.stringify({ en: ahora, que: que.slice(0, 300) })) }
+const diag = (db: Db): { en: number; que: string } | null => { try { return JSON.parse(ajuste(db, 'whatsapp_diag') ?? 'null') } catch { return null } }
+
 export const whatsappConfigurado = (db: Db) => { const c = cfg(db); return !!(c.numeroId && c.token && c.secreto) }
 
 export function estadoWhatsapp(db: Db) {
@@ -46,6 +50,7 @@ export function estadoWhatsapp(db: Db) {
     codigo: c.suyo ? null : c.codigo || null,
     ultimoMensaje: ultimo,
     ventanaAbierta: !!ultimo && Date.now() - ultimo < VENTANA,
+    diag: diag(db),
   }
 }
 
@@ -202,10 +207,15 @@ const colas = new Map<string, Promise<unknown>>()
 export async function recibirWebhook(db: Db, cuerpo: any, ahora = Date.now()): Promise<number> {
   let n = 0
   const tareas: Promise<unknown>[] = []
+  const cuantos = (cuerpo?.entry ?? []).flatMap((e: any) => (e.changes ?? []).flatMap((ch: any) => ch.value?.messages ?? [])).length
+  const estados = (cuerpo?.entry ?? []).flatMap((e: any) => (e.changes ?? []).flatMap((ch: any) => ch.value?.statuses ?? []))
+  const fallido = estados.find((s: any) => s.status === 'failed')
+  if (cuantos) anotarWhatsapp(db, `Llegó de Meta: ${cuantos} mensaje${cuantos === 1 ? '' : 's'}${cfg(db).suyo ? '' : ' (esperando el código)'}`, ahora)
+  else if (fallido) anotarWhatsapp(db, `Meta no pudo entregar un mensaje de Mastropiero: ${fallido.errors?.[0]?.title ?? fallido.errors?.[0]?.message ?? 'sin detalle'}`, ahora)
   for (const e of cuerpo?.entry ?? []) {
     for (const ch of e.changes ?? []) {
       const v = ch.value ?? {}
-      if (v.metadata?.phone_number_id && v.metadata.phone_number_id !== cfg(db).numeroId) continue // otro número
+      if (v.metadata?.phone_number_id && v.metadata.phone_number_id !== cfg(db).numeroId) { anotarWhatsapp(db, `Llegó un mensaje para otro número (ID ${v.metadata.phone_number_id}); el configurado es ${cfg(db).numeroId}`, ahora); continue } // otro número
       for (const m of v.messages ?? []) {
         // Meta reintenta: cada mensaje, una sola vez.
         if (db.prepare('INSERT OR IGNORE INTO whatsapp_vistos (id, en) VALUES (?, ?)').run(String(m.id), ahora).changes === 0) continue
@@ -213,11 +223,13 @@ export async function recibirWebhook(db: Db, cuerpo: any, ahora = Date.now()): P
         const c = cfg(db)
         if (!c.suyo) {
           // Sin vincular: solo el código de su perfil lo vincula. A los demás, nada.
+          if (!(m.type === 'text' && c.codigo && m.text?.body?.replace(/\D/g, '').includes(c.codigo))) anotarWhatsapp(db, `Llegó «${String(m.text?.body ?? m.type).slice(0, 40)}» de +${de}, pero no es el código de vinculación`, ahora)
           if (m.type === 'text' && c.codigo && m.text?.body?.replace(/\D/g, '').includes(c.codigo)) {
             fijarAjuste(db, 'whatsapp_wa_id', de)
             fijarAjuste(db, 'whatsapp_codigo', '')
             fijarAjuste(db, 'whatsapp_ultimo_entrante', String(ahora))
-            tareas.push(mandarTexto(db, de, '☿ Listo, quedamos vinculados. Escribime, mandame audios o fotos como en Telegram: soy Mastropiero.').catch((e2) => console.error('  whatsapp:', e2 instanceof Error ? e2.message : e2)))
+            anotarWhatsapp(db, `Vinculado con +${de}`, ahora)
+            tareas.push(mandarTexto(db, de, '☿ Listo, quedamos vinculados. Escribime, mandame audios o fotos como en Telegram: soy Mastropiero.').catch((e2) => { anotarWhatsapp(db, `Vinculado, pero no pude contestar: ${e2 instanceof Error ? e2.message : e2}`); console.error('  whatsapp:', e2 instanceof Error ? e2.message : e2) }))
             n++
           }
           continue

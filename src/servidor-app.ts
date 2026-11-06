@@ -1724,7 +1724,11 @@ const servidor = http.createServer(async (req, res) => {
     }
     if (req.method !== 'POST') return void res.writeHead(405).end()
     const cuerpo = await leerCrudo(req, 5 * 1024 * 1024)
-    if (!wa.firmaValida(db, cuerpo, String(req.headers['x-hub-signature-256'] ?? ''))) return void res.writeHead(401, { 'content-type': 'text/plain' }).end('firma')
+    if (!wa.firmaValida(db, cuerpo, String(req.headers['x-hub-signature-256'] ?? ''))) {
+      // Si Meta llega con una firma que no cierra, casi siempre es la clave secreta equivocada: que se vea en el perfil.
+      if (req.headers['x-hub-signature-256']) wa.anotarWhatsapp(db, 'Llegó un aviso de Meta con una firma que no coincide: la «Clave secreta de la app» guardada no es la de esta app')
+      return void res.writeHead(401, { 'content-type': 'text/plain' }).end('firma')
+    }
     // Meta quiere el 200 enseguida (si no, reintenta): lo demás se atiende de fondo.
     res.writeHead(200, { 'content-type': 'text/plain' }).end('ok')
     let datos: unknown = null

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import crypto from 'node:crypto'
-import { describe, it } from 'node:test'
+import { describe, it, test } from 'node:test'
 import { abrir, ajuste } from '../src/db.ts'
 import { _probarWhatsapp, aTelegram, aWhatsapp, configurarWhatsapp, decirPorWhatsapp, estadoWhatsapp, firmaValida, recibirWebhook, verificarWebhook } from '../src/whatsapp.ts'
 
@@ -81,4 +81,17 @@ describe('WhatsApp (plan v35, fase 4)', () => {
     assert.equal(aTelegram({ type: 'sticker' }), null)
     assert.equal(aWhatsapp('## Hoy\n**Ojo** con [esto](https://x.com)'), '*Hoy*\n*Ojo* con esto (https://x.com)')
   })
+})
+
+test('WhatsApp: el perfil dice qué fue lo último que llegó de Meta (para ver por qué no contesta)', async () => {
+  const { abrir } = await import('../src/db.ts')
+  const wa = await import('../src/whatsapp.ts')
+  const db = abrir(':memory:')
+  wa.configurarWhatsapp(db, { numeroId: '1234567', token: 'EAA'.padEnd(40, 'x'), secreto: 'a'.repeat(32) })
+  assert.equal(wa.estadoWhatsapp(db).diag, null)
+  await wa.recibirWebhook(db, { entry: [{ changes: [{ value: { metadata: { phone_number_id: '999' }, messages: [{ id: 'm1', from: '34600', type: 'text', text: { body: 'hola' } }] } }] }] })
+  assert.match(wa.estadoWhatsapp(db).diag!.que, /otro número \(ID 999\)/)
+  await wa.recibirWebhook(db, { entry: [{ changes: [{ value: { metadata: { phone_number_id: '1234567' }, messages: [{ id: 'm2', from: '34600', type: 'text', text: { body: 'hola' } }] } }] }] })
+  assert.match(wa.estadoWhatsapp(db).diag!.que, /no es el código/)
+  assert.throws(() => wa.configurarWhatsapp(db, { numeroId: '1234567', token: 'EAA'.padEnd(40, 'x'), secreto: 'EAA'.padEnd(40, 'y') }), /pegaste un token/)
 })
