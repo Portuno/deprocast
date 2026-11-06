@@ -3220,3 +3220,13 @@ span.ej-chip { cursor: default; }
   .c72-mapa { grid-template-columns: repeat(12, 1fr); }
   .c72-par { grid-template-columns: 1fr; }
 }
+
+/* La criba de quántomos (1–12 con el teclado) */
+.q-votos { display: none; flex-wrap: wrap; gap: var(--e-1); margin: var(--e-2) 0 var(--e-1); }
+.quantomo.q-activo { outline: 2px solid var(--acento); outline-offset: 2px; }
+.quantomo.q-activo .q-votos { display: flex; }
+.q-votos .btn { min-width: 32px; padding-left: var(--e-2); padding-right: var(--e-2); font-family: var(--mono); }
+.quantomo.q-hecho { opacity: .55; }
+.quantomo.q-descartado .q-texto { text-decoration: line-through; }
+.quantomo.q-hecho .q-votos { display: none; }
+.q-ayuda kbd { font: var(--t-1) var(--mono); padding: 0 4px; border: 1px solid var(--linea-2); border-radius: var(--r-s); background: var(--panel-2); }

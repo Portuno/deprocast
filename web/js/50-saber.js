@@ -188,6 +188,7 @@ async function modalPieza(id) {
       ${p.etiquetas.length ? `<div class="tags my-2">${p.etiquetas.map((t) => `<span>${esc(t)}</span>`).join('')}</div>` : ''}
       <div class="respuesta" style="max-height:42vh;overflow:auto;margin-top:12px">${esc(p.contenido)}</div>
       <h3 class="sub">Quántomos de esta pieza (${quantomos.length})</h3>
+      ${quantomos.some((q) => q.etapa === 'proto' || q.etapa === 'propuesta') ? '<p class="tenue chico q-ayuda">Cribalos con el teclado: <kbd>1</kbd>–<kbd>9</kbd>, <kbd>0</kbd> = 10, <kbd>q</kbd> = 11, <kbd>w</kbd> = 12 · <kbd>x</kbd> descarta · <kbd>↑</kbd> <kbd>↓</kbd> para moverte. Pasa sola a la siguiente.</p>' : ''}
       ${quantomos.length ? `<div class="q-lista">${quantomos.map(quantomoHTML).join('')}</div>` : '<p class="tenue">Ninguno. Si pasa por la pipeline, el extractor propone proto-quántomos.</p>'}
       ${meta.length ? `<h3 class="sub">Metadatos</h3><pre class="json">${esc(JSON.stringify(Object.fromEntries(meta), null, 2))}</pre>` : ''}`, { lado: true })
     engancharQuantomos($('#modal'), () => modalPieza(id))
@@ -474,6 +475,7 @@ function quantomoHTML(q) {
       ${q.l72 ? `<span class="tipo-chip" title="sello L72 de la 0.7.1">L72</span>` : ''}${q.novedad ? `<span class="q-nov ${q.novedad}" title="${q.novedadSim != null ? `parecido ${Math.round(q.novedadSim * 100)} %` : 'nada parecido antes'}">${q.novedad === 'nueva' ? '✦ nueva' : `${q.novedad === 'repetida' ? '↻ repetida' : '≈ variación'} de #${q.novedadDe}`}</span>` : ''}<span class="tenue">#${q.id}${q.procedencia ? ` · ${esc(q.procedencia.slice(0, 60))}` : ''}</span></div>
     <div class="q-texto">${esc(q.texto)}</div>
     ${haiku ? `<div class="q-haiku">${haiku.versos.map(esc).join(' / ')}</div>` : ''}
+    ${q.etapa === 'proto' || q.etapa === 'propuesta' ? `<div class="q-votos" aria-label="Sellar con un peso">${Array.from({ length: 12 }, (_, i) => `<button class="btn btn-chico" data-sellar="${q.id}" data-peso="${i + 1}" title="Tecla ${TECLA_DE_PESO[i + 1]}">${i + 1}</button>`).join('')}<button class="btn btn-chico" data-descartar="${q.id}" title="Tecla x">✕</button></div>` : ''}
     <div class="q-acciones">${pesoHTML(q)}
       ${q.etapa === 'sellado' ? `<button class="btn btn-chico" data-mejorar="${q.id}">✦ Pedir mejora</button>` : ''}
       ${q.etapa === 'propuesta' ? `<button class="btn btn-chico btn-primario" data-aceptar="${q.id}">Aceptar</button>` : ''}
@@ -489,14 +491,9 @@ function engancharQuantomos(raiz, luego) {
     e.stopPropagation()
     try { await f(e.currentTarget); await refrescar(); luego() } catch (err) { error(err) }
   }
-  $$('[data-sellar]', raiz).forEach((b) => (b.onclick = hacer(async (el) => {
-    const q = qLista.quantomos.find((x) => x.id === Number(el.dataset.sellar))
-    const ruta = q?.etapa === 'propuesta' ? 'aceptar' : 'sellar'
-    await api(`/quantomos/${el.dataset.sellar}/${ruta}`, { peso: Number(el.dataset.peso) })
-    toast(`⚛ Quántomo #${el.dataset.sellar} sellado con peso ${el.dataset.peso}`, 'suave')
-  })))
+  $$('[data-sellar]', raiz).forEach((b) => (b.onclick = (e) => { e.stopPropagation(); cribarQ(b.closest('.quantomo'), Number(b.dataset.peso)) }))
   $$('[data-aceptar]', raiz).forEach((b) => (b.onclick = hacer(async (el) => { await api(`/quantomos/${el.dataset.aceptar}/aceptar`, {}); toast('Propuesta aceptada: la versión anterior queda en el linaje', 'suave') })))
-  $$('[data-descartar]', raiz).forEach((b) => (b.onclick = hacer(async (el) => api(`/quantomos/${el.dataset.descartar}/descartar`, {}))))
+  $$('[data-descartar]', raiz).forEach((b) => (b.onclick = (e) => { e.stopPropagation(); cribarQ(b.closest('.quantomo'), 0) }))
   $$('[data-mejorar]', raiz).forEach((b) => (b.onclick = hacer(async (el) => {
     const instruccion = await preguntar('¿Qué mejorar? (opcional: más corto, más preciso, sin jerga…)', '', { ok: 'Pedir la mejora' })
     if (instruccion === null) return
@@ -505,7 +502,79 @@ function engancharQuantomos(raiz, luego) {
   })))
   $$('[data-ver-pieza]', raiz).forEach((b) => (b.onclick = (e) => { e.stopPropagation(); modalPieza(Number(b.dataset.verPieza)) }))
   $$('[data-linaje]', raiz).forEach((b) => (b.onclick = (e) => { e.stopPropagation(); modalLinaje(Number(b.dataset.linaje)) }))
+  // La criba: la primera por cribar queda activa; tocar una carta la activa.
+  $$('.quantomo', raiz).forEach((c) => c.addEventListener('click', (e) => { if (!e.target.closest('button, a') && esCribable(c)) activarQ(c) }))
+  activarQ($$('.quantomo', raiz).find(esCribable) ?? null)
 }
+
+// ─── la criba de quántomos (como La Mano: 1–12 con el teclado y a otra cosa) ──
+
+const TECLAS_Q = { '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '0': 10, q: 11, w: 12 }
+const TECLA_DE_PESO = { 1: '1', 2: '2', 3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9', 10: '0', 11: 'q', 12: 'w' }
+const esCribable = (c) => !!c?.isConnected && (c.dataset.madurez === 'proto' || c.dataset.madurez === 'pesado') && !c.classList.contains('q-hecho')
+let qCribados = 0
+let qAlTerminar = null
+
+function activarQ(c) {
+  $$('.quantomo.q-activo').forEach((x) => x.classList.remove('q-activo'))
+  if (!c) return
+  c.classList.add('q-activo')
+  c.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+}
+
+/** Sella (peso 1–12) o descarta (0) la carta, en el lugar: el pedido va de fondo y pasa a la siguiente por cribar. */
+function cribarQ(c, peso) {
+  if (!esCribable(c)) return
+  const id = Number(c.dataset.q)
+  const ruta = peso === 0 ? 'descartar' : c.dataset.madurez === 'pesado' ? 'aceptar' : 'sellar'
+  c.classList.add('q-hecho', peso === 0 ? 'q-descartado' : 'q-sellado-ya')
+  const pill = c.querySelector('.q-top .pill')
+  if (pill) pill.textContent = peso === 0 ? 'descartado' : `sellado · ${peso}`
+  $$('.peso12 i', c).forEach((i, k) => i.classList.toggle('on', k < peso))
+  const b = c.querySelector('.peso12 b')
+  if (b) b.textContent = peso || '—'
+  const lista = c.parentElement
+  const siguientes = $$('.quantomo', lista)
+  const desde = siguientes.indexOf(c)
+  activarQ([...siguientes.slice(desde + 1), ...siguientes.slice(0, desde)].find(esCribable) ?? null)
+  qCribados++
+  api(`/quantomos/${id}/${ruta}`, peso === 0 ? {} : { peso }).catch((e) => {
+    error(e)
+    c.classList.remove('q-hecho', 'q-descartado', 'q-sellado-ya')
+  })
+  // Al terminar la tanda (o tras una pausa), un solo refresco y el resumen.
+  clearTimeout(qAlTerminar)
+  const quedan = $$('.quantomo', lista).filter(esCribable).length
+  qAlTerminar = setTimeout(() => {
+    if (!quedan) toast(`⚛ Criba lista: ${qCribados} quántomo${qCribados === 1 ? '' : 's'}`, 'suave')
+    qCribados = 0
+    refrescar().catch(() => {})
+  }, quedan ? 4000 : 600)
+}
+
+function moverQ(d) {
+  const a = $('.quantomo.q-activo')
+  if (!a) return
+  const cs = $$('.quantomo', a.parentElement).filter(esCribable)
+  const i = cs.indexOf(a)
+  if (cs.length) activarQ(cs[(i + d + cs.length) % cs.length])
+}
+
+// En captura: le gana a los atajos generales (la barra espaciadora, la paleta) mientras haya una carta activa a la vista.
+document.addEventListener('keydown', (e) => {
+  const a = $('.quantomo.q-activo')
+  if (!a?.isConnected || e.ctrlKey || e.metaKey || e.altKey || /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName ?? '') || document.querySelector('.dialogo-velo')) return
+  const enModal = !$('#velo').hidden
+  if (enModal !== !!a.closest('#modal')) return
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key
+  let hecho = true
+  if (k in TECLAS_Q) cribarQ(a, TECLAS_Q[k])
+  else if (k === 'x' || k === 'Backspace' || k === 'Delete') cribarQ(a, 0)
+  else if (k === 'ArrowDown' || k === 'j' || k === 'ArrowRight') moverQ(1)
+  else if (k === 'ArrowUp' || k === 'k' || k === 'ArrowLeft') moverQ(-1)
+  else hecho = false
+  if (hecho) { e.preventDefault(); e.stopPropagation() }
+}, true)
 
 async function modalLinaje(id) {
   try {
