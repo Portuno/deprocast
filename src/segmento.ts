@@ -181,6 +181,58 @@ export function exportarSegmento(db: Db, esquema: Esquema, ahora = Date.now()) {
   }
 }
 
+export type FormatoExportacion = 'json' | 'md' | 'txt'
+
+/**
+ * El mismo segmento, para leer (plan v35): Markdown (para pegar en Notion, Obsidian o un chat) o texto plano. El JSON
+ * sigue siendo el que sirve para otra app o para volver a importar.
+ */
+export function segmentoComoTexto(r: ReturnType<typeof exportarSegmento>, formato: 'md' | 'txt'): string {
+  const md = formato === 'md'
+  const nombre = new Map<number, string>([...r.entidades, ...((r as any).entidades_afuera ?? [])].map((e: any) => [e.id, e.nombre]))
+  const titulos = new Map<number, string>(r.piezas.map((p: any) => [p.id, p.titulo]))
+  const h1 = (t: string) => (md ? `# ${t}` : `${t.toUpperCase()}\n${'='.repeat(Math.min(80, t.length))}`)
+  const h2 = (t: string) => (md ? `## ${t}` : `${t.toUpperCase()}\n${'-'.repeat(Math.min(80, t.length))}`)
+  const h3 = (t: string) => (md ? `### ${t}` : `» ${t}`)
+  const cursiva = (t: string) => (md ? `_${t}_` : t)
+  const nombres = (ids: number[]) => ids.map((i) => nombre.get(i) ?? `#${i}`).join(', ')
+  const partes: string[] = []
+  const elegidas = r.entidades.map((e: any) => e.nombre).slice(0, 4).join(', ')
+  partes.push(h1(`Deprocast · ${elegidas}${r.entidades.length > 4 ? '…' : ''}`))
+  const n = (x: number, uno: string, varios: string) => `${x.toLocaleString('es-AR')} ${x === 1 ? uno : varios}`
+  partes.push(cursiva(`${n(r.resumen.entidades, 'entidad', 'entidades')} · ${n(r.resumen.relaciones, 'relación', 'relaciones')} · ${n(r.resumen.quantomos, 'quántomo', 'quántomos')} · ${n(r.resumen.piezas, 'pieza', 'piezas')} · exportado el ${r.exportado_en.slice(0, 10)}`))
+
+  partes.push(h2('Entidades'))
+  for (const e of r.entidades as any[]) {
+    const lineas = [h3(`${e.nombre} (${e.tipo})`)]
+    if (e.alias?.length) lineas.push(`También: ${e.alias.join(', ')}`)
+    if (e.notas) lineas.push(e.notas)
+    if (e.relacion_personal) lineas.push(`Relación: ${[e.relacion_personal.vinculo, e.relacion_personal.cercania != null ? `cercanía ${e.relacion_personal.cercania}` : null, e.relacion_personal.ultimo_contacto ? `último contacto ${e.relacion_personal.ultimo_contacto}` : null, e.relacion_personal.notas].filter(Boolean).join(' · ')}`)
+    partes.push(lineas.join('\n'))
+  }
+
+  if (r.relaciones.length) {
+    partes.push(h2('Relaciones'))
+    partes.push(r.relaciones.map((x: any) => `- ${nombre.get(x.de) ?? `#${x.de}`} → ${nombre.get(x.a) ?? `#${x.a}`}: ${x.tipo === 'equipo' ? `equipo${x.rol ? ` (${x.rol})` : ''}` : x.tipo === 'en_textos' ? `aparecen juntos en ${x.piezas} textos` : x.relacion ?? 'conectados'}${x.nota ? ` · ${x.nota}` : ''}`).join('\n'))
+  }
+
+  if (r.quantomos.length) {
+    partes.push(h2('Quántomos'))
+    for (const q of r.quantomos as any[]) {
+      partes.push([h3(`${q.titulo ?? 'Sin título'} (${q.etapa})`), q.texto, cursiva([titulos.get(q.pieza_id) ? `De «${titulos.get(q.pieza_id)}»` : null, q.entidades?.length ? nombres(q.entidades) : null].filter(Boolean).join(' · '))].filter((x) => x && x !== '_ _').join('\n'))
+    }
+  }
+
+  if (r.piezas.length) {
+    partes.push(h2('Piezas'))
+    for (const p of r.piezas as any[]) {
+      const cab = [p.fecha, p.nivel, p.entidades?.length ? nombres(p.entidades) : null].filter(Boolean).join(' · ')
+      partes.push([h3(p.titulo || 'Sin título'), cursiva(cab), p.url ? (md ? `<${p.url}>` : p.url) : '', p.contenido ? p.contenido.trim() : p.recortada ? cursiva('(sin el texto: el segmento era muy grande)') : ''].filter(Boolean).join('\n'))
+    }
+  }
+  return `${partes.join('\n\n')}\n`
+}
+
 /** Cuánto sale con este esquema, sin armarlo entero (para decidir antes de bajar). */
 export function previa(db: Db, esquema: Esquema) {
   const r = exportarSegmento(db, { ...esquema, piezas: esquema.piezas === 'completas' ? 'referencias' : esquema.piezas })

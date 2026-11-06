@@ -68,6 +68,17 @@ test('Exportar a medida: solo las elegidas, sus relaciones (entre ellas o hacia 
   const completas = seg.exportarSegmento(db, { entidades: [proyecto], piezas: 'completas', coocurrencias: true }, T)
   assert.match(completas.piezas[0].contenido, /retórica del proyecto/)
   assert.throws(() => seg.exportarSegmento(db, { entidades: [] }), /al menos una/)
+
+  // Para leer: Markdown y texto plano, con lo mismo que el JSON.
+  const md = seg.segmentoComoTexto(r, 'md')
+  assert.match(md, /^# Deprocast · /)
+  assert.match(md, /## Entidades\n\n### /)
+  assert.match(md, /## Relaciones/)
+  assert.match(md, /## Quántomos/)
+  const txt = seg.segmentoComoTexto(completas, 'txt')
+  assert.doesNotMatch(txt, /^#/m, 'sin marcas de Markdown')
+  assert.match(txt, /ENTIDADES\n-{9}/)
+  assert.match(txt, /retórica del proyecto/, 'con el texto de las piezas completas')
 })
 
 test('Previa y esquemas guardados: se ve cuánto pesa, se guarda con nombre, se reusa y se borra', () => {

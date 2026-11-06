@@ -419,7 +419,13 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/segmento\/entidades$/, async (_, __, q) => (await import('./segmento.ts')).buscarEntidades(db, { q: q.get('q') ?? '', tipo: q.get('tipo') || undefined })],
   ['POST', /^\/api\/segmento\/vecindario$/, async (b) => (await import('./segmento.ts')).vecindario(db, Array.isArray(b.ids) ? b.ids : [])],
   ['POST', /^\/api\/segmento\/previa$/, async (b) => (await import('./segmento.ts')).previa(db, b.esquema ?? {})],
-  ['POST', /^\/api\/segmento\/exportar$/, async (b) => { const s = await import('./segmento.ts'); if (b.esquemaId) s.usarEsquema(db, Number(b.esquemaId)); return s.exportarSegmento(db, b.esquema ?? {}) }],
+  ['POST', /^\/api\/segmento\/exportar$/, async (b) => {
+    const s = await import('./segmento.ts')
+    if (b.esquemaId) s.usarEsquema(db, Number(b.esquemaId))
+    const r = s.exportarSegmento(db, b.esquema ?? {})
+    // En Markdown o texto plano (para leer); sin formato, el JSON de siempre.
+    return b.formato === 'md' || b.formato === 'txt' ? { formato: b.formato, resumen: r.resumen, texto: s.segmentoComoTexto(r, b.formato) } : r
+  }],
   ['GET', /^\/api\/segmento\/esquemas$/, async () => (await import('./segmento.ts')).listarEsquemas(db)],
   ['POST', /^\/api\/segmento\/esquemas$/, async (b) => (await import('./segmento.ts')).guardarEsquema(db, b.esquema ?? {})],
   ['POST', /^\/api\/segmento\/esquemas\/(\d+)\/borrar$/, async (_, [e]) => { (await import('./segmento.ts')).borrarEsquema(db, id(e)); return { ok: true } }],

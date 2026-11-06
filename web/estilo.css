@@ -3114,3 +3114,9 @@ span.ej-chip { cursor: default; }
 
 /* YouTube por dominio (plan v34, #46) */
 .yt-sub { margin: var(--e-3) 0 var(--e-1); font-size: var(--t-4); }
+
+/* Exportar a medida: el formato */
+.seg-formatos { display: grid; gap: var(--e-2); grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.seg-formato { display: grid; grid-template-columns: auto 1fr; gap: 2px var(--e-2); align-items: center; padding: var(--e-3); border: 1px solid var(--linea); border-radius: var(--r-m); cursor: pointer; background: var(--panel); }
+.seg-formato small { grid-column: 2; }
+.seg-formato:has(input:checked) { border-color: var(--acento); box-shadow: inset 0 0 0 1px var(--acento); }

@@ -3,13 +3,16 @@
 // 1. Elegir las entidades de partida (proyectos, personas, conceptos…), o usar un esquema guardado.
 // 2. Ver sus vinculaciones (conexiones, equipo, lo que aparece junto en tus textos) y sumar las que quieras.
 // 3. Qué viaja: relaciones, quántomos por etapa, piezas, notas y la relación personal, con la previa de cuánto pesa.
-// 4. Bajar el JSON (y guardar el esquema con un nombre para volver a correrlo con los datos del día).
+// 4. Bajar en JSON, Markdown o texto plano (y guardar el esquema con un nombre para volver a correrlo con los datos del día).
+
+/** Los formatos de la exportación a medida: el JSON (para otra app o volver a importar), Markdown y texto plano (para leer). */
+const FORMATOS_SEG = [['json', 'JSON', 'para otra app, o para volver a importarlo'], ['md', 'Markdown', 'para leer, o pegar en Notion, Obsidian o un chat'], ['txt', 'Texto plano', 'para leer en cualquier lado']]
 
 const TIPOS_SEG = [['', 'Todas'], ['proyecto', 'Proyectos'], ['persona', 'Personas'], ['agrupacion', 'Agrupaciones'], ['concepto', 'Conceptos'], ['dominio', 'Dominios'], ['lugar', 'Lugares']]
 const POR_SEG = { conexion: 'Conexiones que anotaste', equipo: 'Equipo (persona ↔ proyecto)', textos: 'Aparecen juntas en tus textos' }
 const ETAPAS_SEG = [['sellado', 'Sellados'], ['proto', 'Proto'], ['propuesta', 'Propuestas'], ['superado', 'Superados'], ['descartado', 'Descartados']]
 const OPC_SEG = () => ({ relaciones: 'entre', coocurrencias: false, quantomos: ['sellado', 'proto'], piezas: 'referencias', notas: true, relacionPersonal: false })
-const seg = { paso: 1, elegidas: new Map(), q: '', tipo: '', vinculos: [], sumadas: new Set(), opc: OPC_SEG(), nombre: '', esquemaId: null, esquemas: [] }
+const seg = { paso: 1, elegidas: new Map(), q: '', tipo: '', vinculos: [], sumadas: new Set(), opc: OPC_SEG(), nombre: '', esquemaId: null, esquemas: [], formato: 'json' }
 let segBusqueda = null
 let segPrevia = null
 
@@ -192,7 +195,10 @@ function pasoBajarSeg(c) {
   c.innerHTML = `<section class="seccion"><div class="seg-previa" id="seg-previa"><span class="tenue">Calculando…</span></div></section>
     <section class="seccion"><h3 class="sub">Guardar el esquema <small class="tenue">opcional: para volver a correrlo con los datos del día</small></h3>
       <div class="fila"><input class="campo-suelto f1" id="seg-nombre" placeholder="Ej.: El proyecto y su gente" value="${esc(seg.nombre)}"><button class="btn" id="seg-guardar">Guardar</button></div></section>
-    <div class="seg-nav"><button class="btn" id="seg-atras">← Atrás</button><span></span><button class="btn btn-primario" id="seg-bajar">⇩ Bajar el JSON</button></div>`
+    <section class="seccion"><h3 class="sub">Formato</h3>
+      <div class="seg-formatos" role="radiogroup" aria-label="Formato">${FORMATOS_SEG.map(([f, n, d]) => `<label class="seg-formato"><input type="radio" name="seg-formato" value="${f}" ${f === seg.formato ? 'checked' : ''}><b>${n}</b><small class="tenue">${d}</small></label>`).join('')}</div></section>
+    <div class="seg-nav"><button class="btn" id="seg-atras">← Atrás</button><span></span><button class="btn btn-primario" id="seg-bajar">⇩ Bajar</button></div>`
+  $$('[name="seg-formato"]').forEach((r) => (r.onchange = () => { seg.formato = r.value }))
   $('#seg-nombre').oninput = (e) => { seg.nombre = e.target.value }
   $('#seg-atras').onclick = () => { seg.paso = 3; pintarSegmento() }
   $('#seg-guardar').onclick = async () => {
@@ -203,17 +209,19 @@ function pasoBajarSeg(c) {
     b.disabled = true
     b.textContent = 'Armando…'
     try {
-      const r = await api('/segmento/exportar', { esquema: esquemaSeg(), esquemaId: seg.esquemaId })
+      const formato = seg.formato || 'json'
+      const r = await api('/segmento/exportar', { esquema: esquemaSeg(), esquemaId: seg.esquemaId, formato })
       const nombre = (seg.nombre || [...seg.elegidas.values()].map((e) => e.nombre).slice(0, 2).join('-') || 'segmento').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase().slice(0, 50)
       const a = document.createElement('a')
-      a.href = URL.createObjectURL(new Blob([JSON.stringify(r, null, 2)], { type: 'application/json' }))
-      a.download = `deprocast-${nombre}-${new Date().toISOString().slice(0, 10)}.json`
+      const [contenido, tipo] = formato === 'json' ? [JSON.stringify(r, null, 2), 'application/json'] : [r.texto, formato === 'md' ? 'text/markdown' : 'text/plain']
+      a.href = URL.createObjectURL(new Blob([contenido], { type: `${tipo};charset=utf-8` }))
+      a.download = `deprocast-${nombre}-${new Date().toISOString().slice(0, 10)}.${formato}`
       document.body.append(a)
       a.click()
       a.remove()
       setTimeout(() => URL.revokeObjectURL(a.href), 5000)
       toast(`⇩ Exportado<small>${r.resumen.entidades} entidades · ${r.resumen.relaciones} relaciones · ${r.resumen.quantomos} quántomos · ${r.resumen.piezas} piezas</small>`, 'suave')
-    } catch (e) { error(e) } finally { b.disabled = false; b.textContent = '⇩ Bajar el JSON' }
+    } catch (e) { error(e) } finally { b.disabled = false; b.textContent = '⇩ Bajar' }
   }
   previaSeg()
 }
