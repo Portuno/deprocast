@@ -239,6 +239,37 @@ export const HERRAMIENTAS: Herramienta[] = [
     },
     resumen: (_, r) => `procesó tus anotaciones: ${r?.recuerdos ?? 0} recuerdos, ${r?.propuestas?.length ?? 0} propuestas, ${r?.quantomos ?? 0} ideas`,
   },
+  // ─── La Criba del 72 (plan v36) ───
+  {
+    nombre: 'armar_criba', familia: 'accion',
+    descripcion: 'Le arma una CRIBA DEL 72 (en Aprender → Criba del 72): 72 frases en 36 pares de polos opuestos no evidentes, que él vota del 1 al 6 por instinto, con un ancla en el 1 y otra en el 6. Usala cuando quiera explorar un tema suyo (cómo decide, su relación con algo, un proyecto, una persona) o profundizar una criba que ya votó (padre_id). Tarda un minuto: queda armándose y aparece en su lista.',
+    parametros: S({ tema: str('Sobre qué'), para: str('Qué tiene que iluminar'), ancla1: str('Qué significa el 1 (corto)'), ancla6: str('Qué significa el 6 (corto)'), en_mente: str('Lo que tiene en mente, si lo dijo'), padre_id: int('La criba que profundiza, si es una continuación') }, ['tema']),
+    ejecutar: async (a, { db }) => {
+      const c = await import('../criba72.ts')
+      c.deFondo(`armar-chat-${Date.now()}`, () => c.armarCriba(db, { tema: String(a.tema), para: a.para, ancla1: a.ancla1, ancla6: a.ancla6, enMente: a.en_mente, padreId: a.padre_id ?? null }))
+      return { armando: true, donde: 'Aprender → Criba del 72 (en un minuto aparece en la lista)' }
+    },
+    resumen: (a) => `está armando la criba «${a.tema ?? ''}»`,
+  },
+  {
+    nombre: 'ver_cribas', familia: 'lectura',
+    descripcion: 'Sus cribas del 72: cuántas votó y, con id, el detalle de una (los pares partidos, las tensiones vivas, las zonas frías, los ejes y la lectura si la hay).',
+    parametros: S({ id: int('id de una criba, para ver su detalle') }),
+    ejecutar: async (a, { db }) => {
+      const c = await import('../criba72.ts')
+      if (!a.id) return c.listarCribas(db).map((x) => ({ id: x.id, titulo: x.titulo, grupo: x.grupo, votadas: x.votadas, estado: x.estado, con_lectura: x.conLectura }))
+      const cr = c.leerCriba(db, Number(a.id))
+      if (!cr) return { error: 'No existe esa criba' }
+      const s = c.sesionVigente(db, cr.id)
+      const m = c.metricas(cr, s)
+      const par = (p: (typeof m.pares)[number]) => `${p.tension}: «${p.textoA}» ${p.va} ↔ «${p.textoB}» ${p.vb}`
+      return {
+        titulo: cr.titulo, anclas: `1 = ${cr.a1} · 6 = ${cr.a6}`, votadas: m.votadas, en_mente: s?.enMente ?? null, media: m.media,
+        partidos: m.pares.filter((p) => p.clase === 'partido').map(par), tensiones_vivas: m.pares.filter((p) => p.clase === 'tension').map(par), zonas_frias: m.pares.filter((p) => p.clase === 'fria').map(par),
+        ejes: m.ejes.map((e) => `${e.nombre}: media ${e.media?.toFixed(1) ?? '—'}`), lectura: s?.lectura ? recorte(s.lectura, 2000) : null,
+      }
+    },
+  },
   // ─── Encargos programados (plan v35, fase 7) ───
   {
     nombre: 'programar_encargo', familia: 'accion',
@@ -1985,7 +2016,7 @@ export const GRUPOS: Record<string, string[]> = {
   liga: ['crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas'],
+  vida: ['buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas'],
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado'],
   correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'buscar_contacto'],
   drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],
@@ -2002,7 +2033,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox|misi[oó]n|pista|me respondi|reuni[oó]n con/.test(t)) g.push('liga')
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|retir[aá]|pieza|historia de|mal generad|est[aá] mal|correg[ií] (la|esa|esta) (pieza|historia)|\[confirmado\]|\[inferido\]/.test(t)) g.push('corpus')
   if (/primaria|reporte|informe|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
-  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend/.test(t)) g.push('vida')
+  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend|criba/.test(t)) g.push('vida')
   if (/\bcada (lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|d[ií]a|ma[ñn]ana|noche|semana|mes|\d+ horas|hora)|todos los (d[ií]as|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bados|domingos)|todas las (ma[ñn]anas|noches)|program[aá]|encargo programado|de lunes a viernes/.test(t)) g.push('programados')
   if (/\bmails?\b|correo|gmail|bandeja|inbox|borrador|me escribi[oó]|contest(ar|[aá]le) a/.test(t)) g.push('correo')
   if (/drive|planilla|sheets?\b|hoja de c[aá]lculo|spreadsheet|excel|docs\.google/.test(t)) g.push('drive')

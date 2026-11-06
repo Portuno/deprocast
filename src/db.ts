@@ -1136,6 +1136,41 @@ CREATE TABLE IF NOT EXISTS programados (
   conversacion_id INTEGER,
   creado INTEGER NOT NULL
 );
+-- La Criba del 72 (plan v36): 72 frases en 36 pares de polos opuestos; él las vota del 1 al 6.
+CREATE TABLE IF NOT EXISTS cribas72 (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  clave TEXT UNIQUE,
+  titulo TEXT NOT NULL,
+  grupo TEXT NOT NULL DEFAULT 'tuyas',
+  ilumina TEXT,
+  consigna TEXT NOT NULL,
+  a1 TEXT NOT NULL,
+  a6 TEXT NOT NULL,
+  ejes TEXT NOT NULL,
+  pares TEXT NOT NULL,
+  items TEXT NOT NULL,
+  origen TEXT NOT NULL DEFAULT 'importada',
+  parametros TEXT,
+  padre_id INTEGER,
+  archivada INTEGER NOT NULL DEFAULT 0,
+  creada INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS criba72_sesiones (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  criba_id INTEGER NOT NULL,
+  en_mente TEXT,
+  inicio INTEGER,
+  fin INTEGER,
+  estado TEXT NOT NULL DEFAULT 'abierta',
+  votos TEXT NOT NULL DEFAULT '{}',
+  dudas TEXT NOT NULL DEFAULT '{}',
+  tiempos TEXT NOT NULL DEFAULT '{}',
+  siguiente TEXT,
+  lectura TEXT,
+  lectura_en INTEGER,
+  creada INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS criba72_sesiones_criba ON criba72_sesiones (criba_id, estado);
 -- Sus contactos de Google (plan v35): para buscarlos; entidad_id si es una de sus personas.
 CREATE TABLE IF NOT EXISTS contactos_google (
   recurso TEXT PRIMARY KEY,

@@ -898,6 +898,28 @@ const rutas: [string, RegExp, Ruta][] = [
     return { empezado: true }
   }],
   ['POST', /^\/api\/programados\/(\d+)\/borrar$/, async (_, [x]) => (await import('./programados.ts')).borrarProgramado(db, id(x))],
+  // La Criba del 72 (plan v36): el formato que reemplaza a La Mano.
+  ['GET', /^\/api\/criba72$/, async () => (await import('./criba72.ts')).listarCribas(db)],
+  ['POST', /^\/api\/criba72\/importar$/, async (b) => (await import('./criba72.ts')).importarCribas(db, b.cribas ?? b)],
+  ['POST', /^\/api\/criba72\/armar$/, async (b) => {
+    const c = await import('./criba72.ts')
+    if (!String(b.tema ?? '').trim()) throw new Error('¿Sobre qué? Falta el tema de la criba.')
+    return { trabajo: c.deFondo(`armar-${Date.now()}`, () => c.armarCriba(db, { tema: String(b.tema), para: b.para, grupo: b.grupo, ancla1: b.ancla1, ancla6: b.ancla6, enMente: b.enMente, padreId: b.padreId ? Number(b.padreId) : null })) }
+  }],
+  ['GET', /^\/api\/criba72\/trabajo\/([\w:-]+)$/, async (_, [x]) => (await import('./criba72.ts')).trabajo(x) ?? { estado: 'perdido' }],
+  ['GET', /^\/api\/criba72\/(\d+)$/, async (_, [x]) => { const c = await import('./criba72.ts'); const cr = c.leerCriba(db, id(x)); if (!cr) throw new Error('No existe esa criba'); const s = c.sesionVigente(db, cr.id); return { criba: cr, sesion: s, metricas: c.metricas(cr, s) } }],
+  ['POST', /^\/api\/criba72\/(\d+)\/empezar$/, async (b, [x]) => (await import('./criba72.ts')).empezar(db, id(x), b.enMente)],
+  ['POST', /^\/api\/criba72\/sesion\/(\d+)\/votar$/, async (b, [x]) => (await import('./criba72.ts')).votar(db, id(x), Number(b.n), b.voto == null ? null : Number(b.voto), { duda: b.duda })],
+  ['POST', /^\/api\/criba72\/(\d+)\/reiniciar$/, async (_, [x]) => (await import('./criba72.ts')).reiniciar(db, id(x))],
+  ['POST', /^\/api\/criba72\/(\d+)\/archivar$/, async (_, [x]) => (await import('./criba72.ts')).archivarCriba(db, id(x))],
+  ['POST', /^\/api\/criba72\/(\d+)\/leer$/, async (_, [x]) => { const c = await import('./criba72.ts'); return { trabajo: c.deFondo(`leer-${id(x)}`, () => c.leerConMastropiero(db, id(x))) } }],
+  ['POST', /^\/api\/criba72\/(\d+)\/exportar$/, async (b, [x]) => {
+    const c = await import('./criba72.ts')
+    const cr = c.leerCriba(db, id(x))
+    if (!cr) throw new Error('No existe esa criba')
+    const s = c.sesionVigente(db, cr.id)
+    return b.formato === 'md' || b.formato === 'txt' ? { formato: b.formato, texto: c.exportarTexto(cr, s, b.formato === 'md') } : { formato: 'json', datos: { protocolo: c.PROTOCOLO, ...c.exportarSesion(cr, s) } }
+  }],
   // Agenda, contactos y tareas de Google (plan v35, fase 3).
   ['GET', /^\/api\/google\/mas$/, async () => ({
     calendario: (await import('./google-calendario.ts')).viaCalendario(),
