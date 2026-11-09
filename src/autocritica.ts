@@ -27,6 +27,29 @@ export function esErrorDeCodigo(e: unknown): boolean {
   return /cannot read|undefined|is not a function|is not defined|SQLITE|no such (table|column)|ruta desconocida/i.test(m)
 }
 
+/**
+ * Lo lento y lo que se rompe (plan v38, fase 1): las rutas que tardaron más de un segundo, agrupadas (cuántas veces,
+ * la mediana y el peor), y los demás errores de los últimos días con sus veces. Para decidir con datos qué arreglar.
+ */
+export function lento(db: Db, ahora = Date.now(), dias = 7) {
+  const desde = ahora - dias * DIA
+  const filas = db.prepare('SELECT origen, texto, veces, ultima FROM errores WHERE ultima >= ? ORDER BY ultima DESC').all(desde) as { origen: string; texto: string; veces: number; ultima: number }[]
+  const rutas = new Map<string, number[]>()
+  for (const f of filas.filter((x) => x.origen === 'lento')) {
+    const m = /^(.+?) tardó (\d+) ms$/.exec(f.texto)
+    if (!m) continue
+    const ms = rutas.get(m[1]) ?? []
+    for (let i = 0; i < f.veces; i++) ms.push(Number(m[2]))
+    rutas.set(m[1], ms)
+  }
+  const med = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s[Math.floor(s.length / 2)] }
+  return {
+    dias,
+    rutas: [...rutas].map(([ruta, ms]) => ({ ruta, veces: ms.length, mediana: med(ms), peor: Math.max(...ms) })).sort((a, b) => b.veces * b.mediana - a.veces * a.mediana),
+    errores: filas.filter((x) => x.origen !== 'lento').map((x) => ({ origen: x.origen, texto: x.texto, veces: x.veces, ultima: x.ultima })).slice(0, 80),
+  }
+}
+
 /** Lo que el operador dijo que anda mal (en el chat, últimos días). */
 const QUEJA = /no anda|no funciona|no me deja|no carga|no aparece|no responde|se rompi|se cuelga|se tild|anda mal|me tira|error|falla|bug|molesta|tarda (mucho|una banda)|lent[oa]|ruta desconocida/i
 

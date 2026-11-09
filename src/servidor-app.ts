@@ -707,6 +707,8 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/taller\/(\d+)\/valorar$/, (b, [a]) => valorarArtefacto(db, id(a), Number(b.estrellas), b.nota ?? null)],
   // La matriz de un término (sus ejes) y los homónimos.
   ['GET', /^\/api\/entidades\/(\d+)\/ejes$/, (_, [e]) => ejesDe(db, id(e))],
+  // Lo lento y lo que se rompe (plan v38, fase 1): para decidir con datos.
+  ['GET', /^\/api\/lento$/, async (_, __, q) => (await import('./autocritica.ts')).lento(db, Date.now(), Math.min(30, Number(q.get('dias')) || 7))],
   // El censo de un canal de YouTube (Fragua #187): verlo y aprobarlo (con cambios al plan).
   ['GET', /^\/api\/youtube\/censo$/, async (_, __, q) => (await import('./youtube-canal.ts')).leerCenso(db, String(q.get('canal') ?? ''))],
   ['POST', /^\/api\/youtube\/censo\/aprobar$/, async (b) => (await import('./youtube-canal.ts')).aprobarCenso(db, String(b.canal ?? ''), b.cambios ?? {})],
