@@ -15,7 +15,7 @@ const DIA = 86_400_000
 
 test('El discovery de tu semana: tus logs → tus procesos más caros con su to-be; lo de construir va a La Fragua (sin repetir)', async () => {
   const db = abrir(':memory:')
-  assert.deepEqual(await pr.descubrirMisProcesos(db, T), { procesos: 0, propuestas: 0 }, 'sin material, nada')
+  assert.deepEqual(await pr.descubrirMisProcesos(db, T), { procesos: 0, encargos: 0 }, 'sin material, nada')
   for (let i = 0; i < 4; i++) {
     const m = crearMision(db, { nivel: 'secundaria', titulo: 'Responder mails de clientes', categoria: 'comunicacion', minutos: 45, estado: 'activa' } as any, { ahora: T - i * DIA })
     actualizarMision(db, m.id, { estado: i ? 'hecha' : 'no' }, { ahora: T - i * DIA })
@@ -34,21 +34,24 @@ test('El discovery de tu semana: tus logs → tus procesos más caros con su to-
     return { procesos: [{
       nombre: 'Responder mails de clientes', minutos_semana: 180, minutos_despues: 40, evidencia: '4 bandas de 45 min y 50 min de Gmail en el Directo',
       pasos: [{ paso: 'Leer la bandeja', sistema: 'Gmail', minutos: 15 }, { paso: 'Buscar el presupuesto anterior', sistema: 'Drive', minutos: 10 }, { paso: 'Escribir la respuesta', sistema: 'Gmail', minutos: 20 }],
-      tobe: [{ destino: 'agente', por_que: 'Clasificar lo urgente', como: 'Un ayudante que resume la bandeja a la mañana' }, { destino: 'codigo', por_que: 'Siempre el mismo lugar', como: 'Buscar el presupuesto por cliente en el corpus' }, { destino: 'persona', por_que: 'Tu voz' }],
+      tobe: [{ destino: 'agente', por_que: 'Clasificar lo urgente', como: 'Un ayudante que resume la bandeja a la mañana', encargo: { pedido: 'Mirá mis mails de las últimas 24 horas y decime cuáles necesitan respuesta hoy.', cuando: 'de lunes a viernes a las 8' } }, { destino: 'codigo', por_que: 'Siempre el mismo lugar', como: 'Buscar el presupuesto por cliente en el corpus' }, { destino: 'persona', por_que: 'Tu voz' }],
     }, { nombre: '', pasos: [] }] }
   })
   const r = await pr.descubrirMisProcesos(db, T)
   assert.match(vista, /Responder mails de clientes/)
-  assert.deepEqual(r, { procesos: 1, propuestas: 2 })
+  assert.deepEqual(r, { procesos: 1, encargos: 2 })
   const [p] = pr.misProcesos(db)
   assert.equal(p.ambito, 'yo')
   assert.equal(p.resumen!.texto, 'De 3 pasos: 0 se borran, 1 pasa a código, 1 a un agente y 1 queda en una persona.')
   assert.deepEqual([p.kpis[0].linea_base, p.kpis[0].objetivo], ['180', '40'])
-  const props = db.prepare(`SELECT titulo, detalle, origen FROM propuestas ORDER BY id`).all() as any[]
-  assert.deepEqual(props.map((x) => x.titulo), ['Un agente para: Leer la bandeja', 'Automatizar: Buscar el presupuesto anterior'])
-  assert.match(props[0].detalle, /Un ayudante que resume la bandeja/)
-  assert.equal(props[0].origen, 'procesos')
-  assert.deepEqual(await pr.descubrirMisProcesos(db, T + DIA), { procesos: 1, propuestas: 0 }, 'el mismo proceso se actualiza y las propuestas no se repiten')
+  // Plan v38: lo que automatiza su trabajo va a «Para delegar», no a La Fragua.
+  assert.equal((db.prepare(`SELECT COUNT(*) AS n FROM propuestas`).get() as any).n, 0, 'nada a La Fragua')
+  const sug = db.prepare(`SELECT titulo, pedido, cuando, por_que, origen FROM encargos_sugeridos ORDER BY id`).all() as any[]
+  assert.deepEqual(sug.map((x) => [x.titulo, x.cuando]), [['Leer la bandeja', 'de lunes a viernes a las 8'], ['Buscar el presupuesto anterior', 'todos los lunes a las 9']])
+  assert.match(sug[0].pedido, /Mirá mis mails de las últimas 24 horas/)
+  assert.match(sug[1].pedido, /Buscar el presupuesto por cliente en el corpus/)
+  assert.match(sug[0].por_que, /Responder mails de clientes/)
+  assert.deepEqual(await pr.descubrirMisProcesos(db, T + DIA), { procesos: 1, encargos: 0 }, 'el mismo proceso se actualiza y los encargos no se repiten')
   assert.equal(pr.misProcesos(db).length, 1)
 })
 

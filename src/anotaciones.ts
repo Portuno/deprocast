@@ -15,7 +15,7 @@ import { pedirJson } from './modelo.ts'
 const SISTEMA = `Leés un bloque de anotaciones del operador: ideas, decisiones, diseños, a veces marcadas [Confirmado] (lo dijo él, es así) o [Inferido] (lo dedujo alguien, no es seguro). Devolvé:
 - "resumen": una frase.
 - "recuerdos": [{"texto": una oración en tercera persona, "tipo": "hecho" | "meta" | "preferencia" | "sueño" | "vision" | "correccion", "horizonte": "castillo" | "campamento" | "trinchera" | null, "confirmado": true | false}] — solo lo duradero sobre él (sus metas, su visión, cómo trabaja, decisiones). confirmado = true si viene marcado [Confirmado] o él lo afirma; false si es [Inferido] o una deducción.
-- "propuestas": [{"titulo": string, "detalle": string (qué haría y para qué, concreto), "area": "pantalla" | "chat" | "corpus" | "liga" | "entidades" | "motores" | "otro", "restricciones": [string], "sensible": true | false}] — funcionalidades de Deprocast (la plataforma) que describe. En "restricciones" copiá lo que el texto prohíbe o condiciona («no hay permiso para…», «es solo diseño»). "sensible" = true si toca datos biométricos (rostro, emociones de la cara, voz), cámaras, o actuar sobre cuentas de terceros (mutear, publicar, borrar).
+- "propuestas": [{"titulo": string, "detalle": string (qué haría y para qué, concreto), "destino": "deprocast" | "idea" | "trabajo", "area": "pantalla" | "chat" | "corpus" | "liga" | "entidades" | "motores" | "otro", "restricciones": [string], "sensible": true | false}] — lo que propone construir o hacer. "destino": "deprocast" si es una mejora de Deprocast mismo (la plataforma: más rápido, una función nueva, una conexión); "idea" si es una idea suya de producto o negocio (no de Deprocast); "trabajo" si es algo de su trabajo que Mastropiero podría hacer solo cada tanto (un encargo). En "restricciones" copiá lo que el texto prohíbe o condiciona («no hay permiso para…», «es solo diseño»). "sensible" = true si toca datos biométricos (rostro, emociones de la cara, voz), cámaras, o actuar sobre cuentas de terceros (mutear, publicar, borrar).
 - "entidades": [{"nombre": string, "tipo": "persona" | "proyecto" | "agrupacion" | "lugar" | "concepto", "nota": string (qué es, según el texto)}] — nombres propios que aparecen.
 - "ideas": [{"texto": una idea atómica que se entienda sola, "proyecto": string | null}] (hasta 8).
 No inventes nada que no esté en el texto. Forma: {"resumen": string, "recuerdos": [...], "propuestas": [...], "entidades": [...], "ideas": [...]}`
@@ -90,6 +90,13 @@ export async function procesarAnotaciones(db: Db, texto: string, o: { fecha?: st
   for (const p of lista(d?.propuestas).slice(0, 10)) {
     const titulo = txt(p?.titulo, 160)
     if (!titulo || abiertas.has(clave(titulo))) continue
+    // Plan v38: La Fragua es solo para Deprocast. Una idea suya va como idea (side quest sugerida); su trabajo, a «Para delegar».
+    if (p?.destino === 'trabajo') { await (await import('./delegar.ts')).sugerirEncargo(db, { titulo, pedido: txt(p?.detalle, 2000) || titulo, origen: 'anotaciones' }, ahora); continue }
+    if (p?.destino === 'idea') {
+      const { crearMision } = await import('./misiones.ts')
+      crearMision(db, { nivel: 'terciaria', titulo: `Idea: ${titulo}`.slice(0, 200), detalle: txt(p?.detalle, 2000) || null, categoria: 'idea', estado: 'sugerida', creadaPor: 'anotaciones' }, { por: 'mastropiero', ahora })
+      continue
+    }
     const restricciones = lista(p?.restricciones).map((x) => txt(x, 300)).filter(Boolean)
     const sensible = p?.sensible === true
     const detalle = [

@@ -105,6 +105,11 @@ export function bandeja(db: Db, ahora = Date.now()) {
   g.push({ tipo: 'inventario', nombre: 'Lo que tenés (según lo que contaste)', n: n(db, `SELECT COUNT(*) AS n FROM inventario WHERE personaje = 'jugador' AND estado = 'sugerido'`), peso: 1, items: inv.map((i) => ({ id: i.id, texto: i.nombre, sub: i.detalle })), acciones: [['aceptar', '✓ Es mío'], ['descartar', '✕']], ir: null })
   const recs = db.prepare(`SELECT id, texto, fecha FROM memoria WHERE estado = 'vigente' AND revisada = 0 AND creada_por IN ${MAQUINA} ORDER BY id DESC LIMIT 8`).all() as any[]
   g.push({ tipo: 'recuerdo', nombre: 'Lo que anotó de vos', n: n(db, `SELECT COUNT(*) AS n FROM memoria WHERE estado = 'vigente' AND revisada = 0 AND creada_por IN ${MAQUINA}`), peso: 1, items: recs.map((r) => ({ id: r.id, texto: r.texto, sub: r.fecha })), acciones: [['aceptar', '✓ Es así'], ['descartar', '✕ No']], ir: null })
+  // Para delegar (plan v38): encargos que Mastropiero puede hacer solo.
+  try {
+    const n = (db.prepare(`SELECT COUNT(*) AS n FROM encargos_sugeridos WHERE estado = 'pendiente'`).get() as { n: number }).n
+    if (n) g.push({ tipo: 'delegar', nombre: 'Para delegar (encargos que hago solo)', n, peso: 1, ir: null, acciones: [['aceptar', '✓ Programar'], ['descartar', '✕']], items: (db.prepare(`SELECT id, titulo, cuando, pedido FROM encargos_sugeridos WHERE estado = 'pendiente' ORDER BY id DESC LIMIT 8`).all() as any[]).map((e) => ({ id: e.id, texto: `${e.titulo} · ${e.cuando}`, sub: e.pedido })) })
+  } catch { /* sin la tabla todavía */ }
   // Obras que mencionó, para la Librería (Fragua #181).
   try {
     const om = require_obras(db)
@@ -161,6 +166,7 @@ export async function resolverBandeja(db: Db, tipo: string, id: number | string,
   if (tipo === 'primaria') return actualizarMision(db, id, { estado: accion === 'aceptar' ? 'activa' : 'descartada' }, { por: 'operador', ahora })
   if (tipo === 'inventario') return editarItem(db, id, { estado: accion === 'aceptar' ? 'vigente' : 'archivado' }, ahora)
   if (tipo === 'obra') return (await import('./obras-menciones.ts')).resolverPropuestaObra(db, id, accion, ahora)
+  if (tipo === 'delegar') return (await import('./delegar.ts')).resolverEncargoSugerido(db, id, accion, {}, ahora)
   if (tipo === 'recuerdo') return accion === 'aceptar' ? revisar(db, id) : archivar(db, id)
   if (tipo === 'aprender') {
     const ac = await import('./academia.ts')

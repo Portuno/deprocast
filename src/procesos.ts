@@ -39,45 +39,47 @@ const SISTEMA = `Hacés el discovery del trabajo del jugador con sus propios log
 Para cada uno:
 - "nombre", "minutos_semana" (estimado desde los logs), "evidencia" (qué en los logs lo muestra, una frase).
 - "pasos": el as-is, 3 a 8 pasos: {"paso", "sistema" (app o herramienta, o null), "minutos" (por vez, estimado)}.
-- "tobe": por paso, en el mismo orden: {"destino": "borrar" | "codigo" | "agente" | "persona", "por_que": una frase, "como": si es código o agente, qué habría que construir (una rutina de Deprocast, un ayudante, una integración), o null}. Borrá primero: no automatices lo que no hace falta.
+- "tobe": por paso, en el mismo orden: {"destino": "borrar" | "codigo" | "agente" | "persona", "por_que": una frase, "como": si es código o agente, cómo se haría, o null, "encargo": si Mastropiero lo puede hacer solo y cada tanto (buscar, leer su correo o su Drive, resumir, preparar un borrador), {"pedido": el pedido tal cual se lo harías, completo, "cuando": cada cuánto en castellano, como «todos los lunes a las 9» o «de lunes a viernes a las 8»}; si no, null}. Borrá primero: no automatices lo que no hace falta.
 - "minutos_despues": cuánto quedaría por semana.
 No inventes procesos sin base en los logs. Si hay poco material, menos procesos. Forma: {"procesos": [...]}`
 
 /** El discovery semanal de vos: tus 3 procesos más caros con su to-be; lo de código o agente queda como propuesta para La Fragua. */
-export async function descubrirMisProcesos(db: Db, ahora = Date.now()): Promise<{ procesos: number; propuestas: number }> {
+export async function descubrirMisProcesos(db: Db, ahora = Date.now()): Promise<{ procesos: number; encargos: number }> {
   const material = tusLogs(db, ahora)
-  if (material.length < 80) return { procesos: 0, propuestas: 0 }
+  if (material.length < 80) return { procesos: 0, encargos: 0 }
   const d = await modelo(db, SISTEMA, `Semana que termina el ${fechaLocal(ahora)}.\n\n${material}`)
   let procesos = 0
-  let propuestas = 0
-  const alta = db.prepare(`INSERT INTO propuestas (titulo, detalle, area, prioridad, estado, origen, creada_en) VALUES (?, ?, 'procesos', 'media', 'abierta', 'procesos', ?)`)
+  let encargos = 0
+  const { sugerirEncargo } = await import('./delegar.ts')
   for (const p of (Array.isArray(d?.procesos) ? d.procesos : []).slice(0, 3)) {
     const nombre = String(p?.nombre ?? '').trim().slice(0, 120)
     const pasosIn = Array.isArray(p?.pasos) ? p.pasos.slice(0, 8) : []
     if (!nombre || !pasosIn.length) continue
     const pasos: PasoAsis[] = pasosIn.map((x: any, i: number) => ({ n: i + 1, paso: String(x?.paso ?? '').slice(0, 160), area: null, sistema: x?.sistema ? String(x.sistema).slice(0, 60) : null, quien: 'vos', minutos: Number.isFinite(Number(x?.minutos)) ? Number(x.minutos) : null, frecuencia: null, excepciones: null, fuente: 'log', en_la_doc: true }))
     const tobeIn = Array.isArray(p?.tobe) ? p.tobe : []
-    const tobe: PasoTobe[] = pasos.map((x, i) => ({ n: x.n, destino: ['borrar', 'codigo', 'agente', 'persona'].includes(tobeIn[i]?.destino) ? tobeIn[i].destino : 'persona', por_que: String(tobeIn[i]?.por_que ?? '').slice(0, 240), regla: tobeIn[i]?.como ? String(tobeIn[i].como).slice(0, 300) : null }))
+    const tobe: (PasoTobe & { encargo?: { pedido?: string; cuando?: string } | null })[] = pasos.map((x, i) => ({ n: x.n, destino: ['borrar', 'codigo', 'agente', 'persona'].includes(tobeIn[i]?.destino) ? tobeIn[i].destino : 'persona', por_que: String(tobeIn[i]?.por_que ?? '').slice(0, 240), regla: tobeIn[i]?.como ? String(tobeIn[i].como).slice(0, 300) : null, encargo: tobeIn[i]?.encargo ?? null }))
     const antes = Number(p?.minutos_semana) || null
     const despues = Number.isFinite(Number(p?.minutos_despues)) ? Number(p.minutos_despues) : null
     const kpis = [{ categoria: 'tiempo_costo', nombre: 'Minutos por semana', linea_base: antes != null ? String(antes) : null, objetivo: despues != null ? String(despues) : null, unidad: 'min', medido_en: String(p?.evidencia ?? 'tus logs').slice(0, 160) }]
     const ya = db.prepare(`SELECT id FROM procesos WHERE ambito = 'yo' AND lower(nombre) = lower(?)`).get(nombre) as { id: number } | undefined
     let id: number
     if (ya) {
-      db.prepare('UPDATE procesos SET pasos_asis = ?, pasos_tobe = ?, kpis = ?, actualizado_en = ? WHERE id = ?').run(JSON.stringify(pasos), JSON.stringify(tobe), JSON.stringify(kpis), ahora, ya.id)
+      db.prepare('UPDATE procesos SET pasos_asis = ?, pasos_tobe = ?, kpis = ?, actualizado_en = ? WHERE id = ?').run(JSON.stringify(pasos), JSON.stringify(tobe.map(({ encargo: _, ...t }) => t)), JSON.stringify(kpis), ahora, ya.id)
       id = ya.id
-    } else id = Number(db.prepare(`INSERT INTO procesos (ambito, nombre, pasos_asis, pasos_tobe, kpis, creado_en, actualizado_en) VALUES ('yo', ?, ?, ?, ?, ?, ?)`).run(nombre, JSON.stringify(pasos), JSON.stringify(tobe), JSON.stringify(kpis), ahora, ahora).lastInsertRowid)
+    } else id = Number(db.prepare(`INSERT INTO procesos (ambito, nombre, pasos_asis, pasos_tobe, kpis, creado_en, actualizado_en) VALUES ('yo', ?, ?, ?, ?, ?, ?)`).run(nombre, JSON.stringify(pasos), JSON.stringify(tobe.map(({ encargo: _, ...t }) => t)), JSON.stringify(kpis), ahora, ahora).lastInsertRowid)
     procesos++
-    // Lo que pide construir algo: una propuesta (La Fragua la toma), sin repetir las abiertas.
-    for (const t of tobe.filter((x) => (x.destino === 'codigo' || x.destino === 'agente') && x.regla)) {
+    // Lo que automatiza su trabajo es un encargo para delegar (plan v38), no una propuesta de La Fragua: queda en
+    // «Para delegar», con el pedido ya redactado y su cuándo, sin repetir lo pendiente.
+    for (const t of tobe.filter((x) => (x.destino === 'codigo' || x.destino === 'agente') && (x.regla || x.encargo))) {
       const paso = pasos.find((x) => x.n === t.n)!
-      const titulo = `${t.destino === 'codigo' ? 'Automatizar' : 'Un agente para'}: ${paso.paso}`.slice(0, 160)
-      if (db.prepare(`SELECT 1 FROM propuestas WHERE titulo = ? AND (estado = 'abierta' OR creada_en > ?)`).get(titulo, ahora - 28 * DIA)) continue
-      alta.run(titulo, `De tu proceso «${nombre}» (≈ ${antes ?? '?'} min por semana; paso ${paso.n}: ${paso.paso}, ~${paso.minutos ?? '?'} min por vez).\n\nQué construir: ${t.regla}\nPor qué: ${t.por_que}\n\n(Proceso #${id}: el discovery de tu semana.)`, ahora)
-      propuestas++
+      const e = await sugerirEncargo(db, {
+        titulo: paso.paso, pedido: String(t.encargo?.pedido ?? '').trim() || `${paso.paso}: ${t.regla}`, cuando: t.encargo?.cuando ?? null,
+        porQue: `De tu proceso «${nombre}» (≈ ${antes ?? '?'} min por semana; este paso, ~${paso.minutos ?? '?'} min por vez). ${t.por_que}`, origen: `proceso:${id}`,
+      }, ahora)
+      if (e) encargos++
     }
   }
-  return { procesos, propuestas }
+  return { procesos, encargos }
 }
 
 /** Tus procesos (ámbito «yo»), con su resumen y su KPI. */

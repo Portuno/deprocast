@@ -200,6 +200,15 @@ try {
     void import('./chat/index.ts').then((c) => c.resolverPropuesta(db, 179, 'descartada')).catch(() => {})
   }
 } catch { /* sin la tabla */ }
+// Plan v38 (9/11/2026), una sola vez: lo de La Fragua que no era de Deprocast, a donde va (#170 → encargo, #158 → idea).
+if (ajuste(db, 'migracion_v38_fragua') !== '1') {
+  fijarAjuste(db, 'migracion_v38_fragua', '1')
+  void import('./delegar.ts').then(async (d) => {
+    const abierta = (n: number, t: string) => db.prepare(`SELECT 1 FROM propuestas WHERE id = ? AND titulo LIKE ? AND estado = 'abierta'`).get(n, `${t}%`)
+    if (abierta(170, 'Perfil como landing')) await d.moverPropuesta(db, 170, 'encargo')
+    if (abierta(158, 'Nuevas vías de comunicación')) await d.moverPropuesta(db, 158, 'idea')
+  }).catch((e) => console.error('  migración v38:', e instanceof Error ? e.message : e))
+}
 // La cola del Taller: lo que quedó a medias por un reinicio vuelve a la cola y sigue.
 deFondo(() => { try { const n = retomarTaller(db); if (n) console.log(`  ✎ El Taller retoma ${n} trabajo${n === 1 ? '' : 's'}`) } catch (e) { console.error('  taller:', e instanceof Error ? e.message : e) } })
 alGuardar(() => { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)') } catch { /* todavía no */ } })
@@ -698,6 +707,8 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/taller\/(\d+)\/valorar$/, (b, [a]) => valorarArtefacto(db, id(a), Number(b.estrellas), b.nota ?? null)],
   // La matriz de un término (sus ejes) y los homónimos.
   ['GET', /^\/api\/entidades\/(\d+)\/ejes$/, (_, [e]) => ejesDe(db, id(e))],
+  // La Fragua es para Deprocast (plan v38): lo que no, se mueve.
+  ['POST', /^\/api\/propuestas\/(\d+)\/mover$/, async (b, [n]) => (await import('./delegar.ts')).moverPropuesta(db, id(n), b.a === 'idea' ? 'idea' : b.a === 'proyecto' ? 'proyecto' : 'encargo', { proyecto: b.proyecto })],
   // El video como fuente (#165) y el diario propio (#166).
   ['GET', /^\/api\/videos$/, async () => (await import('./video.ts')).listarVideos(db)],
   ['GET', /^\/api\/prensa$/, async (_, __, q) => (await import('./prensa.ts')).diarioDe(db, q.get('fecha'))],

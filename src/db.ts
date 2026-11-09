@@ -1224,6 +1224,17 @@ CREATE TABLE IF NOT EXISTS whatsapp_vistos (
   id TEXT PRIMARY KEY,
   en INTEGER NOT NULL
 );
+-- Para delegar (plan v38): encargos que Mastropiero le sugiere (de sus procesos, anotaciones o movidos de La Fragua).
+CREATE TABLE IF NOT EXISTS encargos_sugeridos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  titulo TEXT NOT NULL,
+  pedido TEXT NOT NULL,
+  cuando TEXT NOT NULL,
+  por_que TEXT,
+  origen TEXT NOT NULL,
+  estado TEXT NOT NULL DEFAULT 'pendiente',
+  creado INTEGER NOT NULL
+);
 -- Obras que mencionó y esperan su ok para entrar a la Librería (Fragua #181).
 CREATE TABLE IF NOT EXISTS obras_propuestas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

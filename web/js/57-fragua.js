@@ -41,7 +41,7 @@ async function refrescarFragua() {
           <div class="tarjeta-cab">#${p.id}${p.area ? `<span class="chip">${esc(p.area)}</span>` : ''}${p.prioridad ? `<span class="estado-chip ${p.prioridad === 'alta' ? 'vivo' : ''}">${esc(p.prioridad)}</span>` : ''}</div>
           <h4>${esc(p.titulo)}</h4>
           ${p.detalle ? `<p class="recorte" title="Tocá para ver todo">${esc(p.detalle)}</p>` : ''}
-          <div class="tarjeta-pie">${d.noSePuede ? '<button class="btn btn-chico btn-primario" data-copiar title="Copia la propuesta como pedido, para pegarla en Claude Code">Copiar para Claude Code</button>' : `<button class="btn btn-chico btn-primario" data-forjar ${haciendo ? 'disabled title="Hay una forja en curso"' : ''}>⚒ Forjar</button>`}<span class="espacio"></span><button class="btn btn-chico" data-hecha title="Ya se resolvió por otro lado: queda como forjada">✓ Ya está</button><button class="btn btn-chico" data-descartar title="Descartar la propuesta">Descartar</button></div>
+          <div class="tarjeta-pie">${d.noSePuede ? '<button class="btn btn-chico btn-primario" data-copiar title="Copia la propuesta como pedido, para pegarla en Claude Code">Copiar para Claude Code</button>' : `<button class="btn btn-chico btn-primario" data-forjar ${haciendo ? 'disabled title="Hay una forja en curso"' : ''}>⚒ Forjar</button>`}<span class="espacio"></span><button class="btn btn-chico" data-mover title="No es de Deprocast: pasala a un encargo, una idea o un proyecto">Mover a…</button><button class="btn btn-chico" data-hecha title="Ya se resolvió por otro lado: queda como forjada">✓ Ya está</button><button class="btn btn-chico" data-descartar title="Descartar la propuesta">Descartar</button></div>
         </article>`).join('')}</div>` : '<p class="vacio">No hay propuestas abiertas. Pedí una mejora arriba o contale al chat qué cambiarías.</p>'}
     </section>
     <section class="seccion">
@@ -71,6 +71,14 @@ Revisá si sigue vigente en el código, implementala con tests y marcala hecha.`
     const forjar = $('[data-forjar]', el)
     if (forjar) forjar.onclick = async () => { try { await api('/fragua', { propuestaId: id }); toast('A la fragua<small>Te aviso en Hoy cuando termine.</small>'); refrescarFragua() } catch (e) { error(e) } }
     $('[data-descartar]', el).onclick = async () => { try { await api(`/propuestas/${id}`, { estado: 'descartada' }); refrescarFragua() } catch (e) { error(e) } }
+    $('[data-mover]', el).onclick = async () => {
+      // No es de Deprocast (plan v38): a un encargo (Para delegar), una idea o una nota de un proyecto.
+      const a = await preguntar('¿A dónde va? Escribí «encargo», «idea» o el nombre de un proyecto', 'encargo', { ok: 'Mover' })
+      if (a == null || !a.trim()) return
+      const v = a.trim().toLowerCase()
+      const cuerpo = v === 'encargo' || v === 'idea' ? { a: v } : { a: 'proyecto', proyecto: a.trim() }
+      try { const r = await api(`/propuestas/${id}/mover`, cuerpo); toast(`#${id} movida<small>${esc(r.destino)}</small>`, 'suave'); refrescarFragua() } catch (e) { error(e) }
+    }
     $('[data-hecha]', el).onclick = async () => { try { await api(`/propuestas/${id}`, { estado: 'hecha' }); toast(`#${id} forjada`, 'suave'); refrescarFragua() } catch (e) { error(e) } }
     const det = $('.recorte', el)
     if (det) det.onclick = () => det.classList.toggle('abierto')
