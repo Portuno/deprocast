@@ -2,6 +2,7 @@
  * Cargas: la boca del omnívoro para archivos. Subir → analizar (segmentos) → ejecutar lo elegido.
  * Cada carga queda registrada con su archivo y lo que dejó; se puede deshacer entera.
  */
+import { textoDeDocumento } from '../takeout/nube.ts'
 import fs from 'node:fs'
 import path from 'node:path'
 import { json, type Db } from '../db.ts'
@@ -24,9 +25,18 @@ export function dirCargas(): string {
   return path.resolve(process.env.MASTRO_CARGAS ?? path.join(process.cwd(), 'data', 'cargas'))
 }
 
+/** Los documentos de oficina (Word, PowerPoint, Excel, OpenDocument) se leen como texto: entran por el importador de texto. */
+const OFICINA = /\.(docx|pptx|xlsx|odt|odp|ods)$/i
+
 function leerDatos(nombre: string, ruta: string): Datos {
   const buf = fs.readFileSync(ruta)
   if (buf.subarray(0, 5).toString('latin1') === '%PDF-') return { nombre, texto: '', bin: buf }
+  if (OFICINA.test(nombre)) {
+    if (buf.subarray(0, 2).toString('latin1') !== 'PK') throw new Error(`«${nombre}» no parece un documento válido (¿está dañado o protegido con contraseña?)`)
+    const t = textoDeDocumento(buf, nombre.split('.').pop()!.toLowerCase()).replace(/\n{3,}/g, '\n\n').trim()
+    if (!t) throw new Error(`«${nombre}» no tiene texto que se pueda leer`)
+    return { nombre, texto: t }
+  }
   const t = buf.toString('utf8').replace(/^\uFEFF/, '')
   let j: unknown
   if (/\.json$/i.test(nombre) || /^\s*[{[]/.test(t.slice(0, 64))) {
@@ -41,7 +51,7 @@ function leerDatos(nombre: string, ruta: string): Datos {
 
 function importadorDe(d: Datos): Importador {
   const imp = IMPORTADORES.find((i) => i.detectar(d))
-  if (!imp) throw new Error(`No sé leer "${d.nombre}". Formatos: respaldo y fichas de Deprocast, chats de WhatsApp e Instagram, Claude, Gemini, correo (.mbox/.eml), CSV, PDF, texto y Markdown.`)
+  if (!imp) throw new Error(`No sé leer "${d.nombre}". Formatos: respaldo y fichas de Deprocast, chats de WhatsApp e Instagram, Claude, Gemini, correo (.mbox/.eml), CSV, PDF, Word, PowerPoint, Excel, OpenDocument, texto y Markdown.`)
   return imp
 }
 

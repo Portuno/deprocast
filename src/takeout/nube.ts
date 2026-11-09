@@ -339,9 +339,15 @@ async function tramosDe(ruta: string): Promise<{ partes: string[]; temporal: str
 const SISTEMA_IMAGEN = `Describís una imagen del archivo personal del operador (algo que le pasó a una IA, una slide o infografía que generó NotebookLM, o un archivo de sus carpetas, como la página escaneada de un cuaderno: si está escrita a mano, transcribila fiel en texto_visible). Que la descripción sirva para encontrarla y entenderla sin verla.
 Forma: {"titulo": string (máx. 70), "tipo": "captura" | "foto" | "diagrama" | "slide" | "infografia" | "documento" | "meme" | "otro", "descripcion": string (qué se ve y de qué trata, 2 a 6 frases), "texto_visible": string (el texto que aparece, fiel y en orden; vacío si no hay)}`
 
-/** El texto de un documento: PDF, Word, Excel, PowerPoint, Markdown, texto, CSV, JSON, XML o HTML. */
+/** El texto de un documento: PDF, Word, Excel, PowerPoint, OpenDocument, Markdown, texto, CSV, JSON, XML o HTML. */
 export function textoDeDocumento(datos: Buffer, ext: string): string {
   if (ext === 'pdf') return textoDePdf(datos)
+  if (ext === 'odt' || ext === 'odp' || ext === 'ods') {
+    const z = zipDeBuffer(datos)
+    const e = z.entradas.find((x) => x.nombre === 'content.xml')
+    if (!e) throw new Error('No es un documento de OpenDocument (falta content.xml)')
+    return z.leer(e).toString('utf8').replace(/<\/(text:p|text:h|table:table-row)>/g, '\n').replace(/<text:tab\/>/g, '\t').replace(/<text:s(?: text:c="(\d+)")?\/>/g, (_, n) => ' '.repeat(Number(n) || 1)).replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&')
+  }
   if (ext === 'docx' || ext === 'pptx' || ext === 'xlsx') {
     const z = zipDeBuffer(datos)
     const xml = (re: RegExp) => z.entradas.filter((e) => re.test(e.nombre)).sort((a, b) => a.nombre.localeCompare(b.nombre, 'en', { numeric: true })).map((e) => z.leer(e).toString('utf8'))

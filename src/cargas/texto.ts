@@ -29,7 +29,7 @@ function limpiar(d: Datos): string {
 export const texto: Importador = {
   id: 'texto',
   nombre: 'Texto',
-  detectar: (d) => /\.(txt|md|markdown|html?|json)$/i.test(d.nombre) || !d.nombre.includes('.'),
+  detectar: (d) => /\.(txt|md|markdown|html?|json|docx|pptx|xlsx|odt|odp|ods)$/i.test(d.nombre) || !d.nombre.includes('.'),
   analizar(d: Datos): Analisis {
     const t = limpiar(d)
     const secs = /\.(md|markdown)$/i.test(d.nombre) ? secciones(t) : []
