@@ -105,3 +105,33 @@ test('puentes: presentar a dos y retomar con una, con motivo; hecho cuenta como 
   assert.equal(personas(db, { id: cami }, T)[0].ultimoContacto, '2026-10-08')
   assert.equal(listarPuentes(db).length, 1)
 })
+
+test('puentes (Fragua #154): no presenta a quienes ya se conocen, ni con excusas que ya pasaron, ni repite lo hecho o descartado', async () => {
+  const { seConocen, hablaDeAlgoPasado } = await import('../src/puentes.ts')
+  const db = abrir(':memory:')
+  const ana = asegurarEntidad(db, { tipo: 'persona', nombre: 'Ana Prueba', origenId: 'p:a' })
+  const beto = asegurarEntidad(db, { tipo: 'persona', nombre: 'Beto Prueba', origenId: 'p:b' })
+  const cami = asegurarEntidad(db, { tipo: 'persona', nombre: 'Cami Prueba', origenId: 'p:c' })
+  for (const [id, v] of [[ana, 'trabajo'], [beto, 'amistad'], [cami, 'trabajo']] as const) guardarRelacion(db, id, { vinculo: v, notas: 'x' }, T)
+  insertar(db, { fuente: 'operador', titulo: 'a', contenido: 'a', entidades: [ana, beto], origenId: 'p:1' })
+  assert.equal(seConocen(db, ana, beto), false, 'un solo texto juntos no alcanza')
+  insertar(db, { fuente: 'operador', titulo: 'b', contenido: 'b', entidades: [ana, beto], origenId: 'p:2' })
+  assert.equal(seConocen(db, ana, beto), true, 'dos textos juntos: se conocen')
+  assert.equal(hablaDeAlgoPasado('Los dos fueron al seminario del 23 de septiembre', T), true)
+  assert.equal(hablaDeAlgoPasado('El 20 de diciembre hay un evento', T), false)
+  let vio = ''
+  const n = (id: number) => personas(db, { limite: 200 }, T).filter((p) => p.vinculo).map((p) => p.id).indexOf(id) + 1
+  _probarModelo(async (_l, o) => {
+    vio = String(o.mensajes[1].content)
+    return { texto: JSON.stringify({ puentes: [
+      { tipo: 'presentar', personas: [n(ana), n(beto)], motivo: 'Se cruzan en el juego.', mensaje: 'x' },
+      { tipo: 'presentar', personas: [n(beto), n(cami)], motivo: 'Los dos van al seminario del 23 de septiembre.', mensaje: 'x' },
+      { tipo: 'presentar', personas: [n(ana), n(cami)], motivo: 'Las dos trabajan en producción.', mensaje: 'x' },
+    ] }), llamadas: [], razonamiento: null, modelo: 'f', tokens: 1 }
+  })
+  const ps = await proponerPuentes(db, T)
+  assert.match(vio, /Ana Prueba \(trabajo\).*ya conoce a: Beto Prueba/)
+  assert.deepEqual(ps.map((p) => p.personas.map((x) => x.nombre).join(' y ')), ['Ana Prueba y Cami Prueba'], 'ni los que se conocen, ni la excusa vencida')
+  resolverPuente(db, ps[0].id, 'descartado', T)
+  assert.equal((await proponerPuentes(db, T + 200 * 86_400_000)).length, 0, 'una presentación descartada no vuelve nunca')
+})

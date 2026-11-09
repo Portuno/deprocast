@@ -3230,3 +3230,8 @@ span.ej-chip { cursor: default; }
 .quantomo.q-descartado .q-texto { text-decoration: line-through; }
 .quantomo.q-hecho .q-votos { display: none; }
 .q-ayuda kbd { font: var(--t-1) var(--mono); padding: 0 4px; border: 1px solid var(--linea-2); border-radius: var(--r-s); background: var(--panel-2); }
+
+/* El bautizo con criterio (Fragua #175) */
+.bautizo-candidatos:empty { display: none; }
+.bautizo-candidatos { margin-top: var(--e-3); }
+.bautizo-lista { margin: var(--e-2) 0 0; padding-left: var(--e-5); display: grid; gap: var(--e-1); font-size: var(--t-3); }

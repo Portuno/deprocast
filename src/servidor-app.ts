@@ -382,7 +382,9 @@ const rutas: [string, RegExp, Ruta][] = [
     clase: b.clase, motor: b.motor || undefined, instrucciones: b.instrucciones, reparto: b.reparto,
     proyectoId: b.proyectoId || null, celda: b.celda ? Number(b.celda) : null, misionPrincipal: b.misionPrincipal || null,
   }))],
-  ['POST', /^\/api\/agentes\/([^/]+)\/bautizar$/, (b, [a]) => (bautizar(db, decodeURIComponent(a), String(b.nombre ?? '')), vista(db, leer(db, decodeURIComponent(a))!))],
+  ['POST', /^\/api\/agentes\/([^/]+)\/bautizar$/, async (b, [a]) => { const r = (await import('./bautizo.ts')).bautizarConCriterio(db, decodeURIComponent(a), String(b.nombre ?? '')); return { ...vista(db, leer(db, decodeURIComponent(a))!), porQue: r.porQue } }],
+  // El bautizo con criterio (Fragua #175): candidatos con puntaje y motivo, y el criterio con que se compararon.
+  ['POST', /^\/api\/agentes\/([^/]+)\/nombres$/, async (_, [a]) => (await import('./bautizo.ts')).proponerNombres(db, decodeURIComponent(a))],
   ['POST', /^\/api\/agentes\/([^/]+)\/estado$/, (b, [a]) => (cambiarEstado(db, decodeURIComponent(a), b.estado), vista(db, leer(db, decodeURIComponent(a))!))],
   ['GET', /^\/api\/proyectos\/espacio\/(\d+)$/, (_, [e]) => espacioDeProyecto(db, id(e))],
   ['POST', /^\/api\/proyectos\/sandbox\/(\d+)$/, async (_, [e]) => armarSandbox(db, id(e))],

@@ -437,7 +437,8 @@ async function modalAgente(id) {
             ${f.celdaInfo ? `<br>Celda <b>${f.celdaInfo.etiqueta} · ${esc(f.celdaInfo.dominio)} · ${esc(f.celdaInfo.ipo)}·${esc(f.celdaInfo.cma)}</b>` : ''}</p>
           <p style="font-size:13px;color:var(--tenue);font-style:italic">“${esc(f.instrucciones)}”</p>
           ${f.puedeBautizar ? `<div class="bautismo-box"><b>★ Se ganó un nombre.</b> Es único en la historia de la liga.
-            <div class="fila mt-2"><input class="campo-suelto f1 m-0" id="a-nombre" placeholder="Nombre…"><button class="btn btn-primario" id="a-bautizar">Bautizar</button></div></div>` : ''}
+            <div class="fila mt-2"><input class="campo-suelto f1 m-0" id="a-nombre" placeholder="Nombre…"><button class="btn" id="a-proponer" title="Seis candidatos con su puntaje, su motivo y el criterio">✦ Proponer nombres</button><button class="btn btn-primario" id="a-bautizar">Bautizar</button></div>
+            <div id="a-candidatos" class="bautizo-candidatos"></div></div>` : ''}
           <div class="acciones-agente">
             ${f.estado === 'activo' ? '<button class="btn btn-peligro" data-estado="banca">⇣ Mandar a la banca</button>' : ''}
             ${f.estado === 'banca' ? '<button class="btn" data-estado="activo">⇡ Volver a jugar</button>' : ''}
@@ -474,13 +475,24 @@ async function modalAgente(id) {
       const bautizar = async () => {
         try {
           const g = await api(`/agentes/${encodeURIComponent(f.id)}/bautizar`, { nombre: $('#a-nombre').value })
-          toast(`★ ${esc(f.id)} ahora se llama ${esc(g.nombre)}`)
+          toast(`★ ${esc(f.id)} ahora se llama ${esc(g.nombre)}${g.porQue ? `<small>${esc(g.porQue)}</small>` : ''}`, '', { ms: 9000 })
           await refrescar()
           modalAgente(f.id)
         } catch (e) { error(e) }
       }
       bt.onclick = bautizar
       $('#a-nombre').onkeydown = (e) => e.key === 'Enter' && bautizar()
+      $('#a-proponer').onclick = async (ev) => {
+        const b = ev.currentTarget
+        b.disabled = true
+        b.textContent = 'Pensando…'
+        try {
+          const p = await api(`/agentes/${encodeURIComponent(f.id)}/nombres`, {})
+          $('#a-candidatos').innerHTML = `<p class="tenue chico">Criterio: ${esc(p.criterio)}</p><ol class="bautizo-lista">${p.candidatos.map((c) => `<li><button class="btn-link" data-nombre="${esc(c.nombre)}"><b>${esc(c.nombre)}</b></button> <span class="tenue">${c.puntaje}/10</span> · ${esc(c.motivo)}</li>`).join('')}</ol>`
+          $$('#a-candidatos [data-nombre]').forEach((x) => (x.onclick = () => { $('#a-nombre').value = x.dataset.nombre; $('#a-nombre').focus() }))
+          if (!$('#a-nombre').value) $('#a-nombre').value = p.candidatos[0]?.nombre ?? ''
+        } catch (e) { error(e) } finally { b.disabled = false; b.textContent = '✦ Proponer nombres' }
+      }
     }
   } catch (e) { error(e) }
 }

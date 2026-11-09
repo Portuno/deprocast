@@ -597,16 +597,23 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a, r) => (r?.forjado ? `forjó ${r.forjado.id} (${CLASES[a.clase as keyof typeof CLASES]?.nombre ?? a.clase})` : 'intentó forjar'),
   },
   {
-    nombre: 'bautizar_agente', familia: 'accion', descripcion: 'Pone nombre a un agente de nivel 3 o más.',
+    nombre: 'proponer_nombres', familia: 'lectura',
+    descripcion: 'Antes de bautizar a un agente (nivel 3 o más): propone 6 nombres con su puntaje (0–10), el motivo de cada uno y el criterio con que los comparó. Mostrale la lista y el criterio, no solo el ganador.',
+    parametros: S({ id: str('Designación del agente (ej. GEN-0016)') }, ['id']),
+    ejecutar: async (a, { db }) => (await import('../bautizo.ts')).proponerNombres(db, String(a.id ?? a.agente ?? '').trim().toUpperCase()),
+  },
+  {
+    nombre: 'bautizar_agente', familia: 'accion', descripcion: 'Pone nombre a un agente de nivel 3 o más. Si no hay nombres propuestos, primero proponer_nombres. Devuelve por qué ganó ese nombre: decíselo.',
     parametros: S({ id: str('Designación del agente (ej. GEN-0016)'), nombre: str('Nombre único') }, ['id', 'nombre']),
-    ejecutar: (a, { db }) => {
+    ejecutar: async (a, { db }) => {
       // El modelo a veces la manda como «agente» (Fragua #167): se acepta cualquiera de las dos, y sin ninguna, un error claro.
       const id = String(a.id ?? a.agente ?? a.designacion ?? '').trim().toUpperCase()
       if (!id) throw new Error('Falta la designación del agente (por ejemplo GEN-0016)')
       if (!leer(db, id)) throw new Error(`No existe el agente ${id}`)
       if (!String(a.nombre ?? '').trim()) throw new Error('Falta el nombre')
-      bautizar(db, id, String(a.nombre).trim())
-      return agenteCorto(db, leer(db, id)!)
+      const r = (await import('../bautizo.ts')).bautizarConCriterio(db, id, String(a.nombre).trim())
+      // Fragua #175: decile por qué ese nombre (y contra cuáles compitió), no solo cuál.
+      return { ...agenteCorto(db, leer(db, id)!), por_que: r.porQue, candidatos: r.candidatos.slice(0, 6) }
     },
     resumen: (a) => `bautizó ${a.id ?? a.agente} como ${a.nombre}`,
   },
@@ -2021,7 +2028,7 @@ export const NUCLEO = [
   'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'proponer_mejora', 'deshacer_ultima_accion', 'ver_para_validar', 'validar', 'arrancar_bloque', 'terminar_bloque',
 ]
 export const GRUPOS: Record<string, string[]> = {
-  liga: ['crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
+  liga: ['crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   vida: ['buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas'],
