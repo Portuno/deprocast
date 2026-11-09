@@ -5,9 +5,9 @@
  */
 import { json, type Db } from '../db.ts'
 
-export const ETAPAS = ['encontrada', 'borrador', 'enviada', 'respondio', 'reunion', 'cliente', 'descartada'] as const
+export const ETAPAS = ['calentar', 'encontrada', 'borrador', 'enviada', 'respondio', 'reunion', 'cliente', 'descartada'] as const
 export type Etapa = (typeof ETAPAS)[number]
-export const NOMBRE_ETAPA: Record<Etapa, string> = { encontrada: 'Encontrada', borrador: 'Borrador listo', enviada: 'Enviada', respondio: 'Respondió', reunion: 'Reunión', cliente: 'Cliente', descartada: 'Descartada' }
+export const NOMBRE_ETAPA: Record<Etapa, string> = { calentar: 'Calentar primero', encontrada: 'Encontrada', borrador: 'Borrador listo', enviada: 'Enviada', respondio: 'Respondió', reunion: 'Reunión', cliente: 'Cliente', descartada: 'Descartada' }
 
 export type Contacto = { organizacion: string; canal: string; url: string | null }
 export type Pista = {
@@ -45,7 +45,8 @@ const quien = (db: Db, misionId: number) => db.prepare('SELECT a.id, a.nombre, m
 export function borradoresEsperando(db: Db): { id: number; texto: string; sub: string }[] {
   return pistasDe(db, { etapas: ['borrador'] }).map((p) => {
     const a = quien(db, p.misionId)
-    return { id: p.id, texto: `${a ? `${a.nombre ?? a.id} · ` : ''}${p.contacto.organizacion || p.titulo} (${p.contacto.canal})`, sub: p.borrador ?? '' }
+    const s = json<{ texto: string; url: string } | null>((db.prepare('SELECT senal FROM oportunidades WHERE id = ?').get(p.id) as { senal: string | null } | undefined)?.senal ?? null, null)
+    return { id: p.id, texto: `${a ? `${a.nombre ?? a.id} · ` : ''}${p.contacto.organizacion || p.titulo} (${p.contacto.canal})`, sub: `${s ? `Señal: ${s.texto} (${s.url})\n\n` : ''}${p.borrador ?? ''}` }
   })
 }
 

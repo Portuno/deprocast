@@ -11,12 +11,13 @@ import { anotar } from '../decisiones.ts'
 import { guardarOportunidad, TIPOS_OPORTUNIDAD } from '../radar.ts'
 import type { Herramienta } from '../chat/herramientas.ts'
 import { ETAPAS, NOMBRE_ETAPA, leerPista, pistasDe, embudo, progreso, type Etapa, type Pista, type Contacto } from './embudo.ts'
+import { crearSecuencia, cortarSecuencia, puedeRedactar } from './contacto.ts'
 import { anotarDiario, editarMisionAgente, leerMisionAgente, sumarAlPrompt, sumarHerramientasMision, type MisionAgente } from './misiones.ts'
 
 export { ETAPAS, NOMBRE_ETAPA, leerPista, pistasDe, embudo, progreso, borradoresEsperando, ingresosPorConfirmar, type Etapa, type Pista, type Contacto } from './embudo.ts'
 export const CANALES = ['mail', 'web', 'formulario', 'instagram', 'linkedin', 'telefono', 'otro'] as const
 
-const ESTADO_RADAR: Record<Etapa, string> = { encontrada: 'nueva', borrador: 'me_interesa', enviada: 'hecha', respondio: 'hecha', reunion: 'hecha', cliente: 'hecha', descartada: 'descartada' }
+const ESTADO_RADAR: Record<Etapa, string> = { calentar: 'nueva', encontrada: 'nueva', borrador: 'me_interesa', enviada: 'hecha', respondio: 'hecha', reunion: 'hecha', cliente: 'hecha', descartada: 'descartada' }
 const normal = (u: string) => u.trim().replace(/[.,;]+$/, '').replace(/\/+$/, '').replace(/^http:\/\//, 'https://').replace(/#.*$/, '')
 
 /**
@@ -30,6 +31,9 @@ export function marcarPista(db: Db, id: number, etapa: Etapa, o: { nota?: string
   if (!ETAPAS.includes(etapa)) throw new Error('Etapa inválida')
   const notas = o.nota?.trim() ? [p.notas, o.nota.trim()].filter(Boolean).join('\n').slice(-2000) : p.notas
   db.prepare('UPDATE oportunidades SET etapa = ?, estado = ?, notas = ?, actualizada_en = ? WHERE id = ?').run(etapa, ESTADO_RADAR[etapa], notas, ahora, id)
+  // Tres toques y una llamada (Fragua #172): al mandar, los seguimientos; si responde o se descarta, se cortan.
+  if (etapa === 'enviada' && p.etapa !== 'enviada') crearSecuencia(db, { ...p, borrador: p.borrador }, ahora)
+  if (['respondio', 'reunion', 'cliente', 'descartada'].includes(etapa) && etapa !== p.etapa) cortarSecuencia(db, p, etapa as 'respondio', ahora)
   const m = leerMisionAgente(db, p.misionId)
   if (m && etapa !== p.etapa) {
     anotarDiario(db, m, 'resultado', `El operador marcó la pista «${p.titulo}»: ${NOMBRE_ETAPA[etapa].toLowerCase()}${o.nota?.trim() ? ` (${o.nota.trim()})` : ''}.`, { pista: id, etapa }, ahora)
@@ -109,8 +113,8 @@ export const HERRAMIENTAS_PISTAS: Herramienta[] = [
   },
   {
     nombre: 'redactar_borrador', familia: 'accion',
-    descripcion: 'Escribe el mensaje, mail o propuesta para una de tus pistas, en la voz del operador (él lo firma y lo manda). Corto, concreto, que muestre que conocés a esa organización, con lo que se ofrece y un link de muestra si el brief lo tiene. Queda en su bandeja para que lo revise.',
-    parametros: S({ pista: { type: 'integer', description: 'El id de la pista' }, asunto: str('Asunto, si es un mail'), texto: str('El mensaje completo') }, ['pista', 'texto']),
+    descripcion: 'Escribe el mensaje, mail o propuesta para una de tus pistas, en la voz del operador (él lo firma y lo manda). Tiene que abrir con una SEÑAL real: algo concreto y público que esa organización publicó o hizo (con el link de donde lo leíste en esta sesión), y el motivo de escribirle sale de ahí. Sin señal no hay mensaje. Solo a quien ya tiene contexto con él (si no, la pista queda en «Calentar primero»). Hay un tope de borradores por semana. Corto, concreto, que muestre que conocés a esa organización, con lo que se ofrece y un link de muestra si el brief lo tiene. Queda en su bandeja para que lo revise.',
+    parametros: S({ pista: { type: 'integer', description: 'El id de la pista' }, senal: str('La señal real: qué publicó o hizo (una frase)'), senal_url: str('El link de esa señal (de tus resultados de esta sesión)'), asunto: str('Asunto, si es un mail'), texto: str('El mensaje completo') }, ['pista', 'senal', 'senal_url', 'texto']),
     ejecutar: (a, ctx) => {
       const m = ctx.mision ? leerMisionAgente(ctx.db, ctx.mision.id) : null
       const p = leerPista(ctx.db, Number(a.pista))
@@ -118,8 +122,12 @@ export const HERRAMIENTAS_PISTAS: Herramienta[] = [
       if (!['encontrada', 'borrador'].includes(p.etapa)) return { error: `Esa pista ya está ${NOMBRE_ETAPA[p.etapa].toLowerCase()}: no hace falta otro borrador` }
       const texto = String(a.texto ?? '').trim()
       if (texto.length < 40) return { error: 'Un borrador así de corto no sirve: escribí el mensaje entero' }
+      // Contacto con criterio (Fragua #171, #173): señal real, contexto previo y tope por semana.
+      const senal = a.senal && a.senal_url ? { texto: String(a.senal).trim().slice(0, 300), url: String(a.senal_url).trim() } : null
+      const no = puedeRedactar(ctx.db, p, senal, new Set(ctx.mision?.urlsVistas ?? []))
+      if (no) return { error: no }
       const completo = `${a.asunto ? `Asunto: ${String(a.asunto).trim()}\n\n` : ''}${texto}`.slice(0, 6000)
-      ctx.db.prepare(`UPDATE oportunidades SET borrador = ?, etapa = 'borrador', estado = 'me_interesa', actualizada_en = ? WHERE id = ?`).run(completo, Date.now(), p.id)
+      ctx.db.prepare(`UPDATE oportunidades SET borrador = ?, senal = ?, borrador_en = ?, etapa = 'borrador', estado = 'me_interesa', actualizada_en = ? WHERE id = ?`).run(completo, JSON.stringify(senal), Date.now(), Date.now(), p.id)
       return { pista: p.id, aviso: 'Queda en su bandeja: él lo revisa y lo manda.' }
     },
     resumen: () => 'redactó un borrador para una pista',
@@ -135,7 +143,7 @@ function pistasParaPrompt(db: Db, m: MisionAgente): string {
   return `## Tus pistas (${pr.logrado} de ${pr.meta} para el criterio)
 Embudo: ${ETAPAS.filter((x) => e[x]).map((x) => `${NOMBRE_ETAPA[x]} ${e[x]}`).join(' · ')}
 ${ps.slice(0, 40).map((p) => `- #${p.id} ${p.contacto.organizacion || p.titulo} [${NOMBRE_ETAPA[p.etapa]}] ${p.url ?? ''}${p.notas ? ` — ${p.notas.split('\n').at(-1)}` : ''}`).join('\n')}
-Las pistas en «Encontrada» esperan tu borrador (redactar_borrador). Las enviadas las sigue él: no les redactes otro.`
+Las pistas en «Encontrada» esperan tu borrador (redactar_borrador, con su señal real). Las de «Calentar primero» todavía no: no tienen contexto con él. Las enviadas las sigue él: no les redactes otro.`
 }
 
 sumarHerramientasMision(HERRAMIENTAS_PISTAS)

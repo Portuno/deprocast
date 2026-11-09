@@ -26,6 +26,12 @@ _probarWeb(async (url) => {
   return new Response('<html><title>Luz</title><body>Somos una productora</body></html>', { status: 200, headers: { 'content-type': 'text/html' } })
 })
 
+/** Ya la conoce: está en sus Personas (contexto previo, Fragua #173). */
+function conocida(db: any, nombre: string) {
+  const id = asegurarEntidad(db, { tipo: 'agrupacion', nombre }, T)
+  db.prepare('INSERT OR REPLACE INTO relaciones (entidad_id, vinculo, actualizado_en) VALUES (?, ?, ?)').run(id, 'trabajo', T)
+}
+
 function guion(pasos: { nombre: string; args: unknown }[][]) {
   let i = 0
   const respuestas: string[] = []
@@ -42,12 +48,13 @@ test('El piloto: busca, guarda pistas solo con links que volvieron, redacta; el 
   const db = abrir(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agentes-p-')), 'a.db'))
   const versa = asegurarEntidad(db, { tipo: 'proyecto', nombre: 'Productora de prueba' }, T)
   const m = mi.crearMisionAgente(db, { titulo: 'Un cliente', brief: BRIEF, criterio: { metrica: 'clientes', meta: 1 }, entidadId: versa }, T)
+  conocida(db, 'Productora Luz')
   const respuestas = guion([
     [{ nombre: 'buscar_web', args: { consulta: 'productoras eventos valencia' } }],
     [{ nombre: 'guardar_pista', args: { organizacion: 'Inventada SA', url: 'https://inventada.example', por_que: 'x' } }],
     [{ nombre: 'guardar_pista', args: { organizacion: 'Productora Luz', url: 'https://luz.example', contacto_url: 'https://luz.example/contacto', canal: 'formulario', por_que: 'Hacen eventos y tercerizan foto', lugar: 'Valencia' } }],
     [{ nombre: 'redactar_borrador', args: { pista: 1, texto: 'corto' } }],
-    [{ nombre: 'redactar_borrador', args: { pista: 1, asunto: 'Foto y video para sus eventos', texto: 'Hola, somos una productora chica de Valencia. Vi que organizan eventos todo el año y quería ofrecerles cobertura de foto y video. Les dejo una muestra.' } }],
+    [{ nombre: 'redactar_borrador', args: { pista: 1, asunto: 'Foto y video para sus eventos', senal: 'Organizan eventos todo el año en Valencia', senal_url: 'https://luz.example/', texto: 'Hola, somos una productora chica de Valencia. Vi que organizan eventos todo el año y quería ofrecerles cobertura de foto y video. Les dejo una muestra.' } }],
     [{ nombre: 'cerrar_sesion', args: { resumen: 'Una pista con borrador', proximo_paso: 'Buscar más' } }],
   ])
   await mi.trabajarMision(db, m.id, { ahora: T })
@@ -65,6 +72,9 @@ test('El piloto: busca, guarda pistas solo con links que volvieron, redacta; el 
   await resolverBandeja(db, 'agente_borrador', p.id, 'aceptar', T)
   assert.equal(pi.leerPista(db, p.id)!.etapa, 'enviada')
   assert.equal((db.prepare(`SELECT accion FROM decisiones WHERE tipo = 'agente:borrador'`).get() as any).accion, 'aceptada')
+  // Tres toques (Fragua #172): al mandarlo, dos seguimientos con fecha; el último propone la llamada.
+  const segs = db.prepare(`SELECT titulo, estado FROM misiones WHERE categoria = 'seguimiento' ORDER BY id`).all() as any[]
+  assert.deepEqual(segs.map((x) => x.titulo), ['Seguimiento 2/3: Productora Luz', 'Seguimiento 3/3: Productora Luz (proponer llamada)'])
 
   // Entra un ingreso del proyecto: ¿es de esa pista? Sí → cliente → misión cumplida.
   db.prepare(`INSERT INTO movimientos (fecha, monto, moneda, categoria, descripcion, origen, huella, creado_en, entidad_id) VALUES ('2026-10-28', 400, 'EUR', 'ingresos', 'Cobertura evento', 'manual', 'h1', ?, ?)`).run(T + 1000, versa)
@@ -72,6 +82,7 @@ test('El piloto: busca, guarda pistas solo con links que volvieron, redacta; el 
   assert.match(String(ing.items[0].texto), /Productora Luz/)
   await resolverBandeja(db, 'agente_cliente', ing.items[0].id, 'aceptar', T + 2000)
   assert.equal(pi.leerPista(db, p.id)!.etapa, 'cliente')
+  assert.ok((db.prepare(`SELECT estado FROM misiones WHERE categoria = 'seguimiento' AND titulo LIKE 'Seguimiento%'`).all() as any[]).every((x) => x.estado === 'descartada'), 'cerrada la pista, los seguimientos se cortan')
   assert.equal(mi.leerMisionAgente(db, m.id)!.estado, 'cumplida')
   assert.ok(mi.diarioDe(db, m.id).some((d) => /marcó la pista «Productora Luz»: cliente/.test(d.texto)), 'el agente se entera en su diario')
   assert.ok(!bandeja(db, T + 3000).grupos.some((x) => x.tipo === 'agente_cliente' && x.n), 'no vuelve a preguntar')
@@ -80,10 +91,11 @@ test('El piloto: busca, guarda pistas solo con links que volvieron, redacta; el 
 test('Descartar un borrador lo devuelve a «encontrada» y el agente lo lee; el prompt trae las pistas con su etapa', async () => {
   const db = abrir(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agentes-p-')), 'a.db'))
   const m = mi.crearMisionAgente(db, { titulo: 'Reuniones', brief: BRIEF, criterio: { metrica: 'reuniones', meta: 5 } }, T)
+  conocida(db, 'Productora Luz')
   guion([
     [{ nombre: 'buscar_web', args: { consulta: 'x' } }],
     [{ nombre: 'guardar_pista', args: { organizacion: 'Productora Luz', url: 'https://luz.example/', por_que: 'encaja' } }],
-    [{ nombre: 'redactar_borrador', args: { pista: 1, texto: 'Hola, les escribo para ofrecerles foto y video en sus eventos de este año, con muestras.' } }],
+    [{ nombre: 'redactar_borrador', args: { pista: 1, senal: 'Son una productora de eventos', senal_url: 'https://luz.example/', texto: 'Hola, les escribo para ofrecerles foto y video en sus eventos de este año, con muestras.' } }],
     [{ nombre: 'cerrar_sesion', args: { resumen: 'ok', proximo_paso: 'más' } }],
   ])
   await mi.trabajarMision(db, m.id, { ahora: T })

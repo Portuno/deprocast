@@ -13,7 +13,9 @@ let enMemoria: Map<string, Float32Array> | null = null
 let calculando: Promise<void> | null = null
 
 /** De qué grupo es cada herramienta (las del núcleo no hace falta pedirlas). */
-const GRUPO_DE = new Map<string, string>(Object.entries(GRUPOS).flatMap(([g, hs]) => hs.map((h) => [h, g] as [string, string])))
+// Perezoso: herramientas.ts y este módulo se importan en círculo (vía chat/index.ts); al cargar, GRUPOS puede no existir todavía.
+let grupoDe: Map<string, string> | null = null
+const GRUPO_DE = () => (grupoDe ??= new Map<string, string>(Object.entries(GRUPOS).flatMap(([g, hs]) => hs.map((h) => [h, g] as [string, string]))))
 
 function cargar(db: Db): Map<string, Float32Array> {
   if (enMemoria) return enMemoria
@@ -29,7 +31,7 @@ export function prepararVectores(db: Db): Promise<void> {
   if (calculando) return calculando
   calculando = (async () => {
     const ya = cargar(db)
-    const faltan = HERRAMIENTAS.filter((h) => !ya.has(h.nombre) && GRUPO_DE.has(h.nombre))
+    const faltan = HERRAMIENTAS.filter((h) => !ya.has(h.nombre) && GRUPO_DE().has(h.nombre))
     if (!faltan.length) return
     const { vectoresDeTextos, vecABlob } = await import('../semantica.ts')
     const vs = await vectoresDeTextos(db, faltan.map((h) => `${h.nombre.replace(/_/g, ' ')}: ${h.descripcion}`), 'herramientas')
@@ -47,11 +49,11 @@ export function prepararVectores(db: Db): Promise<void> {
 export async function gruposPorSentido(db: Db, vec: Float32Array | null, o: { k?: number; umbral?: number } = {}): Promise<string[]> {
   if (!vec) return []
   const vs = cargar(db)
-  if (vs.size < GRUPO_DE.size * 0.8) { void prepararVectores(db).catch(() => {}); if (!vs.size) return [] }
+  if (vs.size < GRUPO_DE().size * 0.8) { void prepararVectores(db).catch(() => {}); if (!vs.size) return [] }
   const { parecidoA } = await import('../semantica.ts')
   const ranking = [...vs].filter(([n]) => !NUCLEO.includes(n)).map(([n, v]) => ({ n, sim: parecidoA(vec, v) })).sort((a, b) => b.sim - a.sim)
   const elegidas = ranking.filter((x) => x.sim >= (o.umbral ?? 0.35)).slice(0, o.k ?? 6)
-  return [...new Set(elegidas.map((x) => GRUPO_DE.get(x.n)).filter((g): g is string => !!g))]
+  return [...new Set(elegidas.map((x) => GRUPO_DE().get(x.n)).filter((g): g is string => !!g))]
 }
 
 export function _olvidarVectoresHerramientas() { enMemoria = null }

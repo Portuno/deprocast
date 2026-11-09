@@ -707,6 +707,8 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/taller\/(\d+)\/valorar$/, (b, [a]) => valorarArtefacto(db, id(a), Number(b.estrellas), b.nota ?? null)],
   // La matriz de un término (sus ejes) y los homónimos.
   ['GET', /^\/api\/entidades\/(\d+)\/ejes$/, (_, [e]) => ejesDe(db, id(e))],
+  // Contacto con criterio (plan v38, fase 4): él anota el contexto previo de una pista.
+  ['POST', /^\/api\/pistas\/(\d+)\/contexto$/, async (b, [n]) => (await import('./agentes/contacto.ts')).anotarContexto(db, id(n), String(b.texto ?? ''))],
   // Los criterios con que se arman las runs (Fragua #156).
   ['GET', /^\/api\/criterios$/, async () => (await import('./criterios.ts')).listar(db)],
   ['POST', /^\/api\/criterios$/, async (b) => (await import('./criterios.ts')).fijarPeso(db, String(b.clave ?? ''), Number(b.peso))],

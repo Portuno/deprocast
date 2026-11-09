@@ -35,7 +35,7 @@ function embudoAg(e) {
   const xs = Object.entries(e).filter(([k, n]) => n && k !== 'descartada')
   return xs.length ? `<p class="ag-embudo chico">${xs.map(([k, n]) => `<span>${esc(NOMBRE_ETAPA_AG[k] ?? k)} <b>${n}</b></span>`).join('')}</p>` : '<p class="chico tenue">Sin pistas todavía.</p>'
 }
-const NOMBRE_ETAPA_AG = { encontrada: 'Encontrada', borrador: 'Borrador', enviada: 'Enviada', respondio: 'Respondió', reunion: 'Reunión', cliente: 'Cliente', descartada: 'Descartada' }
+const NOMBRE_ETAPA_AG = { calentar: 'Calentar primero', encontrada: 'Encontrada', borrador: 'Borrador', enviada: 'Enviada', respondio: 'Respondió', reunion: 'Reunión', cliente: 'Cliente', descartada: 'Descartada' }
 
 function tarjetaMisionAg(m) {
   return `<button class="tarjeta ag-mision ${m.estado}" data-ag-mision="${m.id}">
