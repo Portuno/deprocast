@@ -1233,6 +1233,55 @@ CREATE TABLE IF NOT EXISTS chat_mencionados (
   en INTEGER NOT NULL,
   PRIMARY KEY (conversacion_id, tipo, ref)
 );
+-- Mapamundi (plan v38, fase 7): hexágonos con su grande, disputas en las aristas, rutas y lo que jugó.
+CREATE TABLE IF NOT EXISTS mapamundi_hex (
+  clave TEXT PRIMARY KEY,
+  q INTEGER NOT NULL,
+  r INTEGER NOT NULL,
+  grande TEXT,
+  corto TEXT,
+  pais TEXT,
+  siglo INTEGER,
+  idea TEXT,
+  control TEXT,
+  origen TEXT,
+  creado INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mapamundi_disputas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  a TEXT NOT NULL,
+  b TEXT NOT NULL,
+  nombre TEXT NOT NULL,
+  anio INTEGER NOT NULL,
+  lugar TEXT NOT NULL DEFAULT '',
+  postura_a TEXT NOT NULL DEFAULT '',
+  postura_b TEXT NOT NULL DEFAULT '',
+  fuerza_a INTEGER NOT NULL DEFAULT 5,
+  fuerza_b INTEGER NOT NULL DEFAULT 5,
+  verdad TEXT NOT NULL,
+  botin TEXT NOT NULL DEFAULT '',
+  ley TEXT NOT NULL DEFAULT '',
+  estado TEXT NOT NULL DEFAULT 'pendiente',
+  via TEXT,
+  resuelta_en INTEGER,
+  UNIQUE (a, b, nombre)
+);
+CREATE TABLE IF NOT EXISTS mapamundi_rutas (
+  a TEXT NOT NULL,
+  b TEXT NOT NULL,
+  PRIMARY KEY (a, b)
+);
+CREATE TABLE IF NOT EXISTS mapamundi_jugadas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  disputa_id INTEGER NOT NULL,
+  desde TEXT NOT NULL,
+  via TEXT NOT NULL,
+  texto TEXT,
+  puntaje REAL,
+  gano INTEGER NOT NULL,
+  por_que TEXT,
+  en INTEGER NOT NULL
+);
 -- Su feed con tope (plan v38, fase 5): las fuentes que eligió y lo que traen, con lo que marcó.
 CREATE TABLE IF NOT EXISTS feed_fuentes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1938,6 +1987,8 @@ CREATE INDEX IF NOT EXISTS quantomos_etapa ON quantomos(etapa);
 
 /** Columnas que se sumaron después de la primera versión: se agregan sin tocar los datos. */
 const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
+  // Mapamundi: cómo se conoce a cada grande (la etiqueta del tablero).
+  mapamundi_hex: [['corto', 'TEXT']],
   // YouTube por dominio (plan v34, #46): el bloque al que alimenta un canal (idiomas, foco, IA…), que heredan sus videos.
   youtube_cola: [['dominio', 'TEXT']],
   // El correo en la web (plan v35): el triaje del modelo y «listo» (sale de lo pendiente).

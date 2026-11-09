@@ -86,7 +86,7 @@ test('Tarjetas: el repaso espaciado (SM-2) aleja lo que sabe y vuelve a hoy lo q
   t.borrarTarjeta(db, b.id)
   assert.equal(t.leerTarjeta(db, b.id), null)
   // Varias de una, pero solo del mazo que se está mirando.
-  const v1 = t.crearTarjeta(db, { mazo: 'idioma:1', frente: '¿Cómo dirías: «Corruptopolis»?', dorso: 'x' }, T).id
+  const v1 = t.crearTarjeta(db, { mazo: 'idioma:1', frente: '¿Cómo dirías: «Huerta Norte»?', dorso: 'x' }, T).id
   const v2 = t.crearTarjeta(db, { mazo: 'idioma:1', frente: '¿Cómo dirías: «mi proyecto»?', dorso: 'y' }, T).id
   const otra = t.paraRepasar(db, { mazo: 'video:9' }, T)[0].id
   assert.equal(t.borrarTarjetas(db, 'idioma:1', [v1, v2, otra]), 2)
@@ -104,14 +104,14 @@ test('Idiomas: el kit de una (temario, básicas como tarjetas y la primera sesi�
   assert.throws(() => idi.crearIdioma(db, { codigo: 'fr', porQue: 'Otra vez el mismo idioma' }, T), /Ya estás/)
 
   // Su memoria no entra: lo que guía es su para qué (y lo poco que contó de él).
-  db.prepare(`INSERT INTO memoria (texto, tipo, fecha, estado, revisada, creada_por, creada_en) VALUES ('Está armando Corruptopolis, un juego', 'hecho', '2026-10-01', 'vigente', 1, 'escriba', 1)`).run()
+  db.prepare(`INSERT INTO memoria (texto, tipo, fecha, estado, revisada, creada_por, creada_en) VALUES ('Está armando Huerta Norte, un juego', 'hecho', '2026-10-01', 'vigente', 1, 'escriba', 1)`).run()
   pedidos.length = 0
   voces = 0
   const s = await idi.prepararSesion(db, fr.aprendizajeId, { ahora: T })
   assert.equal(pedidos.length, 1, 'una sola llamada trae todo')
   assert.match(pedidos[0].sistema, /cuatro capas/)
   assert.match(pedidos[0].usuario, /comer afuera en París/)
-  assert.doesNotMatch(pedidos[0].sistema + pedidos[0].usuario, /Corruptopolis/)
+  assert.doesNotMatch(pedidos[0].sistema + pedidos[0].usuario, /Huerta Norte/)
   assert.equal(s.estado, 'lista')
   assert.equal(s.paquete.palabras.length, 3)
   assert.deepEqual(s.paquete.pregunta, { texto: 'Comment tu t’appelles ?', pron: null, suena: 'ko-mán tü ta-pél', es: '¿Cómo te llamás?', nota: null, audio: s.paquete.pregunta.audio })

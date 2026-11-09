@@ -707,6 +707,17 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/taller\/(\d+)\/valorar$/, (b, [a]) => valorarArtefacto(db, id(a), Number(b.estrellas), b.nota ?? null)],
   // La matriz de un término (sus ejes) y los homónimos.
   ['GET', /^\/api\/entidades\/(\d+)\/ejes$/, (_, [e]) => ejesDe(db, id(e))],
+  // Mapamundi (plan v38, fase 7).
+  ['GET', /^\/api\/mapamundi$/, async () => (await import('./mapamundi.ts')).estado(db)],
+  ['POST', /^\/api\/mapamundi\/piloto$/, async () => (await import('./mapamundi.ts')).cargarPiloto(db)],
+  ['POST', /^\/api\/mapamundi\/empezar$/, async (b) => {
+    const lugar = await (await import('./mapa.ts')).ubicar(db, String(b.lugar ?? '').slice(0, 200))
+    if (!lugar) throw new Error('No encontré ese lugar en el mapa')
+    return (await import('./mapamundi.ts')).empezarEn(db, { lat: lugar.lat, lon: lugar.lon, nombre: String(b.lugar).trim() })
+  }],
+  ['POST', /^\/api\/mapamundi\/poblar$/, async (b) => (await import('./mapamundi.ts')).poblar(db, String(b.clave ?? ''))],
+  ['POST', /^\/api\/mapamundi\/lente$/, async (b) => (await import('./mapamundi.ts')).fijarLente(db, String(b.lente ?? ''))],
+  ['POST', /^\/api\/mapamundi\/disputas\/(\d+)\/jugar$/, async (b, [n]) => (await import('./mapamundi.ts')).jugar(db, id(n), { via: b.via === 'discurso' ? 'discurso' : 'fuerza', texto: b.texto == null ? undefined : String(b.texto) })],
   // Su feed con tope (plan v38, fase 5).
   ['GET', /^\/api\/feed$/, async () => { const f = await import('./feed.ts'); return { dias: f.feedDe(db), fuentes: f.fuentes(db), topes: f.topes(db) } }],
   ['POST', /^\/api\/feed\/fuentes$/, async (b) => (await import('./feed.ts')).sumarFuente(db, String(b.texto ?? ''))],

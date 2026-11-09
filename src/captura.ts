@@ -116,7 +116,7 @@ function registrarCapturaSola(db: Db, c: Captura, o: { foto?: string | null; fue
   if (c.tipo === 'gasto' || c.tipo === 'ingreso') {
     const monto = Math.abs(Number(c.datos.monto))
     if (!Number.isFinite(monto) || !monto) return null
-    // «Gasto: imprenta cartas Corruptopolis» dice más que «imprenta»: el título sin la etiqueta, y si no, el comercio.
+    // «Gasto: imprenta cartas Huerta Norte» dice más que «imprenta»: el título sin la etiqueta, y si no, el comercio.
     const descripcion = String(c.titulo.replace(/^(gasto|ingreso|compra|pago)\s*:\s*/i, '').trim() || c.datos.comercio || (c.tipo === 'gasto' ? 'Gasto' : 'Ingreso')).slice(0, 200)
     const m = registrarMovimiento(db, {
       fecha: c.fecha ?? undefined, monto: c.tipo === 'gasto' ? -monto : monto, moneda: String(c.datos.moneda || 'EUR').toUpperCase().slice(0, 3),

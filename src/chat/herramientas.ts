@@ -880,7 +880,7 @@ export const HERRAMIENTAS: Herramienta[] = [
   {
     nombre: 'registrar_movimiento', familia: 'accion',
     descripcion: 'Registra un gasto (monto negativo) o un ingreso (positivo) que él cuenta («gasté 20 en el súper», «me pagaron 800 del freelance»). Euros salvo que diga otra moneda. Si es de un proyecto o una persona suya, ponelo en proyecto.',
-    parametros: S({ monto: { type: 'number', description: 'Negativo si es gasto, positivo si es ingreso' }, descripcion: str('En qué'), categoria: str('Categoría', { enum: [...CATEGORIAS] }), fecha: str('YYYY-MM-DD; vacío = hoy'), moneda: str('EUR por defecto'), proyecto: str('El proyecto o la persona al que pertenece, si lo dice («para Corruptopolis»)') }, ['monto', 'descripcion']),
+    parametros: S({ monto: { type: 'number', description: 'Negativo si es gasto, positivo si es ingreso' }, descripcion: str('En qué'), categoria: str('Categoría', { enum: [...CATEGORIAS] }), fecha: str('YYYY-MM-DD; vacío = hoy'), moneda: str('EUR por defecto'), proyecto: str('El proyecto o la persona al que pertenece, si lo dice («para la Huerta»)') }, ['monto', 'descripcion']),
     ejecutar: (a, { db }) => { const m = registrarMovimiento(db, { ...a, origen: 'chat' }); return m ? { ...m, _deshacer: { tabla: 'movimientos', id: m.id } } : { repetido: true } },
     resumen: (a) => `anotó ${a.monto} € (${recorte(a.descripcion, 40)})`,
   },
@@ -1218,6 +1218,19 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `fijó la meta del mes en ${a.euros} €`,
   },
   // ─── Lo que faltaba para manejar todo desde el chat (plan v38, fase 1½) ───
+  {
+    nombre: 'ver_mapamundi', familia: 'lectura',
+    descripcion: 'El Mapamundi: el tablero de hexágonos con un grande de la historia en cada uno. Qué es suyo, qué no, su fuerza, las disputas que puede jugar ahora (con la postura del rival y la chance por la fuerza) y las que cerró, con su ley.',
+    parametros: S({}),
+    ejecutar: async (_, { db }) => (await import('../mapamundi.ts')).resumen(db),
+  },
+  {
+    nombre: 'disputar', familia: 'accion',
+    descripcion: 'Juega una disputa del Mapamundi (el id sale de ver_mapamundi). Por la fuerza (al azar con su fuerza contra la del rival) o por el discurso: su réplica, de como mucho 15 palabras, contra la postura del rival; la juzga el evaluador. Usá SUS palabras tal cual para el discurso, nunca las escribas vos. Devuelve si ganó, qué cambió en el tablero y la ficha: qué pasó de verdad, qué se llevó el ganador y la ley.',
+    parametros: S({ id: { type: 'number', description: 'La disputa' }, via: str('fuerza o discurso', { enum: ['fuerza', 'discurso'] }), texto: str('Su réplica (solo por discurso), con sus palabras') }, ['id', 'via']),
+    ejecutar: async (a, { db }) => (await import('../mapamundi.ts')).jugar(db, Number(a.id), { via: a.via === 'discurso' ? 'discurso' : 'fuerza', texto: a.texto == null ? undefined : String(a.texto) }),
+    resumen: (a) => `jugó la disputa ${a.id} por ${a.via}`,
+  },
   {
     nombre: 'seguir_en_feed', familia: 'accion',
     descripcion: 'Suma una fuente a su feed con tope (o la saca con quitar=true): una cuenta de X («@cuenta»), un subreddit («r/nombre») o un canal de YouTube (su link). Lo de X entra además a su corpus. El feed muestra una cantidad fija por día (Afuera → Feed).',
@@ -2174,6 +2187,7 @@ export const GRUPOS: Record<string, string[]> = {
   drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],
   web: ['seguir_en_feed', 'ver_feed', 'buscar_web', 'buscar_en', 'explorar', 'usar_alexandria', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus'],
+  mapamundi: ['ver_mapamundi', 'disputar'],
   observatorio: ['seguir_tema', 'ver_observatorio', 'crear_campana', 'armar_campana'],
   crear: ['difundir_idea', 'ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
@@ -2191,6 +2205,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/drive|planilla|sheets?\b|hoja de c[aá]lculo|spreadsheet|excel|docs\.google/.test(t)) g.push('drive')
   if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal|reddit|subreddit|github|repo\b|twitter|tweet|tuit|linkedin|instagram|facebook/.test(t)) g.push('web')
   if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo|mis redes|difund/.test(t)) g.push('crear')
+  if (/mapamundi|hex[aá]gono|disputa|grande de la historia|\bzama\b|sagunto/.test(t)) g.push('mapamundi')
   if (/grafo|mis temas|de qu[eé] hablo|qu[eé] conecta|me repito|mis zonas|zonas de mi|bisagra|hueco/.test(t)) g.push('grafo')
   if (/observatorio|qu[eé] se dice|narrativa|hashtag|tendencia|segu[ií] (el|al|a la) tema|segu[ií]me|campa[ñn]a/.test(t)) g.push('observatorio')
   return g

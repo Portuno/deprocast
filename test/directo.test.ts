@@ -52,7 +52,7 @@ test('Directo: anota lo que ve (estirando lo que no cambia), transcribe voz y me
       tareas: ['Llamar a Ana por el presupuesto'], cumplidas: [quest.id],
       entidades: [{ nombre: 'Ana', tipo: 'persona', nota: 'el presupuesto', alias: [] }, { nombre: 'Instagram', tipo: 'concepto', nota: 'el feed' }],
       conexiones: [{ de: 'Ana', con: 'Pedro', relacion: 'le pasa el presupuesto', tipoDe: 'persona', tipoCon: 'persona' }],
-      consumido: [{ titulo: 'Cómo diseñar juegos de mesa', tipo: 'Video', resumen: 'Mecánicas primero', relacion: 'Corruptopolis' }], bandas: [],
+      consumido: [{ titulo: 'Cómo diseñar juegos de mesa', tipo: 'Video', resumen: 'Mecánicas primero', relacion: 'Huerta Norte' }], bandas: [],
     }), llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1,
   }))
   const c = await cerrarDirecto(db, s.id, { ahora: min(30), escriba: false })

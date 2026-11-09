@@ -3327,3 +3327,36 @@ span.ej-chip { cursor: default; }
 @media (min-width: 1000px) { .feed-cuerpo { grid-template-columns: minmax(0, 1fr) 300px; } .feed-fuentes { position: sticky; top: var(--e-4); } }
 @media (max-width: 720px) { .feed { padding: var(--e-3); } }
 .feed-tope { width: 70px; }
+
+/* Mapamundi (plan v38, fase 7) */
+.mmu { max-width: 1400px; margin: 0 auto; padding: var(--e-5); display: grid; gap: var(--e-4); }
+.mmu-vacio { display: grid; gap: var(--e-3); padding: var(--e-5); max-width: 640px; }
+.mmu-barra { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--e-2); margin-bottom: var(--e-3); }
+.mmu-lentes { display: flex; flex-wrap: wrap; gap: var(--e-1); }
+.mmu-cuerpo { display: grid; gap: var(--e-4); align-items: start; }
+.mmu-cuerpo .mp-lienzo { height: min(72vh, 720px); }
+.mmu-panel { display: grid; gap: var(--e-2); padding: var(--e-4); align-content: start; max-height: min(72vh, 720px); overflow: auto; }
+.mmu-panel h3 { margin: 0; }
+.mmu-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--e-1); font-size: var(--t-3); }
+.mmu-lista p { margin: 2px 0 0; color: var(--tenue); }
+.mmu-idea { margin: 0; font-style: italic; color: var(--acento-texto); }
+.mmu-postura { margin: 0; padding: var(--e-2) var(--e-3); border-left: 3px solid var(--acento); background: var(--acento-suave); border-radius: 0 var(--r-s) var(--r-s) 0; font-size: var(--t-4); }
+.mmu-jugar { display: grid; gap: var(--e-3); }
+.mmu-discurso { display: grid; gap: var(--e-2); }
+.mmu-discurso textarea { width: 100%; font: inherit; }
+.mmu-discurso .fila { justify-content: space-between; }
+#mmu-cuenta.mal { color: var(--mal); }
+.mmu-resultado { padding: var(--e-3); border-radius: var(--r-m); border: 1px solid var(--linea-2); }
+.mmu-resultado p { margin: var(--e-1) 0 0; }
+.mmu-resultado.gano { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.mmu-resultado.perdio { border-color: var(--mal); background: color-mix(in srgb, var(--mal) 10%, transparent); }
+.mmu-ficha { display: grid; gap: var(--e-1); margin: 0; font-size: var(--t-3); }
+.mmu-ficha dt { color: var(--tenue); font-size: var(--t-2); text-transform: uppercase; letter-spacing: .04em; margin-top: var(--e-2); }
+.mmu-ficha dd { margin: 0; }
+.leaflet-tooltip.mmu-etq { background: transparent; border: 0; box-shadow: none; color: var(--texto); font: 600 var(--t-2) var(--cuerpo); text-shadow: 0 0 3px var(--fondo), 0 0 3px var(--fondo); padding: 0; }
+.leaflet-tooltip.mmu-etq::before { display: none; }
+@media (min-width: 1000px) { .mmu-cuerpo { grid-template-columns: minmax(0, 1fr) 340px; } }
+@media (max-width: 720px) { .mmu { padding: var(--e-3); } }
+
+/* El fondo de los mapas (OpenStreetMap) en tema oscuro: invertido y apagado, para que no encandile. */
+:root:not([data-tema="claro"]) .mp-lienzo .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.85) contrast(.9) saturate(.6); }

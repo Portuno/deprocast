@@ -41,7 +41,7 @@ export function entidadDeMovimiento(db: Db, texto: string): number | null {
   return hits[0]?.id ?? null
 }
 
-/** Un nombre que dice él («para Corruptopolis»): el que coincide entero, o el que aparece adentro. */
+/** Un nombre que dice él («para la Huerta»): el que coincide entero, o el que aparece adentro. */
 export function entidadPorNombre(db: Db, nombre: string): number | null {
   const n = normE(nombre)
   if (!n) return null

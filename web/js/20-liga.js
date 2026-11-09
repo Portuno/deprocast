@@ -73,7 +73,7 @@ async function cargarEjemplo() {
 function modalProyecto() {
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Nuevo proyecto</h2>
     <p class="tenue">Cada proyecto nace con su gerente: el entrenador que reparte sus misiones.</p>
-    <label class="campo">Nombre<input id="p-nombre" placeholder="Ulpianito, Corruptopolis, Studianta…" autofocus></label>
+    <label class="campo">Nombre<input id="p-nombre" placeholder="El nombre del proyecto…" autofocus></label>
     <div class="fila mt-4"><button class="btn btn-primario" id="p-crear">Crear con gerente</button></div>`)
   const crear = async () => {
     try {

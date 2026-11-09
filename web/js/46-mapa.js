@@ -29,6 +29,10 @@ function cargarLeaflet() {
 }
 
 const temaClaro = () => document.documentElement.dataset.tema === 'claro'
+/** El fondo de los mapas: OpenStreetMap (sin clave; CARTO empezó a pedirla). En tema oscuro lo oscurece el CSS. */
+const capaBaseMapa = (L) => L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+})
 const fechaCorta = (f) => (f ? new Date(`${f.slice(0, 10)}T12:00:00`).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: f.slice(0, 4) !== String(new Date().getFullYear()) ? 'numeric' : undefined }) : '')
 
 /**
@@ -40,9 +44,7 @@ async function pintarMapa(el, puntos, o = {}) {
   if (el._mapa) { el._mapa.remove(); el._mapa = null }
   const mapa = L.map(el, { zoomControl: true, worldCopyJump: true, attributionControl: true })
   el._mapa = mapa
-  L.tileLayer(`https://{s}.basemaps.cartocdn.com/${temaClaro() ? 'light_all' : 'dark_all'}/{z}/{x}/{y}{r}.png`, {
-    maxZoom: 19, subdomains: 'abcd', attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · © <a href="https://carto.com/attributions">CARTO</a>',
-  }).addTo(mapa)
+  capaBaseMapa(L).addTo(mapa)
   const capa = L.layerGroup().addTo(mapa)
   const popup = (p) => {
     const c = CAPAS_MAPA_UI[p.capa] ?? { nombre: p.capa, color: '#999', icono: '·' }
@@ -114,7 +116,7 @@ async function montarMapa() {
     <div class="titulo"><h1>Mapa</h1><p>Dónde pasa lo de tu mundo: los lugares que aparecen en tu archivo, los eventos de tu Línea, lo que encontró el Radar, tus side quests y tu calendario.</p></div>
     <div class="mp-barra">
       <div class="mp-capas">${Object.entries(CAPAS_MAPA_UI).map(([k, c]) => `<button class="chip-capa ${mapaEstado.capas.has(k) ? 'activo' : ''}" data-capa="${k}" style="--c:${c.color}">${c.icono} ${esc(c.nombre)} <small data-cuenta="${k}"></small></button>`).join('')}</div>
-      <div class="fila"><input class="campo-suelto" id="mp-buscar" placeholder="Buscar un lugar…"><button class="btn btn-chico" id="mp-yo" title="Centrar en donde estás">◎ Centrar en mí</button></div>
+      <div class="fila"><input class="campo-suelto" id="mp-buscar" placeholder="Buscar un lugar…"><button class="btn btn-chico" id="mp-yo" title="Centrar en donde estás">◎ Centrar en mí</button><button class="btn btn-chico" id="mp-mundi" title="Tu vida anclada al tablero de la historia">${ico('hexagon')} Mapamundi</button></div>
     </div>
     <div class="mp-lienzo" id="mp-mapa"></div>
     <p class="tenue chico" id="mp-nota"></p>`
@@ -133,6 +135,7 @@ async function montarMapa() {
       $('#mp-mapa')._mapa?.flyTo([r.lugar.lat, r.lugar.lon], 13)
     } catch (err) { error(err) }
   }
+  $('#mp-mundi').onclick = () => irA('mapamundi')
   $('#mp-yo').onclick = () => {
     if (!navigator.geolocation) return toast('Este navegador no da la ubicación')
     navigator.geolocation.getCurrentPosition((p) => $('#mp-mapa')._mapa?.flyTo([p.coords.latitude, p.coords.longitude], 13), () => toast('No me diste permiso para ver dónde estás', 'suave'))
