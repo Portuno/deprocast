@@ -56,6 +56,15 @@ type Item = { id: number | string; texto: string; sub?: string | null }
 type Grupo = { tipo: string; nombre: string; n: number; peso: number; items: Item[]; acciones: [string, string][] | null; ir: string | null }
 
 /** Todo lo que espera tu ok, por clase, lo que más bloquea primero; lo que hizo solo hoy; y lo que podría pasar a «auto». */
+const ESTADO_OBRA: Record<string, string> = { quiero: 'quiero', en_curso: 'en curso', terminado: 'terminada', abandonado: 'abandonada' }
+/** Las obras propuestas, para la bandeja (sin cargar el módulo: consultas directas). */
+function require_obras(db: Db) {
+  const n = (db.prepare(`SELECT COUNT(*) AS n FROM obras_propuestas WHERE estado = 'pendiente'`).get() as { n: number }).n
+  const items = (db.prepare(`SELECT id, tipo, titulo, autor, estado_obra FROM obras_propuestas WHERE estado = 'pendiente' ORDER BY id DESC LIMIT 8`).all() as any[])
+    .map((o) => ({ id: o.id, texto: `${o.titulo}${o.autor ? ` · ${o.autor}` : ''}`, sub: `${o.tipo} · ${ESTADO_OBRA[o.estado_obra] ?? o.estado_obra}` }))
+  return { n, items }
+}
+
 export function bandeja(db: Db, ahora = Date.now()) {
   const g: Grupo[] = []
   const ss = sugeridos(db)
@@ -96,6 +105,11 @@ export function bandeja(db: Db, ahora = Date.now()) {
   g.push({ tipo: 'inventario', nombre: 'Lo que tenés (según lo que contaste)', n: n(db, `SELECT COUNT(*) AS n FROM inventario WHERE personaje = 'jugador' AND estado = 'sugerido'`), peso: 1, items: inv.map((i) => ({ id: i.id, texto: i.nombre, sub: i.detalle })), acciones: [['aceptar', '✓ Es mío'], ['descartar', '✕']], ir: null })
   const recs = db.prepare(`SELECT id, texto, fecha FROM memoria WHERE estado = 'vigente' AND revisada = 0 AND creada_por IN ${MAQUINA} ORDER BY id DESC LIMIT 8`).all() as any[]
   g.push({ tipo: 'recuerdo', nombre: 'Lo que anotó de vos', n: n(db, `SELECT COUNT(*) AS n FROM memoria WHERE estado = 'vigente' AND revisada = 0 AND creada_por IN ${MAQUINA}`), peso: 1, items: recs.map((r) => ({ id: r.id, texto: r.texto, sub: r.fecha })), acciones: [['aceptar', '✓ Es así'], ['descartar', '✕ No']], ir: null })
+  // Obras que mencionó, para la Librería (Fragua #181).
+  try {
+    const om = require_obras(db)
+    if (om.n) g.push({ tipo: 'obra', nombre: 'Para tu Librería (lo que mencionaste)', n: om.n, peso: 1, ir: null, acciones: [['aceptar', '✓ Sumar'], ['descartar', '✕']], items: om.items })
+  } catch { /* sin la tabla todavía */ }
   g.push({ tipo: 'nombre', nombre: 'Nombres del archivo', n: n(db, `SELECT COUNT(*) AS n FROM takeout_nombres WHERE estado = 'propuesta'`), peso: 0.5, items: [], acciones: null, ir: 'takeout' })
   // Las de La Fragua que todavía no decidió (aceptar la deja abierta con prioridad alta, para construirla: ya no se pregunta).
   const sinDecidir = `estado = 'abierta' AND CAST(id AS TEXT) NOT IN (SELECT ref FROM decisiones WHERE tipo = 'propuesta')`
@@ -146,6 +160,7 @@ export async function resolverBandeja(db: Db, tipo: string, id: number | string,
   if (tipo === 'monto') return resolverSugerido(db, id, accion, {}, ahora)
   if (tipo === 'primaria') return actualizarMision(db, id, { estado: accion === 'aceptar' ? 'activa' : 'descartada' }, { por: 'operador', ahora })
   if (tipo === 'inventario') return editarItem(db, id, { estado: accion === 'aceptar' ? 'vigente' : 'archivado' }, ahora)
+  if (tipo === 'obra') return (await import('./obras-menciones.ts')).resolverPropuestaObra(db, id, accion, ahora)
   if (tipo === 'recuerdo') return accion === 'aceptar' ? revisar(db, id) : archivar(db, id)
   if (tipo === 'aprender') {
     const ac = await import('./academia.ts')

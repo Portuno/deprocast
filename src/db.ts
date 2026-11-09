@@ -1224,6 +1224,18 @@ CREATE TABLE IF NOT EXISTS whatsapp_vistos (
   id TEXT PRIMARY KEY,
   en INTEGER NOT NULL
 );
+-- Obras que mencionó y esperan su ok para entrar a la Librería (Fragua #181).
+CREATE TABLE IF NOT EXISTS obras_propuestas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tipo TEXT NOT NULL,
+  titulo TEXT NOT NULL,
+  autor TEXT,
+  estado_obra TEXT NOT NULL DEFAULT 'quiero',
+  texto TEXT,
+  fuente TEXT,
+  estado TEXT NOT NULL DEFAULT 'pendiente',
+  creada INTEGER NOT NULL
+);
 -- El video como fuente (Fragua #165): la cola, en orden.
 CREATE TABLE IF NOT EXISTS video_cola (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

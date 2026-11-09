@@ -569,6 +569,8 @@ function alRecibir(db: Db, cid: number, c: Conversacion, texto: string) {
     }
   })()
   if (!c.titulo && !leerConversacion(db, cid)?.titulo) db.prepare('UPDATE conversaciones SET titulo = ? WHERE id = ?').run(recorte(comoTexto(texto.trim()).replace(/\s+/g, ' '), 60), cid)
+  // Si nombra una obra («quiero leer…», «terminé la serie…»), queda propuesta para su Librería (Fragua #181). De fondo.
+  void import('../obras-menciones.ts').then((o) => (o.PARECE_OBRA.test(texto) ? o.detectarObras(db, texto, `charla:${cid}`) : null)).catch(() => {})
 }
 
 /**

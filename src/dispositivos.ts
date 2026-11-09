@@ -98,6 +98,8 @@ export async function recibirVoz(db: Db, d: Dispositivo, audio: Buffer, nombre: 
     db.prepare('INSERT INTO voz_segmentos (dispositivo_id, modo, texto, meta, destino, creado_en) VALUES (?, ?, ?, ?, ?, ?)').run(d.id, meta.modo, texto, datos, 'chat', ahora)
     return { texto, destino: 'chat' }
   }
+  // Lo que nombra en una nota de voz también puede ir a su Librería (Fragua #181).
+  void import('./obras-menciones.ts').then((o) => o.detectarObras(db, texto, 'nota de voz')).catch(() => {})
   const { ingerir } = await import('./mastropiero.ts')
   const cuando = new Date(meta.inicio ?? ahora)
   const titulo = `Voz · ${cuando.toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}${meta.caminando ? ' · caminando' : ''}`
