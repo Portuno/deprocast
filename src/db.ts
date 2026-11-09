@@ -1233,6 +1233,21 @@ CREATE TABLE IF NOT EXISTS chat_mencionados (
   en INTEGER NOT NULL,
   PRIMARY KEY (conversacion_id, tipo, ref)
 );
+-- Las cápsulas de 40 s (Fragua #163): con el consentimiento y el uso escritos; el video se borra a pedido.
+CREATE TABLE IF NOT EXISTS capsulas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  persona TEXT NOT NULL,
+  entidad_id INTEGER,
+  uso TEXT NOT NULL,
+  consentimiento TEXT NOT NULL,
+  aceptado_en INTEGER NOT NULL,
+  duracion REAL,
+  mime TEXT NOT NULL,
+  estado TEXT NOT NULL DEFAULT 'vigente',
+  borrada_en INTEGER,
+  motivo_borrado TEXT,
+  creada INTEGER NOT NULL
+);
 -- Para delegar (plan v38): encargos que Mastropiero le sugiere (de sus procesos, anotaciones o movidos de La Fragua).
 CREATE TABLE IF NOT EXISTS encargos_sugeridos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

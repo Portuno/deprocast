@@ -707,6 +707,9 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/taller\/(\d+)\/valorar$/, (b, [a]) => valorarArtefacto(db, id(a), Number(b.estrellas), b.nota ?? null)],
   // La matriz de un término (sus ejes) y los homónimos.
   ['GET', /^\/api\/entidades\/(\d+)\/ejes$/, (_, [e]) => ejesDe(db, id(e))],
+  // Las cápsulas de 40 s (Fragua #163).
+  ['GET', /^\/api\/capsulas$/, async () => (await import('./capsulas.ts')).listarCapsulas(db)],
+  ['POST', /^\/api\/capsulas\/(\d+)\/borrar$/, async (b, [n]) => (await import('./capsulas.ts')).borrarCapsula(db, id(n), b.motivo ?? null)],
   // Contacto con criterio (plan v38, fase 4): él anota el contexto previo de una pista.
   ['POST', /^\/api\/pistas\/(\d+)\/contexto$/, async (b, [n]) => (await import('./agentes/contacto.ts')).anotarContexto(db, id(n), String(b.texto ?? ''))],
   // Los criterios con que se arman las runs (Fragua #156).
@@ -2120,6 +2123,20 @@ const servidor = http.createServer(async (req, res) => {
         const utf = crudo.toString('utf8')
         const texto = utf.includes('\uFFFD') ? crudo.toString('latin1') : utf // los bancos españoles suelen exportar en Latin-1
         return void res.end(JSON.stringify(importarCSV(db, texto, { cuenta: url.searchParams.get('cuenta') || null })))
+      }
+      // Una cápsula de 40 s (Fragua #163): el video crudo, con el consentimiento y el uso en la dirección.
+      if (req.method === 'POST' && url.pathname === '/api/capsulas') {
+        const q = url.searchParams
+        const c = await (await import('./capsulas.ts')).guardarCapsula(db, await leerCrudo(req, 80 * 1024 * 1024), { persona: q.get('persona'), uso: q.get('uso'), consentimiento: q.get('consentimiento'), acepto: q.get('acepto'), duracion: q.get('duracion'), mime: req.headers['content-type'] ?? null })
+        return void res.end(JSON.stringify(c))
+      }
+      const enCapsula = req.method === 'GET' ? /^\/api\/capsulas\/(\d+)\/video$/.exec(url.pathname) : null
+      if (enCapsula) {
+        const k = await import('./capsulas.ts')
+        const c = k.leerCapsula(db, Number(enCapsula[1]))
+        if (!c || c.estado !== 'vigente' || !fs.existsSync(k.archivoDe(c))) return void res.writeHead(404).end(JSON.stringify({ error: 'No está (o se borró)' }))
+        res.writeHead(200, { 'content-type': c.mime, 'cache-control': 'private, no-store' })
+        return void fs.createReadStream(k.archivoDe(c)).pipe(res)
       }
       // Un video (Fragua #165) viaja crudo: a la cola.
       if (req.method === 'POST' && url.pathname === '/api/videos') {

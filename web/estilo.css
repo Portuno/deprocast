@@ -3294,3 +3294,16 @@ span.ej-chip { cursor: default; }
 .r-crit-fila small { font-size: var(--t-2); }
 .r-crit-n { font-family: var(--mono); text-align: right; }
 @media (max-width: 720px) { .r-crit-fila { grid-template-columns: 1fr 48px; } .r-crit-fila input { grid-column: 1 / -1; } }
+
+/* Las cápsulas de 40 s (Fragua #163) */
+.capsulas { max-width: 1100px; margin: 0 auto; padding: var(--e-5); display: grid; gap: var(--e-4); }
+.cap-form { display: grid; gap: var(--e-3); padding: var(--e-4); }
+.cap-form textarea { width: 100%; font: inherit; }
+.cap-camara { display: grid; gap: var(--e-3); justify-items: center; }
+.cap-camara video { width: min(640px, 100%); aspect-ratio: 16 / 9; background: var(--panel-2); border-radius: var(--r-m); object-fit: cover; }
+.cap-reloj { font: 600 var(--t-8) var(--mono); }
+.cap-lista { display: grid; gap: var(--e-3); grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.cap-item { display: grid; gap: var(--e-2); padding: var(--e-3); }
+.cap-item video { width: 100%; border-radius: var(--r-s); background: var(--panel-2); }
+.cap-item.borrada { opacity: .6; }
+@media (max-width: 720px) { .capsulas { padding: var(--e-3); } }
