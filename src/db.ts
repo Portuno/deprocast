@@ -1907,6 +1907,8 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   misiones: [
     ['armado', 'TEXT'], // bien | mal: si la banda estuvo bien armada
     ['progreso_manual', 'INTEGER'], // 1 = el % lo fijó él; si no, el avance de una primaria se infiere de lo hecho
+    ['avisada_en', 'INTEGER'], // la banda ya se le mandó (Fragua #182): no se repite
+    ['avisos_fallidos', 'INTEGER NOT NULL DEFAULT 0'],
   ],
   mensajes: [
     ['deshacer', 'TEXT'], // JSON: cómo volver atrás lo que escribió esa herramienta (si se puede)

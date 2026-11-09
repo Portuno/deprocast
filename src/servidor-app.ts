@@ -2392,6 +2392,8 @@ async function latidoDeRuns() {
   const finMarca = marcar('runs')
   try {
     for (const texto of await latidoRuns(db)) mensajeDeMastropiero(db, conversacionHoy(db).id, texto)
+    // Cada banda, sola y un minuto antes, por Telegram y WhatsApp (Fragua #182).
+    await (await import('./telegram.ts')).avisarBandas(db).catch((e) => console.error('  ⏱ bandas:', e instanceof Error ? e.message : e))
   } catch (e) {
     console.error('  ⏱ runs:', e instanceof Error ? e.message : e)
   } finally {

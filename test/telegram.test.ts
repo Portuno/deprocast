@@ -9,7 +9,7 @@ import { _probarModelo } from '../src/modelo.ts'
 import { _probarCalendario } from '../src/calendario.ts'
 import { _probarEscriba } from '../src/chat/index.ts'
 import { _probarEscribaPreguntas, encolarPregunta } from '../src/preguntas.ts'
-import { _probarTelegram, aHtml, latidoTelegram, procesarActualizacion } from '../src/telegram.ts'
+import { _probarTelegram, aHtml, avisarBandas, latidoTelegram, procesarActualizacion } from '../src/telegram.ts'
 import { resumenMes } from '../src/finanzas.ts'
 import { leerBitacora } from '../src/bitacora.ts'
 import { arrancarRun, prepararRun } from '../src/misiones.ts'
@@ -135,12 +135,14 @@ test('telegram: links al corpus, archivos que se cargan (o del banco) y cada ban
 
   const { run } = await prepararRun(db, {}, { ahora: Date.now() })
   arrancarRun(db, run.id)
-  await latidoTelegram(db)
+  const mandadas = await avisarBandas(db)
   const banda = ultimo()
-  if (banda.reply_markup) {
-    assert.match(banda.text, /Escribir el mail/)
+  if (mandadas) {
+    // Fragua #182: sola, numerada dentro de la run y con sus botones; marcada como enviada (no se repite).
+    assert.match(banda.text, /#1 · \d\d:\d\d–\d\d:\d\d · .*Escribir el mail/)
+    assert.ok(banda.reply_markup.inline_keyboard[0].some((b: any) => /:hecha$/.test(b.callback_data)))
     const antes = ultimo()
-    await latidoTelegram(db)
+    assert.equal(await avisarBandas(db), 0)
     assert.equal(ultimo(), antes, 'la misma banda no se repite')
   }
   delete process.env.TELEGRAM_BOT_TOKEN

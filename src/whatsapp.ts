@@ -432,10 +432,10 @@ export async function recibirWebhook(db: Db, cuerpo: any, ahora = Date.now()): P
 }
 
 /** Lo que Mastropiero dice solo: por WhatsApp si la ventana de 24 horas está abierta. */
-export async function decirPorWhatsapp(db: Db, texto: string, ahora = Date.now()): Promise<boolean> {
+export async function decirPorWhatsapp(db: Db, texto: string, ahora = Date.now(), botones?: Botones): Promise<boolean> {
   const c = cfg(db)
   const ultimo = Number(ajuste(db, 'whatsapp_ultimo_entrante')) || 0
   if (!whatsappConfigurado(db) || !c.suyo || ahora - ultimo >= VENTANA || !texto.trim()) return false
-  await mandarTexto(db, c.suyo, texto.replace(/\s*\[#\d+\]/g, '').trim())
+  await mandarTexto(db, c.suyo, texto.replace(/\s*\[#\d+\]/g, '').trim(), botones)
   return true
 }

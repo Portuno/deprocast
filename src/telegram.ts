@@ -14,9 +14,9 @@ import { asegurarFuente, insertar } from './corpus.ts'
 import { escribaDeMemoria } from './memoria.ts'
 import fs from 'node:fs'
 import { ajuste, fechaLocal, fijarAjuste, type Db } from './db.ts'
-import { conversacionHoy, enviar, estaPensando, mensajes } from './chat/index.ts'
+import { conversacionHoy, enviar, estaPensando, mensajeDeMastropiero, mensajes } from './chat/index.ts'
 import { nanTranscribir, nanVision } from './nan.ts'
-import { arrancarRun, conAvance, enCurso, listarMisiones, listarRuns, marcarSecundaria, misionesDeRun, semanaDe } from './misiones.ts'
+import { arrancarRun, conAvance, enCurso, listarMisiones, listarRuns, marcarSecundaria, misionesDeRun, runActual, semanaDe } from './misiones.ts'
 import { progreso } from './jornada.ts'
 import { ingerir } from './mastropiero.ts'
 import { registrarMovimiento, resumenMes, importarCSV } from './finanzas.ts'
@@ -296,17 +296,58 @@ async function bandaActual(db: Db) {
   return decir(`**${v.actual.inicio}–${v.actual.fin} · ${v.actual.titulo}**${v.actual.detalle ? `\n${v.actual.detalle}` : ''}\nTe quedan ${v.restan} min.${sigue}`, botonesBanda(v.actual.id))
 }
 
-let ultimaBanda: number | null = null
 /** Cada minuto: si arrancó una banda nueva, se la manda sola (con botones). */
 export async function latidoTelegram(db: Db) {
   if (!telegramConfigurado() || !suChat()) return
   await practicasProgramadas(db)
   await avisoBucles(db).catch((e) => console.error('[telegram] bucles:', e instanceof Error ? e.message : e))
-  if (ajuste(db, 'telegram_bandas') === '0') return
-  const v = enCurso(db)
-  const id = v?.actual?.id ?? null
-  if (id && id !== ultimaBanda) { ultimaBanda = id; await bandaActual(db) }
-  if (!id) ultimaBanda = null
+  // Las bandas de la run ya no salen de acá: las manda avisarBandas, un minuto antes y por todos sus canales (Fragua #182).
+}
+
+const aMinutos = (hhmm: string) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + (m || 0) }
+/**
+ * Cada banda de la run en curso, sola y un minuto antes de su hora (Fragua #182): por Telegram y por WhatsApp (si su
+ * ventana está abierta), con sus botones (hecha / a medias / no) y numerada dentro de la run (#1, #2…). Queda marcada
+ * como enviada (no se repite, ni tras un reinicio); si falla, se reintenta cada minuto y al tercer fallo se avisa.
+ */
+export async function avisarBandas(db: Db, ahora = Date.now()): Promise<number> {
+  if (ajuste(db, 'telegram_bandas') === '0') return 0
+  const run = runActual(db, ahora)
+  if (!run || run.estado !== 'en_curso' || run.fecha !== fechaLocal(ahora)) return 0
+  const d = new Date(ahora)
+  const min = d.getHours() * 60 + d.getMinutes()
+  const ms = misionesDeRun(db, run.id).filter((m) => m.inicio && m.fin).sort((a, b) => aMinutos(a.inicio!) - aMinutos(b.inicio!))
+  let mandadas = 0
+  for (const [i, m] of ms.entries()) {
+    if (m.estado !== 'activa' && m.estado !== 'sugerida') continue
+    if (!(min >= aMinutos(m.inicio!) - 1 && min < aMinutos(m.fin!))) continue
+    const fila = db.prepare('SELECT avisada_en, avisos_fallidos FROM misiones WHERE id = ?').get(m.id) as { avisada_en: number | null; avisos_fallidos: number }
+    if (fila.avisada_en) continue
+    const sigue = ms[i + 1] ? `\n_Después: ${ms[i + 1].inicio} ${ms[i + 1].titulo}_` : ''
+    const texto = `**#${i + 1} · ${m.inicio}–${m.fin} · ${m.titulo}**${m.detalle ? `\n${m.detalle}` : ''}${sigue}`
+    const fallas: string[] = []
+    let llego = false
+    if (telegramActivo() && suChat()) {
+      try { if ((await decir(texto, botonesBanda(m.id))) != null) llego = true } catch (e) { fallas.push(`Telegram: ${e instanceof Error ? e.message : e}`) }
+    }
+    try { if (await (await import('./whatsapp.ts')).decirPorWhatsapp(db, texto, ahora, botonesBanda(m.id))) llego = true } catch (e) { fallas.push(`WhatsApp: ${e instanceof Error ? e.message : e}`) }
+    if (llego) {
+      db.prepare('UPDATE misiones SET avisada_en = ? WHERE id = ?').run(ahora, m.id)
+      mandadas++
+    } else if (fallas.length) {
+      const n = fila.avisos_fallidos + 1
+      db.prepare('UPDATE misiones SET avisos_fallidos = ? WHERE id = ?').run(n, m.id)
+      // Al tercer intento se da por perdida y se avisa (por donde se pueda), en vez de callarse.
+      if (n >= 3) {
+        db.prepare('UPDATE misiones SET avisada_en = ? WHERE id = ?').run(ahora, m.id)
+        const aviso = `No pude mandarte la banda #${i + 1} (${m.inicio} ${m.titulo}): ${fallas.join(' · ')}`
+        try { await decir(aviso) } catch { /* sin Telegram */ }
+        try { await (await import('./whatsapp.ts')).decirPorWhatsapp(db, aviso, ahora) } catch { /* sin WhatsApp */ }
+        mensajeDeMastropiero(db, conversacionHoy(db).id, aviso)
+      }
+    }
+  }
+  return mandadas
 }
 
 // ─── idiomas y tarjetas ─────────────────────────────────────────────────
@@ -676,9 +717,8 @@ async function boton(db: Db, q: any) {
   }
   if (k === 'r' && b === 'arrancar') {
     arrancarRun(db, Number(a))
-    ultimaBanda = null
     await decir('▶ Arrancó la run.')
-    return latidoTelegram(db)
+    return avisarBandas(db)
   }
   if (k === 'c') {
     if (b === 's') salteadas.push(Number(a))
