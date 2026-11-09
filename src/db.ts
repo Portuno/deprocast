@@ -1224,6 +1224,36 @@ CREATE TABLE IF NOT EXISTS whatsapp_vistos (
   id TEXT PRIMARY KEY,
   en INTEGER NOT NULL
 );
+-- El video como fuente (Fragua #165): la cola, en orden.
+CREATE TABLE IF NOT EXISTS video_cola (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nombre TEXT NOT NULL,
+  modo TEXT NOT NULL DEFAULT 'fuente',
+  nota TEXT,
+  estado TEXT NOT NULL DEFAULT 'pendiente',
+  piezas TEXT,
+  notas INTEGER,
+  error TEXT,
+  creado INTEGER NOT NULL,
+  terminado INTEGER
+);
+-- El diario propio (Fragua #166): notas de prensa traducidas, con su tema, territorio y si le importan.
+CREATE TABLE IF NOT EXISTS prensa (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  fecha TEXT NOT NULL,
+  titular TEXT NOT NULL,
+  original TEXT NOT NULL,
+  idioma TEXT,
+  traduccion TEXT NOT NULL,
+  tema TEXT NOT NULL,
+  territorio TEXT,
+  voto INTEGER,
+  sugerido REAL,
+  pieza_id INTEGER,
+  origen TEXT,
+  creada INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS prensa_fecha ON prensa (fecha);
 -- Lo que Mastropiero le sugirió hace poco en cada charla (plan v37): «ya la hice» sabe de qué habla.
 CREATE TABLE IF NOT EXISTS chat_sugeridas (
   conversacion_id INTEGER NOT NULL,

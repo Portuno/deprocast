@@ -3251,3 +3251,36 @@ span.ej-chip { cursor: default; }
 .empresa-criterio { display: grid; grid-template-columns: minmax(0, 1.4fr) 72px minmax(0, 2fr); gap: var(--e-2); align-items: center; font-size: var(--t-3); }
 .empresa-cribado { display: grid; gap: var(--e-2); }
 .empresa-cribado textarea { width: 100%; font: inherit; }
+
+/* El diario propio (Fragua #166) */
+.prensa { max-width: 1400px; margin: 0 auto; padding: var(--e-5); display: grid; gap: var(--e-4); }
+.prensa-cuerpo { display: grid; gap: var(--e-4); align-items: start; }
+.prensa-dias { display: flex; gap: var(--e-2); overflow-x: auto; }
+.prensa-dias button { display: grid; gap: 2px; text-align: left; padding: var(--e-2) var(--e-3); border: 1px solid var(--linea); border-radius: var(--r-m); background: var(--panel); color: var(--texto); font: inherit; font-size: var(--t-3); cursor: pointer; white-space: nowrap; }
+.prensa-dias button.on { border-color: var(--acento); box-shadow: inset 0 0 0 1px var(--acento); }
+.prensa-dias small { color: var(--tenue); font-size: var(--t-1); }
+.prensa-notas { display: grid; gap: var(--e-3); min-width: 0; }
+.prensa-notas > .sub { margin: var(--e-3) 0 0; text-transform: capitalize; }
+.prensa-nota { display: grid; gap: var(--e-2); padding: var(--e-4); border: 1px solid var(--linea); border-left: 3px solid var(--linea-2); border-radius: var(--r-m); background: var(--panel); }
+.prensa-nota.activa { outline: 2px solid var(--acento); outline-offset: 2px; }
+.prensa-nota.importa { border-left-color: var(--acento); }
+.prensa-nota.descartada { opacity: .6; }
+.prensa-nota h3 { margin: 0; font-size: var(--t-5); }
+.prensa-nota header { display: grid; gap: 2px; }
+.prensa-textos { display: grid; gap: var(--e-3); }
+.prensa-textos p { margin: var(--e-1) 0 0; line-height: 1.55; white-space: pre-wrap; font-size: var(--t-4); }
+.prensa-original p { color: var(--tenue); }
+.prensa-nota kbd, .prensa-criterio kbd { font: var(--t-1) var(--mono); padding: 0 4px; border: 1px solid var(--linea-2); border-radius: var(--r-s); }
+.prensa-criterio h4 { margin: var(--e-3) 0 var(--e-1); font-size: var(--t-3); }
+.prensa-tasas { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--e-1); font-size: var(--t-3); }
+.prensa-tasas li { display: grid; grid-template-columns: minmax(0, 1fr) 60px 40px; gap: var(--e-2); align-items: center; }
+.prensa-tasas i { display: block; height: 4px; border-radius: var(--r-pill); background: var(--acento); }
+.prensa-tasas small { color: var(--tenue); text-align: right; font-variant-numeric: tabular-nums; }
+.prensa-descartadas summary { cursor: pointer; color: var(--tenue); margin: var(--e-3) 0; }
+@media (min-width: 1000px) {
+  .prensa-cuerpo { grid-template-columns: minmax(0, 1fr) 280px; }
+  .prensa-dias { grid-column: 1 / -1; }
+  .prensa-textos { grid-template-columns: 1fr 1fr; }
+  .prensa-criterio { position: sticky; top: var(--e-4); }
+}
+@media (max-width: 720px) { .prensa { padding: var(--e-3); } }

@@ -829,6 +829,15 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
     const [cmd] = texto.split(/\s+/)
     return comando(db, cmd.toLowerCase().replace(/@\w+$/, ''), texto.slice(cmd.length).trim())
   }
+  // Un video (Fragua #165): a la cola, en orden; avisa por el mismo canal cuando termina. Con «diario» o «prensa» en
+  // el texto, va al diario propio (páginas filmadas).
+  const vid = msg.video ?? msg.video_note ?? (String(msg.document?.mime_type ?? '').startsWith('video/') ? msg.document : null)
+  if (vid) {
+    const { datos, nombre } = await bajarDe(vid.file_id)
+    const canal = canalActual.getStore()
+    const { item, antes } = (await import('./video.ts')).encolarVideo(db, datos, vid.file_name ?? nombre, { nota: texto ?? null, aviso: (t) => (canal ? conCanal(canal, () => decir(t)) : decir(t)) })
+    return decir(`🎬 Recibido${item.modo === 'prensa' ? ': va al diario (lo leo página por página y lo traduzco)' : ''}. ${antes ? `Hay ${antes} antes en la cola; ` : ''}te aviso cuando esté.`)
+  }
   if (msg.document) return archivo(db, msg.document)
   const voz = msg.voice ?? msg.audio
   if (voz) {

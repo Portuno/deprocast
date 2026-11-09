@@ -692,6 +692,11 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/taller\/(\d+)\/valorar$/, (b, [a]) => valorarArtefacto(db, id(a), Number(b.estrellas), b.nota ?? null)],
   // La matriz de un término (sus ejes) y los homónimos.
   ['GET', /^\/api\/entidades\/(\d+)\/ejes$/, (_, [e]) => ejesDe(db, id(e))],
+  // El video como fuente (#165) y el diario propio (#166).
+  ['GET', /^\/api\/videos$/, async () => (await import('./video.ts')).listarVideos(db)],
+  ['GET', /^\/api\/prensa$/, async (_, __, q) => (await import('./prensa.ts')).diarioDe(db, q.get('fecha'))],
+  ['POST', /^\/api\/prensa$/, async (b) => (await import('./prensa.ts')).procesarPrensa(db, String(b.texto ?? ''), { fecha: b.fecha, origen: 'pegado' })],
+  ['POST', /^\/api\/prensa\/(\d+)\/voto$/, async (b, [n]) => (await import('./prensa.ts')).votarNota(db, id(n), b.voto === 1 || b.voto === true ? 1 : b.voto === 0 || b.voto === false ? 0 : null)],
   // La ficha de empresa (Fragua #164).
   ['GET', /^\/api\/entidades\/(\d+)\/empresa$/, async (_, [e]) => (await import('./empresas.ts')).leerEmpresa(db, id(e))],
   ['POST', /^\/api\/entidades\/(\d+)\/empresa$/, async (b, [e]) => (await import('./empresas.ts')).guardarEmpresa(db, id(e), b)],
@@ -2091,6 +2096,12 @@ const servidor = http.createServer(async (req, res) => {
         const texto = utf.includes('\uFFFD') ? crudo.toString('latin1') : utf // los bancos españoles suelen exportar en Latin-1
         return void res.end(JSON.stringify(importarCSV(db, texto, { cuenta: url.searchParams.get('cuenta') || null })))
       }
+      // Un video (Fragua #165) viaja crudo: a la cola.
+      if (req.method === 'POST' && url.pathname === '/api/videos') {
+        const v = await import('./video.ts')
+        const r = v.encolarVideo(db, await leerCrudo(req, 600 * 1024 * 1024), url.searchParams.get('nombre') || 'video.mp4', { modo: url.searchParams.get('modo') === 'prensa' ? 'prensa' : url.searchParams.get('modo') === 'fuente' ? 'fuente' : undefined, nota: url.searchParams.get('nota') })
+        return void res.end(JSON.stringify(r))
+      }
       // La subida de una carga viaja cruda (el archivo tal cual), no como JSON.
       if (req.method === 'POST' && url.pathname === '/api/cargas') {
         const nombre = url.searchParams.get('nombre') || 'carga'
@@ -2367,6 +2378,8 @@ deFondo(() => {
 
 // WhatsApp: lo que Mastropiero dice solo también sale por ahí (si escribió en las últimas 24 horas).
 deFondo(() => alDecirSolo((texto) => void import('./whatsapp.ts').then((wa) => wa.decirPorWhatsapp(db, texto)).catch(() => {})))
+// Los videos que quedaron en la cola (o a mitad) por un reinicio: siguen.
+deFondo(() => setTimeout(() => void import('./video.ts').then((v) => v.trabajarVideos(db)).catch((e) => console.error('  videos:', e instanceof Error ? e.message : e)), 45_000).unref())
 // WhatsApp: lo que un reinicio (una actualización) cortó a mitad de respuesta, se retoma al minuto de arrancar.
 setTimeout(() => void import('./whatsapp.ts').then((wa) => wa.retomarWhatsapp(db)).catch((e) => console.error('  whatsapp retomar:', e instanceof Error ? e.message : e)), 70_000).unref?.()
 

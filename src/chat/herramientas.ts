@@ -1218,6 +1218,19 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `fijó la meta del mes en ${a.euros} €`,
   },
   {
+    nombre: 'al_diario', familia: 'accion',
+    descripcion: 'Su diario propio (Fragua #166): el texto de una o varias notas de prensa (pegado, o de una foto de una página) se parte en notas, se traduce al castellano con el original al lado y queda con tema y territorio para que marque cuáles le importan (Saber → Diario). Los videos de páginas filmadas entran solos si los manda con «diario» o «prensa».',
+    parametros: S({ texto: str('El texto de la prensa, tal cual'), fecha: str('De qué día es el diario (YYYY-MM-DD), si no es hoy') }, ['texto']),
+    ejecutar: async (a, { db }) => (await (await import('../prensa.ts')).procesarPrensa(db, String(a.texto), { fecha: a.fecha, origen: 'chat' })).map((n) => ({ id: n.id, titular: n.titular, tema: n.tema, territorio: n.territorio, idioma: n.idioma, probable: n.sugerido })),
+    resumen: (_, r) => `pasó ${Array.isArray(r) ? r.length : 0} notas al diario`,
+  },
+  {
+    nombre: 'ver_diario', familia: 'lectura',
+    descripcion: 'Su diario propio de un día (o el último): las notas por tema que le importan o están por marcar (con la traducción), y su criterio aprendido (qué temas y territorios le importan).',
+    parametros: S({ fecha: str('YYYY-MM-DD (vacío: el último)') }),
+    ejecutar: async (a, { db }) => { const d = (await import('../prensa.ts')).diarioDe(db, a.fecha || null); return { dia: d.dia, temas: d.temas.map((t) => ({ tema: t.tema, notas: t.notas.map((n) => ({ id: n.id, titular: n.titular, territorio: n.territorio, importa: n.voto, probable: n.sugerido, texto: recorte(n.traduccion, 600) })) })), descartadas: d.descartadas.length, criterio: { temas: d.criterio.temas.slice(0, 6), territorios: d.criterio.territorios.slice(0, 6) } } },
+  },
+  {
     nombre: 'ficha_empresa', familia: 'accion',
     descripcion: 'La ficha de una empresa (Fragua #164): la crea si no existe y cambia lo que le pases. Datos: razón social, CIF, dirección (sale el link a Maps), web, redes, si cotiza. Puntaje objetivo 0–10 = promedio ponderado de criterios (Solvencia, Reputación, Cumplimiento, Encaje con sus proyectos, Acceso, u otros), cada uno con valor y nota; se recalcula solo. Autopuntaje: lo que la empresa dice de sí misma, aparte. Cribado en tres niveles: público (lo que publica), privado (registros, prensa, licitaciones) y personal (su lectura). sirve_a: ids de sus proyectos o personas a los que les sirve. Sin datos, devuelve la ficha como está.',
     parametros: S({
@@ -2063,7 +2076,7 @@ export const NUCLEO = [
 ]
 export const GRUPOS: Record<string, string[]> = {
   liga: ['crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
-  corpus: ['retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
+  corpus: ['al_diario', 'ver_diario', 'retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   vida: ['ficha_empresa', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas'],
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado'],
@@ -2080,7 +2093,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   const t = mensaje.toLowerCase()
   const g: string[] = []
   if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox|misi[oó]n|pista|me respondi|reuni[oó]n con/.test(t)) g.push('liga')
-  if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|retir[aá]|pieza|historia de|mal generad|est[aá] mal|correg[ií] (la|esa|esta) (pieza|historia)|\[confirmado\]|\[inferido\]/.test(t)) g.push('corpus')
+  if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|retir[aá]|pieza|historia de|mal generad|est[aá] mal|correg[ií] (la|esa|esta) (pieza|historia)|\[confirmado\]|\[inferido\]|prensa|peri[oó]dico|noticias? de|el diario de hoy/.test(t)) g.push('corpus')
   if (/primaria|reporte|informe|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
   if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend|criba|empresa|compa[ñn][ií]a|cif\b|raz[oó]n social/.test(t)) g.push('vida')
   if (/\bcada (lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|d[ií]a|ma[ñn]ana|noche|semana|mes|\d+ horas|hora)|todos los (d[ií]as|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bados|domingos)|todas las (ma[ñn]anas|noches)|program[aá]|encargo programado|de lunes a viernes/.test(t)) g.push('programados')

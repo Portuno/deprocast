@@ -50,7 +50,7 @@ export function leerEmpresa(db: Db, id: number): Empresa & { id: number; nombre:
 }
 
 /** Cambia lo que venga (lo que no viene, queda) y recalcula el puntaje. */
-export function guardarEmpresa(db: Db, id: number, c: Partial<Omit<Empresa, 'puntaje' | 'actualizada'>> & { criterio?: { nombre: string; valor?: number | null; peso?: number; nota?: string | null } }, ahora = Date.now()) {
+export function guardarEmpresa(db: Db, id: number, c: Partial<Omit<Empresa, 'puntaje' | 'actualizada' | 'cribado'>> & { cribado?: Partial<Empresa['cribado']>; criterio?: { nombre: string; valor?: number | null; peso?: number; nota?: string | null } }, ahora = Date.now()) {
   const actual = leerEmpresa(db, id)
   const f: Empresa = { ...actual }
   if (c.razonSocial !== undefined) f.razonSocial = texto(c.razonSocial, 200)

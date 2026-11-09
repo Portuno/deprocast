@@ -252,6 +252,7 @@ export function aTelegram(m: any): any | null {
     case 'audio': return { message: { chat, voice: { file_id: m.audio.id, file_unique_id: m.audio.id } } }
     case 'image': return { message: { chat, photo: [{ file_id: m.image.id }], caption: conContexto(m, m.image.caption) } }
     case 'document': return { message: { chat, document: { file_id: m.document.id, file_name: m.document.filename ?? 'archivo', mime_type: m.document.mime_type }, caption: conContexto(m, m.document.caption) } }
+    case 'video': return { message: { chat, video: { file_id: m.video.id, file_name: 'video.mp4', mime_type: m.video.mime_type }, caption: conContexto(m, m.video.caption) } }
     case 'location': {
       const l = m.location ?? {}
       return { message: { chat, text: conContexto(m, `(Te mando dónde estoy: ${[l.name, l.address].filter(Boolean).join(', ') || 'mi ubicación'} · ${l.latitude}, ${l.longitude})`) } }
@@ -342,7 +343,7 @@ async function atender(db: Db, de: string, ms: any[], entregado: () => void) {
   const quitarAviso = () => { if (reaccion) { reaccion = false; void reaccionar(db, de, ultimo, '') } }
   try {
     if (!u) {
-      await mandarTexto(db, de, ms[0]?.type === 'video' ? 'Los videos todavía no los puedo ver: mandame el audio, una captura o contame qué hay.' : 'Ese tipo de mensaje todavía no lo entiendo: mandame texto, un audio, una foto o un archivo.')
+      await mandarTexto(db, de, 'Ese tipo de mensaje todavía no lo entiendo: mandame texto, un audio, una foto, un video o un archivo.')
     } else {
       const c = canal(db, de, ultimo, {
         citar: () => (estadoDe(de).ultimoId !== ultimo ? ultimo : undefined),

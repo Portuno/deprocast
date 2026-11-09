@@ -407,7 +407,7 @@ export async function nanTranscribirDetallado(db: Db, audio: Buffer, nombre: str
     const form = new FormData()
     form.append('file', new Blob([new Uint8Array(audio)], { type: tipo }), nombre)
     form.append('model', 'whisper')
-    form.append('language', o.idioma || 'es')
+    if (o.idioma !== 'auto') form.append('language', o.idioma || 'es') // 'auto': que Whisper detecte (un video en valenciano, en inglés…)
     if (o.palabras !== false) {
       form.append('response_format', 'verbose_json')
       form.append('timestamp_granularities[]', 'word')
