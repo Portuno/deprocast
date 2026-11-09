@@ -707,6 +707,13 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/taller\/(\d+)\/valorar$/, (b, [a]) => valorarArtefacto(db, id(a), Number(b.estrellas), b.nota ?? null)],
   // La matriz de un término (sus ejes) y los homónimos.
   ['GET', /^\/api\/entidades\/(\d+)\/ejes$/, (_, [e]) => ejesDe(db, id(e))],
+  // Su feed con tope (plan v38, fase 5).
+  ['GET', /^\/api\/feed$/, async () => { const f = await import('./feed.ts'); return { dias: f.feedDe(db), fuentes: f.fuentes(db), topes: f.topes(db) } }],
+  ['POST', /^\/api\/feed\/fuentes$/, async (b) => (await import('./feed.ts')).sumarFuente(db, String(b.texto ?? ''))],
+  ['POST', /^\/api\/feed\/fuentes\/(\d+)\/quitar$/, async (_, [n]) => (await import('./feed.ts')).quitarFuente(db, id(n))],
+  ['POST', /^\/api\/feed\/tope$/, async (b) => (await import('./feed.ts')).fijarTope(db, b.plataforma, Number(b.n))],
+  ['POST', /^\/api\/feed\/recolectar$/, async () => (await import('./feed.ts')).recolectar(db)],
+  ['POST', /^\/api\/feed\/(\d+)\/voto$/, async (b, [n]) => (await import('./feed.ts')).votarItem(db, id(n), b.voto === 1 || b.voto === true ? 1 : 0)],
   // Las cápsulas de 40 s (Fragua #163).
   ['GET', /^\/api\/capsulas$/, async () => (await import('./capsulas.ts')).listarCapsulas(db)],
   ['POST', /^\/api\/capsulas\/(\d+)\/borrar$/, async (b, [n]) => (await import('./capsulas.ts')).borrarCapsula(db, id(n), b.motivo ?? null)],
@@ -2422,6 +2429,12 @@ deFondo(() => {
 deFondo(() => alDecirSolo((texto) => void import('./whatsapp.ts').then((wa) => wa.decirPorWhatsapp(db, texto)).catch(() => {})))
 // La Fragua en la nube (plan v38, fase 2): lo aprobado que no llegó a correr en 15 minutos, se revierte solo.
 deFondo(() => setInterval(() => { const fin = marcar('fragua-vigia'); void import('./fragua-nube.ts').then((f) => f.vigilarAprobadas(db, Date.now(), (t) => mensajeDeMastropiero(db, conversacionHoy(db).id, t, { canales: true }))).catch((e) => console.error('  fragua vigía:', e instanceof Error ? e.message : e)).finally(fin) }, 5 * 60_000).unref())
+// Su feed (plan v38, fase 5): las fuentes se recolectan cada 6 horas (y al rato de arrancar).
+deFondo(() => {
+  const recolectar = () => { const fin = marcar('feed'); void import('./feed.ts').then((f) => f.recolectar(db)).catch((e) => console.error('  feed:', e instanceof Error ? e.message : e)).finally(fin) }
+  setTimeout(recolectar, 5 * 60_000).unref()
+  setInterval(recolectar, 6 * 3_600_000).unref()
+})
 // Los videos que quedaron en la cola (o a mitad) por un reinicio: siguen.
 deFondo(() => setTimeout(() => void import('./video.ts').then((v) => v.trabajarVideos(db)).catch((e) => console.error('  videos:', e instanceof Error ? e.message : e)), 45_000).unref())
 // WhatsApp: lo que un reinicio (una actualización) cortó a mitad de respuesta, se retoma al minuto de arrancar.

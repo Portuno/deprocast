@@ -33,6 +33,7 @@ const VISTAS = {
   criba72: { montar: montarCriba72, refrescar: () => {} },
   prensa: { montar: montarPrensa, refrescar: () => {} },
   capsulas: { montar: montarCapsulas, refrescar: () => {} },
+  feed: { montar: montarFeed, refrescar: () => {} },
   cuadernos: { montar: montarCuadernos, refrescar: refrescarCuadernos },
   libreria: { montar: montarLibreria, refrescar: () => {} },
   fragua: { montar: montarFragua, refrescar: refrescarFragua },
@@ -91,7 +92,7 @@ const ESPACIOS = [
   { id: 'grafo', nombre: 'Grafo', ico: 'waypoints', tecla: 'r', vistas: [['grafo', 'Grafo'], ['grafos', 'Mis grafos'], ['grafosalud', 'Salud']] },
   { id: 'agentes', nombre: 'Agentes', ico: 'bot', tecla: 'e', vistas: [['agsala', 'Sala'], ['agmisiones', 'Misiones'], ['programados', 'Programados'], ['agpistas', 'Pistas'], ['agtemporada', 'Temporada'], ['liga', 'Roster'], ['forja', 'Forja'], ['encargos', 'Encargos'], ['matriz', 'Matriz 72'], ['cementerio', 'Cementerio']] },
   { id: 'saber', nombre: 'Saber', ico: 'library', tecla: 's', vistas: [['corpus', 'Corpus'], ['prensa', 'Diario'], ['cuadernos', 'Cuadernos'], ['libreria', 'Librería'], ['entidades', 'Entidades']] },
-  { id: 'afuera', nombre: 'Afuera', ico: 'globe', tecla: 'f', vistas: [['taller', 'Taller'], ['radar', 'Radar'], ['observatorio', 'Observatorio'], ['campanas', 'Campañas'], ['cuentas', 'Cuentas'], ['discovery', 'Discovery']] },
+  { id: 'afuera', nombre: 'Afuera', ico: 'globe', tecla: 'f', vistas: [['feed', 'Feed'], ['taller', 'Taller'], ['radar', 'Radar'], ['observatorio', 'Observatorio'], ['campanas', 'Campañas'], ['cuentas', 'Cuentas'], ['discovery', 'Discovery']] },
   { id: 'maquina', nombre: 'La máquina', ico: 'cog', tecla: 'm', vistas: [['fragua', 'La Fragua'], ['revision', 'Revisión']] },
   { id: 'perfil', nombre: 'Perfil', ico: 'user', tecla: 'y', vistas: [['perfil', 'Perfil']] },
 ]

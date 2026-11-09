@@ -1219,6 +1219,25 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   // ─── Lo que faltaba para manejar todo desde el chat (plan v38, fase 1½) ───
   {
+    nombre: 'seguir_en_feed', familia: 'accion',
+    descripcion: 'Suma una fuente a su feed con tope (o la saca con quitar=true): una cuenta de X («@cuenta»), un subreddit («r/nombre») o un canal de YouTube (su link). Lo de X entra además a su corpus. El feed muestra una cantidad fija por día (Afuera → Feed).',
+    parametros: S({ fuente: str('@cuenta, r/subreddit o el link del canal'), quitar: { type: 'boolean', description: 'true para dejar de seguirla' } }, ['fuente']),
+    ejecutar: async (a, { db }) => {
+      const f = await import('../feed.ts')
+      if (a.quitar) { const x = f.interpretarFuente(String(a.fuente)); const fila = db.prepare('SELECT id FROM feed_fuentes WHERE plataforma = ? AND ref = ?').get(x.plataforma, x.ref) as { id: number } | undefined; if (!fila) return { error: 'No la seguía' }; f.quitarFuente(db, fila.id); return { quitada: x.nombre } }
+      const r = f.sumarFuente(db, String(a.fuente))
+      void f.recolectar(db).catch(() => {})
+      return { siguiendo: r.nombre, plataforma: r.plataforma }
+    },
+    resumen: (a) => `${a.quitar ? 'dejó de seguir' : 'sumó al feed'} ${a.fuente}`,
+  },
+  {
+    nombre: 'ver_feed', familia: 'lectura',
+    descripcion: 'Su feed de hoy: por plataforma, lo que le toca ver (con tope fijo por día), cuánto ya vio y las fuentes que sigue.',
+    parametros: S({}),
+    ejecutar: async (_, { db }) => { const f = await import('../feed.ts'); return { hoy: f.feedDe(db).map((d) => ({ plataforma: d.plataforma, tope: d.tope, vistos: d.vistos, terminado: d.terminado, pendientes: d.items.filter((i) => i.voto == null).map((i) => ({ id: i.id, titulo: recorte(i.titulo, 120), url: i.url })) })), fuentes: f.fuentes(db).filter((x) => x.activa).map((x) => x.nombre) } },
+  },
+  {
     nombre: 'contexto_pista', familia: 'accion',
     descripcion: 'Anota el contexto que ya hay con una pista de los agentes («con la productora X ya hablé en el evento», «comentaron mi post»): sale de «Calentar primero» y el agente puede escribirle. Por id de pista (ver_misiones_agentes / las pistas).',
     parametros: S({ pista: int('id de la pista'), contexto: str('Cómo se conocen o qué vieron de su trabajo') }, ['pista', 'contexto']),
@@ -2153,7 +2172,7 @@ export const GRUPOS: Record<string, string[]> = {
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado', 'borrar_programado'],
   correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'marcar_correo_atendido', 'buscar_contacto'],
   drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],
-  web: ['buscar_web', 'buscar_en', 'explorar', 'usar_alexandria', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
+  web: ['seguir_en_feed', 'ver_feed', 'buscar_web', 'buscar_en', 'explorar', 'usar_alexandria', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus'],
   observatorio: ['seguir_tema', 'ver_observatorio', 'crear_campana', 'armar_campana'],
   crear: ['difundir_idea', 'ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],

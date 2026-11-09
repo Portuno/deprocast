@@ -1233,6 +1233,35 @@ CREATE TABLE IF NOT EXISTS chat_mencionados (
   en INTEGER NOT NULL,
   PRIMARY KEY (conversacion_id, tipo, ref)
 );
+-- Su feed con tope (plan v38, fase 5): las fuentes que eligió y lo que traen, con lo que marcó.
+CREATE TABLE IF NOT EXISTS feed_fuentes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plataforma TEXT NOT NULL,
+  ref TEXT NOT NULL,
+  nombre TEXT NOT NULL,
+  activa INTEGER NOT NULL DEFAULT 1,
+  ultima INTEGER,
+  error TEXT,
+  creada INTEGER NOT NULL,
+  UNIQUE (plataforma, ref)
+);
+CREATE TABLE IF NOT EXISTS feed_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plataforma TEXT NOT NULL,
+  fuente_id INTEGER NOT NULL,
+  url TEXT NOT NULL UNIQUE,
+  titulo TEXT NOT NULL,
+  texto TEXT,
+  autor TEXT,
+  fecha TEXT,
+  voto INTEGER,
+  votado_dia TEXT,
+  votado_en INTEGER,
+  sugerido REAL,
+  pieza_id INTEGER,
+  creado INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS feed_items_pend ON feed_items (plataforma, voto, sugerido);
 -- Las cápsulas de 40 s (Fragua #163): con el consentimiento y el uso escritos; el video se borra a pedido.
 CREATE TABLE IF NOT EXISTS capsulas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -3307,3 +3307,23 @@ span.ej-chip { cursor: default; }
 .cap-item video { width: 100%; border-radius: var(--r-s); background: var(--panel-2); }
 .cap-item.borrada { opacity: .6; }
 @media (max-width: 720px) { .capsulas { padding: var(--e-3); } }
+
+/* Su feed con tope (plan v38, fase 5) */
+.feed { max-width: 1200px; margin: 0 auto; padding: var(--e-5); display: grid; gap: var(--e-4); }
+.feed-cuerpo { display: grid; gap: var(--e-4); align-items: start; }
+.feed-plat { display: grid; gap: var(--e-2); }
+.feed-plat h2 { display: flex; justify-content: space-between; align-items: baseline; margin: 0; font-size: var(--t-6); }
+.feed-item { display: grid; gap: var(--e-1); padding: var(--e-3); border: 1px solid var(--linea); border-radius: var(--r-m); background: var(--panel); }
+.feed-item.activo { outline: 2px solid var(--acento); outline-offset: 2px; }
+.feed-item.si { border-left: 3px solid var(--acento); }
+.feed-item.no { opacity: .55; }
+.feed-item a { color: var(--texto); font-weight: 600; }
+.feed-item p { margin: 0; font-size: var(--t-3); color: var(--tenue); white-space: pre-wrap; max-height: 7.5em; overflow: hidden; }
+.feed-fin { text-align: center; padding: var(--e-4); }
+.feed-fuentes { display: grid; gap: var(--e-2); padding: var(--e-4); }
+.feed-fuentes ul { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--e-1); font-size: var(--t-3); }
+.feed-fuentes li { display: flex; justify-content: space-between; gap: var(--e-2); }
+.feed-item kbd, .feed-fuentes kbd { font: var(--t-1) var(--mono); padding: 0 4px; border: 1px solid var(--linea-2); border-radius: var(--r-s); }
+@media (min-width: 1000px) { .feed-cuerpo { grid-template-columns: minmax(0, 1fr) 300px; } .feed-fuentes { position: sticky; top: var(--e-4); } }
+@media (max-width: 720px) { .feed { padding: var(--e-3); } }
+.feed-tope { width: 70px; }
