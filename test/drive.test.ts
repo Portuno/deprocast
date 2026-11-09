@@ -12,6 +12,7 @@ const json = (x: unknown, status = 200) => new Response(JSON.stringify(x), { sta
 /** Un Drive de mentira: carpetas, subidas (multipart), reemplazos, listados y exportaciones. */
 function driveFalso(archivos: Record<string, { name: string; mimeType: string; modifiedTime: string; padre: string; texto?: string }> = {}) {
   const carpetas: { id: string; nombre: string; padre: string }[] = []
+  const cambios: any[] = (archivos as any).__cambios ?? []
   const subidas: { meta: any; contenido: string }[] = []
   const reemplazos: { id: string; contenido: string }[] = []
   let n = 0
@@ -19,6 +20,8 @@ function driveFalso(archivos: Record<string, { name: string; mimeType: string; m
     const url = String(u)
     const metodo = init.method ?? 'GET'
     if (url.includes('oauth2.googleapis.com/token')) return json({ access_token: 'a', expires_in: 3600 })
+    if (url.includes('/drive/v3/changes/startPageToken')) return json({ startPageToken: `m${cambios.length}` })
+    if (url.includes('/drive/v3/changes?')) { const desde = Number(/pageToken=m(\d+)/.exec(url)?.[1] ?? 0); return json({ changes: cambios.slice(desde), newStartPageToken: `m${cambios.length}` }) }
     if (metodo === 'POST' && url.startsWith('https://www.googleapis.com/drive/v3/files?fields=id')) {
       const b = JSON.parse(String(init.body))
       const id = `carpeta-${++n}`
@@ -122,18 +125,25 @@ describe('Drive (plan v35, fase 2)', () => {
       hoja: { name: 'Gastos', mimeType: 'application/vnd.google-apps.spreadsheet', modifiedTime: '2026-11-02T10:00:00Z', padre: 'sub', texto: 'fecha,monto\n2026-11-01,1200' },
       foto: { name: 'foto.jpg', mimeType: 'image/jpeg', modifiedTime: '2026-11-02T10:00:00Z', padre: 'mis-notas' },
     }
+    ;(archivos as any).__cambios = []
     driveFalso(archivos)
     assert.deepEqual(sumarCarpetaCorpus(abrir(':memory:'), { id: 'https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQ', nombre: 'X' }), [{ id: '1AbCdEfGhIjKlMnOpQ', nombre: 'X' }])
     // La carpeta de prueba (un id corto) se carga directo.
     fijarAjuste(db, 'drive_corpus', JSON.stringify([{ id: 'mis-notas', nombre: 'Mis notas' }]))
-    assert.deepEqual(await sincronizarCorpus(db), { nuevos: 2, actualizados: 0, errores: 0 }, 'el documento y la planilla (de la subcarpeta); la foto no tiene texto')
+    assert.deepEqual(await sincronizarCorpus(db), { nuevos: 2, actualizados: 0, retirados: 0, errores: 0, modo: 'completo' }, 'el documento y la planilla (de la subcarpeta); la foto no tiene texto')
     const p = db.prepare(`SELECT titulo, contenido, url FROM corpus WHERE origen_id = 'drive:hoja'`).get() as { titulo: string; contenido: string; url: string }
     assert.match(p.contenido, /2026-11-01,1200/)
     assert.equal(p.url, 'https://docs/hoja')
-    assert.deepEqual(await sincronizarCorpus(db), { nuevos: 0, actualizados: 0, errores: 0 })
+    assert.deepEqual(await sincronizarCorpus(db), { nuevos: 0, actualizados: 0, retirados: 0, errores: 0, modo: 'cambios' }, 'sin cambios: no recorre nada')
     archivos.doc1.modifiedTime = '2026-11-05T10:00:00Z'
     archivos.doc1.texto = 'El plan del año que viene, corregido.'
-    assert.deepEqual(await sincronizarCorpus(db), { nuevos: 0, actualizados: 1, errores: 0 })
+    // Fragua #136: solo lo que cambió (la API de cambios), no el árbol entero.
+    const cambios = (archivos as any).__cambios
+    cambios.push({ fileId: 'doc1', file: { id: 'doc1', name: 'Plan 2027', mimeType: archivos.doc1.mimeType, modifiedTime: archivos.doc1.modifiedTime, parents: ['mis-notas'] } })
+    cambios.push({ fileId: 'otro', file: { id: 'otro', name: 'Ajeno', mimeType: archivos.doc1.mimeType, modifiedTime: '2026-11-05T10:00:00Z', parents: ['carpeta-ajena'] } })
+    cambios.push({ fileId: 'hoja', removed: true })
+    assert.deepEqual(await sincronizarCorpus(db), { nuevos: 0, actualizados: 1, retirados: 1, errores: 0, modo: 'cambios' }, 'lo editado se actualiza, lo ajeno no entra, lo borrado se retira')
+    assert.equal((db.prepare(`SELECT estado FROM corpus WHERE origen_id = 'drive:hoja'`).get() as { estado: string }).estado, 'retirada')
     assert.match((db.prepare(`SELECT contenido FROM corpus WHERE origen_id = 'drive:doc1'`).get() as { contenido: string }).contenido, /corregido/)
   })
 

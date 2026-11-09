@@ -17,7 +17,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { comoTexto } from '../chat/adjuntos.ts'
-import { asegurarFuente, piezaPorOrigen } from '../corpus.ts'
+import { asegurarFuente, piezaPorOrigen, retirarPieza } from '../corpus.ts'
 import { ajuste, fechaLocal, fijarAjuste, resolverRuta, type Db } from '../db.ts'
 import { ingerir } from '../mastropiero.ts'
 import { googleConectado, llamarGoogle, llamarGoogleCrudo } from './oauth.ts'
@@ -233,14 +233,15 @@ export function sacarCarpetaCorpus(db: Db, id: string) {
 }
 
 type Archivo = { id: string; name: string; mimeType: string; modifiedTime: string; webViewLink?: string }
-async function listar(db: Db, carpetaId: string, profundidad = 0, max = 400, out: (Archivo & { carpeta: string })[] = [], nombre = ''): Promise<(Archivo & { carpeta: string })[]> {
+async function listar(db: Db, carpetaId: string, profundidad = 0, max = 400, out: (Archivo & { carpeta: string })[] = [], nombre = '', carpetas?: Map<string, string>): Promise<(Archivo & { carpeta: string })[]> {
+  carpetas?.set(carpetaId, nombre)
   let pagina: string | undefined
   do {
     const q = new URLSearchParams({ q: `'${carpetaId}' in parents and trashed = false`, fields: 'nextPageToken,files(id,name,mimeType,modifiedTime,webViewLink)', pageSize: '200', ...(pagina ? { pageToken: pagina } : {}) })
     const r = await llamarGoogle<{ files: Archivo[]; nextPageToken?: string }>(db, `${API}?${q}`)
     for (const f of r.files ?? []) {
       if (out.length >= max) return out
-      if (f.mimeType === CARPETA) { if (profundidad < 3) await listar(db, f.id, profundidad + 1, max, out, nombre ? `${nombre}/${f.name}` : f.name) }
+      if (f.mimeType === CARPETA) { if (profundidad < 3) await listar(db, f.id, profundidad + 1, max, out, nombre ? `${nombre}/${f.name}` : f.name, carpetas) }
       else if (legible(f.mimeType)) out.push({ ...f, carpeta: nombre })
     }
     pagina = r.nextPageToken
@@ -248,36 +249,91 @@ async function listar(db: Db, carpetaId: string, profundidad = 0, max = 400, out
   return out
 }
 
-/** Las carpetas elegidas, al corpus: lo nuevo entra, lo que cambió en Drive se actualiza. */
-export async function sincronizarCorpus(db: Db): Promise<{ nuevos: number; actualizados: number; errores: number }> {
-  const res = { nuevos: 0, actualizados: 0, errores: 0 }
+const CAMBIOS = 'https://www.googleapis.com/drive/v3/changes'
+const SEMANA = 7 * 86_400_000
+type Resultado = { nuevos: number; actualizados: number; retirados: number; errores: number; modo: 'completo' | 'cambios' }
+
+/** Un archivo de sus carpetas, al corpus: entra si es nuevo, se actualiza si cambió, no se toca si no. */
+async function alCorpus(db: Db, f: Archivo & { carpeta: string }, raiz: string, res: Resultado) {
+  const ya = piezaPorOrigen(db, `drive:${f.id}`)
+  if (ya && (ya.meta as Record<string, unknown> | null)?.modificado === f.modifiedTime) return
+  try {
+    const { texto } = await textoDeArchivo(db, f.id, f.mimeType)
+    const contenido = texto.trim().slice(0, 200_000)
+    if (!contenido) return
+    if (ya) {
+      db.prepare(`UPDATE corpus SET contenido = ?, titulo = ?, meta = json_set(COALESCE(meta, '{}'), '$.modificado', ?) WHERE id = ?`).run(contenido, f.name.slice(0, 300), f.modifiedTime, ya.id)
+      res.actualizados++
+    } else {
+      asegurarFuente(db, { id: 'drive', nombre: 'Su Drive', nivel: 'propia', descripcion: 'Los documentos de las carpetas de Google Drive que él eligió.' })
+      ingerir(db, { fuente: 'drive', titulo: f.name, contenido, url: f.webViewLink ?? null, fecha: f.modifiedTime.slice(0, 10), origenId: `drive:${f.id}`, dominio: f.carpeta || raiz, meta: { modificado: f.modifiedTime, drive: f.id, carpeta: f.carpeta || raiz }, por: 'drive' })
+      res.nuevos++
+    }
+  } catch (e) {
+    res.errores++
+    console.error('  drive → corpus:', f.name, e instanceof Error ? e.message : e)
+  }
+}
+
+/**
+ * Las carpetas elegidas, al corpus (Fragua #136). La primera vez (y una vez por semana, o si cambió qué carpetas
+ * eligió) recorre todo y guarda un marcador de la API de cambios de Drive; las demás pide solo lo que cambió desde el
+ * marcador: lo nuevo entra, lo editado se actualiza y lo que borró en Drive se retira del corpus (con su rastro).
+ */
+export async function sincronizarCorpus(db: Db, o: { completo?: boolean; ahora?: number } = {}): Promise<Resultado> {
+  const ahora = o.ahora ?? Date.now()
+  const res: Resultado = { nuevos: 0, actualizados: 0, retirados: 0, errores: 0, modo: 'cambios' }
   if (!googleConectado(db)) return res
   const propia = ajuste(db, `drive_carpeta:${RAIZ}`)
-  for (const c of carpetasCorpus(db)) {
-    if (c.id === propia) continue // la carpeta Mastropiero no vuelve a entrar al corpus
-    const archivos = await listar(db, c.id, 0, 400, [], c.nombre)
-    for (const f of archivos) {
-      const ya = piezaPorOrigen(db, `drive:${f.id}`)
-      if (ya && (ya.meta as Record<string, unknown> | null)?.modificado === f.modifiedTime) continue
-      try {
-        const { texto } = await textoDeArchivo(db, f.id, f.mimeType)
-        const contenido = texto.trim().slice(0, 200_000)
-        if (!contenido) continue
-        if (ya) {
-          db.prepare(`UPDATE corpus SET contenido = ?, titulo = ?, meta = json_set(COALESCE(meta, '{}'), '$.modificado', ?) WHERE id = ?`).run(contenido, f.name.slice(0, 300), f.modifiedTime, ya.id)
-          res.actualizados++
-        } else {
-          asegurarFuente(db, { id: 'drive', nombre: 'Su Drive', nivel: 'propia', descripcion: 'Los documentos de las carpetas de Google Drive que él eligió.' })
-          ingerir(db, { fuente: 'drive', titulo: f.name, contenido, url: f.webViewLink ?? null, fecha: f.modifiedTime.slice(0, 10), origenId: `drive:${f.id}`, dominio: f.carpeta || c.nombre, meta: { modificado: f.modifiedTime, drive: f.id, carpeta: f.carpeta || c.nombre }, por: 'drive' })
-          res.nuevos++
+  const raices = carpetasCorpus(db).filter((c) => c.id !== propia)
+  const firma = raices.map((c) => c.id).sort().join(',')
+  const marcador = ajuste(db, 'drive_cambios_token')
+  const conocidas = new Map<string, string>(Object.entries(JSON.parse(ajuste(db, 'drive_corpus_carpetas') ?? '{}')))
+  const alDia = !o.completo && marcador && ajuste(db, 'drive_corpus_firma') === firma && ahora - (Number(ajuste(db, 'drive_completo_en')) || 0) < SEMANA
+  if (alDia) {
+    try {
+      let pagina: string | undefined = marcador
+      let nuevo: string | undefined
+      while (pagina) {
+        const q = new URLSearchParams({ pageToken: pagina, pageSize: '200', includeRemoved: 'true', spaces: 'drive', fields: 'nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,mimeType,modifiedTime,webViewLink,parents,trashed))' })
+        const r = await llamarGoogle<{ nextPageToken?: string; newStartPageToken?: string; changes?: { fileId: string; removed?: boolean; file?: Archivo & { parents?: string[]; trashed?: boolean } }[] }>(db, `${CAMBIOS}?${q}`)
+        for (const ch of r.changes ?? []) {
+          const f = ch.file
+          if (ch.removed || f?.trashed) {
+            const ya = piezaPorOrigen(db, `drive:${ch.fileId}`)
+            if (ya && ya.estado !== 'retirada') { retirarPieza(db, ya.id, 'Se borró de su Drive', 'drive', ahora); res.retirados++ }
+            continue
+          }
+          const padre = f?.parents?.find((x) => conocidas.has(x))
+          if (!f || padre === undefined) continue
+          const ruta = conocidas.get(padre)!
+          if (f.mimeType === CARPETA) {
+            // Una carpeta nueva adentro de las suyas: se recorre entera.
+            for (const g of await listar(db, f.id, 1, 400, [], ruta ? `${ruta}/${f.name}` : f.name, conocidas)) await alCorpus(db, g, ruta, res)
+          } else if (legible(f.mimeType)) await alCorpus(db, { ...f, carpeta: ruta }, ruta, res)
         }
-      } catch (e) {
-        res.errores++
-        console.error('  drive → corpus:', f.name, e instanceof Error ? e.message : e)
+        pagina = r.nextPageToken
+        nuevo = r.newStartPageToken ?? nuevo
       }
+      if (nuevo) fijarAjuste(db, 'drive_cambios_token', nuevo)
+      fijarAjuste(db, 'drive_corpus_carpetas', JSON.stringify(Object.fromEntries(conocidas)))
+      fijarAjuste(db, 'drive_sincronizado', String(ahora))
+      return res
+    } catch (e) {
+      // Un marcador vencido o inválido: se rehace todo.
+      if (![400, 404, 410].includes((e as { status?: number }).status ?? 0)) throw e
     }
   }
-  fijarAjuste(db, 'drive_sincronizado', String(Date.now()))
+  res.modo = 'completo'
+  // El marcador se pide ANTES de recorrer: lo que cambie mientras tanto entra en la próxima.
+  const inicio = await llamarGoogle<{ startPageToken: string }>(db, `${CAMBIOS}/startPageToken`)
+  const carpetas = new Map<string, string>()
+  for (const c of raices) for (const f of await listar(db, c.id, 0, 400, [], c.nombre, carpetas)) await alCorpus(db, f, c.nombre, res)
+  fijarAjuste(db, 'drive_cambios_token', inicio.startPageToken)
+  fijarAjuste(db, 'drive_corpus_firma', firma)
+  fijarAjuste(db, 'drive_corpus_carpetas', JSON.stringify(Object.fromEntries(carpetas)))
+  fijarAjuste(db, 'drive_completo_en', String(ahora))
+  fijarAjuste(db, 'drive_sincronizado', String(ahora))
   return res
 }
 
