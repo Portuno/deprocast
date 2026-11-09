@@ -79,11 +79,27 @@ async function pintarYoutube() {
     <p>${[c.listo ? `✓ ${c.listo} leídos` : '', c.pendiente ? `⏳ ${c.pendiente} en cola` : '', c.compu ? `🖥 ${c.compu} esperan tu compu` : '', c.sin_subtitulos ? `∅ ${c.sin_subtitulos} sin subtítulos` : '', c.fallo ? `✗ ${c.fallo} fallaron` : '', d.canales ? `📺 ${d.canales} canales por listar` : ''].filter(Boolean).join(' · ') || 'Todavía no importaste videos.'}</p>
     <p class="tenue chico">Servicio de transcripciones: ${d.servicio.configurado ? (d.servicio.disponible ? 'activo' : `en pausa (${esc(d.servicio.motivo ?? 'sin cupo')})`) : 'no configurado (SUPADATA_API_KEY)'} · Tu compu: ${d.compu.activa ? 'leyendo ahora' : d.compu.vista ? `la última vez ${hace(d.compu.vista)}` : 'nunca se conectó'}</p>
     ${c.compu && !d.compu.activa ? `<p class="chico">Para que tu compu los lea, dejá corriendo en la carpeta de Deprocast:</p><pre>npm run mastro -- youtube ${esc(location.origin)}</pre>` : ''}
-    ${d.listaCanales?.length ? `<h4 class="yt-sub">Canales</h4><div class="cu-fuentes">${d.listaCanales.map((x) => `<div class="cu-fuente"><span>📺 ${esc(x.titulo ?? x.id.replace(/^canal:/, ''))}${x.dominio ? ` <span class="chip">${esc(x.dominio)}</span>` : ''} <small class="tenue">${x.estado === 'listo' ? `${x.leidos} de ${x.videos} videos leídos` : `en espera: ${esc(x.motivo ?? 'trayendo la lista de videos')} (se pidieron hasta ${x.pedidos ?? 50})`}</small></span>${x.piezaId ? `<a href="#" data-pieza="${x.piezaId}">ver</a>` : ''}</div>`).join('')}</div>` : ''}
+    ${d.listaCanales?.length ? `<h4 class="yt-sub">Canales</h4><div class="cu-fuentes">${d.listaCanales.map((x) => `<div class="cu-fuente"><span>📺 ${esc(x.titulo ?? x.id.replace(/^canal:/, ''))}${x.dominio ? ` <span class="chip">${esc(x.dominio)}</span>` : ''} <small class="tenue">${estadoCanalYt(x)}</small></span>${x.piezaId ? `<a href="#" data-pieza="${x.piezaId}">${x.censo ? 'ver el censo' : 'ver'}</a>` : ''}${x.censo?.estado === 'listo' ? `<button class="btn btn-chico btn-primario" data-censo-ok="${esc(x.id)}">Aprobar el plan</button>` : ''}</div>`).join('')}</div>` : ''}
     ${d.ultimos.length ? `<div class="cu-fuentes">${d.ultimos.slice(0, 25).map((u) => `<div class="cu-fuente"><span title="${esc(u.motivo ?? '')}">${ICONO_YT[u.estado] ?? '·'} ${u.tipo === 'canal' ? '📺' : '▶'} ${esc(u.titulo ?? u.id)}${u.recomendado ? ' <small class="tenue">recomendado</small>' : ''}${u.motivo && u.estado !== 'listo' ? ` <small class="tenue">${esc(u.motivo.slice(0, 90))}</small>` : ''}</span>${u.piezaId ? `<a href="#" data-pieza="${u.piezaId}">ver</a>` : ''}</div>`).join('')}</div>` : ''}
     ${c.fallo || c.sin_subtitulos ? '<button class="btn btn-chico" id="yt-reintentar">Reintentar los que no salieron</button>' : ''}`
+  $$('[data-censo-ok]', cont).forEach((b) => (b.onclick = async () => {
+    const x = d.listaCanales.find((c) => c.id === b.dataset.censoOk)
+    if (!(await confirmar(`¿Correr el plan del censo de «${x.titulo ?? x.id}»?`, { detalle: `${x.censo.enteros} videos enteros (${x.censo.horasEntero} h, unos ${Math.round(x.censo.tokens / 1000)} mil tokens) entran a la cola a su ritmo; lo demás queda por título y descripción. Para cambiar el plan, pedíselo al chat.`, si: 'Correr el plan' }))) return
+    b.disabled = true
+    try { const r = await api('/youtube/censo/aprobar', { canal: x.id }); toast(`${r.enteros} videos a la cola<small>${r.resumidos} por título y descripción · ${r.ritmo}</small>`, 'suave'); pintarYoutube() } catch (e) { error(e); b.disabled = false }
+  }))
   $('#yt-reintentar')?.addEventListener('click', async () => { try { const r = await api('/youtube/reintentar', {}); toast(`${r.reintentados} de vuelta a la cola`, 'suave'); pintarYoutube() } catch (e) { error(e) } })
   $$('[data-pieza]', cont).forEach((a) => (a.onclick = (e) => { e.preventDefault(); modalPieza(Number(a.dataset.pieza)) }))
+}
+
+/** Cómo va un canal: esperando su lista, con el censo listo (esperando el ok), corriendo o terminado. */
+function estadoCanalYt(x) {
+  const c = x.censo && { ...x.censo, horas: String(x.censo.horas).replace('.', ','), horasEntero: String(x.censo.horasEntero).replace('.', ',') }
+  if (c?.estado === 'listo') return `censo listo: ${c.videos} videos, ${c.horas} h · el plan lee ${c.enteros} enteros (${c.horasEntero} h) · ${esc(c.conviene ?? '')}`
+  if (c?.estado === 'corriendo') return `${x.leidos} de ${c.enteros} videos leídos (corre solo, a su ritmo)`
+  if (c?.estado === 'terminado') return `terminado: ${x.leidos} videos leídos enteros, el resto por título`
+  if (x.estado === 'listo') return `${x.leidos} de ${x.videos} videos leídos`
+  return `en espera: ${esc(x.motivo ?? 'armando el censo del canal')}`
 }
 
 async function modalTakeout() {

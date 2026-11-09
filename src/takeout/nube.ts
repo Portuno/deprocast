@@ -339,6 +339,37 @@ async function tramosDe(ruta: string): Promise<{ partes: string[]; temporal: str
 const SISTEMA_IMAGEN = `Describís una imagen del archivo personal del operador (algo que le pasó a una IA, una slide o infografía que generó NotebookLM, o un archivo de sus carpetas, como la página escaneada de un cuaderno: si está escrita a mano, transcribila fiel en texto_visible). Que la descripción sirva para encontrarla y entenderla sin verla.
 Forma: {"titulo": string (máx. 70), "tipo": "captura" | "foto" | "diagrama" | "slide" | "infografia" | "documento" | "meme" | "otro", "descripcion": string (qué se ve y de qué trata, 2 a 6 frases), "texto_visible": string (el texto que aparece, fiel y en orden; vacío si no hay)}`
 
+/** Una tabla de Markdown (la primera fila es el encabezado; las filas cortas se completan). */
+export function tablaMd(filas: string[][]): string {
+  if (!filas.length) return ''
+  const n = Math.max(...filas.map((f) => f.length))
+  const fila = (f: string[]) => `| ${Array.from({ length: n }, (_, i) => (f[i] ?? '').replace(/\|/g, '\\|')).join(' | ')} |`
+  return [fila(filas[0]), `|${' --- |'.repeat(n)}`, ...filas.slice(1).map(fila)].join('\n')
+}
+
+const etiqueta = (p: string, tag: string) => new RegExp(`<(/?)${p}:${tag}(?=[\\s>/])[^>]*?(/?)>`, 'g')
+/** Los bloques <p:tag>…</p:tag> de primer nivel (respetando los anidados: una tabla dentro de otra). */
+function bloques(s: string, p: string, tag: string): string[] {
+  const out: string[] = []
+  const re = etiqueta(p, tag)
+  let prof = 0, desde = -1
+  for (let m; (m = re.exec(s));) {
+    if (m[2]) { if (prof === 0) out.push(''); continue }
+    if (!m[1]) { if (prof++ === 0) desde = re.lastIndex } else if (--prof === 0) out.push(s.slice(desde, m.index))
+  }
+  return out
+}
+/** Reemplaza cada bloque <p:tag>…</p:tag> de primer nivel por lo que devuelva f. */
+function reemplazarBloques(s: string, p: string, tag: string, f: (dentro: string) => string): string {
+  const re = etiqueta(p, tag)
+  let prof = 0, inicio = -1, desde = -1, ultimo = 0, out = ''
+  for (let m; (m = re.exec(s));) {
+    if (m[2]) continue
+    if (!m[1]) { if (prof++ === 0) { inicio = m.index; desde = re.lastIndex } } else if (--prof === 0) { out += s.slice(ultimo, inicio) + f(s.slice(desde, m.index)); ultimo = re.lastIndex }
+  }
+  return out + s.slice(ultimo)
+}
+
 /** El texto de un documento: PDF, Word, Excel, PowerPoint, OpenDocument, Markdown, texto, CSV, JSON, XML o HTML. */
 export function textoDeDocumento(datos: Buffer, ext: string): string {
   if (ext === 'pdf') return textoDePdf(datos)
@@ -352,8 +383,22 @@ export function textoDeDocumento(datos: Buffer, ext: string): string {
     const z = zipDeBuffer(datos)
     const xml = (re: RegExp) => z.entradas.filter((e) => re.test(e.nombre)).sort((a, b) => a.nombre.localeCompare(b.nombre, 'en', { numeric: true })).map((e) => z.leer(e).toString('utf8'))
     const limpio = (s: string) => s.replace(/<\/(w:p|a:p|row)>/g, '\n').replace(/<w:tab\/>/g, '\t').replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&')
-    if (ext === 'docx') return limpio(xml(/^word\/document\.xml$/).join('\n'))
-    if (ext === 'pptx') return xml(/^ppt\/slides\/slide\d+\.xml$/).map((s, i) => `## Slide ${i + 1}\n${limpio(s)}`).join('\n\n')
+    // Las tablas (Fragua #184): de Word y de PowerPoint, a tablas de Markdown (citables y buscables, con su forma).
+    const conTablas = (s: string, p: 'w' | 'a') => reemplazarBloques(s, p, 'tbl', (tbl) => {
+      const filas = bloques(tbl, p, 'tr').map((tr) => bloques(tr, p, 'tc').map((tc) => limpio(tc).trim().replace(/\s*\n\s*/g, ' / ').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')))
+      return `<${p}:p>${tablaMd(filas)}</${p}:p>`
+    })
+    if (ext === 'docx') {
+      // Títulos (Heading N / Título N) y viñetas, para que el Markdown conserve la estructura.
+      const cuerpo = xml(/^word\/document\.xml$/).join('\n').replace(/<w:p\b[^>]*>((?:(?!<\/w:p>)[\s\S])*?)<\/w:p>/g, (p0, dentro: string) => {
+        const nivel = /<w:pStyle w:val="(?:Heading|T[ií]?tulo|Ttulo)(\d)"/i.exec(dentro)?.[1]
+        if (nivel) return `<w:p>${'#'.repeat(Math.min(6, Number(nivel)))} ${dentro}</w:p>`
+        if (/<w:numPr>/.test(dentro)) return `<w:p>- ${dentro}</w:p>`
+        return p0
+      })
+      return limpio(conTablas(cuerpo, 'w')).replace(/\n{3,}/g, '\n\n').trim()
+    }
+    if (ext === 'pptx') return xml(/^ppt\/slides\/slide\d+\.xml$/).map((s, i) => `## Slide ${i + 1}\n${limpio(conTablas(s, 'a')).replace(/\n{3,}/g, '\n\n').trim()}`).join('\n\n')
     const compartidos = xml(/^xl\/sharedStrings\.xml$/).join('').split(/<si>/).slice(1).map((s) => limpio(s).trim())
     const celda = (attrs: string, dentro: string) => {
       const v = /<v>([^<]*)<\/v>/.exec(dentro)?.[1]
@@ -361,7 +406,7 @@ export function textoDeDocumento(datos: Buffer, ext: string): string {
       if (/t="inlineStr"/.test(attrs)) return limpio(dentro).trim()
       return v ?? ''
     }
-    return xml(/^xl\/worksheets\/sheet\d+\.xml$/).map((h, i) => `## Hoja ${i + 1}\n${h.split(/<row[^>]*>/).slice(1).map((fila) => [...fila.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)].map((m) => celda(m[1], m[2] ?? '')).filter(Boolean).join(' | ')).filter((f) => f.trim()).join('\n')}`).join('\n\n')
+    return xml(/^xl\/worksheets\/sheet\d+\.xml$/).map((h, i) => `## Hoja ${i + 1}\n${tablaMd(h.split(/<row[^>]*>/).slice(1).map((fila) => [...fila.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)].map((m) => celda(m[1], m[2] ?? '').trim())).filter((f) => f.some(Boolean)))}`).join('\n\n')
   }
   const s = datos.toString('utf8')
   if (ext === 'html' || ext === 'htm') return aMarkdown(s)

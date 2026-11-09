@@ -77,7 +77,19 @@ test('takeout: un docx y un xlsx se leen por dentro (son zips)', () => {
     'xl/sharedStrings.xml': '<sst><si><t>Mes</t></si><si><t>Ingreso</t></si></sst>',
     'xl/worksheets/sheet1.xml': '<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>marzo</t></is></c><c r="B2"><v>1200</v></c></row></sheetData></worksheet>',
   })
-  assert.equal(nube.textoDeDocumento(xlsx, 'xlsx'), '## Hoja 1\nMes | Ingreso\nmarzo | 1200')
+  assert.equal(nube.textoDeDocumento(xlsx, 'xlsx'), '## Hoja 1\n| Mes | Ingreso |\n| --- | --- |\n| marzo | 1200 |')
+})
+
+test('las tablas de Word y PowerPoint salen como tablas de Markdown, con títulos y viñetas (Fragua #184)', () => {
+  const p = (t: string, estilo = '') => `<w:p>${estilo}<w:r><w:t>${t}</w:t></w:r></w:p>`
+  const celda = (...ts: string[]) => `<w:tc><w:tcPr/>${ts.map((t) => p(t)).join('')}</w:tc>`
+  const docx = zip({
+    'word/document.xml': `<w:document><w:body>${p('Plan de Igualdad 2027-2031', '<w:pPr><w:pStyle w:val="Ttulo1"/></w:pPr>')}${p('Medida uno', '<w:pPr><w:numPr><w:ilvl w:val="0"/></w:numPr></w:pPr>')}`
+      + `<w:tbl><w:tblPr/><w:tr>${celda('Área')}${celda('Indicador')}</w:tr><w:tr>${celda('RRHH')}${celda('Brecha &lt; 5 %', 'anual')}</w:tr><w:tr>${celda('A|B')}</w:tr></w:tbl>${p('Fin')}</w:body></w:document>`,
+  })
+  assert.equal(nube.textoDeDocumento(docx, 'docx'), '# Plan de Igualdad 2027-2031\n- Medida uno\n| Área | Indicador |\n| --- | --- |\n| RRHH | Brecha < 5 % / anual |\n| A\\|B |  |\nFin')
+  const pptx = zip({ 'ppt/slides/slide1.xml': '<p:sld><a:p><a:r><a:t>Resultados</a:t></a:r></a:p><a:tbl><a:tr><a:tc><a:p><a:r><a:t>Q1</a:t></a:r></a:p></a:tc><a:tc><a:p><a:r><a:t>Q2</a:t></a:r></a:p></a:tc></a:tr><a:tr><a:tc><a:p><a:r><a:t>10</a:t></a:r></a:p></a:tc><a:tc><a:p><a:r><a:t>12</a:t></a:r></a:p></a:tc></a:tr></a:tbl></p:sld>' })
+  assert.equal(nube.textoDeDocumento(pptx, 'pptx'), '## Slide 1\nResultados\n| Q1 | Q2 |\n| --- | --- |\n| 10 | 12 |')
 })
 
 test('takeout: de los zips a la nube — piezas con su fecha y su voz, medios que se procesan y se borran, destilado, nombres e historia', async () => {

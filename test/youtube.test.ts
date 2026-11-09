@@ -116,11 +116,11 @@ test('YouTube: si la nube está bloqueada espera a la compu; la compu lo lee y l
   assert.notEqual(estado(db, 'mudoUno0001'), 'sin_subtitulos', 'pedido de nuevo, vuelve a probar')
 })
 
-test('YouTube: un canal entero por el servicio de transcripciones (con trabajo asincrónico), y sin cupo espera a la compu', async () => {
+test('YouTube: un canal entero por el servicio de transcripciones: primero el censo, con el ok los videos (con trabajo asincrónico), y sin cupo espera a la compu', async () => {
   const db = abrir(':memory:')
   process.env.SUPADATA_API_KEY = 'clave-de-prueba'
   _probarLector(async (url) => {
-    if (url.includes('/oembed')) return new Response(JSON.stringify({ title: 'Video del canal', author_name: 'Canal Grande' }), { status: 200 })
+    if (url.includes('/oembed')) return new Response(JSON.stringify({ title: `Video del canal ${/v%3D(\w+)/.exec(url)?.[1]}`, author_name: 'Canal Grande' }), { status: 200 })
     if (url.includes('/watch') || url.includes('/youtubei/v1/player')) return new Response(pagina({ titulo: 'x', bloqueado: true }), { status: 200 })
     return new Response('', { status: 404 })
   })
@@ -139,16 +139,29 @@ test('YouTube: un canal entero por el servicio de transcripciones (con trabajo a
     },
   })
   try {
+    const avisos: string[] = []
+    yt._probarRetomar(async (_db, texto) => { avisos.push(texto); return '' })
+    const k = await import('../src/youtube-canal.ts')
+    k._probarCanal({ escribir: async () => ({}) })
     const r = await yt.importarYoutube(db, 'https://www.youtube.com/@CanalGrande', { max: 2 })
     assert.equal(r.canales, 1)
+    // Fase 1: el censo (sin la API de datos, con la lista del servicio y los títulos por oEmbed); nada entra hasta el ok.
+    await hasta(() => estado(db, 'canal:@canalgrande') === 'censo')
+    assert.equal(estado(db, 'canalVid001'), undefined, 'sin su ok no se lee ningún video')
+    await hasta(() => avisos.some((x) => /censo del canal/.test(x)))
+    assert.match(avisos.find((x) => /censo del canal/.test(x))!, /censo del canal .*2 videos.*aprobar_censo_canal con canal="canal:@canalgrande"/s)
+    assert.match((db.prepare(`SELECT contenido FROM corpus WHERE origen_id = 'url:https://youtube.com/@canalgrande'`).get() as any).contenido, /# Censo del canal/)
+    // Fase 2: con el ok, a la cola.
+    const ok = await k.aprobarCenso(db, 'canal:@canalgrande')
+    assert.equal(ok.enteros, 2)
     await hasta(() => estado(db, 'canalVid001') === 'listo' && estado(db, 'canalVid002') === 'listo')
+    await hasta(() => k.leerCenso(db, 'canal:@canalgrande')!.estado === 'terminado')
     assert.equal(estado(db, 'canalVid003'), undefined, 'respeta el máximo por canal')
     assert.ok(pedidos.some((u) => /channel\/videos\?id=https%3A%2F%2Fwww\.youtube\.com%2F%40canalgrande&limit=2&type=video/.test(u)))
     assert.ok(pedidos.some((u) => /mode=native/.test(u)), 'solo subtítulos reales (no los genera con IA)')
     const canalVid001 = db.prepare(`SELECT c.* FROM corpus c JOIN youtube_cola y ON y.pieza_id = c.id WHERE y.id = 'canalVid001'`).get() as any
     assert.match(canalVid001.contenido, /\[1:01\] Vino por trabajo\./)
     assert.equal(canalVid001.fecha, '2026-01-02')
-    assert.match((db.prepare(`SELECT contenido FROM corpus WHERE origen_id = 'url:https://youtube.com/@canalgrande'`).get() as any).contenido, /Se pidieron 2 videos/)
 
     // Sin cupo: se deja descansar y lo que llega espera a la compu.
     sinCupo = true

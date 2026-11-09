@@ -1219,6 +1219,24 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   // ─── Lo que faltaba para manejar todo desde el chat (plan v38, fase 1½) ───
   {
+    nombre: 'ver_censo_canal', familia: 'lectura',
+    descripcion: 'El censo de un canal de YouTube que él mandó (Fragua #187): cuántos videos y horas, los grupos (series y formatos) con el plan de cada uno (entero / resumen / nada), los refritos, el costo en tokens y qué conviene. Nada entra al corpus hasta que él lo apruebe.',
+    parametros: S({ canal: str('El canal: «canal:@nombre» (como vino en el aviso), «@nombre» o su link') }, ['canal']),
+    ejecutar: async (a, { db }) => {
+      const c = (await import('../youtube-canal.ts')).leerCenso(db, String(a.canal).replace(/^https?:\/\/(www\.)?youtube\.com\//i, ''))
+      if (!c) return { error: 'Ese canal no tiene censo todavía (o no se mandó)' }
+      return { canal: c.canal, titulo: c.titulo, estado: c.estado, videos: c.videos.length, horas: Math.round(c.horas * 10) / 10, refritos: c.refritos.length, informe: c.informe,
+        grupos: c.grupos.map((g) => ({ grupo: g.nombre, videos: g.ids.length, horas: g.horas, conSubtitulos: g.conSubtitulos, plan: c.plan[g.clave] })), costo: c.costo }
+    },
+  },
+  {
+    nombre: 'aprobar_censo_canal', familia: 'accion',
+    descripcion: 'Con SU ok explícito: corre el plan del censo de un canal. Lo «entero» entra a la cola (cada video, su pieza, transcripción y destilado; los con subtítulos primero, a ritmo, y sigue solo hasta terminar); lo «resumen» queda en una pieza con título y descripción. Cambios: {"nombre del grupo": "entero" | "resumen" | "nada"}. Nunca lo apruebes sin que él lo diga.',
+    parametros: S({ canal: str('El canal, como en el censo («canal:@nombre»)'), cambios: { type: 'object', description: 'Opcional: grupo → entero | resumen | nada', additionalProperties: { type: 'string', enum: ['entero', 'resumen', 'nada'] } } }, ['canal']),
+    ejecutar: async (a, { db }) => (await import('../youtube-canal.ts')).aprobarCenso(db, String(a.canal), (a.cambios as Record<string, string>) ?? {}),
+    resumen: (a) => `aprobó el censo de ${a.canal}`,
+  },
+  {
     nombre: 'ver_mapamundi', familia: 'lectura',
     descripcion: 'El Mapamundi: el tablero de hexágonos con un grande de la historia en cada uno. Qué es suyo, qué no, su fuerza, las disputas que puede jugar ahora (con la postura del rival y la chance por la fuerza) y las que cerró, con su ley.',
     parametros: S({}),
@@ -2185,7 +2203,7 @@ export const GRUPOS: Record<string, string[]> = {
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado', 'borrar_programado'],
   correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'marcar_correo_atendido', 'buscar_contacto'],
   drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],
-  web: ['seguir_en_feed', 'ver_feed', 'buscar_web', 'buscar_en', 'explorar', 'usar_alexandria', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
+  web: ['ver_censo_canal', 'aprobar_censo_canal', 'seguir_en_feed', 'ver_feed', 'buscar_web', 'buscar_en', 'explorar', 'usar_alexandria', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus'],
   mapamundi: ['ver_mapamundi', 'disputar'],
   observatorio: ['seguir_tema', 'ver_observatorio', 'crear_campana', 'armar_campana'],

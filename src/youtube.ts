@@ -17,12 +17,12 @@
 import { ajuste, fechaLocal, fijarAjuste, type Db } from './db.ts'
 import { asegurarFuente, insertar, slug } from './corpus.ts'
 import { abrirLote, encolarDestilado, trabajarTakeout } from './takeout/nube.ts'
-import { clasificarYoutube, leerVideo, transcripcionDeJson3, urlDeCanal, type VideoYoutube } from './lector/youtube.ts'
+import { clasificarYoutube, leerVideo, transcripcionDeJson3, urlDeCanal, videosDelCanal, type VideoYoutube } from './lector/youtube.ts'
 
 export type ItemCola = { id: string; tipo: 'video' | 'canal'; url: string; estado: string; motivo: string | null; intentos: number; pieza_id: number | null; de: string | null; max_videos: number | null; creado_en: number; leido_en: number | null }
 export type VideoLeido = Pick<VideoYoutube, 'titulo' | 'canal' | 'canalId' | 'fecha' | 'descripcion' | 'transcripcion' | 'idioma' | 'automatica' | 'motivo' | 'rastro'>
 
-const FUENTE = { id: 'youtube', nombre: 'YouTube', nivel: 'primaria', descripcion: 'Videos de YouTube que mandaste (y los que recomiendan), con su transcripción.' }
+export const FUENTE = { id: 'youtube', nombre: 'YouTube', nivel: 'primaria', descripcion: 'Videos de YouTube que mandaste (y los que recomiendan), con su transcripción.' }
 export const MAX_POR_CANAL = 50
 /** Cuántos links de la descripción se exploran por video (los videos recomendados, aparte). */
 const MAX_LINKS = 8
@@ -308,15 +308,25 @@ export async function trabajarYoutube(db: Db): Promise<void> {
   trabajando.add(db)
   try {
     for (;;) {
-      const item = db.prepare(`SELECT * FROM youtube_cola WHERE estado = 'pendiente' ORDER BY tipo = 'canal' DESC, creado_en LIMIT 1`).get() as ItemCola | undefined
+      // Lo que él manda a mano va primero; lo de un canal aprobado, a su ritmo (Fragua #187: que no sature).
+      const k = await import('./youtube-canal.ts')
+      const item = db.prepare(`SELECT * FROM youtube_cola WHERE estado = 'pendiente' AND (? OR de IS NULL OR de NOT LIKE 'canal:%')
+        ORDER BY tipo = 'canal' DESC, de IS NULL DESC, creado_en LIMIT 1`).get(k.dentroDelRitmo(db) ? 1 : 0) as ItemCola | undefined
       if (!item) break
       db.prepare('UPDATE youtube_cola SET intentos = intentos + 1 WHERE id = ?').run(item.id)
       try {
         if (item.tipo === 'canal') {
+          // Un canal entero (Fragua #187): primero el censo y el informe; nada entra al corpus hasta su ok.
           const nombre = item.id.replace(/^canal:/, '')
-          const ids = await canalPorServicio(db, nombre, item.max_videos ?? MAX_POR_CANAL).catch(() => null)
-          if (ids) await completarCanal(db, item.id, { videos: ids })
-          else db.prepare(`UPDATE youtube_cola SET estado = 'compu', motivo = ? WHERE id = ?`).run('la nube no puede listar el canal: lo trae tu compu', item.id)
+          let porApi: string | null = null
+          let censo = await k.censar(db, item.id).catch((e) => { porApi = e instanceof Error ? e.message : String(e); return null })
+          if (!censo) {
+            const ids = await canalPorServicio(db, nombre, item.max_videos ?? MAX_POR_CANAL).catch(() => null)
+              ?? await videosDelCanal(nombre, pedirWeb, item.max_videos ?? MAX_POR_CANAL).then((c) => (c.videos.length ? c.videos : null)).catch(() => null)
+            if (ids) censo = await k.censar(db, item.id, { videos: await conTitulos(ids), fuente: 'la lista de videos (sin duración ni vistas: la API de datos de YouTube daría más)' })
+          }
+          if (censo) { censoListo(db, item, censo); continue }
+          db.prepare(`UPDATE youtube_cola SET estado = 'compu', motivo = ? WHERE id = ?`).run(`la nube no puede listar el canal${porApi ? ` (${porApi})` : ''}: lo trae tu compu`, item.id)
           continue
         }
         const directo = await leerVideo(item.url, pedirWeb).catch(() => null)
@@ -333,6 +343,8 @@ export async function trabajarYoutube(db: Db): Promise<void> {
         db.prepare(`UPDATE youtube_cola SET estado = 'compu', motivo = ? WHERE id = ?`).run(directo?.motivo ? `desde la nube: ${directo.motivo}` : 'esperando a tu compu', item.id)
       } catch (e) {
         db.prepare(`UPDATE youtube_cola SET estado = ?, motivo = ? WHERE id = ?`).run(item.intentos + 1 >= 3 ? 'fallo' : 'pendiente', (e instanceof Error ? e.message : String(e)).slice(0, 300), item.id)
+      } finally {
+        if (item.de?.startsWith('canal:')) k.quizasTermino(db, item.de)
       }
     }
   } finally {
@@ -350,6 +362,21 @@ let retomar = async (db: Db, texto: string): Promise<string> => {
   return dicho
 }
 export function _probarRetomar(f: typeof retomar) { retomar = f }
+
+/** Los títulos de una lista de ids (por oEmbed, que la nube sí ve), para un censo sin la API de datos. */
+async function conTitulos(ids: string[]) {
+  const out: import('./youtube-canal.ts').VideoCenso[] = []
+  for (const [i, id] of ids.entries()) out.push({ id, titulo: i < 300 ? (await cascara(id)).titulo ?? id : id, fecha: null, segundos: null, vistas: null, subtitulos: null, descripcion: '' })
+  return out
+}
+
+/** El censo está: el canal espera su ok, y si lo mandó él, Mastropiero se lo presenta por donde le habla. */
+function censoListo(db: Db, item: ItemCola, c: import('./youtube-canal.ts').Censo) {
+  db.prepare(`UPDATE youtube_cola SET estado = 'censo', motivo = 'esperando tu ok', leido_en = ? WHERE id = ?`).run(Date.now(), item.id)
+  if (item.de) return
+  const plan = c.grupos.map((g) => `${g.nombre} (${g.ids.length} videos, ${g.horas} h): ${c.plan[g.clave]}`).join('; ')
+  void retomar(db, `(Aviso del sistema, no lo escribió él: está listo el censo del canal «${c.titulo}»${item.pieza_id ? ` [#${item.pieza_id}]` : ''}: ${c.videos.length} videos, ${Math.round(c.horas * 10) / 10} horas, ${c.refritos.length} refritos. ${c.informe.resumen} ${c.informe.conviene} Plan: ${plan}. Costo del plan: ${c.costo.videosEntero} videos enteros, ${c.costo.horasEntero} h, ~${Math.round(c.costo.geminiTokens / 1000)} mil tokens de Gemini y ~${Math.round(c.costo.destiladoTokens / 1000)} mil de destilado. Presentáselo corto y pedile el ok o los cambios; con su ok, usá aprobar_censo_canal con canal="${item.id}" (y los cambios que pida). No lo apruebes vos.)`).catch((e) => console.error('  youtube → censo:', e instanceof Error ? e.message : e))
+}
 
 /**
  * Un video que él mandó (no uno de un canal ni uno recomendado) y llegó tarde: Mastropiero retoma lo que le había
@@ -383,7 +410,10 @@ export async function recibirDeLaCompu(db: Db, b: any, ahora = Date.now()) {
   if (!item) throw new Error(`No conozco ${id}`)
   if (item.tipo === 'canal') {
     if (b.error) { db.prepare(`UPDATE youtube_cola SET estado = 'fallo', motivo = ? WHERE id = ?`).run(String(b.error).slice(0, 300), id); return { ok: true } }
-    return { ok: true, ...(await completarCanal(db, id, { titulo: b.titulo ?? null, videos: (Array.isArray(b.videos) ? b.videos : []).filter((v: unknown) => typeof v === 'string' && /^[\w-]{6,20}$/.test(v)) }, ahora)) }
+    const ids = (Array.isArray(b.videos) ? b.videos : []).filter((v: unknown) => typeof v === 'string' && /^[\w-]{6,20}$/.test(v)) as string[]
+    const c = await (await import('./youtube-canal.ts')).censar(db, id, { videos: await conTitulos(ids), titulo: b.titulo ?? null, fuente: 'la lista que trajo tu compu' }, ahora)
+    censoListo(db, item, c)
+    return { ok: true, videos: ids.length, censo: true }
   }
   const v = b.video ?? {}
   const r = await completarVideo(db, id, {
@@ -407,7 +437,12 @@ export function estadoYoutube(db: Db, ahora = Date.now()) {
         (SELECT COUNT(*) FROM youtube_cola v WHERE v.de = y.id) AS videos,
         (SELECT COUNT(*) FROM youtube_cola v WHERE v.de = y.id AND v.estado = 'listo') AS leidos
       FROM youtube_cola y LEFT JOIN corpus c ON c.id = y.pieza_id WHERE y.tipo = 'canal' ORDER BY y.creado_en DESC LIMIT 30`).all() as any[])
-      .map((x) => ({ id: x.id, titulo: x.titulo, estado: x.estado, motivo: x.motivo, dominio: x.dominio, pedidos: x.max_videos, videos: x.videos, leidos: x.leidos, piezaId: x.pieza_id })),
+      .map((x) => {
+        const c = db.prepare('SELECT estado, datos FROM youtube_censos WHERE canal = ?').get(x.id) as { estado: string; datos: string } | undefined
+        const d = c ? JSON.parse(c.datos) : null
+        return { id: x.id, titulo: x.titulo, estado: x.estado, motivo: x.motivo, dominio: x.dominio, pedidos: x.max_videos, videos: x.videos, leidos: x.leidos, piezaId: x.pieza_id,
+          censo: d ? { estado: c!.estado, videos: d.videos.length, horas: Math.round(d.horas * 10) / 10, enteros: d.costo.videosEntero, horasEntero: d.costo.horasEntero, tokens: d.costo.geminiTokens + d.costo.destiladoTokens, conviene: d.informe.conviene } : null }
+      }),
     dominios: (db.prepare(`SELECT DISTINCT dominio FROM youtube_cola WHERE dominio IS NOT NULL ORDER BY dominio`).all() as { dominio: string }[]).map((x) => x.dominio),
     servicio: { configurado: !!claveServicio(), disponible: servicioDisponible(db, ahora), motivo: servicioDisponible(db, ahora) ? null : ajuste(db, 'youtube_servicio_motivo') },
     gemini: { configurado: !!claveGemini(), disponible: geminiDisponible(db, ahora), motivo: geminiDisponible(db, ahora) ? null : ajuste(db, 'youtube_gemini_motivo') },
@@ -435,7 +470,7 @@ export async function importarYoutube(db: Db, texto: string, o: { max?: number |
 /** La nota que acompaña a un video del chat: qué va a pasar con él. */
 export function avisoDeCola(db: Db, tipo: 'video' | 'canal', estado: string): string {
   const s = estadoYoutube(db)
-  if (tipo === 'canal') return `Canal en cola: traigo la lista de videos (${s.servicio.disponible ? 'con el servicio de transcripciones' : 'necesito SUPADATA_API_KEY en NaN para listar canales desde la nube'}) y cada uno entra con su transcripción y su análisis.`
+  if (tipo === 'canal') return `Canal en cola. Primero armo el censo (todos sus videos con duración, vistas y subtítulos, agrupados, con horas y costo) y te lo traigo: nada entra al corpus hasta tu ok. Para la lista uso la API de datos de YouTube; si no está, (${s.servicio.disponible ? 'con el servicio de transcripciones' : 'necesito SUPADATA_API_KEY en NaN para listar canales desde la nube'}) y cada uno entra con su transcripción y su análisis.`
   if (estado === 'listo') return ''
   if (s.gemini.disponible || s.servicio.disponible) return `La transcripción está en camino (la lee ${s.gemini.disponible ? 'Gemini, del lado de Google' : 'el servicio de transcripciones'}, en el servidor). Cuando llegue, se analiza sola: qué plantea, si el título cumple, ideas y las fuentes que recomienda.`
   return `La transcripción no la puedo traer desde el servidor: YouTube bloquea a la nube y no hay ninguna vía configurada. Falta GEMINI_API_KEY en las variables de NaN (gratis, en aistudio.google.com). En cuanto esté, la leo y te aviso.`

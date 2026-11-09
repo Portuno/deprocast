@@ -707,6 +707,9 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/taller\/(\d+)\/valorar$/, (b, [a]) => valorarArtefacto(db, id(a), Number(b.estrellas), b.nota ?? null)],
   // La matriz de un término (sus ejes) y los homónimos.
   ['GET', /^\/api\/entidades\/(\d+)\/ejes$/, (_, [e]) => ejesDe(db, id(e))],
+  // El censo de un canal de YouTube (Fragua #187): verlo y aprobarlo (con cambios al plan).
+  ['GET', /^\/api\/youtube\/censo$/, async (_, __, q) => (await import('./youtube-canal.ts')).leerCenso(db, String(q.get('canal') ?? ''))],
+  ['POST', /^\/api\/youtube\/censo\/aprobar$/, async (b) => (await import('./youtube-canal.ts')).aprobarCenso(db, String(b.canal ?? ''), b.cambios ?? {})],
   // Mapamundi (plan v38, fase 7).
   ['GET', /^\/api\/mapamundi$/, async () => (await import('./mapamundi.ts')).estado(db)],
   ['POST', /^\/api\/mapamundi\/piloto$/, async () => (await import('./mapamundi.ts')).cargarPiloto(db)],
@@ -2456,7 +2459,8 @@ deFondo(() => {
     // YouTube: lo que quedó en cola sigue; cada 15 minutos, lo que espera a la compu vuelve a probar con el servicio (si volvió el cupo).
     void import('./youtube.ts').then((y) => {
       void y.trabajarYoutube(db).catch(() => {})
-      setInterval(() => { if (y.reintentarConServicio(db)) void y.trabajarYoutube(db).catch(() => {}) }, 15 * 60_000).unref()
+      // Cada 15 minutos: lo que esperaba una vía vuelve a probar, y los canales aprobados siguen a su ritmo.
+      setInterval(() => { y.reintentarConServicio(db); void y.trabajarYoutube(db).catch(() => {}) }, 15 * 60_000).unref()
     })
   }
 })

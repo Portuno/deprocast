@@ -1233,6 +1233,15 @@ CREATE TABLE IF NOT EXISTS chat_mencionados (
   en INTEGER NOT NULL,
   PRIMARY KEY (conversacion_id, tipo, ref)
 );
+-- El censo de un canal de YouTube (Fragua #187): sus videos, grupos, plan y costo; nada entra al corpus hasta su ok.
+CREATE TABLE IF NOT EXISTS youtube_censos (
+  canal TEXT PRIMARY KEY,
+  titulo TEXT NOT NULL,
+  fuente TEXT NOT NULL,
+  estado TEXT NOT NULL DEFAULT 'listo',
+  datos TEXT NOT NULL,
+  creado INTEGER NOT NULL
+);
 -- Tu día en capas (plan v38, fase 6): un minuto por fila, por dispositivo (solo números: nunca audio).
 CREATE TABLE IF NOT EXISTS capas_minuto (
   dispositivo_id INTEGER NOT NULL,
