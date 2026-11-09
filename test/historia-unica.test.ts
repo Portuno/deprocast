@@ -47,5 +47,15 @@ describe('una historia por proyecto y piezas que se retiran o corrigen (plan v34
     assert.match(prompts[0], /correcciones y lo que te dijo hace poco MANDAN/)
     await historiaDe(db, 'lote-c', x, false, Date.now())
     assert.equal((db.prepare(`SELECT COUNT(*) AS n FROM corpus WHERE fuente = 'takeout-historia' AND estado != 'retirada'`).get() as { n: number }).n, 1, 'otro lote: sigue siendo una')
+
+    // Fragua #174: si la historia se retiró, rehacerla no choca con su clave (la retirada la conserva).
+    retirarPieza(db, vieja1, 'Mal generada', 'operador')
+    await historiaDe(db, 'lote-d', x, false, Date.now())
+    const nueva = db.prepare(`SELECT id, origen_id FROM corpus WHERE fuente = 'takeout-historia' AND estado != 'retirada'`).all() as { id: number; origen_id: string }[]
+    assert.equal(nueva.length, 1)
+    assert.equal(nueva[0].origen_id, `historia:e:${ent}`)
+    assert.notEqual(nueva[0].id, vieja1, 'una pieza nueva; la retirada queda como estaba')
+    await historiaDe(db, 'lote-e', x, false, Date.now())
+    assert.equal((db.prepare(`SELECT COUNT(*) AS n FROM corpus WHERE fuente = 'takeout-historia' AND estado != 'retirada'`).get() as { n: number }).n, 1, 'reprocesar dos veces: una sola')
   })
 })

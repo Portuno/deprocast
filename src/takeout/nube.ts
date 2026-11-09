@@ -698,6 +698,9 @@ export async function historiaDe(db: Db, lote_: string, x: ReturnType<typeof pro
   // Se queda la de la clave nueva; si no, la que ya era de esta entidad (otro lote); si no, cualquiera.
   const yaH = (previas.find((h) => h.origen_id === origenH) ?? previas.find((h) => h.origen_id?.startsWith('takeout:historia:') && h.origen_id.endsWith(`:${clave}`)) ?? previas[0])?.id ?? null
   for (const h of previas) if (h.id !== yaH) retirarPieza(db, h.id, `Había otra historia del mismo proyecto: quedó una sola (#${yaH})`, 'historia', ahora)
+  // La clave es única en todo el corpus: si la tiene otra pieza (una historia retirada, por ejemplo), se le cambia por una
+  // que no choca. Antes, reprocesar después de retirar una historia cortaba con «UNIQUE constraint failed» (Fragua #174).
+  db.prepare(`UPDATE corpus SET origen_id = origen_id || ':vieja:' || id WHERE origen_id = ? AND id IS NOT ?`).run(origenH, yaH)
   if (yaH) db.prepare('UPDATE corpus SET origen_id = ?, titulo = ? WHERE id = ?').run(origenH, `Historia de ${ent?.nombre ?? x.nombre}`, yaH)
   if (yaH) db.prepare('UPDATE corpus SET contenido = ?, fecha = ? WHERE id = ?').run(contenido, fechaLocal(ahora), yaH)
   if (yaH) db.prepare('DELETE FROM pasajes WHERE pieza_id = ?').run(yaH) // cambió el texto: sus pasajes se rehacen

@@ -598,9 +598,17 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'bautizar_agente', familia: 'accion', descripcion: 'Pone nombre a un agente de nivel 3 o más.',
-    parametros: S({ id: str('id del agente'), nombre: str('Nombre único') }, ['id', 'nombre']),
-    ejecutar: (a, { db }) => (bautizar(db, a.id, a.nombre), agenteCorto(db, leer(db, a.id)!)),
-    resumen: (a) => `bautizó ${a.id} como ${a.nombre}`,
+    parametros: S({ id: str('Designación del agente (ej. GEN-0016)'), nombre: str('Nombre único') }, ['id', 'nombre']),
+    ejecutar: (a, { db }) => {
+      // El modelo a veces la manda como «agente» (Fragua #167): se acepta cualquiera de las dos, y sin ninguna, un error claro.
+      const id = String(a.id ?? a.agente ?? a.designacion ?? '').trim().toUpperCase()
+      if (!id) throw new Error('Falta la designación del agente (por ejemplo GEN-0016)')
+      if (!leer(db, id)) throw new Error(`No existe el agente ${id}`)
+      if (!String(a.nombre ?? '').trim()) throw new Error('Falta el nombre')
+      bautizar(db, id, String(a.nombre).trim())
+      return agenteCorto(db, leer(db, id)!)
+    },
+    resumen: (a) => `bautizó ${a.id ?? a.agente} como ${a.nombre}`,
   },
   {
     nombre: 'crear_proyecto', familia: 'accion', descripcion: 'Crea un proyecto; nace con su gerente.',
