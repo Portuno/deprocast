@@ -1808,7 +1808,8 @@ const servidor = http.createServer(async (req, res) => {
     return void res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=3600' }).end(paginaPublica(url.pathname === '/acerca' ? 'acerca' : 'privacidad'))
   }
   // Qué versión de la pantalla sirve (pública: para saber si un deploy llegó, sin datos de nadie).
-  if (url.pathname === '/version') return void res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ web: VERSION_WEB, commit: process.env.MASTRO_COMMIT ?? null, arranco: ARRANCO, caliente, activo: fondoActivo, bloqueos: bloqueos.slice(-8) }))
+  // vias: qué integraciones tiene cargadas este servidor (solo sí/no, nunca el valor): para saber si una variable nueva de NaN llegó.
+  if (url.pathname === '/version') return void res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ web: VERSION_WEB, commit: process.env.MASTRO_COMMIT ?? null, arranco: ARRANCO, caliente, activo: fondoActivo, vias: { gemini: !!process.env.GEMINI_API_KEY?.trim(), fragua: !!process.env.GITHUB_FRAGUA_TOKEN?.trim(), supadata: !!process.env.SUPADATA_API_KEY?.trim() }, bloqueos: bloqueos.slice(-8) }))
   if (!autorizado(req) && !['/manifest.webmanifest', '/icono.svg'].includes(url.pathname)) {
     if (url.pathname.startsWith('/api/')) return void res.writeHead(401, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify({ error: 'Falta la clave' }))
     return void res.writeHead(303, { location: '/entrar' }).end()
