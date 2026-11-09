@@ -161,6 +161,7 @@ function pintarWhatsappPerfil(w) {
     } else {
       cuerpo = `<p class="chico">Vinculado con <b>${esc(w.vinculado)}</b>${w.ultimoMensaje ? ` · tu último mensaje: ${new Date(w.ultimoMensaje).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}.</p>
         <p class="tenue chico">${w.ventanaAbierta ? 'Ventana abierta: lo que Mastropiero dice solo (el matinal, un aviso) también te llega por WhatsApp.' : 'Ventana cerrada: WhatsApp solo deja que Mastropiero te escriba primero si le escribiste en las últimas 24 horas. Mandale cualquier cosa y se abre.'}</p>
+        <label class="fila g-1 chico"><input type="checkbox" id="wa-reacciones" ${w.reacciones ? 'checked' : ''}> Reaccionar a tus mensajes (⏳ mientras piensa, 👀 si lo suma a lo que estaba haciendo)</label>
         <div class="fila"><button class="btn btn-chico" id="wa-probar">Mandar una prueba</button><button class="btn btn-chico btn-peligro" id="wa-desvincular">Desvincular</button></div>${webhookInfo}${formulario(false)}`
     }
   }
@@ -184,6 +185,7 @@ function pintarWhatsappPerfil(w) {
       toast(`Suscripta<small>${esc(r.apps.join(', ') || 'listo')}: mandá el código de nuevo.</small>`, 'suave'); refrescar()
     } catch (e) { error(e) }
   }
+  if ($('#wa-reacciones')) $('#wa-reacciones').onchange = async (e) => { try { await api('/whatsapp/reacciones', { prender: e.target.checked }); toast(e.target.checked ? 'Reacciones prendidas' : 'Sin reacciones', 'suave') } catch (err) { error(err) } }
   if ($('#wa-probar')) $('#wa-probar').onclick = async () => { try { await api('/whatsapp/probar', {}); toast('Mandada<small>Fijate tu WhatsApp.</small>', 'suave') } catch (e) { error(e) } }
   if ($('#wa-desvincular')) $('#wa-desvincular').onclick = async () => { if (!(await confirmar('¿Desvincular tu número? Mastropiero deja de atenderte por WhatsApp hasta que mandes el código nuevo.', { si: 'Desvincular', peligro: true }))) return; try { await api('/whatsapp/desvincular', {}); refrescar() } catch (e) { error(e) } }
 }

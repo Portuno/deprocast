@@ -51,6 +51,7 @@ export function estadoWhatsapp(db: Db) {
     codigo: c.suyo ? null : c.codigo || null,
     ultimoMensaje: ultimo,
     ventanaAbierta: !!ultimo && Date.now() - ultimo < VENTANA,
+    reacciones: reaccionesPrendidas(db),
     diag: diag(db),
   }
 }
@@ -288,6 +289,9 @@ export function _probarCola(o: { juntarMs?: number; avisoMs?: number }) { juntar
 const estadoDe = (de: string): Estado => { let e = estados.get(de); if (!e) { e = { cola: Promise.resolve(), buffer: [], esperan: [], timer: null, ultimoId: null }; estados.set(de, e) } return e }
 const marcarHecho = (db: Db, ids: string[]) => { for (const id of ids) db.prepare('UPDATE whatsapp_vistos SET hecho = 1 WHERE id = ?').run(id) }
 
+/** Las reacciones automáticas (⏳ mientras piensa, 👀 si se sumó a un turno): apagadas salvo que él las prenda (Fragua #183). */
+export const reaccionesPrendidas = (db: Db) => ajuste(db, 'whatsapp_reacciones') === '1'
+
 async function reaccionar(db: Db, para: string, mensajeId: string, emoji: string) {
   await graph(db, `${cfg(db).numeroId}/messages`, { method: 'POST', body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: para, type: 'reaction', reaction: { message_id: mensajeId, emoji } }) }).catch(() => {})
 }
@@ -338,7 +342,9 @@ async function atender(db: Db, de: string, ms: any[], entregado: () => void) {
   const u = ms.length === 1 ? aTelegram(ms[0]) : { message: { chat: { id: 'whatsapp' }, text: ms.map((m) => aTelegram(m)?.message?.text ?? '').filter(Boolean).join('\n') } }
   let respondio = false
   let reaccion = false
-  const aviso = setTimeout(() => { if (!respondio) { reaccion = true; void reaccionar(db, de, ultimo, '⏳') } }, avisoMs)
+  // Sin reacciones automáticas (le molestaban): lo que dice que está trabajando es el «escribiendo…», renovado.
+  const reacciona = reaccionesPrendidas(db)
+  const aviso = setTimeout(() => { if (!respondio && reacciona) { reaccion = true; void reaccionar(db, de, ultimo, '⏳') } }, avisoMs)
   const latido = setInterval(() => { if (!respondio) void graph(db, `${cfg(db).numeroId}/messages`, { method: 'POST', body: JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: ultimo, typing_indicator: { type: 'text' } }) }).catch(() => {}) }, 20_000)
   const quitarAviso = () => { if (reaccion) { reaccion = false; void reaccionar(db, de, ultimo, '') } }
   try {
@@ -352,7 +358,7 @@ async function atender(db: Db, de: string, ms: any[], entregado: () => void) {
       })
       await conCanal(c, () => procesarActualizacion(db, u))
       // Si entró a un turno que ya estaba en curso, no contesta ahora: 👀 dice que lo vio y lo suma.
-      if (!respondio && estaPensando(conversacionHoy(db).id)) void reaccionar(db, de, ultimo, '👀')
+      if (reacciona && !respondio && estaPensando(conversacionHoy(db).id)) void reaccionar(db, de, ultimo, '👀')
     }
     marcarHecho(db, ids)
   } catch (e2) {

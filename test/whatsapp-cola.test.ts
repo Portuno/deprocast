@@ -51,7 +51,7 @@ test('lo que dice cambia el sistema: «ya la hice» cierra lo que le sugirió, �
 })
 
 test('WhatsApp: una ráfaga de mensajes es una sola respuesta, con todo junto', async () => {
-  const { db, respuestas } = preparar()
+  const { db, mandados, respuestas } = preparar()
   let llamadas = 0
   let visto = ''
   _probarModelo(async (l, o) => { if (l.agenteId !== 'mastropiero') return { texto: '{}', llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }; llamadas++; visto = (o.mensajes as any[]).filter((m) => m.role === 'user').map((m) => String(m.content)).join('\n'); return { texto: 'Todo junto: sí.', llamadas: [], razonamiento: null, modelo: 'falso', tokens: 5 } })
@@ -64,11 +64,13 @@ test('WhatsApp: una ráfaga de mensajes es una sola respuesta, con todo junto', 
   assert.match(visto, /che, una cosa\nmirá el tema de la mudanza\nqué opinás de hacerla en enero/)
   assert.equal(respuestas().length, 1)
   assert.equal(respuestas()[0].text.body, 'Todo junto: sí.')
+  assert.ok(!mandados.some((x) => x.type === 'reaction'), 'sin reacciones automáticas por defecto (Fragua #183)')
   assert.equal((db.prepare('SELECT COUNT(*) n FROM whatsapp_vistos WHERE hecho = 1').get() as any).n, 3, 'los tres, atendidos')
 })
 
 test('WhatsApp: mientras piensa algo largo, «ya la hice» se contesta en el acto; la respuesta larga llega citada y con ⏳ mientras tanto', async () => {
   const { db, mandados, respuestas } = preparar()
+  db.prepare(`INSERT OR REPLACE INTO ajustes (clave, valor) VALUES ('whatsapp_reacciones', '1')`).run() // prendidas a propósito (vienen apagadas)
   const m = crearMision(db, { titulo: 'Mandar el presupuesto a Ana', nivel: 'terciaria', estado: 'activa' })
   anotarSugeridas(db, conversacionHoy(db).id, 'Te queda mandar el presupuesto a Ana.')
   let soltar: () => void = () => {}

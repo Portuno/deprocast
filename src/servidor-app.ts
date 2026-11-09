@@ -963,6 +963,7 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/whatsapp$/, async () => (await import('./whatsapp.ts')).estadoWhatsapp(db)],
   ['POST', /^\/api\/whatsapp\/config$/, async (b) => (await import('./whatsapp.ts')).configurarWhatsapp(db, { numeroId: b.numeroId, token: b.token, secreto: b.secreto })],
   ['POST', /^\/api\/whatsapp\/suscribir$/, async (b) => (await import('./whatsapp.ts')).suscribirApp(db, b.cuentaId)],
+  ['POST', /^\/api\/whatsapp\/reacciones$/, async (b) => { fijarAjuste(db, 'whatsapp_reacciones', b.prender ? '1' : '0'); return (await import('./whatsapp.ts')).estadoWhatsapp(db) }],
   ['POST', /^\/api\/whatsapp\/desvincular$/, async () => (await import('./whatsapp.ts')).desvincularWhatsapp(db)],
   ['POST', /^\/api\/whatsapp\/probar$/, async () => {
     const wa = await import('./whatsapp.ts')
