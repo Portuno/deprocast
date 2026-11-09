@@ -30,7 +30,7 @@ const txt = (v: unknown, max = 500) => String(v ?? '').trim().slice(0, max)
 const clave = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
 const TIPOS_MEMORIA = ['hecho', 'meta', 'preferencia', 'sueño', 'vision', 'correccion']
 const AREAS = ['pantalla', 'chat', 'corpus', 'liga', 'entidades', 'motores', 'otro']
-const TIPOS_ENTIDAD = ['persona', 'proyecto', 'agrupacion', 'lugar', 'concepto']
+const TIPOS_ENTIDAD = ['persona', 'proyecto', 'agrupacion', 'empresa', 'lugar', 'concepto']
 
 export type ResultadoAnotaciones = {
   pieza: number; resumen: string

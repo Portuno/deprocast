@@ -1218,6 +1218,33 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `fijó la meta del mes en ${a.euros} €`,
   },
   {
+    nombre: 'ficha_empresa', familia: 'accion',
+    descripcion: 'La ficha de una empresa (Fragua #164): la crea si no existe y cambia lo que le pases. Datos: razón social, CIF, dirección (sale el link a Maps), web, redes, si cotiza. Puntaje objetivo 0–10 = promedio ponderado de criterios (Solvencia, Reputación, Cumplimiento, Encaje con sus proyectos, Acceso, u otros), cada uno con valor y nota; se recalcula solo. Autopuntaje: lo que la empresa dice de sí misma, aparte. Cribado en tres niveles: público (lo que publica), privado (registros, prensa, licitaciones) y personal (su lectura). sirve_a: ids de sus proyectos o personas a los que les sirve. Sin datos, devuelve la ficha como está.',
+    parametros: S({
+      nombre: str('Nombre de la empresa (o el id de su entidad)'), razon_social: str('Razón social'), cif: str('CIF/NIF'), direccion: str('Dirección postal'), web: str('Web'), redes: { type: 'array', items: { type: 'string' }, description: 'Links o usuarios de redes' },
+      cotiza: str('Ticker si cotiza (y la bolsa, «SAN · BME»)'), criterio: { type: 'object', description: 'Un criterio a puntuar', properties: { nombre: { type: 'string' }, valor: { type: 'number' }, peso: { type: 'number' }, nota: { type: 'string' } }, required: ['nombre'] },
+      autopuntaje: { type: 'number', description: 'Lo que declara la empresa de sí misma, 0–10' }, autopuntaje_fuente: str('De dónde sale el autopuntaje'),
+      publico: str('Cribado público'), privado: str('Cribado privado'), personal: str('Cribado personal: su lectura y si le sirve'), sirve_a: { type: 'array', items: { type: 'integer' }, description: 'ids de sus proyectos o personas' },
+    }, ['nombre']),
+    ejecutar: async (a, { db }) => {
+      const e = await import('../empresas.ts')
+      const c: any = {}
+      if (a.razon_social !== undefined) c.razonSocial = a.razon_social
+      if (a.cif !== undefined) c.cif = a.cif
+      if (a.direccion !== undefined) c.direccion = a.direccion
+      if (a.web !== undefined) c.web = a.web
+      if (a.redes !== undefined) c.redes = a.redes
+      if (a.cotiza !== undefined) { const [ticker, bolsa] = String(a.cotiza).split(/\s*[·|,]\s*/); c.cotiza = ticker ? { ticker, bolsa } : null }
+      if (a.criterio) c.criterio = a.criterio
+      if (a.autopuntaje !== undefined) c.autopuntaje = { valor: a.autopuntaje, fuente: a.autopuntaje_fuente }
+      if (a.publico !== undefined || a.privado !== undefined || a.personal !== undefined) c.cribado = { publico: a.publico, privado: a.privado, personal: a.personal }
+      if (a.sirve_a !== undefined) c.sirveA = a.sirve_a
+      const n = Number(a.nombre)
+      return Number.isInteger(n) && n > 0 ? e.guardarEmpresa(db, n, c) : e.ficharEmpresa(db, String(a.nombre), c)
+    },
+    resumen: (a) => `actualizó la ficha de ${a.nombre}`,
+  },
+  {
     nombre: 'abrir_ficha_idea', familia: 'accion',
     descripcion: 'Cuando tira una idea grande y vaga («clonar Revolut», «quiero hacer todo eso»), en el mismo turno y sin que lo pida: la ficha de idea con cuatro campos (qué es; qué parte es código y qué parte es permiso o licencia; qué se puede probar en 7 días con lo que ya tiene; quién es el primer cliente o usuario real). Queda como side quest que vence en 7 días, atada al proyecto si lo hay. Mostrale la ficha en tu respuesta.',
     parametros: S({ idea: str('La idea, en una línea'), que_es: str('Qué es, concreto'), codigo_y_permiso: str('Qué parte es código y qué parte es licencia o permiso'), prueba_7_dias: str('Lo que se puede probar en 7 días con lo que ya tiene: verificable'), primer_cliente: str('El primer cliente o usuario real (con nombre si lo hay)'), proyecto: str('El proyecto al que pertenece, si hay') }, ['idea', 'prueba_7_dias']),
@@ -2038,7 +2065,7 @@ export const GRUPOS: Record<string, string[]> = {
   liga: ['crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas'],
+  vida: ['ficha_empresa', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas'],
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado'],
   correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'buscar_contacto'],
   drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],
@@ -2055,7 +2082,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox|misi[oó]n|pista|me respondi|reuni[oó]n con/.test(t)) g.push('liga')
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|retir[aá]|pieza|historia de|mal generad|est[aá] mal|correg[ií] (la|esa|esta) (pieza|historia)|\[confirmado\]|\[inferido\]/.test(t)) g.push('corpus')
   if (/primaria|reporte|informe|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
-  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend|criba/.test(t)) g.push('vida')
+  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend|criba|empresa|compa[ñn][ií]a|cif\b|raz[oó]n social/.test(t)) g.push('vida')
   if (/\bcada (lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|d[ií]a|ma[ñn]ana|noche|semana|mes|\d+ horas|hora)|todos los (d[ií]as|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bados|domingos)|todas las (ma[ñn]anas|noches)|program[aá]|encargo programado|de lunes a viernes/.test(t)) g.push('programados')
   if (/\bmails?\b|correo|gmail|bandeja|inbox|borrador|me escribi[oó]|contest(ar|[aá]le) a/.test(t)) g.push('correo')
   if (/drive|planilla|sheets?\b|hoja de c[aá]lculo|spreadsheet|excel|docs\.google/.test(t)) g.push('drive')

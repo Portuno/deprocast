@@ -47,7 +47,7 @@ for (const [archivo, info] of Object.entries(window.PEREZOSOS ?? {})) {
 // ─── compartido (antes vivía en una vista; lo usan otras al instante) ──────
 
 const TIPO_ENT = {
-  persona: { glifo: '◐', nombre: 'Personas' }, proyecto: { glifo: '◆', nombre: 'Proyectos' }, agrupacion: { glifo: '⬡', nombre: 'Agrupaciones' },
+  persona: { glifo: '◐', nombre: 'Personas' }, proyecto: { glifo: '◆', nombre: 'Proyectos' }, agrupacion: { glifo: '⬡', nombre: 'Agrupaciones' }, empresa: { glifo: '▣', nombre: 'Empresas' },
   dominio: { glifo: '▦', nombre: 'Dominios' }, lugar: { glifo: '⌖', nombre: 'Lugares' }, concepto: { glifo: '✧', nombre: 'Conceptos' },
 }
 

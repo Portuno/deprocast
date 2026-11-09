@@ -218,7 +218,7 @@ function subtituloProp(p) {
   return p.detalle || ''
 }
 
-const TIPOS_ENT_DIR = ['persona', 'proyecto', 'agrupacion', 'lugar', 'dominio', 'concepto']
+const TIPOS_ENT_DIR = ['persona', 'proyecto', 'agrupacion', 'empresa', 'lugar', 'dominio', 'concepto']
 /** Una entidad propuesta: el nombre se corrige ahí mismo (a veces se oye mal), y si parece una que ya existe, se pregunta. */
 function filaEntidad(p) {
   const resto = [p.detalle, p.alias?.length ? `alias ${p.alias.join(', ')}` : ''].filter(Boolean).join(' · ')

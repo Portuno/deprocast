@@ -765,6 +765,7 @@ async function verEntidad(id) {
       ${e.notas ? `<div class="notas">${esc(e.notas)}</div>` : ''}
       <div class="fila" style="margin:12px 0 4px"><button class="btn btn-chico btn-primario" id="ent-preguntar">☿ Preguntarle a Mastropiero</button>${e.tipo === 'proyecto' ? '<button class="btn btn-chico" id="ent-espacio" title="Todo el proyecto en un lugar, y su equipo de agentes">🧪 Espacio y sandbox</button>' : ''}<button class="btn btn-chico" id="ent-grafo" title="El grafo de todo lo que tu archivo dice de esto">☍ Su grafo</button><button class="btn btn-chico" id="ent-unir" title="Es la misma que otra entidad: juntarlas en una">Unir con…</button>
         ${e.meta?.operador ? '<button class="btn btn-chico" id="ent-ficha-jugador">Tu ficha de jugador</button>' : e.tipo === 'persona' ? '<button class="btn btn-chico" id="ent-soy-yo" title="Marcar esta persona como vos: tu ficha de jugador y la suya pasan a ser una">Soy yo</button>' : ''}</div>
+      ${e.tipo === 'empresa' ? '<div id="ent-empresa" class="empresa-ficha"></div>' : ''}
       <div class="tabs chicas" id="ent-tabs">${[['corpus', 'Corpus'], ['ejes', 'Ejes'], ['misiones', 'Misiones'], ['historia', 'Historia'], ['inventario', 'Inventario']].map(([k, n]) => `<button data-etab="${k}" class="${k === entTab ? 'on' : ''}">${n}</button>`).join('')}</div>
       <div id="ent-ficha"></div>
       <div id="ent-corpus" ${entTab === 'corpus' ? '' : 'hidden'}>
@@ -784,6 +785,7 @@ async function verEntidad(id) {
     }
     $$('#ent-tabs [data-etab]').forEach((b) => (b.onclick = () => { entTab = b.dataset.etab; pintarTab() }))
     pintarTab()
+    if (e.tipo === 'empresa') pintarEmpresa(e.id)
     const soy = $('#ent-soy-yo')
     if (soy) soy.onclick = async () => {
       if (!(await confirmar(`¿${e.nombre} sos vos?`, { detalle: 'Su ficha y la tuya de jugador pasan a ser una sola.', si: 'Sí, soy yo' }))) return
@@ -923,5 +925,43 @@ async function pintarEjes(cont, id) {
         try { const n = await api(`/entidades/${id}/separar`, { nombre: a.nombre, tipo: a.tipo, notas: a.descripcion, piezas: a.piezas.map((p) => p.id) }); toast(`Separada<small>${n.movidas} piezas pasaron a «${esc(a.nombre)}».</small>`, 'suave'); traerEntidades(); verEntidad(n.id) } catch (e) { error(e) }
       }))
     } catch (e) { $('#ej-resultado').innerHTML = ''; error(e) } finally { b.disabled = false }
+  }
+}
+
+
+// ─── La ficha de empresa (Fragua #164) ──────────────────────────────────
+
+async function pintarEmpresa(id) {
+  const cont = $('#ent-empresa')
+  if (!cont) return
+  let f
+  try { f = await api(`/entidades/${id}/empresa`) } catch (e) { cont.innerHTML = ''; return error(e) }
+  const campo = (k, n, v, ph = '') => `<label class="campo">${n}<input name="${k}" value="${esc(v ?? '')}" placeholder="${esc(ph)}" autocomplete="off"></label>`
+  cont.innerHTML = `<div class="empresa-cab">
+      <div class="empresa-puntaje"><b>${f.puntaje ?? '—'}</b><small>puntaje objetivo</small></div>
+      <div class="empresa-puntaje auto"><b>${f.autopuntaje?.valor ?? '—'}</b><small>autopuntaje${f.autopuntaje?.fuente ? ` · ${esc(f.autopuntaje.fuente)}` : ''}</small></div>
+      <div class="empresa-links">${f.maps ? `<a href="${esc(f.maps)}" target="_blank" rel="noopener">📍 Maps</a>` : ''}${f.web ? `<a href="${esc(/^https?:/.test(f.web) ? f.web : `https://${f.web}`)}" target="_blank" rel="noopener">🌐 Web</a>` : ''}${f.cotiza ? `<span class="tipo-chip">📈 ${esc(f.cotiza.ticker)}${f.cotiza.bolsa ? ` · ${esc(f.cotiza.bolsa)}` : ''}</span>` : ''}</div>
+    </div>
+    <form id="emp-form" class="empresa-form">
+      <div class="empresa-datos">${campo('razonSocial', 'Razón social', f.razonSocial)}${campo('cif', 'CIF', f.cif, 'B12345678')}${campo('direccion', 'Dirección', f.direccion)}${campo('web', 'Web', f.web)}${campo('redes', 'Redes', (f.redes ?? []).join(' '), 'links separados por espacio')}${campo('ticker', 'Cotiza (ticker)', f.cotiza?.ticker, 'vacío si no cotiza')}</div>
+      <h3 class="sub">Criterios del puntaje <small class="tenue">(0–10, con su peso)</small></h3>
+      <div class="empresa-criterios">${f.criterios.map((c, i) => `<div class="empresa-criterio"><span>${esc(c.nombre)} <small class="tenue">×${c.peso}</small></span><input type="number" min="0" max="10" step="0.5" name="c${i}" value="${c.valor ?? ''}" aria-label="${esc(c.nombre)}"><input name="n${i}" value="${esc(c.nota ?? '')}" placeholder="por qué" aria-label="Nota de ${esc(c.nombre)}"></div>`).join('')}</div>
+      <div class="empresa-datos">${campo('auto', 'Autopuntaje (lo que declara)', f.autopuntaje?.valor)}${campo('autoFuente', 'De dónde', f.autopuntaje?.fuente)}</div>
+      <h3 class="sub">Cribado</h3>
+      <div class="empresa-cribado">${[['publico', 'Público', 'Lo que publica'], ['privado', 'Privado', 'Registros, prensa, licitaciones'], ['personal', 'Personal', 'Tu lectura: ¿le sirve a algún proyecto tuyo?']].map(([k, n, ph]) => `<label class="campo">${n}<textarea name="${k}" rows="3" placeholder="${ph}">${esc(f.cribado[k] ?? '')}</textarea></label>`).join('')}</div>
+      <div class="fila"><button class="btn btn-primario">Guardar</button><small class="tenue">${f.actualizada ? `Actualizada ${haceCuanto(f.actualizada)}. ` : ''}El puntaje se recalcula al guardar.</small></div>
+    </form>`
+  $('#emp-form').onsubmit = async (ev) => {
+    ev.preventDefault()
+    const d = Object.fromEntries(new FormData(ev.target))
+    try {
+      await api(`/entidades/${id}/empresa`, {
+        razonSocial: d.razonSocial, cif: d.cif, direccion: d.direccion, web: d.web, redes: d.redes, cotiza: d.ticker ? { ticker: d.ticker } : null,
+        criterios: f.criterios.map((c, i) => ({ ...c, valor: d[`c${i}`] === '' ? null : Number(d[`c${i}`]), nota: d[`n${i}`] })),
+        autopuntaje: d.auto === '' ? null : { valor: Number(d.auto), fuente: d.autoFuente }, cribado: { publico: d.publico, privado: d.privado, personal: d.personal },
+      })
+      toast('Ficha guardada', 'suave')
+      pintarEmpresa(id)
+    } catch (e) { error(e) }
   }
 }

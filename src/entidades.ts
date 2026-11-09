@@ -4,7 +4,7 @@
  */
 import { json, type Db } from './db.ts'
 
-export const TIPOS_ENTIDAD = ['persona', 'proyecto', 'agrupacion', 'dominio', 'lugar', 'concepto'] as const
+export const TIPOS_ENTIDAD = ['persona', 'proyecto', 'agrupacion', 'empresa', 'dominio', 'lugar', 'concepto'] as const
 export type TipoEntidad = (typeof TIPOS_ENTIDAD)[number]
 
 export type Entidad = {

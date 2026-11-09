@@ -3235,3 +3235,19 @@ span.ej-chip { cursor: default; }
 .bautizo-candidatos:empty { display: none; }
 .bautizo-candidatos { margin-top: var(--e-3); }
 .bautizo-lista { margin: var(--e-2) 0 0; padding-left: var(--e-5); display: grid; gap: var(--e-1); font-size: var(--t-3); }
+
+/* La ficha de empresa (Fragua #164) */
+.empresa-ficha { display: grid; gap: var(--e-3); margin: var(--e-3) 0; padding: var(--e-4); border: 1px solid var(--linea); border-radius: var(--r-l); background: var(--panel-2); }
+.empresa-cab { display: flex; flex-wrap: wrap; align-items: center; gap: var(--e-4); }
+.empresa-puntaje { display: grid; justify-items: center; min-width: 88px; }
+.empresa-puntaje b { font: 600 var(--t-8) var(--mono); color: var(--acento-texto); }
+.empresa-puntaje.auto b { color: var(--tenue); }
+.empresa-puntaje small { color: var(--tenue); font-size: var(--t-1); text-align: center; }
+.empresa-links { display: flex; flex-wrap: wrap; gap: var(--e-2); align-items: center; margin-left: auto; }
+.empresa-form { display: grid; gap: var(--e-3); }
+.empresa-form .sub { margin: var(--e-2) 0 0; }
+.empresa-datos { display: grid; gap: var(--e-2) var(--e-3); grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.empresa-criterios { display: grid; gap: var(--e-2); }
+.empresa-criterio { display: grid; grid-template-columns: minmax(0, 1.4fr) 72px minmax(0, 2fr); gap: var(--e-2); align-items: center; font-size: var(--t-3); }
+.empresa-cribado { display: grid; gap: var(--e-2); }
+.empresa-cribado textarea { width: 100%; font: inherit; }

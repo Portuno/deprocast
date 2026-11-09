@@ -692,6 +692,10 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/taller\/(\d+)\/valorar$/, (b, [a]) => valorarArtefacto(db, id(a), Number(b.estrellas), b.nota ?? null)],
   // La matriz de un término (sus ejes) y los homónimos.
   ['GET', /^\/api\/entidades\/(\d+)\/ejes$/, (_, [e]) => ejesDe(db, id(e))],
+  // La ficha de empresa (Fragua #164).
+  ['GET', /^\/api\/entidades\/(\d+)\/empresa$/, async (_, [e]) => (await import('./empresas.ts')).leerEmpresa(db, id(e))],
+  ['POST', /^\/api\/entidades\/(\d+)\/empresa$/, async (b, [e]) => (await import('./empresas.ts')).guardarEmpresa(db, id(e), b)],
+  ['POST', /^\/api\/empresas$/, async (b) => (await import('./empresas.ts')).ficharEmpresa(db, String(b.nombre ?? ''), b.datos ?? {})],
   ['POST', /^\/api\/entidades\/(\d+)\/acepciones$/, async (_, [e]) => ({ acepciones: await acepciones(db, id(e)) })],
   ['POST', /^\/api\/entidades\/(\d+)\/separar$/, (b, [e]) => separarEntidad(db, id(e), { nombre: String(b.nombre ?? ''), tipo: b.tipo, notas: b.notas ?? null, piezas: (Array.isArray(b.piezas) ? b.piezas : []).map(Number) })],
   // Anotaciones: un bloque de notas suyas se procesa de una (pieza, memoria, propuestas «diseño», entidades, quántomos).

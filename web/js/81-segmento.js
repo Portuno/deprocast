@@ -8,7 +8,7 @@
 /** Los formatos de la exportación a medida: el JSON (para otra app o volver a importar), Markdown y texto plano (para leer). */
 const FORMATOS_SEG = [['json', 'JSON', 'para otra app, o para volver a importarlo'], ['md', 'Markdown', 'para leer, o pegar en Notion, Obsidian o un chat'], ['txt', 'Texto plano', 'para leer en cualquier lado']]
 
-const TIPOS_SEG = [['', 'Todas'], ['proyecto', 'Proyectos'], ['persona', 'Personas'], ['agrupacion', 'Agrupaciones'], ['concepto', 'Conceptos'], ['dominio', 'Dominios'], ['lugar', 'Lugares']]
+const TIPOS_SEG = [['', 'Todas'], ['proyecto', 'Proyectos'], ['persona', 'Personas'], ['agrupacion', 'Agrupaciones'], ['empresa', 'Empresas'], ['concepto', 'Conceptos'], ['dominio', 'Dominios'], ['lugar', 'Lugares']]
 const POR_SEG = { conexion: 'Conexiones que anotaste', equipo: 'Equipo (persona ↔ proyecto)', textos: 'Aparecen juntas en tus textos' }
 const ETAPAS_SEG = [['sellado', 'Sellados'], ['proto', 'Proto'], ['propuesta', 'Propuestas'], ['superado', 'Superados'], ['descartado', 'Descartados']]
 const OPC_SEG = () => ({ relaciones: 'entre', coocurrencias: false, quantomos: ['sellado', 'proto'], piezas: 'referencias', notas: true, relacionPersonal: false })
