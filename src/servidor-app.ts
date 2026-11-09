@@ -194,6 +194,12 @@ try {
   const m = migrarCien(db, { respaldos: path.join(path.dirname(resolverRuta()), 'respaldos') })
   if (m) console.log(`  ✦ Los Cien Días pasaron al corpus: ${m.piezas} piezas, ${m.dominios} dominios; respaldo en ${m.respaldo}`)
 } catch (e) { console.error('  migración de los Cien Días:', e instanceof Error ? e.message : e) }
+// Pedido suyo (9/11/2026): la facturación de Versa (Fragua #179) no se va a usar. Una sola vez, solo esa.
+try {
+  if (db.prepare(`SELECT 1 FROM propuestas WHERE id = 179 AND titulo LIKE 'Facturación de Versa%' AND estado = 'abierta'`).get()) {
+    void import('./chat/index.ts').then((c) => c.resolverPropuesta(db, 179, 'descartada')).catch(() => {})
+  }
+} catch { /* sin la tabla */ }
 // La cola del Taller: lo que quedó a medias por un reinicio vuelve a la cola y sigue.
 deFondo(() => { try { const n = retomarTaller(db); if (n) console.log(`  ✎ El Taller retoma ${n} trabajo${n === 1 ? '' : 's'}`) } catch (e) { console.error('  taller:', e instanceof Error ? e.message : e) } })
 alGuardar(() => { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)') } catch { /* todavía no */ } })
