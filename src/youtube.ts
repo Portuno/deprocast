@@ -4,8 +4,10 @@
  * La nube no puede leer YouTube (la marca como bot: «confirmá que no sos un bot»). Por eso cada video o canal entra a una
  * cola y lo lee, en este orden:
  * 1. la nube misma, por si esta vez pasa (es barato probar);
- * 2. el servicio de transcripciones (Supadata, con SUPADATA_API_KEY en .env), si está y no se agotó;
- * 3. la compu: `npm run mastro -- youtube <url de la nube>` lee desde casa lo que la nube dejó esperando.
+ * 2. Gemini (GEMINI_API_KEY): Google lee el video de su lado (YouTube no lo bloquea), lo transcribe aunque no tenga
+ *    subtítulos y anota lo que se ve en pantalla;
+ * 3. el servicio de transcripciones (Supadata, con SUPADATA_API_KEY en .env), si está y no se agotó;
+ * 4. la compu: `npm run mastro -- youtube <url de la nube>` lee desde casa lo que la nube dejó esperando (el último recurso).
  *
  * Lo que se lee entra como pieza (título, canal, fecha, descripción y transcripción con su minuto) y se destila en la nube
  * con NaN: qué plantea, si el título cumple, ideas (→ protoquántomos), personas y las fuentes que recomienda. Los links que
@@ -38,9 +40,11 @@ type Pedir = (url: string, init?: RequestInit) => Promise<Response>
 let pedirWeb: Pedir = async (url, init) => (await import('./lector/index.ts')).pedirLector(url, init)
 let pedirServicio: Pedir = (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(60_000) })
 let esperar = (ms: number) => new Promise<void>((ok) => setTimeout(ok, ms))
-export function _probarYoutube(o: { web?: Pedir; servicio?: Pedir; esperar?: typeof esperar }) {
+let pedirGemini: Pedir = (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(10 * 60_000) })
+export function _probarYoutube(o: { web?: Pedir; servicio?: Pedir; gemini?: Pedir; esperar?: typeof esperar }) {
   if (o.web) pedirWeb = o.web
   if (o.servicio) pedirServicio = o.servicio
+  if (o.gemini) pedirGemini = o.gemini
   if (o.esperar) esperar = o.esperar
 }
 
@@ -102,6 +106,48 @@ export async function encolarYoutube(db: Db, url: string, o: { de?: string | nul
     .run(clave, c.tipo, c.tipo === 'video' ? urlDeVideo(c.id) : urlDeCanal(c.id), piezaId, o.de ?? null, c.tipo === 'canal' ? Math.max(1, Math.min(5000, o.max ?? MAX_POR_CANAL)) : null, ahora, dominio)
   if (dominio) etiquetarDominio(db, piezaId, dominio)
   return { tipo: c.tipo, id: c.id, piezaId, nueva: true, estado: 'pendiente' }
+}
+
+// ─── Gemini: Google lee el video de su lado ─────────────────────────────
+
+const claveGemini = () => process.env.GEMINI_API_KEY?.trim() || null
+export const geminiDisponible = (db: Db, ahora = Date.now()) => !!claveGemini() && Number(ajuste(db, 'youtube_gemini_hasta') ?? 0) < ahora
+const PEDIDO_GEMINI = `Transcribí este video de YouTube COMPLETO y fiel, en su idioma original, sin resumir ni traducir.
+Partilo en párrafos de unos 30 a 60 segundos, cada uno con el minuto en que empieza. Si hay más de una persona, poné quién habla cuando cambia («Entrevistador:», o el nombre si se dice).
+Aparte, anotá el texto importante que aparece en pantalla (títulos, gráficos, datos, nombres), con su minuto.
+Respondé SOLO este JSON: {"titulo": "...", "canal": "...", "idioma": "es|en|…", "transcripcion": [{"t": "mm:ss", "texto": "..."}], "en_pantalla": [{"t": "mm:ss", "texto": "..."}]}`
+
+/** Un video por Gemini. null: Gemini no está, no tiene cupo o no anduvo (que pruebe el siguiente). */
+async function videoPorGemini(db: Db, id: string): Promise<VideoLeido | null> {
+  if (!geminiDisponible(db)) return null
+  const modelo = process.env.GEMINI_MODELO?.trim() || 'gemini-2.5-flash'
+  const r = await pedirGemini(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-goog-api-key': claveGemini()! },
+    body: JSON.stringify({
+      contents: [{ parts: [{ file_data: { file_uri: urlDeVideo(id) } }, { text: PEDIDO_GEMINI }] }],
+      // Resolución baja: alcanza para leer la pantalla y entra en el cupo gratis aun con videos largos.
+      generationConfig: { temperature: 0.1, responseMimeType: 'application/json', mediaResolution: 'MEDIA_RESOLUTION_LOW', maxOutputTokens: 65536 },
+    }),
+  })
+  const j = await r.json().catch(() => null) as any
+  if (!r.ok) {
+    const motivo = `${r.status}: ${j?.error?.message ?? 'falló'}`.slice(0, 200)
+    // Sin cupo o clave mala: descansa unas horas (mientras, prueba el siguiente). Un video privado o raro: solo ese.
+    if ([401, 403, 429].includes(r.status) || /quota|exhausted|rate/i.test(motivo)) { fijarAjuste(db, 'youtube_gemini_hasta', String(Date.now() + 3 * 3_600_000)); fijarAjuste(db, 'youtube_gemini_motivo', motivo) }
+    return null
+  }
+  const texto = (j?.candidates?.[0]?.content?.parts ?? []).map((p: any) => p?.text ?? '').join('')
+  let d: any = null
+  try { d = JSON.parse(texto.replace(/^```(?:json)?\s*|\s*```$/g, '')) } catch { return null }
+  const parrafos = (Array.isArray(d?.transcripcion) ? d.transcripcion : []).map((p: any) => `[${String(p?.t ?? '').trim() || '00:00'}] ${String(p?.texto ?? '').replace(/\s+/g, ' ').trim()}`).filter((l: string) => !/\]\s*$/.test(l))
+  if (!parrafos.length) return null
+  const pantalla = (Array.isArray(d?.en_pantalla) ? d.en_pantalla : []).map((p: any) => `[${String(p?.t ?? '').trim()}] ${String(p?.texto ?? '').trim()}`).filter((l: string) => !/\]\s*$/.test(l))
+  return {
+    titulo: d?.titulo ? String(d.titulo).slice(0, 300) : null, canal: d?.canal ? String(d.canal).slice(0, 200) : null, canalId: null, fecha: null, descripcion: '',
+    transcripcion: `${parrafos.join('\n\n')}${pantalla.length ? `\n\n— Lo que se ve en pantalla —\n${pantalla.join('\n')}` : ''}`,
+    idioma: d?.idioma ? String(d.idioma).slice(0, 10) : null, automatica: true, rastro: ['gemini'],
+  } as VideoLeido
 }
 
 // ─── el servicio de transcripciones (Supadata) ──────────────────────────
@@ -275,8 +321,15 @@ export async function trabajarYoutube(db: Db): Promise<void> {
         }
         const directo = await leerVideo(item.url, pedirWeb).catch(() => null)
         if (directo?.transcripcion) { await completarVideo(db, item.id, directo); continue }
+        const porGemini = await videoPorGemini(db, item.id).catch(() => null)
+        // Lo que la nube sí pudo leer (título, canal, fecha, descripción) completa lo que trae Gemini.
+        if (porGemini) {
+          const r = await completarVideo(db, item.id, { ...porGemini, titulo: directo?.titulo || porGemini.titulo, canal: directo?.canal || porGemini.canal, canalId: directo?.canalId ?? null, fecha: directo?.fecha ?? null, descripcion: directo?.descripcion ?? '' })
+          if (r.listo) void retomarPedido(db, item, r.piezaId).catch((e) => console.error('  youtube → retomar:', e instanceof Error ? e.message : e))
+          continue
+        }
         const porServicio = await videoPorServicio(db, item.id).catch(() => null)
-        if (porServicio) { await completarVideo(db, item.id, porServicio); continue }
+        if (porServicio) { const r = await completarVideo(db, item.id, porServicio); if (r.listo && porServicio.transcripcion) void retomarPedido(db, item, r.piezaId).catch(() => {}); continue }
         db.prepare(`UPDATE youtube_cola SET estado = 'compu', motivo = ? WHERE id = ?`).run(directo?.motivo ? `desde la nube: ${directo.motivo}` : 'esperando a tu compu', item.id)
       } catch (e) {
         db.prepare(`UPDATE youtube_cola SET estado = ?, motivo = ? WHERE id = ?`).run(item.intentos + 1 >= 3 ? 'fallo' : 'pendiente', (e instanceof Error ? e.message : String(e)).slice(0, 300), item.id)
@@ -287,9 +340,31 @@ export async function trabajarYoutube(db: Db): Promise<void> {
   }
 }
 
+let retomar = async (db: Db, texto: string): Promise<string> => {
+  const c = await import('./chat/index.ts')
+  const cid = c.conversacionHoy(db).id
+  const desde = (db.prepare('SELECT COALESCE(MAX(id), 0) AS n FROM mensajes WHERE conversacion_id = ?').get(cid) as { n: number }).n
+  await c.enviar(db, cid, texto, { via: 'encargo' })
+  const dicho = (db.prepare(`SELECT texto FROM mensajes WHERE conversacion_id = ? AND id > ? AND rol = 'asistente' AND texto IS NOT NULL`).all(cid, desde) as { texto: string }[]).map((m) => m.texto).join('\n\n')
+  if (dicho) c.difundir(dicho)
+  return dicho
+}
+export function _probarRetomar(f: typeof retomar) { retomar = f }
+
+/**
+ * Un video que él mandó (no uno de un canal ni uno recomendado) y llegó tarde: Mastropiero retoma lo que le había
+ * pedido sobre él, ahora con la transcripción, y se lo manda por donde le habla. Respeta lo que pidió (si quería el
+ * reporte antes de tocar nada, solo propone).
+ */
+async function retomarPedido(db: Db, item: ItemCola, piezaId: number, ahora = Date.now()) {
+  if (item.de || ahora - item.creado_en > 3 * 86_400_000) return
+  const titulo = (db.prepare('SELECT titulo FROM corpus WHERE id = ?').get(piezaId) as { titulo: string } | undefined)?.titulo ?? item.url
+  await retomar(db, `(Aviso del sistema, no lo escribió él: ya llegó la transcripción del video «${titulo}» [#${piezaId}]. Si en esta charla te había pedido algo sobre ese video, hacelo ahora con la transcripción completa (leela con leer_pieza) y respetá cómo lo pidió: si quería ver el reporte antes de que toques el corpus, solo proponé. Si no te había pedido nada, contale en dos o tres líneas de qué va.)`)
+}
+
 /** Lo que espera a la compu vuelve a probar con el servicio (por si se configuró o volvió el cupo). */
 export function reintentarConServicio(db: Db) {
-  if (!servicioDisponible(db)) return 0
+  if (!servicioDisponible(db) && !geminiDisponible(db)) return 0
   return db.prepare(`UPDATE youtube_cola SET estado = 'pendiente' WHERE estado = 'compu'`).run().changes
 }
 
@@ -335,6 +410,7 @@ export function estadoYoutube(db: Db, ahora = Date.now()) {
       .map((x) => ({ id: x.id, titulo: x.titulo, estado: x.estado, motivo: x.motivo, dominio: x.dominio, pedidos: x.max_videos, videos: x.videos, leidos: x.leidos, piezaId: x.pieza_id })),
     dominios: (db.prepare(`SELECT DISTINCT dominio FROM youtube_cola WHERE dominio IS NOT NULL ORDER BY dominio`).all() as { dominio: string }[]).map((x) => x.dominio),
     servicio: { configurado: !!claveServicio(), disponible: servicioDisponible(db, ahora), motivo: servicioDisponible(db, ahora) ? null : ajuste(db, 'youtube_servicio_motivo') },
+    gemini: { configurado: !!claveGemini(), disponible: geminiDisponible(db, ahora), motivo: geminiDisponible(db, ahora) ? null : ajuste(db, 'youtube_gemini_motivo') },
     compu: { vista: visto || null, activa: visto > ahora - 5 * 60_000 },
     ultimos: ultimos.map((u) => ({ id: u.id, tipo: u.tipo, estado: u.estado, motivo: u.motivo, piezaId: u.pieza_id, titulo: u.titulo, recomendado: !!u.de?.startsWith('video:') })),
     trabajando: trabajando.has(db),
@@ -359,8 +435,9 @@ export async function importarYoutube(db: Db, texto: string, o: { max?: number |
 /** La nota que acompaña a un video del chat: qué va a pasar con él. */
 export function avisoDeCola(db: Db, tipo: 'video' | 'canal', estado: string): string {
   const s = estadoYoutube(db)
-  const quien = s.servicio.disponible ? 'el servicio de transcripciones' : 'tu compu (npm run mastro -- youtube <url de la nube>)'
-  if (tipo === 'canal') return `Canal en cola: traigo la lista de videos (con ${quien}) y cada uno entra con su transcripción y su análisis.`
-  return estado === 'listo' ? '' : `La transcripción está en camino (la nube no puede leer YouTube; la trae ${quien}). Cuando llegue, se analiza sola: qué plantea, si el título cumple, ideas y las fuentes que recomienda.`
+  if (tipo === 'canal') return `Canal en cola: traigo la lista de videos (${s.servicio.disponible ? 'con el servicio de transcripciones' : 'necesito SUPADATA_API_KEY en NaN para listar canales desde la nube'}) y cada uno entra con su transcripción y su análisis.`
+  if (estado === 'listo') return ''
+  if (s.gemini.disponible || s.servicio.disponible) return `La transcripción está en camino (la lee ${s.gemini.disponible ? 'Gemini, del lado de Google' : 'el servicio de transcripciones'}, en el servidor). Cuando llegue, se analiza sola: qué plantea, si el título cumple, ideas y las fuentes que recomienda.`
+  return `La transcripción no la puedo traer desde el servidor: YouTube bloquea a la nube y no hay ninguna vía configurada. Falta GEMINI_API_KEY en las variables de NaN (gratis, en aistudio.google.com). En cuanto esté, la leo y te aviso.`
 }
 

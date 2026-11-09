@@ -53,7 +53,7 @@ test('YouTube: un video del chat entra a la cola, se lee, se completa, se destil
   nube._probarTakeout({ destilar: async (_db, sistema, usuario) => { vistos.push({ sistema, usuario }); return { tesis: 'Empezar chico.', titulo_vs_contenido: 'Cumple lo que promete.', fuentes: [{ nombre: 'Paper sobre pilotos', link: 'https://ejemplo.org/paper-pilotos' }], resumen: 'Cuenta cómo arrancar.', valor: 2, temas: ['pilotos'], proyectos: [], personas: [], ideas: [{ texto: 'Arrancar por un barrio', proyecto: null }], decisiones: [], abierto: [], sobre_el: [] } } })
   nube._probarHistoria(async () => ({ eras: [], hoy: null, cambios: null, ideas_para_revisar: [], pregunta: '' }))
   const g = await guardarLink(db, 'https://youtu.be/vidUno00001')
-  assert.match(g.lectura!.aviso!, /La transcripción está en camino/)
+  assert.match(g.lectura!.aviso!, /La transcripción no la puedo traer desde el servidor.*GEMINI_API_KEY/)
   await hasta(() => estado(db, 'vidUno00001') === 'listo' && estado(db, 'recUno00001') === 'compu' && !!db.prepare(`SELECT 1 FROM corpus WHERE url LIKE 'https://ejemplo.org/paper-pilotos%'`).get())
   const p = db.prepare('SELECT * FROM corpus WHERE id = ?').get(g.piezaId) as any
   assert.equal(p.estado, 'disponible')

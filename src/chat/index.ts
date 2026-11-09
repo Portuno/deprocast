@@ -117,6 +117,13 @@ export function mensajeDeMastropiero(db: Db, cid: number, texto: string, o: { ca
   }
 }
 
+/** Manda a sus canales (Telegram, WhatsApp) algo que ya quedó guardado en la charla, sin guardarlo otra vez. */
+export function difundir(texto: string) {
+  for (const f of oyentes) {
+    try { f(texto) } catch { /* un canal caído no frena nada */ }
+  }
+}
+
 export function leerConversacion(db: Db, id: number): Conversacion | null {
   const r = db.prepare('SELECT * FROM conversaciones WHERE id = ?').get(id)
   return r ? conv(r) : null
