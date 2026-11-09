@@ -707,6 +707,9 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/taller\/(\d+)\/valorar$/, (b, [a]) => valorarArtefacto(db, id(a), Number(b.estrellas), b.nota ?? null)],
   // La matriz de un término (sus ejes) y los homónimos.
   ['GET', /^\/api\/entidades\/(\d+)\/ejes$/, (_, [e]) => ejesDe(db, id(e))],
+  // Los criterios con que se arman las runs (Fragua #156).
+  ['GET', /^\/api\/criterios$/, async () => (await import('./criterios.ts')).listar(db)],
+  ['POST', /^\/api\/criterios$/, async (b) => (await import('./criterios.ts')).fijarPeso(db, String(b.clave ?? ''), Number(b.peso))],
   // La Fragua es para Deprocast (plan v38): lo que no, se mueve.
   ['POST', /^\/api\/propuestas\/(\d+)\/mover$/, async (b, [n]) => (await import('./delegar.ts')).moverPropuesta(db, id(n), b.a === 'idea' ? 'idea' : b.a === 'proyecto' ? 'proyecto' : 'encargo', { proyecto: b.proyecto })],
   // El video como fuente (#165) y el diario propio (#166).

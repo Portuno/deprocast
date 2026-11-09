@@ -1940,6 +1940,7 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
     ['armado', 'TEXT'], // bien | mal: si la banda estuvo bien armada
     ['progreso_manual', 'INTEGER'], // 1 = el % lo fijó él; si no, el avance de una primaria se infiere de lo hecho
     ['avisada_en', 'INTEGER'], // la banda ya se le mandó (Fragua #182): no se repite
+    ['criterio', 'TEXT'], // qué criterio la empujó (Fragua #156): urgencia, impacto, energia, ganas, novedad, deuda
     ['avisos_fallidos', 'INTEGER NOT NULL DEFAULT 0'],
   ],
   mensajes: [
@@ -1951,6 +1952,7 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   ],
   runs: [
     ['comentario', 'TEXT'], // lo que dijo de la run entera
+    ['viene_de', 'INTEGER'], // la run anterior de la que parte (Fragua #155)
   ],
   cuentas: [
     ['nombre', 'TEXT'], ['correo', 'TEXT'], ['oficio', 'TEXT'], ['cupos', 'TEXT'], ['contexto', 'TEXT'],

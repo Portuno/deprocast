@@ -1219,6 +1219,19 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   // ─── Lo que faltaba para manejar todo desde el chat (plan v38, fase 1½) ───
   {
+    nombre: 'ver_criterios', familia: 'lectura',
+    descripcion: 'Los criterios con que se eligen y ordenan las bandas de sus runs, cada uno un personaje con su peso: La Urgente (urgencia), El Ambicioso (impacto), La Medidora (energía), El Entusiasta (ganas), La Curiosa (novedad), El Deudor (deuda). Con cuánto termina lo que empuja cada uno.',
+    parametros: S({}),
+    ejecutar: async (_, { db }) => (await import('../criterios.ts')).listar(db),
+  },
+  {
+    nombre: 'fijar_criterio', familia: 'accion',
+    descripcion: 'Cambia el peso (en %) de un criterio de las runs: «dale más peso a la urgencia», «que El Entusiasta pese menos». Los demás se reparten el resto. Clave: urgencia, impacto, energia, ganas, novedad o deuda.',
+    parametros: S({ clave: str('Clave del criterio', { enum: ['urgencia', 'impacto', 'energia', 'ganas', 'novedad', 'deuda'] }), peso: int('Peso nuevo, de 2 a 60 (%)') }, ['clave', 'peso']),
+    ejecutar: async (a, { db }) => (await import('../criterios.ts')).fijarPeso(db, String(a.clave), Number(a.peso)),
+    resumen: (a) => `puso ${a.clave} en ${a.peso} %`,
+  },
+  {
     nombre: 'marcar_correo_atendido', familia: 'accion',
     descripcion: 'Marca un mail como atendido (ya lo contestó o ya no hace falta): «ya le contesté a Pedro», «ese de la factura ya está». Con el id del correo, o con quién lo mandó / el asunto (toma el más reciente sin atender que coincida). atendido=false lo vuelve a la bandeja.',
     parametros: S({ id: str('id del correo, si lo sabés'), de: str('Quién lo mandó (nombre o email)'), asunto: str('Parte del asunto'), atendido: { type: 'boolean', description: 'false = vuelve a pendiente' } }),
@@ -2128,7 +2141,7 @@ export const NUCLEO = [
 export const GRUPOS: Record<string, string[]> = {
   liga: ['crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['al_diario', 'ver_diario', 'retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
-  misiones: ['ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
+  misiones: ['ver_criterios', 'fijar_criterio', 'ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   vida: ['ficha_empresa', 'responder_pregunta', 'votar_criba', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas'],
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado', 'borrar_programado'],
   correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'marcar_correo_atendido', 'buscar_contacto'],
@@ -2145,7 +2158,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   const g: string[] = []
   if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox|misi[oó]n|pista|me respondi|reuni[oó]n con/.test(t)) g.push('liga')
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|retir[aá]|pieza|historia de|mal generad|est[aá] mal|correg[ií] (la|esa|esta) (pieza|historia)|\[confirmado\]|\[inferido\]|prensa|peri[oó]dico|noticias? de|el diario de hoy/.test(t)) g.push('corpus')
-  if (/primaria|reporte|informe|ayudante|principal|north star|inventario|personaje|run /.test(t)) g.push('misiones')
+  if (/primaria|reporte|informe|ayudante|principal|north star|inventario|personaje|run |criterio|la urgente|el ambicioso|la medidora|el entusiasta|la curiosa|el deudor/.test(t)) g.push('misiones')
   if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend|criba|empresa|compa[ñn][ií]a|cif\b|raz[oó]n social/.test(t)) g.push('vida')
   if (/\bcada (lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|d[ií]a|ma[ñn]ana|noche|semana|mes|\d+ horas|hora)|todos los (d[ií]as|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bados|domingos)|todas las (ma[ñn]anas|noches)|program[aá]|encargo programado|de lunes a viernes/.test(t)) g.push('programados')
   if (/\bmails?\b|correo|gmail|bandeja|inbox|borrador|me escribi[oó]|contest(ar|[aá]le) a/.test(t)) g.push('correo')

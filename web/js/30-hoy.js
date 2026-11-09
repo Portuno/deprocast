@@ -776,6 +776,7 @@ function modalRun(pre = {}) {
         <label class="campo fila g-2"><input id="r-sub" type="checkbox" checked> Con subdescripción</label>
       </div>
     </details>
+    <details class="r-criterios" id="r-criterios"><summary>Los criterios con que elijo <small class="tenue">(quién pesa cuánto)</small></summary><div id="r-crit" class="r-crit"><p class="tenue chico">Cargando…</p></div></details>
     <div class="fila mt-3">
       <button class="btn btn-primario" id="r-armar">Armar</button>
       <button class="btn btn-chico" id="r-guardar">Guardar como plantilla</button>
@@ -786,6 +787,15 @@ function modalRun(pre = {}) {
     $('#r-base').textContent = `Base: ${b.duracion ?? 180} min${b.banda?.length ? ` en bandas de ${b.banda.join(' o ')}` : ', bandas libres'}${b.cantidad ? ` · ${b.cantidad} misiones` : ''}${b.subdescripcion === false ? ' · sin subdescripción' : ''}.`
   }
   $$('#r-plantillas [data-p]').forEach((b) => (b.onclick = () => { estado.plantilla = Number(b.dataset.p); pintarBase() }))
+  // Los criterios (Fragua #156): cada uno con su peso; mover uno reparte el resto entre los demás.
+  const pintarCriterios = (cs) => {
+    $('#r-crit').innerHTML = `${cs.map((c) => `<label class="r-crit-fila" title="${esc(c.que)}"><span><b>${esc(c.nombre)}</b><small class="tenue">${esc(c.que)}${c.bandas ? ` · termina ${Math.round((c.cumple ?? 0) * 100)} % de ${c.bandas}` : ''}</small></span><input type="range" min="2" max="60" value="${c.peso}" data-crit="${c.clave}" aria-label="${esc(c.nombre)}"><b class="r-crit-n">${c.peso} %</b></label>`).join('')}<p class="tenue chico">Cada banda dice qué criterio la empujó; con lo que marcás, una vez por semana los pesos se ajustan solos y te cuento qué cambió.</p>`
+    $$('#r-crit [data-crit]').forEach((r) => {
+      r.oninput = () => { r.parentElement.querySelector('.r-crit-n').textContent = `${r.value} %` }
+      r.onchange = async () => { try { pintarCriterios(await api('/criterios', { clave: r.dataset.crit, peso: Number(r.value) })) } catch (e) { error(e) } }
+    })
+  }
+  $('#r-criterios').addEventListener('toggle', async (e) => { if (e.target.open) { try { pintarCriterios(await api('/criterios')) } catch (err) { error(err) } } })
   $$('[data-int]').forEach((b) => (b.onclick = () => {
     estado.intensidad = estado.intensidad === Number(b.dataset.int) ? null : Number(b.dataset.int)
     $$('[data-int]').forEach((x) => x.classList.toggle('on', Number(x.dataset.int) === estado.intensidad))

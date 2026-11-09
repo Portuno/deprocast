@@ -5,6 +5,7 @@
  * de dónde está o qué hace). Todo lo que propone Mastropiero entra como sugerencia; él acepta, cambia o descarta.
  * Las runs se calibran con lo que marca y cuenta, y dejan reportes por hora, por run y por semana.
  */
+import { aprenderPesos, criterioValido, criteriosParaPrompt } from './criterios.ts'
 import { diaSemana } from './zona.ts'
 import { bloquesDelDia } from './horario.ts'
 import { ajuste, fechaLocal, json, type Db } from './db.ts'
@@ -653,9 +654,10 @@ Reglas:
 - Solo usá lo que está en su memoria, sus misiones, lo que dijo y el contexto. No inventes proyectos, personas ni tareas; si sabés poco, menos misiones y buenas.
 - No metas tareas sobre la plataforma misma salvo que él lo pida. Tampoco mantenimiento de Deprocast (revisar o borrar duplicados de memoria, ordenar entidades, limpiar el corpus): eso lo hace el sistema de fondo.
 - «resumen»: una o dos oraciones, como si le hablaras: el sentido de la run.
-Forma: {"resumen": string, "misiones": [{"titulo": string, "detalle": string, "minutos": number, "primaria": number | null, "categoria": string, "con": string | null, "gasto": number | null}]}`
+- Si te paso lo que quedó de la run anterior, eso va primero: retomá lo que sigue valiendo (con su forma corregida si salió mal) antes de inventar nada nuevo.
+Forma: {"resumen": string, "misiones": [{"titulo": string, "detalle": string, "minutos": number, "primaria": number | null, "categoria": string, "con": string | null, "gasto": number | null, "criterio": string}]}`
 
-type Propuesta = { titulo: string; detalle: string | null; minutos: number; primaria: number | null; categoria: string | null; con: string | null; gasto: number | null }
+type Propuesta = { titulo: string; detalle: string | null; minutos: number; primaria: number | null; categoria: string | null; con: string | null; gasto: number | null; criterio?: string | null }
 
 /** El ciclo de foco y descanso de las runs (ajuste ciclo_bandas, «90/20»); null = sin ciclos. */
 export function cicloDeBandas(db: Db): [number, number] | null {
@@ -725,7 +727,7 @@ function deModelo(x: any): Propuesta | null {
   return {
     titulo, detalle: typeof x.detalle === 'string' && x.detalle.trim() ? x.detalle.trim().slice(0, 500) : null, minutos: num(x.minutos) ?? 0,
     primaria: num(x.primaria), categoria: typeof x.categoria === 'string' ? x.categoria.trim().slice(0, 40) || null : null,
-    con: typeof x.con === 'string' && x.con.trim() ? x.con.trim().slice(0, 80) : null, gasto: num(x.gasto),
+    con: typeof x.con === 'string' && x.con.trim() ? x.con.trim().slice(0, 80) : null, gasto: num(x.gasto), criterio: typeof x.criterio === 'string' ? x.criterio.trim() : null,
   }
 }
 
@@ -748,7 +750,7 @@ const SIN_DESCANSO = /sin (descansos?|pausas?|cortes?)|de corrido|de un tir[oó]
 const avisoCiclo = (c: [number, number] | null) => c ? `Ciclos de ${c[0]} minutos de foco y ${c[1]} de descanso lejos de la pantalla: los descansos los mete el sistema solo, no propongas pausas salvo que él las pida.` : ''
 
 async function generar(
-  db: Db, fecha: string, p: PedidoResuelto, o: { desde: number; ocupado: [number, number][]; conservadas: Mision[]; ajuste?: string | null; contexto: string; cantidad: number | null; ahora: number },
+  db: Db, fecha: string, p: PedidoResuelto, o: { desde: number; ocupado: [number, number][]; conservadas: Mision[]; ajuste?: string | null; contexto: string; cantidad: number | null; ahora: number; anterior?: string | null },
 ): Promise<{ resumen: string | null; misiones: (Propuesta & { inicio: string; fin: string })[]; modelo: string }> {
   const semana = semanaDe(o.ahora)
   const primarias = listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana, estados: ['activa'] })
@@ -764,6 +766,8 @@ async function generar(
     principal ? `\nSu misión principal: ${principal.titulo}` : '',
     primarias.length ? `\nSus primarias de la semana:\n${primarias.map((m, i) => `${i + 1}. ${m.titulo}${m.detalle ? ` — ${recorte(m.detalle, 160)}` : ''}`).join('\n')}` : '\nNo tiene primarias aceptadas esta semana.',
     o.contexto ? `\nLo que pidió meter en esta run:\n${o.contexto}` : '',
+    o.anterior ? `\n${o.anterior}` : '',
+    `\n${criteriosParaPrompt(db)}`,
     aportesParaRun(db, o.ahora) ? `\nLo que le dejaron sus ayudantes de la liga estos días (material: si sirve, armá bandas que lo usen y decí de quién viene):\n${aportesParaRun(db, o.ahora)}` : '',
     terciarias.length ? `\nSide quests abiertas:\n${terciarias.map((m) => `- ${m.titulo}${m.disparador ? ` (cuando: ${Object.values(m.disparador).filter(Boolean).join(', ')})` : ''}`).join('\n')}` : '',
     `\nLo que sabés de él:\n${memoriaParaPrompt(db, 40) || '- (casi nada todavía)'}`,
@@ -791,10 +795,36 @@ function eventosOcupados(eventos: Evento[], fecha: string): { inicio: string; fi
 }
 
 function guardarSecundarias(db: Db, runId: number, xs: (Propuesta & { inicio: string; fin: string })[], ahora: number, desdeOrden = 0) {
-  xs.forEach((m, i) => insertarMision(db, {
+  xs.forEach((m, i) => conCriterio(db, m.criterio, insertarMision(db, {
     personaje: 'jugador', asignadaPor: 'mastropiero', nivel: 'secundaria', titulo: m.titulo, detalle: m.detalle, categoria: m.categoria, padreId: m.primaria,
     runId, inicio: m.inicio, fin: m.fin, minutos: m.minutos, con: m.con, gasto: m.gasto, orden: desdeOrden + i, estado: 'activa', creadaPor: 'mastropiero',
-  }, ahora))
+  }, ahora)))
+}
+
+/** El criterio que empujó la banda (Fragua #156): con eso se aprende qué criterio termina en algo. */
+function conCriterio(db: Db, criterio: string | null | undefined, m: Mision) {
+  const c = criterioValido(criterio)
+  if (c) db.prepare('UPDATE misiones SET criterio = ? WHERE id = ?').run(c, m.id)
+  return m
+}
+
+/**
+ * La corrida encadenada (Fragua #155): antes de armar una run nueva, la anterior se cierra si quedó abierta de otro día
+ * (con su reporte) y lo que no se hizo pasa como candidato. Devuelve el texto para el prompt y de cuál viene.
+ */
+async function runAnterior(db: Db, fecha: string, ahora: number): Promise<{ id: number; fecha: string; texto: string; pendientes: number } | null> {
+  const prev = db.prepare(`SELECT id, fecha, estado, fin FROM runs WHERE estado IN ('en_curso', 'cerrada') ORDER BY id DESC LIMIT 1`).get() as { id: number; fecha: string; estado: string; fin: string } | undefined
+  if (!prev) return null
+  // Se cierra sola solo si es de un día anterior: la de hoy él la sigue marcando (se usa lo que quedó, sin cerrarla).
+  if (prev.estado === 'en_curso' && prev.fecha < fecha) { try { await cerrarRun(db, prev.id, { ahora, conModelo: false }) } catch { /* se usa igual */ } }
+  const ms = misionesDeRun(db, prev.id)
+  const quedo = ms.filter((m) => m.estado === 'activa' || m.estado === 'no' || m.estado === 'parcial')
+  const reporte = (db.prepare('SELECT reporte FROM runs WHERE id = ?').get(prev.id) as { reporte: string | null } | undefined)?.reporte
+  if (!quedo.length && !reporte) return null
+  return {
+    id: prev.id, fecha: prev.fecha, pendientes: quedo.length,
+    texto: [`Lo que quedó de la run anterior (${prev.fecha}, ${ms.length - quedo.length} de ${ms.length} hechas):`, ...quedo.map((m) => `- ${m.titulo} [${m.estado === 'activa' ? 'sin marcar' : m.estado === 'no' ? 'no se hizo' : 'a medias'}]${m.feedback ? ` — dijo: ${recorte(m.feedback, 160)}` : ''}`), reporte ? `Su reporte: ${recorte(reporte, 500)}` : ''].filter(Boolean).join('\n'),
+  }
 }
 
 /**
@@ -831,11 +861,14 @@ async function prepararRunPasos(db: Db, pedido: PedidoRun, o: { ahora?: number; 
   paso('armando las bandas')
   // Una propuesta anterior de hoy sin arrancar queda descartada: la nueva la reemplaza.
   for (const r of listarRuns(db, { fecha, estados: ['propuesta'] })) descartarRun(db, r.id, ahora)
-  const g = await generar(db, fecha, p, { desde: aMin(p.inicio), ocupado: fijos.map((f) => [aMin(f.inicio), aMin(f.fin)]), conservadas: [], contexto: ctx.texto, cantidad: p.cantidad ?? null, ahora })
+  // La corrida encadenada (#155): la anterior se cierra y lo que quedó es el punto de partida.
+  const anterior = await runAnterior(db, fecha, ahora).catch(() => null)
+  if (anterior?.pendientes) avisos.push(`Viene de la run del ${anterior.fecha}: ${anterior.pendientes} pendiente${anterior.pendientes === 1 ? '' : 's'} para retomar.`)
+  const g = await generar(db, fecha, p, { desde: aMin(p.inicio), ocupado: fijos.map((f) => [aMin(f.inicio), aMin(f.fin)]), conservadas: [], contexto: ctx.texto, cantidad: p.cantidad ?? null, ahora, anterior: anterior?.texto ?? null })
   if (!g.misiones.length) throw new Error('El modelo no propuso ninguna misión que entre en la run')
   const r = db.prepare(
-    `INSERT INTO runs (fecha, inicio, fin, estado, pedido, fijos, agentes, resumen, modelo, creada_en) VALUES (?, ?, ?, 'propuesta', ?, ?, ?, ?, ?, ?)`,
-  ).run(fecha, p.inicio, p.fin, JSON.stringify(p), JSON.stringify(fijos), JSON.stringify(ctx.agentes), g.resumen, g.modelo, ahora)
+    `INSERT INTO runs (fecha, inicio, fin, estado, pedido, fijos, agentes, resumen, modelo, creada_en, viene_de) VALUES (?, ?, ?, 'propuesta', ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(fecha, p.inicio, p.fin, JSON.stringify(p), JSON.stringify(fijos), JSON.stringify(ctx.agentes), g.resumen, g.modelo, ahora, anterior?.id ?? null)
   const id = Number(r.lastInsertRowid)
   guardarSecundarias(db, id, g.misiones, ahora)
   return { run: leerRun(db, id)!, misiones: misionesDeRun(db, id), avisos }
@@ -1097,6 +1130,8 @@ ${vozPara('ceremonia')}`, [
       // sin modelo, queda el reporte con números
     }
   }
+  const aprendido = aprenderPesos(db, ahora)
+  if (aprendido.length) texto = `${texto}\n\nAjusté tus criterios con lo que marcaste: ${aprendido.join(' ')}`
   db.prepare(`UPDATE runs SET estado = 'cerrada', cerrada_en = ?, reporte = ? WHERE id = ?`).run(ahora, texto, id)
   return guardarReporte(db, { tipo: 'run', personaje: 'jugador', desde: run.iniciadaEn ?? run.creadaEn, hasta: ahora, runId: id, texto, metricas, enCorpus: `Reporte de run · ${run.fecha} ${run.inicio}` }, ahora)
 }
