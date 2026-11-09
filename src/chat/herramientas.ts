@@ -1218,6 +1218,13 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `fijó la meta del mes en ${a.euros} €`,
   },
   {
+    nombre: 'abrir_ficha_idea', familia: 'accion',
+    descripcion: 'Cuando tira una idea grande y vaga («clonar Revolut», «quiero hacer todo eso»), en el mismo turno y sin que lo pida: la ficha de idea con cuatro campos (qué es; qué parte es código y qué parte es permiso o licencia; qué se puede probar en 7 días con lo que ya tiene; quién es el primer cliente o usuario real). Queda como side quest que vence en 7 días, atada al proyecto si lo hay. Mostrale la ficha en tu respuesta.',
+    parametros: S({ idea: str('La idea, en una línea'), que_es: str('Qué es, concreto'), codigo_y_permiso: str('Qué parte es código y qué parte es licencia o permiso'), prueba_7_dias: str('Lo que se puede probar en 7 días con lo que ya tiene: verificable'), primer_cliente: str('El primer cliente o usuario real (con nombre si lo hay)'), proyecto: str('El proyecto al que pertenece, si hay') }, ['idea', 'prueba_7_dias']),
+    ejecutar: async (a, { db }) => { const r = (await import('../ideas.ts')).abrirFichaIdea(db, { idea: a.idea, queEs: a.que_es, codigoYPermiso: a.codigo_y_permiso, prueba7Dias: a.prueba_7_dias, primerCliente: a.primer_cliente, proyecto: a.proyecto }); return { mision: r.mision.id, vence: r.mision.vence, proyecto: r.proyecto, ficha: r.ficha } },
+    resumen: (a) => `abrió la ficha de idea «${recorte(a.idea ?? '', 50)}»`,
+  },
+  {
     nombre: 'anotar_side_quest', familia: 'accion',
     descripcion: 'Anota una side quest: un encargo chico que depende de dónde esté o qué haga («si pasás por una tienda de regalos, comprale X a Y»). El disparador es lo que la activa.',
     parametros: S({ titulo: str('Qué hacer'), detalle: str('Detalle'), lugar: str('Un lugar concreto'), zona: str('Barrio o zona'), actividad: str('Actividad que la habilita: caminar, salir, viajar…'), cuando: str('Momento: fin de semana, a la tarde…'), vence: str('YYYY-MM-DD') }, ['titulo']),
@@ -2023,7 +2030,7 @@ export const HERRAMIENTAS: Herramienta[] = [
  * (pedir_herramientas) o cuando el mensaje ya lo anuncia. Así cada respuesta no carga las 110 herramientas.
  */
 export const NUCLEO = [
-  'pedir_herramientas', 'que_puede_deprocast', 'ver_dia', 'ver_agenda', 'ver_linea', 'fijar_horario', 'ver_uso', 'buscar_corpus', 'leer_pieza', 'leer_memoria', 'recordar',
+  'abrir_ficha_idea', 'pedir_herramientas', 'que_puede_deprocast', 'ver_dia', 'ver_agenda', 'ver_linea', 'fijar_horario', 'ver_uso', 'buscar_corpus', 'leer_pieza', 'leer_memoria', 'recordar',
   'corregir_memoria', 'listar_entidades', 'ver_entidad', 'ver_misiones', 'crear_mision', 'actualizar_mision', 'anotar_side_quest', 'ver_run', 'preparar_run',
   'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'proponer_mejora', 'deshacer_ultima_accion', 'ver_para_validar', 'validar', 'arrancar_bloque', 'terminar_bloque',
 ]
