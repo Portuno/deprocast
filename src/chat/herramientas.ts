@@ -1217,6 +1217,57 @@ export const HERRAMIENTAS: Herramienta[] = [
     ejecutar: (a, { db }) => (fijarAjuste(db, 'meta_ingresos_mes', String(Math.max(0, Math.round(Number(a.euros) || 0)))), resumenMes(db)),
     resumen: (a) => `fijó la meta del mes en ${a.euros} €`,
   },
+  // ─── Lo que faltaba para manejar todo desde el chat (plan v38, fase 1½) ───
+  {
+    nombre: 'marcar_correo_atendido', familia: 'accion',
+    descripcion: 'Marca un mail como atendido (ya lo contestó o ya no hace falta): «ya le contesté a Pedro», «ese de la factura ya está». Con el id del correo, o con quién lo mandó / el asunto (toma el más reciente sin atender que coincida). atendido=false lo vuelve a la bandeja.',
+    parametros: S({ id: str('id del correo, si lo sabés'), de: str('Quién lo mandó (nombre o email)'), asunto: str('Parte del asunto'), atendido: { type: 'boolean', description: 'false = vuelve a pendiente' } }),
+    ejecutar: async (a, { db }) => {
+      let id = a.id ? String(a.id) : null
+      if (!id) {
+        const r = db.prepare(`SELECT id FROM correos WHERE atendido = 0 AND (? IS NULL OR de LIKE ?) AND (? IS NULL OR asunto LIKE ?) ORDER BY fecha DESC LIMIT 1`).get(a.de ?? null, `%${a.de ?? ''}%`, a.asunto ?? null, `%${a.asunto ?? ''}%`) as { id: string } | undefined
+        if (!r) return { error: 'No encuentro un mail sin atender que coincida' }
+        id = r.id
+      }
+      const c = db.prepare('SELECT de, asunto FROM correos WHERE id = ?').get(id) as { de: string; asunto: string } | undefined
+      if (!c) return { error: `No existe el correo ${id}` }
+      ;(await import('../google/correo.ts')).marcarAtendido(db, id, a.atendido !== false)
+      return { id, de: c.de, asunto: c.asunto, atendido: a.atendido !== false }
+    },
+    resumen: (_, r) => (r?.asunto ? `marcó atendido «${recorte(r.asunto, 40)}»` : 'buscó el mail'),
+  },
+  {
+    nombre: 'borrar_programado', familia: 'accion',
+    descripcion: 'Borra un encargo programado (por id, de ver_programados). Para pausarlo sin borrarlo, cambiar_programado con activo=false.',
+    parametros: S({ id: int('id del encargo programado') }, ['id']),
+    ejecutar: async (a, { db }) => (await import('../programados.ts')).borrarProgramado(db, a.id),
+    resumen: (a) => `borró el encargo programado #${a.id}`,
+  },
+  {
+    nombre: 'responder_pregunta', familia: 'accion',
+    descripcion: 'Anota su respuesta a una de las preguntas que Mastropiero le dejó (su cola de preguntas). Sin id, la que está esperando respuesta ahora.',
+    parametros: S({ id: int('id de la pregunta'), respuesta: str('Lo que contestó, con sus palabras') }, ['respuesta']),
+    ejecutar: async (a, { db }) => {
+      const p = await import('../preguntas.ts')
+      const id = a.id ?? p.siguientePregunta(db)?.id
+      if (!id) return { error: 'No hay ninguna pregunta esperando respuesta' }
+      const r = await p.responderPregunta(db, Number(id), String(a.respuesta))
+      return { id: r.id, pregunta: r.texto, respondida: true }
+    },
+    resumen: (_, r) => (r?.pregunta ? `anotó tu respuesta a «${recorte(r.pregunta, 40)}»` : 'buscó la pregunta'),
+  },
+  {
+    nombre: 'votar_criba', familia: 'accion',
+    descripcion: 'Vota una frase de una Criba del 72 desde el chat (1 a 6; null la borra): «a la 12 ponele un 5». Con el id de la criba (ver_cribas) y el número de la frase.',
+    parametros: S({ criba: int('id de la criba'), n: int('número de la frase (1–72)'), voto: { type: 'integer', description: '1 a 6' } }, ['criba', 'n']),
+    ejecutar: async (a, { db }) => {
+      const c = await import('../criba72.ts')
+      const s = c.empezar(db, Number(a.criba))
+      const r = c.votar(db, s.id, Number(a.n), a.voto == null ? null : Number(a.voto))
+      return { criba: a.criba, n: a.n, voto: a.voto ?? null, votadas: Object.keys(r.votos).length, frase: c.leerCriba(db, Number(a.criba))?.items[Number(a.n) - 1] ?? null }
+    },
+    resumen: (a) => `votó ${a.voto ?? '—'} a la frase ${a.n}`,
+  },
   {
     nombre: 'al_diario', familia: 'accion',
     descripcion: 'Su diario propio (Fragua #166): el texto de una o varias notas de prensa (pegado, o de una foto de una página) se parte en notas, se traduce al castellano con el original al lado y queda con tema y territorio para que marque cuáles le importan (Saber → Diario). Los videos de páginas filmadas entran solos si los manda con «diario» o «prensa».',
@@ -2078,9 +2129,9 @@ export const GRUPOS: Record<string, string[]> = {
   liga: ['crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['al_diario', 'ver_diario', 'retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['ficha_empresa', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas'],
-  programados: ['programar_encargo', 'ver_programados', 'cambiar_programado'],
-  correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'buscar_contacto'],
+  vida: ['ficha_empresa', 'responder_pregunta', 'votar_criba', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas'],
+  programados: ['programar_encargo', 'ver_programados', 'cambiar_programado', 'borrar_programado'],
+  correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'marcar_correo_atendido', 'buscar_contacto'],
   drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],
   web: ['buscar_web', 'buscar_en', 'explorar', 'usar_alexandria', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus'],

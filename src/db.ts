@@ -1224,6 +1224,15 @@ CREATE TABLE IF NOT EXISTS whatsapp_vistos (
   id TEXT PRIMARY KEY,
   en INTEGER NOT NULL
 );
+-- Lo demás que le nombró hace poco (plan v38): correos, encargos programados y propuestas, para «ya está» / «esa no».
+CREATE TABLE IF NOT EXISTS chat_mencionados (
+  conversacion_id INTEGER NOT NULL,
+  tipo TEXT NOT NULL,
+  ref TEXT NOT NULL,
+  titulo TEXT NOT NULL,
+  en INTEGER NOT NULL,
+  PRIMARY KEY (conversacion_id, tipo, ref)
+);
 -- Para delegar (plan v38): encargos que Mastropiero le sugiere (de sus procesos, anotaciones o movidos de La Fragua).
 CREATE TABLE IF NOT EXISTS encargos_sugeridos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

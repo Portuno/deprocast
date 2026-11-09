@@ -15,6 +15,7 @@ import { escribaDeMemoria } from './memoria.ts'
 import fs from 'node:fs'
 import { ajuste, fechaLocal, fijarAjuste, type Db } from './db.ts'
 import { conversacionHoy, enviar, estaPensando, mensajeDeMastropiero, mensajes } from './chat/index.ts'
+import { HERRAMIENTAS as herramientasLista } from './chat/herramientas.ts'
 import { nanTranscribir, nanVision } from './nan.ts'
 import { arrancarRun, conAvance, enCurso, listarMisiones, listarRuns, marcarSecundaria, misionesDeRun, runActual, semanaDe } from './misiones.ts'
 import { progreso } from './jornada.ts'
@@ -516,6 +517,15 @@ export function guardarNotaDeVoz(db: Db, texto: string, segundos: number | null,
   return { pieza, repetida: null }
 }
 
+/** ¿Es una herramienta que cambia algo (no solo lee)? */
+let familias: Map<string, string> | null = null
+const esAccion = (nombre: string | null | undefined) => {
+  if (!nombre) return false
+  familias ??= new Map(HERRAMIENTAS_ACCION())
+  return familias.get(nombre) === 'accion'
+}
+const HERRAMIENTAS_ACCION = () => herramientasLista.map((h) => [h.nombre, h.familia] as [string, string])
+
 async function conversar(db: Db, texto: string, o: { porVoz?: boolean } = {}) {
   const c = conversacionHoy(db)
   const canal = canalActual.getStore()
@@ -536,7 +546,10 @@ async function conversar(db: Db, texto: string, o: { porVoz?: boolean } = {}) {
   canal?.entregado?.()
   const r = await p
   if (r?.rapida) return void (await decir(r.rapida))
-  const respuesta = mensajes(db, c.id, desde).filter((m) => m.rol === 'asistente' && m.texto && m.via !== ('rapida' as any)).map((m) => m.texto).join('\n\n')
+  const respuestaSola = mensajes(db, c.id, desde).filter((m) => m.rol === 'asistente' && m.texto && m.via !== ('rapida' as any)).map((m) => m.texto).join('\n\n')
+  // Lo que hizo en el sistema (plan v38): un renglón al pie, para que se vea y se pueda deshacer.
+  const hechas = mensajes(db, c.id, desde).filter((m) => m.rol === 'herramienta' && m.resumen && esAccion(m.herramienta)).map((m) => m.resumen!)
+  const respuesta = respuestaSola && hechas.length ? `${respuestaSola}\n\n_✓ ${[...new Set(hechas)].slice(0, 5).join(' · ')}. Si algo no era, decime «deshacé»._` : respuestaSola
   const error = mensajes(db, c.id, desde).find((m) => m.rol === 'error')
   await decir(respuesta || (error ? `No pude: ${error.texto}` : 'Listo.'))
   const voz = ajuste(db, 'telegram_voz') ?? '0'

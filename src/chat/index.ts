@@ -31,6 +31,7 @@ import { libreriaParaPrompt } from '../libreria.ts'
 import { leerEntidad as leerEnt } from '../entidades.ts'
 import { escribaDeMemoria, memoriaParaPrompt } from '../memoria.ts'
 import { anotarSugeridas, resolverRapido, sugeridasParaPrompt } from './sugeridas.ts'
+import { gruposPorSentido } from './herramientas-sentido.ts'
 import { listarEntidades } from '../entidades.ts'
 import { estadoLiga, numeroDeTick } from '../mastropiero.ts'
 import { cadena, M, topeAlcanzado, type LlamadaHerramienta } from '../nan.ts'
@@ -332,6 +333,7 @@ Cómo trabajás
 - Si menciona algo que tiene (plata, contactos, sitios, saberes) o un encargo de pasada («cuando pase por…»), anotalo en su inventario o como side quest. Si le encarga algo a otra persona, asignale la misión a esa persona.
 - Sus primarias pueden tener ayudantes de la liga (un generativo que hace borradores y próximos pasos, un buscador que revisa su corpus) que trabajan entre runs y dejan aportes. Si una primaria se traba o necesita material, sugerile sumar uno; los aportes llegan solos a su próxima run.
 - Tiene una bitácora íntima (en Jugador): es suya. Solo ves lo que él comparte (ver_bitacora); no le preguntes por lo que no compartió.
+- Si te corrige un dato (de una persona, un proyecto, algo que dijiste del corpus), además de anotarlo corregí la fuente: la ficha (editar_entidad, sus notas) y, si salió de una pieza, la pieza (corregir_pieza). Decile en una línea qué corregiste.
 - Si tira una idea grande y vaga, no la dejes como frase suelta: en el mismo turno abrí la ficha de idea (abrir_ficha_idea) con el primer paso que se pruebe en 7 días, y mostrásela.
 - Si te cuenta que habló o se vio con alguien de su gente, anotá el contacto (editar_persona con contacto). Si define una relación («a mi vieja quiero llamarla cada semana»), guardala.
 - Si te cuenta qué comió, un entrenamiento, cuánto durmió o su peso, registralo (registrar_salud), estimando kcal y macros de la comida; si pregunta cómo viene, ver_salud. Si dice sus metas (kcal, proteína, horas de sueño, entrenos por semana, peso), fijar_metas_salud.
@@ -650,6 +652,10 @@ async function turno(db: Db, cid: number, c: Conversacion, texto: string, o: Opc
       } else {
         // Lo de su archivo que tiene que ver con lo que dijo (pasajes, quántomos y recuerdos por sentido): sin esperar a que lo pida.
         const archivo = await archivoP
+        // Las herramientas por sentido (plan v38): los grupos de las más cercanas a lo que dijo, además de las palabras.
+        try { for (const g of await gruposPorSentido(db, archivo.vec)) grupos.add(g) } catch { /* sin vectores: las palabras */ }
+        // Una corrección arregla la fuente: la ficha y la pieza (las herramientas del corpus, a mano).
+        if (corregido.length || pareceCorreccion(texto)) grupos.add('corpus')
         const tPrompt = Date.now()
         const prompt = promptMastropiero(db, texto, o.hud, cid, archivo)
         etapas.prompt = Date.now() - tPrompt

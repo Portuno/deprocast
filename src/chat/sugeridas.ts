@@ -23,8 +23,23 @@ export function misionesNombradas(db: Db, texto: string): { id: number; titulo: 
     .map((m) => ({ id: m.id, titulo: m.titulo }))
 }
 
+/**
+ * Lo demás que nombró (plan v38, «ya la hice» para todo): correos sin atender (por su asunto), encargos programados (por
+ * su título) y propuestas abiertas de La Fragua. Así «ya le contesté» o «pausá ese» se resuelven con la herramienta justa.
+ */
+function anotarMencionados(db: Db, cid: number, respuesta: string, ahora: number) {
+  const t = ` ${normal(respuesta)} `
+  const esta = (titulo: string) => { const n = normal(titulo); return n.length >= 8 && t.includes(` ${n} `) }
+  const ins = db.prepare('INSERT INTO chat_mencionados (conversacion_id, tipo, ref, titulo, en) VALUES (?, ?, ?, ?, ?) ON CONFLICT (conversacion_id, tipo, ref) DO UPDATE SET en = excluded.en')
+  const tabla = (sql: string) => { try { return db.prepare(sql).all() as { ref: string | number; titulo: string }[] } catch { return [] } }
+  for (const c of tabla(`SELECT id AS ref, asunto AS titulo FROM correos WHERE atendido = 0 ORDER BY fecha DESC LIMIT 200`)) if (esta(c.titulo)) ins.run(cid, 'correo', String(c.ref), c.titulo, ahora)
+  for (const p of tabla(`SELECT id AS ref, titulo FROM programados`)) if (esta(p.titulo)) ins.run(cid, 'programado', String(p.ref), p.titulo, ahora)
+  for (const p of tabla(`SELECT id AS ref, titulo FROM propuestas WHERE estado = 'abierta' ORDER BY id DESC LIMIT 200`)) if (esta(p.titulo)) ins.run(cid, 'propuesta', String(p.ref), p.titulo, ahora)
+}
+
 /** Después de cada respuesta: lo que nombró queda como «sugerido ahora» en esa charla (reemplaza lo anterior). */
 export function anotarSugeridas(db: Db, cid: number, respuesta: string, ahora = Date.now()): number {
+  try { anotarMencionados(db, cid, respuesta, ahora) } catch { /* no frena */ }
   const ms = misionesNombradas(db, respuesta)
   if (!ms.length) return 0
   db.prepare('DELETE FROM chat_sugeridas WHERE conversacion_id = ? AND en < ?').run(cid, ahora - VENTANA)
@@ -45,8 +60,14 @@ function vigentes(db: Db, cid: number, ahora: number): Sugerida[] {
 export function sugeridasParaPrompt(db: Db, cid: number | null | undefined, ahora = Date.now()): string {
   if (!cid) return ''
   const s = vigentes(db, cid, ahora)
-  if (!s.length) return ''
-  return `Lo que le sugeriste hace poco y sigue abierto (si dice que ya lo hizo, marcalo hecho con marcar_mision o actualizar_mision; si dice que no va o que no se lo sugieras más, descartalo; lo cerrado no se vuelve a proponer):\n${s.map((x) => `- [#${x.misionId}] ${x.titulo}`).join('\n')}`
+  let otros: { tipo: string; ref: string; titulo: string }[] = []
+  try { otros = db.prepare('SELECT tipo, ref, titulo FROM chat_mencionados WHERE conversacion_id = ? AND en >= ? ORDER BY en DESC LIMIT 12').all(cid, ahora - VENTANA) as any[] } catch { /* sin la tabla */ }
+  if (!s.length && !otros.length) return ''
+  const COMO: Record<string, string> = { correo: 'si dice que ya contestó o que no hace falta: marcar_correo_atendido', programado: 'si pide pausarlo: cambiar_programado activo=false; borrarlo: borrar_programado', propuesta: 'si dice «esa no» o que ya está: resolver_propuestas' }
+  return [
+    s.length ? `Lo que le sugeriste hace poco y sigue abierto (si dice que ya lo hizo, marcalo hecho con marcar_mision o actualizar_mision; si dice que no va o que no se lo sugieras más, descartalo; lo cerrado no se vuelve a proponer):\n${s.map((x) => `- [#${x.misionId}] ${x.titulo}`).join('\n')}` : '',
+    otros.length ? `Lo demás que le nombraste hace poco (lo que diga sobre esto, hacelo en el sistema):\n${otros.map((x) => `- ${x.tipo} ${x.ref}: «${x.titulo}» (${COMO[x.tipo] ?? ''})`).join('\n')}` : '',
+  ].filter(Boolean).join('\n\n')
 }
 
 const HECHO = /^(ya (la|lo|las|los|esa|ese|eso) (hice|termine|resolvi|mande|complete|hicimos|cerre)|ya (hice|termine|mande|resolvi|complete)|ya (la|lo) tengo|ya (esta|quedo|fue)( hech[ao]| list[ao])?|hech[ao]s?|list[ao],? (ya )?(la|lo) hice|terminad[ao]|completad[ao]|done)\b/
