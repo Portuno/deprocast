@@ -1233,6 +1233,45 @@ CREATE TABLE IF NOT EXISTS chat_mencionados (
   en INTEGER NOT NULL,
   PRIMARY KEY (conversacion_id, tipo, ref)
 );
+-- Tu día en capas (plan v38, fase 6): un minuto por fila, por dispositivo (solo números: nunca audio).
+CREATE TABLE IF NOT EXISTS capas_minuto (
+  dispositivo_id INTEGER NOT NULL,
+  minuto INTEGER NOT NULL,
+  hablo INTEGER NOT NULL DEFAULT 0,
+  escucho INTEGER NOT NULL DEFAULT 0,
+  ruido INTEGER NOT NULL DEFAULT 0,
+  silencio INTEGER NOT NULL DEFAULT 0,
+  voz_db REAL,
+  voz_cerca_db REAL,
+  piso_db REAL,
+  pasos INTEGER NOT NULL DEFAULT 0,
+  caminando INTEGER NOT NULL DEFAULT 0,
+  lat REAL,
+  lon REAL,
+  precision REAL,
+  recibido INTEGER NOT NULL,
+  PRIMARY KEY (dispositivo_id, minuto)
+);
+CREATE INDEX IF NOT EXISTS capas_minuto_t ON capas_minuto (minuto);
+-- El rescate de cada dispositivo nuevo (plan v38, fase 6): lo que trae, a salvo antes de procesarlo.
+CREATE TABLE IF NOT EXISTS rescate_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  dispositivo_id INTEGER NOT NULL,
+  clave TEXT NOT NULL,
+  tipo TEXT NOT NULL,
+  nombre TEXT NOT NULL,
+  bytes INTEGER,
+  fecha INTEGER,
+  meta TEXT,
+  estado TEXT NOT NULL DEFAULT 'falta',
+  archivo TEXT,
+  drive_cola_id INTEGER,
+  error TEXT,
+  creado_en INTEGER NOT NULL,
+  salvado_en INTEGER,
+  procesado_en INTEGER,
+  UNIQUE (dispositivo_id, clave)
+);
 -- Mapamundi (plan v38, fase 7): hexágonos con su grande, disputas en las aristas, rutas y lo que jugó.
 CREATE TABLE IF NOT EXISTS mapamundi_hex (
   clave TEXT PRIMARY KEY,
@@ -1987,6 +2026,8 @@ CREATE INDEX IF NOT EXISTS quantomos_etapa ON quantomos(etapa);
 
 /** Columnas que se sumaron después de la primera versión: se agregan sin tocar los datos. */
 const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
+  // Los dispositivos como lista (plan v38, fase 6): su tipo y su estado (rescate → activo).
+  dispositivos: [['tipo', "TEXT NOT NULL DEFAULT 'telefono'"], ['estado', "TEXT NOT NULL DEFAULT 'activo'"], ['rescate_fin', 'INTEGER']],
   // Mapamundi: cómo se conoce a cada grande (la etiqueta del tablero).
   mapamundi_hex: [['corto', 'TEXT']],
   // YouTube por dominio (plan v34, #46): el bloque al que alimenta un canal (idiomas, foco, IA…), que heredan sus videos.

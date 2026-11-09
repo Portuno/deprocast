@@ -11,14 +11,15 @@
 import crypto from 'node:crypto'
 import type { Db } from './db.ts'
 
-export type Dispositivo = { id: number; nombre: string; plataforma: string; prefijo: string; creadoEn: number; ultimaVez: number | null; revocadoEn: number | null }
+export type Dispositivo = { id: number; nombre: string; plataforma: string; tipo: string; estado: string; prefijo: string; creadoEn: number; ultimaVez: number | null; revocadoEn: number | null }
+export const TIPOS_DISPOSITIVO = ['telefono', 'tableta', 'reloj', 'compu', 'otro'] as const
 export type ModoVoz = 'dictado' | 'pasivo' | 'conversacion'
 export type MetaVoz = { modo: ModoVoz; inicio?: number; fin?: number; proximidad?: boolean; ruidoDb?: number; caminando?: boolean }
 
 const CODIGO_MS = 10 * 60_000
 const INTENTOS = 5
 const hash = (t: string) => crypto.createHash('sha256').update(t).digest('hex')
-const deFila = (r: any): Dispositivo => ({ id: r.id, nombre: r.nombre, plataforma: r.plataforma, prefijo: r.prefijo, creadoEn: r.creado_en, ultimaVez: r.ultima_vez, revocadoEn: r.revocado_en })
+const deFila = (r: any): Dispositivo => ({ id: r.id, nombre: r.nombre, plataforma: r.plataforma, tipo: r.tipo ?? 'telefono', estado: r.revocado_en ? 'revocado' : r.estado ?? 'activo', prefijo: r.prefijo, creadoEn: r.creado_en, ultimaVez: r.ultima_vez, revocadoEn: r.revocado_en })
 
 let transcribir = async (db: Db, audio: Buffer, nombre: string) => (await import('./nan.ts')).nanTranscribir(db, audio, nombre)
 export function _probarDispositivos(o: { transcribir?: typeof transcribir }) { if (o.transcribir) transcribir = o.transcribir }
@@ -34,7 +35,7 @@ export function crearCodigo(db: Db, ahora = Date.now()): { codigo: string; vence
 }
 
 /** El teléfono manda el código: si vale, nace el dispositivo y su token (que vuelve solo esta vez). */
-export function vincular(db: Db, p: { codigo: string; nombre?: string; plataforma?: string }, ahora = Date.now()): { dispositivo: Dispositivo; token: string } {
+export function vincular(db: Db, p: { codigo: string; nombre?: string; plataforma?: string; tipo?: string }, ahora = Date.now()): { dispositivo: Dispositivo; token: string } {
   const vivo = db.prepare('SELECT * FROM dispositivo_codigos WHERE usado_en IS NULL ORDER BY creado_en DESC LIMIT 1').get() as { codigo: string; creado_en: number; intentos: number } | undefined
   if (!vivo || ahora - vivo.creado_en > CODIGO_MS || vivo.intentos >= INTENTOS) throw new Error('No hay un código vigente: pedí uno nuevo en Deprocast (Hoy → ⚙ → Dispositivos)')
   const dado = String(p.codigo ?? '').replace(/\D/g, '')
@@ -47,7 +48,9 @@ export function vincular(db: Db, p: { codigo: string; nombre?: string; plataform
   const token = `dpd_${crypto.randomBytes(32).toString('base64url')}`
   const nombre = String(p.nombre ?? '').trim().slice(0, 60) || 'Mi teléfono'
   const plataforma = /^(ios|android|web)$/.test(String(p.plataforma)) ? String(p.plataforma) : 'otro'
-  const id = Number(db.prepare('INSERT INTO dispositivos (nombre, plataforma, prefijo, token_hash, creado_en) VALUES (?, ?, ?, ?, ?)').run(nombre, plataforma, token.slice(0, 10), hash(token), ahora).lastInsertRowid)
+  const tipo = (TIPOS_DISPOSITIVO as readonly string[]).includes(String(p.tipo)) ? String(p.tipo) : 'telefono'
+  // Cada dispositivo nuevo arranca en rescate (Fragua #157): lo que trae queda a salvo antes de procesar nada.
+  const id = Number(db.prepare(`INSERT INTO dispositivos (nombre, plataforma, tipo, estado, prefijo, token_hash, creado_en) VALUES (?, ?, ?, 'rescate', ?, ?, ?)`).run(nombre, plataforma, tipo, token.slice(0, 10), hash(token), ahora).lastInsertRowid)
   return { dispositivo: deFila(db.prepare('SELECT * FROM dispositivos WHERE id = ?').get(id)), token }
 }
 

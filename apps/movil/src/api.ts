@@ -7,7 +7,7 @@ import { Platform } from 'react-native'
 
 export type Credenciales = { servidor: string; token: string; nombre: string }
 export type MensajeRemoto = { id: number; rol: 'operador' | 'asistente'; texto: string; en: number }
-export type PaqueteHoy = { dispositivo: string; conversacion: number; mensajes: MensajeRemoto[]; paraValidar: number }
+export type PaqueteHoy = { dispositivo: string; estado?: string; conversacion: number; mensajes: MensajeRemoto[]; paraValidar: number }
 
 const CLAVE = 'deprocast.credenciales'
 
@@ -37,7 +37,7 @@ async function pedir<T>(c: Pick<Credenciales, 'servidor' | 'token'> | { servidor
 export async function vincular(servidor: string, codigo: string, nombre: string): Promise<Credenciales> {
   const s = normalizarServidor(servidor)
   const r = await pedir<{ token: string; dispositivo: { nombre: string } }>({ servidor: s }, 'vincular', {
-    method: 'POST', body: JSON.stringify({ codigo: codigo.replace(/\D/g, ''), nombre, plataforma: Platform.OS }),
+    method: 'POST', body: JSON.stringify({ codigo: codigo.replace(/\D/g, ''), nombre, plataforma: Platform.OS, tipo: 'telefono' }),
   })
   const c = { servidor: s, token: r.token, nombre: r.dispositivo.nombre }
   await SecureStore.setItemAsync(CLAVE, JSON.stringify(c))
@@ -65,3 +65,26 @@ export const buscarPersonas = (c: Credenciales, q: string) => pedir<{ personas: 
 export const vincularHablante = (c: Credenciales, id: number, a: { entidadId?: number | null; yo?: boolean }) => pedir<Hablante>(c, `hablantes/${id}`, { method: 'POST', body: JSON.stringify(a) })
 export const olvidarHablante = (c: Credenciales, id: number) => pedir<{ ok: true }>(c, `hablantes/${id}/olvidar`, { method: 'POST', body: '{}' })
 export const mandarMensaje = (c: Credenciales, texto: string) => pedir<{ ok: true }>(c, 'mensaje', { method: 'POST', body: JSON.stringify({ texto }) })
+
+/** Un minuto de tu día en capas (plan v38, fase 6): solo números, nunca audio. */
+export type MinutoCapa = {
+  minuto: number; hablo: number; escucho: number; ruido: number; silencio: number
+  vozDb: number | null; vozCercaDb: number | null; pisoDb: number | null; pasos: number; caminando: number
+  lat: number | null; lon: number | null; precision: number | null
+}
+export const subirCapas = (c: Credenciales, minutos: MinutoCapa[]) => pedir<{ guardados: number }>(c, 'capas', { method: 'POST', body: JSON.stringify({ minutos }) })
+
+/** El rescate (plan v38, fase 6): inventario → subir cada ítem crudo → cerrar. Nada se procesa antes de estar a salvo. */
+export type ItemRescate = { clave: string; tipo: 'audio' | 'foto' | 'nota' | 'contactos' | 'mensaje' | 'archivo'; nombre: string; bytes?: number; fecha?: number; meta?: Record<string, unknown> }
+export type EstadoRescate = { estado?: string; total: number; faltan: string[]; aSalvo: number; procesados: number }
+export const estadoRescate = (c: Credenciales) => pedir<EstadoRescate>(c, 'rescate')
+export const inventariar = (c: Credenciales, items: ItemRescate[]) => pedir<EstadoRescate>(c, 'rescate', { method: 'POST', body: JSON.stringify({ items }) })
+export const cerrarRescate = (c: Credenciales) => pedir<EstadoRescate & { estado: 'activo' }>(c, 'rescate/cerrar', { method: 'POST', body: '{}' })
+/** Sube un ítem crudo: un archivo del teléfono (uri) o un texto. */
+export async function subirItem(c: Credenciales, clave: string, cuerpo: { uri: string } | { texto: string }, tipo = 'application/octet-stream') {
+  const body = 'uri' in cuerpo ? new (await import('expo-file-system')).File(cuerpo.uri) : cuerpo.texto
+  const r = await fetch(`${c.servidor}/api/dispositivo/rescate/subir?clave=${encodeURIComponent(clave)}`, { method: 'POST', headers: { authorization: `Bearer ${c.token}`, 'content-type': 'uri' in cuerpo ? tipo : 'text/plain; charset=utf-8' }, body })
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(j.error ?? `Deprocast respondió ${r.status}`)
+  return j as { clave: string; estado: string }
+}

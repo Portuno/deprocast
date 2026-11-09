@@ -6,11 +6,12 @@ import { useEffect, useState } from 'react'
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
-import { leerCredenciales, olvidarCredenciales, type Credenciales } from './src/api'
+import { estadoRescate, leerCredenciales, olvidarCredenciales, type Credenciales } from './src/api'
 import { borrarTodo } from './src/almacen'
 import { Vincular } from './src/pantallas/Vincular'
 import { Hoy } from './src/pantallas/Hoy'
 import { Escucha } from './src/pantallas/Escucha'
+import { Rescate } from './src/pantallas/Rescate'
 import { useTema } from './src/tema'
 
 type Pestana = 'hoy' | 'escucha'
@@ -19,7 +20,10 @@ export default function App() {
   const t = useTema()
   const [c, setC] = useState<Credenciales | null | undefined>(undefined)
   const [pestana, setPestana] = useState<Pestana>('hoy')
+  const [rescate, setRescate] = useState(false)
   useEffect(() => { void leerCredenciales().then(setC) }, [])
+  // Un teléfono recién vinculado (o que quedó a mitad) pasa primero por el rescate. Sin red, se sigue y se pregunta después.
+  useEffect(() => { if (c) void estadoRescate(c).then((r) => setRescate(r.estado === 'rescate')).catch(() => {}) }, [c])
 
   const desvincular = () => Alert.alert('¿Desvincular este teléfono?', 'Se borra el token y todo lo guardado acá. En Deprocast, revocalo también en Apps conectadas.', [
     { text: 'Cancelar', style: 'cancel' },
@@ -32,7 +36,7 @@ export default function App() {
     <SafeAreaProvider>
     <SafeAreaView edges={['top', 'bottom', 'left', 'right']} style={[s.raiz, { backgroundColor: t.fondo }]}>
       <StatusBar style="auto" />
-      {!c ? <Vincular alVincular={setC} /> : (
+      {!c ? <Vincular alVincular={(x) => { setC(x); setRescate(true) }} /> : rescate ? <Rescate c={c} alTerminar={() => setRescate(false)} /> : (
         <>
           <View style={[s.barra, { borderColor: t.linea }]}>
             {(['hoy', 'escucha'] as const).map((p) => (

@@ -59,6 +59,11 @@ export async function encolarVoz(uri: string, meta: unknown) {
 export async function colaVoz(): Promise<{ id: number; uri: string; meta: string }[]> {
   return (await base()).getAllAsync<{ id: number; uri: string; meta: string }>('SELECT id, uri, meta FROM voz_cola ORDER BY id LIMIT 20')
 }
+/** Todo lo que espera en las colas (para el rescate: se sube crudo antes de procesar). */
+export async function colasCompletas(): Promise<{ textos: { id: number; texto: string; en: number }[]; voces: { id: number; uri: string; meta: string }[] }> {
+  const d = await base()
+  return { textos: await d.getAllAsync('SELECT id, texto, en FROM cola ORDER BY id'), voces: await d.getAllAsync('SELECT id, uri, meta FROM voz_cola ORDER BY id') }
+}
 export async function sacarVoz(id: number) {
   await (await base()).runAsync('DELETE FROM voz_cola WHERE id = ?', id)
 }

@@ -930,7 +930,20 @@ const rutas: [string, RegExp, Ruta][] = [
     return { id: c.id }
   }],
   // Los dispositivos, desde la pantalla (con la clave): el código para vincular, la lista y revocar.
-  ['GET', /^\/api\/dispositivos$/, async () => { const d = await import('./dispositivos.ts'); return { dispositivos: d.listarDispositivos(db) } }],
+  ['GET', /^\/api\/dispositivos$/, async () => {
+    const d = await import('./dispositivos.ts')
+    const rs = await import('./rescate.ts')
+    return { dispositivos: d.listarDispositivos(db).map((x) => ({ ...x, aporta: rs.aportes(db, x.id), rescate: rs.estadoRescate(db, x.id) })) }
+  }],
+  ['POST', /^\/api\/dispositivos\/(\d+)\/rescate\/(cerrar|reintentar)$/, async (_, [x, que]) => {
+    const disp = (await import('./dispositivos.ts')).listarDispositivos(db).find((y) => y.id === id(x))
+    if (!disp || disp.revocadoEn) throw new Error('Ese dispositivo no existe o está revocado')
+    const rs = await import('./rescate.ts')
+    if (que === 'cerrar') { const r = rs.cerrarRescate(db, disp); void r.trabajo.catch(() => {}); return { ...r, trabajo: undefined } }
+    return rs.procesarPendientes(db, disp, Date.now(), true)
+  }],
+  // Tu día en capas (plan v38, fase 6).
+  ['GET', /^\/api\/capas$/, async (_, __, q) => (await import('./capas.ts')).diaEnCapas(db, /^\d{4}-\d{2}-\d{2}$/.test(String(q.get('fecha'))) ? String(q.get('fecha')) : undefined)],
   ['POST', /^\/api\/dispositivos\/codigo$/, async () => (await import('./dispositivos.ts')).crearCodigo(db)],
   ['POST', /^\/api\/dispositivos\/(\d+)\/revocar$/, async (_, [x]) => { (await import('./dispositivos.ts')).revocarDispositivo(db, id(x)); return { ok: true } }],
   // Google (plan v35): el estado de la conexión y de Gmail, sincronizar ya y desconectar.
@@ -1641,16 +1654,31 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
     if (ruta === 'vincular') {
       if (req.method !== 'POST') return responder(405, { error: 'Usá POST' })
       const b = JSON.parse((await leerCrudo(req, 64 * 1024)).toString('utf8') || '{}')
-      const r = d.vincular(db, { codigo: b.codigo, nombre: b.nombre, plataforma: b.plataforma })
+      const r = d.vincular(db, { codigo: b.codigo, nombre: b.nombre, plataforma: b.plataforma, tipo: b.tipo })
       return responder(201, { token: r.token, dispositivo: r.dispositivo })
     }
     const disp = d.autenticarDispositivo(db, req.headers.authorization)
     if (!disp) return responder(401, { error: 'Falta el token del dispositivo o no es válido (Authorization: Bearer dpd_…)' })
-    if (ruta === 'hoy' && req.method === 'GET') return responder(200, { dispositivo: disp.nombre, ...(await d.paqueteHoy(db)) })
+    if (ruta === 'hoy' && req.method === 'GET') return responder(200, { dispositivo: disp.nombre, estado: disp.estado, ...(await d.paqueteHoy(db)) })
+    // Tu día en capas (plan v38, fase 6): los minutos que juntó el teléfono.
+    if (ruta === 'capas' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 2 * 1024 * 1024)).toString('utf8') || '{}')
+      return responder(200, (await import('./capas.ts')).recibirCapas(db, disp.id, b.minutos))
+    }
+    // El rescate (plan v38, fase 6): inventario → subir cada ítem crudo → cerrar (recién ahí se procesa).
+    const rs = await import('./rescate.ts')
+    if (ruta === 'rescate' && req.method === 'GET') return responder(200, { estado: disp.estado, ...rs.estadoRescate(db, disp.id) })
+    if (ruta === 'rescate' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 4 * 1024 * 1024)).toString('utf8') || '{}')
+      return responder(200, rs.inventariar(db, disp, b.items))
+    }
+    if (ruta === 'rescate/subir' && req.method === 'POST') return responder(200, await rs.salvar(db, disp, String(url.searchParams.get('clave') ?? ''), await leerCrudo(req, 50 * 1024 * 1024)))
+    if (ruta === 'rescate/cerrar' && req.method === 'POST') { const r = rs.cerrarRescate(db, disp); void r.trabajo.catch(() => {}); return responder(200, { ...r, trabajo: undefined }) }
     if (ruta === 'mensaje' && req.method === 'POST') {
       const b = JSON.parse((await leerCrudo(req, 256 * 1024)).toString('utf8') || '{}')
       const texto = String(b.texto ?? '').trim()
       if (!texto) return responder(400, { error: '¿Qué le digo?' })
+      if (disp.estado === 'rescate') { await (await import('./rescate.ts')).guardarDuranteRescate(db, disp, 'mensaje', 'mensaje.txt', Buffer.from(texto), {}); return responder(202, { ok: true, rescate: true }) }
       void enviar(db, conversacionHoy(db).id, texto)
       return responder(202, { ok: true })
     }
@@ -1659,6 +1687,10 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
       const modo = pedido === 'pasivo' || pedido === 'conversacion' ? pedido : 'dictado'
       const n = (k: string) => (url.searchParams.get(k) != null ? Number(url.searchParams.get(k)) : undefined)
       const audio = await leerCrudo(req, 25 * 1024 * 1024)
+      if (disp.estado === 'rescate') {
+        await (await import('./rescate.ts')).guardarDuranteRescate(db, disp, 'audio', url.searchParams.get('nombre') || 'voz.wav', audio, { modo, inicio: n('inicio'), fin: n('fin'), caminando: url.searchParams.get('caminando') === '1' })
+        return responder(202, { texto: '', destino: 'rescate' })
+      }
       const r = await d.recibirVoz(db, disp, audio, url.searchParams.get('nombre') || 'voz.m4a', {
         modo, inicio: n('inicio'), fin: n('fin'), ruidoDb: n('ruidoDb'), proximidad: url.searchParams.get('proximidad') === '1', caminando: url.searchParams.get('caminando') === '1',
       })
@@ -2440,6 +2472,8 @@ deFondo(() => {
 deFondo(() => alDecirSolo((texto) => void import('./whatsapp.ts').then((wa) => wa.decirPorWhatsapp(db, texto)).catch(() => {})))
 // La Fragua en la nube (plan v38, fase 2): lo aprobado que no llegó a correr en 15 minutos, se revierte solo.
 deFondo(() => setInterval(() => { const fin = marcar('fragua-vigia'); void import('./fragua-nube.ts').then((f) => f.vigilarAprobadas(db, Date.now(), (t) => mensajeDeMastropiero(db, conversacionHoy(db).id, t, { canales: true }))).catch((e) => console.error('  fragua vigía:', e instanceof Error ? e.message : e)).finally(fin) }, 5 * 60_000).unref())
+// El rescate (plan v38, fase 6): cada hora se borran las copias del servidor ya procesadas y subidas al Drive.
+deFondo(() => { setInterval(() => void import('./rescate.ts').then((r) => r.limpiar(db)).catch(() => {}), 3_600_000).unref() })
 // Su feed (plan v38, fase 5): las fuentes se recolectan cada 6 horas (y al rato de arrancar).
 deFondo(() => {
   const recolectar = () => { const fin = marcar('feed'); void import('./feed.ts').then((f) => f.recolectar(db)).catch((e) => console.error('  feed:', e instanceof Error ? e.message : e)).finally(fin) }

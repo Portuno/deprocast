@@ -41,6 +41,26 @@
           "microphonePermission": "Deprocast escucha tu voz para que le hables o pienses en voz alta. El audio se procesa y se borra.",
           "enableBackgroundRecording": true
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Deprocast anota por dónde anduviste mientras escucha, para tu día en capas. Queda solo en tu Deprocast."
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Deprocast rescata tus contactos al vincular este teléfono (solo si lo elegís)."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Deprocast rescata tus fotos recientes al vincular este teléfono (solo si lo elegís).",
+          "savePhotosPermission": false,
+          "isAccessMediaLocationEnabled": false
+        }
       ]
     ],
     "scheme": "deprocast",

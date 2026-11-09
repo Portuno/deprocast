@@ -65,6 +65,19 @@ function modalSueno() {
 
 // ─── apps conectadas ────────────────────────────────────────────────────
 
+const TIPO_DISP = { telefono: '📱 teléfono', tableta: 'tableta', reloj: '⌚ reloj', compu: '💻 compu', otro: 'otro' }
+/** Un dispositivo de la lista: su tipo, lo que aporta y, si está en rescate, cuánto ya está a salvo. */
+function filaDispositivo(x, fecha) {
+  const r = x.rescate
+  const rescate = x.estado === 'rescate'
+    ? `<small class="disp-rescate">En rescate: ${r.aSalvo} de ${r.total} a salvo${r.faltan.length ? ` · faltan ${r.faltan.length}` : ''}</small>${r.faltan.length ? '' : `<button class="btn btn-chico" data-disp-rescate="${x.id}:cerrar">Terminar el rescate</button>`}`
+    : r.errores.length ? `<small class="disp-rescate mal">${r.errores.length} del rescate no se pudieron procesar (siguen a salvo)</small><button class="btn btn-chico" data-disp-rescate="${x.id}:reintentar">Reintentar</button>`
+    : r.total ? `<small class="tenue">Rescate: ${r.procesados} de ${r.total} procesados</small>` : ''
+  return `<div class="fila app-fila ${x.revocadoEn ? 'revocada' : ''}"><b>${esc(x.nombre)}</b><code>${esc(TIPO_DISP[x.tipo] ?? x.tipo)} · ${esc(x.plataforma)}</code>
+    <small class="tenue">último uso ${fecha(x.ultimaVez)}${x.revocadoEn ? ' · revocado' : ''}${x.aporta.length ? ` · aporta: ${esc(x.aporta.join(', '))}` : ''}</small>${rescate}
+    ${x.revocadoEn ? '' : `<button class="btn btn-chico btn-peligro" data-disp-revocar="${x.id}">Revocar</button>`}</div>`
+}
+
 async function modalApps() {
   let d
   let disp = { dispositivos: [] }
@@ -82,9 +95,9 @@ async function modalApps() {
         : `<p class="tenue chico">${g.error ? `${esc(g.error)} ` : ''}Conectá tu cuenta: Deprocast lee tu correo (y deja borradores, nunca envía), tu Drive, tu agenda, tus contactos y tus tareas.</p><a class="btn" href="/google/conectar">Conectar Google</a>`}
     </section>` : ''}
     <section class="seccion"><h3 class="sub">📱 Tus dispositivos</h3>
-      <p class="tenue chico">La app de Deprocast en tu teléfono: se vincula con un código de 6 dígitos (vale 10 minutos). Lo que dictás va al chat de Hoy; lo que pensás en voz alta queda como nota. El audio nunca se guarda.</p>
-      ${disp.dispositivos.length ? disp.dispositivos.map((x) => `<div class="fila app-fila ${x.revocadoEn ? 'revocada' : ''}"><b>${esc(x.nombre)}</b><code>${esc(x.plataforma)}</code><small class="tenue">último uso ${fecha(x.ultimaVez)}${x.revocadoEn ? ' · revocado' : ''}</small>${x.revocadoEn ? '' : `<button class="btn btn-chico btn-peligro" data-disp-revocar="${x.id}">Revocar</button>`}</div>`).join('') : ''}
-      <div class="fila"><button class="btn" id="disp-codigo">Vincular un teléfono</button><span id="disp-cod" class="disp-cod"></span></div>
+      <p class="tenue chico">Cada teléfono (u otro aparato) se vincula con un código de 6 dígitos (vale 10 minutos). Un dispositivo nuevo pasa primero por el <b>rescate</b>: lo que trae se guarda crudo (en el servidor y en tu Drive) antes de procesar nada. Lo que dictás va al chat de Hoy; lo que pensás en voz alta queda como nota.</p>
+      ${disp.dispositivos.length ? disp.dispositivos.map((x) => filaDispositivo(x, fecha)).join('') : ''}
+      <div class="fila"><button class="btn" id="disp-codigo">Vincular un dispositivo</button><span id="disp-cod" class="disp-cod"></span></div>
     </section>
     <form id="app-form" class="seccion"><h3 class="sub">Una app nueva</h3>
       <div class="fila"><label class="campo">Nombre<input name="nombre" value="${d.apps.some((a) => a.nombre === 'Morpheon' && !a.revocadaEn) ? '' : 'Morpheon'}" required></label>
@@ -95,6 +108,12 @@ async function modalApps() {
     ${d.mcp.llamadas.length ? `<details class="seccion"><summary class="sub">Lo último que pidieron por MCP</summary>${d.mcp.llamadas.map((l) => `<div class="fila app-fila"><b>${esc(l.app)}</b><code>${esc(l.herramienta)}</code><small class="tenue">${l.ok ? '' : 'falló · '}${l.ms} ms · ${new Date(l.en).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</small></div>`).join('')}</details>` : ''}`)
   if ($('#g-sinc')) $('#g-sinc').onclick = async (e) => { e.target.disabled = true; try { const r = await api('/google/sincronizar', {}); toast(`Correo al día<small>${r.nuevos} nuevos</small>`, 'suave'); modalApps() } catch (x) { error(x); e.target.disabled = false } }
   if ($('#g-desc')) $('#g-desc').onclick = async () => { if (!(await confirmar('¿Desconectar Google? Deprocast deja de leer tu correo y tu Drive (lo ya guardado queda).', { si: 'Desconectar', peligro: true }))) return; try { await api('/google/desconectar', {}); modalApps() } catch (x) { error(x) } }
+  $$('[data-disp-rescate]').forEach((b) => (b.onclick = async () => {
+    const [id, que] = b.dataset.dispRescate.split(':')
+    if (que === 'cerrar' && !(await confirmar('¿Terminar el rescate de este dispositivo?', { detalle: 'Lo que ya está a salvo se procesa ahora. Si todavía falta subir algo, no se puede.', si: 'Terminar' }))) return
+    b.disabled = true
+    try { const r = await api(que === 'cerrar' ? `/dispositivos/${id}/rescate/cerrar` : `/dispositivos/${id}/rescate/reintentar`, {}); toast(que === 'cerrar' ? 'Rescate terminado: procesando lo rescatado' : `${r.procesados} procesados${r.errores ? `<small>${r.errores} siguen fallando</small>` : ''}`, 'suave'); modalApps() } catch (e) { error(e); b.disabled = false }
+  }))
   $$('[data-disp-revocar]').forEach((b) => (b.onclick = async () => { if (!(await confirmar('¿Revocar este dispositivo? Deja de poder hablarle a Deprocast.', { si: 'Revocar', peligro: true }))) return; try { await api(`/dispositivos/${b.dataset.dispRevocar}/revocar`, {}); modalApps() } catch (e) { error(e) } }))
   $('#disp-codigo').onclick = async () => {
     try {
