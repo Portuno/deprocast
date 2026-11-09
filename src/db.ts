@@ -1990,6 +1990,8 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
     ['foto', 'TEXT'], // el ticket, si entró por foto
     ['nota', 'TEXT'],
   ],
+  // La Fragua en la nube (plan v38, fase 2): pull request, el commit que quedó en main y si ya se vigiló.
+  fragua: [['modo', "TEXT NOT NULL DEFAULT 'git'"], ['pr_numero', 'INTEGER'], ['pr_url', 'TEXT'], ['merge_sha', 'TEXT'], ['vigilada', 'INTEGER NOT NULL DEFAULT 0']],
   // WhatsApp (plan v37): el mensaje crudo y si ya se atendió, para retomar lo que un reinicio cortó.
   whatsapp_vistos: [
     ['crudo', 'TEXT'],

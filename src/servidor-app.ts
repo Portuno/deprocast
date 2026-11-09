@@ -1259,7 +1259,8 @@ const rutas: [string, RegExp, Ruta][] = [
     }).catch((e) => console.error('  fragua:', e instanceof Error ? e.message : e))
     return { empezada: true }
   }],
-  ['POST', /^\/api\/fragua\/(\d+)\/aplicar$/, (_, [f]) => aplicarForja(db, id(f))],
+  ['POST', /^\/api\/fragua\/(\d+)\/aplicar$/, async (_, [f]) => (await import('./fragua.ts')).aprobarForja(db, id(f))],
+  ['POST', /^\/api\/fragua\/(\d+)\/revertir$/, async (_, [f]) => (await import('./fragua.ts')).revertirForja(db, id(f))],
   ['POST', /^\/api\/fragua\/(\d+)\/descartar$/, (_, [f]) => descartarForja(db, id(f))],
 
   // Economía de agentes
@@ -2396,6 +2397,8 @@ deFondo(() => {
 
 // WhatsApp: lo que Mastropiero dice solo también sale por ahí (si escribió en las últimas 24 horas).
 deFondo(() => alDecirSolo((texto) => void import('./whatsapp.ts').then((wa) => wa.decirPorWhatsapp(db, texto)).catch(() => {})))
+// La Fragua en la nube (plan v38, fase 2): lo aprobado que no llegó a correr en 15 minutos, se revierte solo.
+deFondo(() => setInterval(() => { const fin = marcar('fragua-vigia'); void import('./fragua-nube.ts').then((f) => f.vigilarAprobadas(db, Date.now(), (t) => mensajeDeMastropiero(db, conversacionHoy(db).id, t, { canales: true }))).catch((e) => console.error('  fragua vigía:', e instanceof Error ? e.message : e)).finally(fin) }, 5 * 60_000).unref())
 // Los videos que quedaron en la cola (o a mitad) por un reinicio: siguen.
 deFondo(() => setTimeout(() => void import('./video.ts').then((v) => v.trabajarVideos(db)).catch((e) => console.error('  videos:', e instanceof Error ? e.message : e)), 45_000).unref())
 // WhatsApp: lo que un reinicio (una actualización) cortó a mitad de respuesta, se retoma al minuto de arrancar.

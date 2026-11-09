@@ -3,7 +3,7 @@
 
 const ESTADO_FORJA = {
   haciendo: ['forjando', 'vivo'], lista: ['pasa los tests', 'ok'], rota: ['no pasa los tests', 'mal'], fallo: ['no salió', 'mal'],
-  aplicada: ['aplicada', 'ok'], descartada: ['descartada', ''],
+  aplicada: ['aplicada', 'ok'], descartada: ['descartada', ''], revertida: ['revertida', 'mal'],
 }
 let fraguaEspera = null
 
@@ -53,7 +53,7 @@ async function refrescarFragua() {
           <span class="num">#${f.id}</span>
           <span class="que"><b title="${esc(titulo)}">${esc(titulo)}</b><small>${fecha(f.creadaEn)}${f.archivos?.length ? ` · ${f.archivos.map(esc).join(', ')}` : ''}${f.paso ? ` · <span class="pensando">${esc(f.paso)}…</span>` : ''}</small></span>
           <span class="estado-chip ${clase}">${txt}</span>
-          ${['lista', 'rota', 'fallo', 'aplicada'].includes(f.estado) ? `<button class="btn btn-chico" data-ver="${f.id}">Ver</button>` : '<span></span>'}
+          ${['lista', 'rota', 'fallo', 'aplicada', 'revertida'].includes(f.estado) ? `<button class="btn btn-chico" data-ver="${f.id}">Ver</button>` : '<span></span>'}
         </div>`
       }).join('') || '<p class="vacio">Nada forjado todavía.</p>'}
     </section>`
@@ -99,13 +99,19 @@ async function verForja(id, rama) {
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Forja #${f.id} <span class="estado-chip ${clase}">${txt}</span></h2>
     <p class="tenue">${esc(f.pedido.split('\n')[0])}</p>
     ${f.resumen ? `<div class="seccion"><h3>Plan y resumen</h3><div class="md">${esc(f.resumen).replace(/\n/g, '<br>')}</div></div>` : ''}
-    ${f.archivos.length ? `<p class="tenue">Toca: ${f.archivos.map((a) => `<code>${esc(a)}</code>`).join(' ')} · rama <code>${esc(f.rama)}</code></p>` : ''}
+    ${f.archivos.length ? `<p class="tenue">Toca: ${f.archivos.map((a) => `<code>${esc(a)}</code>`).join(' ')} · ${f.modo === 'pr' ? 'copia en la nube' : `rama <code>${esc(f.rama)}</code>`}</p>` : ''}
+    ${f.prUrl ? `<p><a href="${esc(f.prUrl)}" target="_blank" rel="noopener">Pull request #${f.prNumero} en GitHub ↗</a></p>` : ''}
     ${f.diff ? `<div class="fr-diff">${pintarDiff(f.diff)}</div>` : ''}
     ${f.salida ? `<details ${f.estado !== 'lista' ? 'open' : ''}><summary class="tenue">Salida de la verificación</summary><pre class="fr-diff">${esc(f.salida)}</pre></details>` : ''}
-    <div class="fila mt-3">${f.estado === 'lista' ? `<button class="btn btn-primario" id="fr-aplicar">Aplicar a ${esc(rama ?? 'la rama actual')}</button>` : ''}${['lista', 'rota', 'fallo'].includes(f.estado) ? '<button class="btn" id="fr-descartar">Descartar</button>' : ''}</div>`)
+    <div class="fila mt-3">${f.estado === 'lista' ? `<button class="btn btn-primario" id="fr-aplicar">${f.modo === 'pr' ? 'Aprobar (mergea el pull request)' : `Aplicar a ${esc(rama ?? 'la rama actual')}`}</button>` : ''}${['lista', 'rota', 'fallo'].includes(f.estado) ? '<button class="btn" id="fr-descartar">Descartar</button>' : ''}${f.estado === 'aplicada' && f.mergeSha ? '<button class="btn btn-peligro" id="fr-revertir">Revertir</button>' : ''}</div>`)
   if ($('#fr-aplicar')) $('#fr-aplicar').onclick = async () => {
-    if (!(await confirmar(`¿Aplicar este cambio al código (rama ${rama ?? 'actual'})?`, { detalle: 'Después hay que reiniciar el servidor.', si: 'Aplicar el cambio' }))) return
-    try { await api(`/fragua/${id}/aplicar`, {}); cerrarModal(); toast('Aplicada<small>Reiniciá el servidor para que corra lo nuevo.</small>'); refrescarFragua() } catch (e) { error(e) }
+    const nube = f.modo === 'pr'
+    if (!(await confirmar(nube ? '¿Aprobar este cambio?' : `¿Aplicar este cambio al código (rama ${rama ?? 'actual'})?`, { detalle: nube ? 'Se mergea en GitHub y la nube se actualiza sola en unos minutos. Si la versión nueva no levanta, la revierto sola.' : 'Después hay que reiniciar el servidor.', si: nube ? 'Aprobar' : 'Aplicar el cambio' }))) return
+    try { await api(`/fragua/${id}/aplicar`, {}); cerrarModal(); toast(nube ? 'Aprobada<small>La nube se actualiza sola en unos minutos.</small>' : 'Aplicada<small>Reiniciá el servidor para que corra lo nuevo.</small>'); refrescarFragua() } catch (e) { error(e) }
+  }
+  if ($('#fr-revertir')) $('#fr-revertir').onclick = async () => {
+    if (!(await confirmar('¿Revertir este cambio en main?', { detalle: 'Vuelve el código de antes; la nube se actualiza sola.', si: 'Revertir', peligro: true }))) return
+    try { await api(`/fragua/${id}/revertir`, {}); cerrarModal(); toast('Revertida', 'suave'); refrescarFragua() } catch (e) { error(e) }
   }
   if ($('#fr-descartar')) $('#fr-descartar').onclick = async () => { try { await api(`/fragua/${id}/descartar`, {}); cerrarModal(); refrescarFragua() } catch (e) { error(e) } }
 }

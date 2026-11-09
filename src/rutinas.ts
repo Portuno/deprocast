@@ -247,8 +247,9 @@ export const ACCIONES: Acciones = {
   /** De noche: La Fragua forja las propuestas abiertas (ajuste fragua_por_noche). A la mañana, él lee y aplica. */
   async fragua(db, _fecha, ahora) {
     const limite = Number(ajuste(db, 'fragua_por_noche') ?? 3)
-    if (!limite || !fs.existsSync(path.join(process.cwd(), '.git'))) return null
-    const r = await forjarPendientes(db, { limite, frenar: () => topeAlcanzado(db) })
+    if (!limite || (await import('./fragua.ts')).porQueNoSePuedeForjar()) return null
+    // De noche, sola, solo lo que salió de los registros (autocrítica) y es urgente (plan v38): lo demás lo elige él.
+    const r = await forjarPendientes(db, { limite, frenar: () => topeAlcanzado(db), soloAutocritica: true })
     if (!r.forjas.length) return r.frenado ? `La Fragua no forjó esta noche: ${r.frenado}.` : null
     const listas = r.forjas.filter((f) => f.estado === 'lista')
     const resto = r.forjas.length - listas.length

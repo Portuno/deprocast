@@ -12,13 +12,19 @@ import path from 'node:path'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { type Db } from './db.ts'
 import { pedirJson } from './modelo.ts'
+import { abrirPullRequest, borrarCopia, cerrarPullRequest, diffDe, githubDisponible, mergearPullRequest, prepararCopia, pruebaDeHumo, revertirEnMain } from './fragua-nube.ts'
 
 export type Forja = {
   id: number
   propuestaId: number | null
   pedido: string
   rama: string
-  estado: 'haciendo' | 'lista' | 'rota' | 'fallo' | 'aplicada' | 'descartada'
+  estado: 'haciendo' | 'lista' | 'rota' | 'fallo' | 'aplicada' | 'descartada' | 'revertida'
+  /** git: una rama del repo de su compu; pr: una copia en la nube y un pull request en GitHub (plan v38, fase 2). */
+  modo: 'git' | 'pr'
+  prNumero: number | null
+  prUrl: string | null
+  mergeSha: string | null
   resumen: string | null
   archivos: string[]
   diff: string | null
@@ -30,6 +36,7 @@ export type Forja = {
 const deFila = (r: any): Forja => ({
   id: r.id, propuestaId: r.propuesta_id, pedido: r.pedido, rama: r.rama, estado: r.estado, resumen: r.resumen, archivos: r.archivos ? JSON.parse(r.archivos) : [],
   diff: r.diff, salida: r.salida, creadaEn: r.creada_en, resueltaEn: r.resuelta_en,
+  modo: r.modo === 'pr' ? 'pr' : 'git', prNumero: r.pr_numero ?? null, prUrl: r.pr_url ?? null, mergeSha: r.merge_sha ?? null,
 })
 
 /** En qué paso va cada forja (para la pantalla). */
@@ -65,6 +72,8 @@ type Opciones = {
   repo?: string
   /** Typecheck + tests dentro del worktree; devuelve ok y la salida. Inyectable para tests. */
   verificar?: (dir: string, repo: string) => { ok: boolean; salida: string }
+  /** La prueba de humo (levantar el servidor forjado y recorrerlo). Por defecto, la real; con `verificar` inyectado y sin esto, no corre. */
+  humo?: (dir: string) => Promise<{ ok: boolean; salida: string }>
 }
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
@@ -169,6 +178,14 @@ export function aplicarCambios(dir: string, cambios: { archivo: string; buscar: 
 
 const dirDe = (repo: string, id: number) => path.join(repo, 'data', 'fragua', String(id))
 
+/** Los archivos de una copia (sin git), con rutas relativas y barras normales. */
+function archivosDe(dir: string): string[] {
+  const out: string[] = []
+  const ir = (d: string) => { for (const e of fs.readdirSync(path.join(dir, d), { withFileTypes: true })) { if (e.name === 'node_modules' || e.name === 'data') continue; const r = d ? `${d}/${e.name}` : e.name; if (e.isDirectory()) ir(r); else out.push(r) } }
+  ir('')
+  return out
+}
+
 /**
  * ¿Se puede forjar acá? (plan v34, #132) La forja necesita git y el repositorio. En la nube no hay ninguno de los
  * dos (el código baja de GitHub como paquete): antes moría con «spawnSync git ENOENT» a mitad de camino.
@@ -177,8 +194,9 @@ const dirDe = (repo: string, id: number) => path.join(repo, 'data', 'fragua', St
 export function porQueNoSePuedeForjar(repo = process.cwd()): string | null {
   if (process.env.MASTRO_USUARIO) return 'La Fragua es solo del dueño de este Deprocast.'
   const g = spawnSync('git', ['--version'], { encoding: 'utf8', windowsHide: true })
-  if (g.error || g.status !== 0) return 'Acá no hay git, y La Fragua lo necesita para trabajar en una rama aparte. En la nube no se puede forjar: copiá la propuesta y pasásela a Claude Code, o forjala desde Deprocast en tu compu.'
-  if (!fs.existsSync(path.join(repo, '.git'))) return 'Este Deprocast no corre desde el repositorio (en la nube el código baja como paquete, sin git). Copiá la propuesta y pasásela a Claude Code, o forjala desde Deprocast en tu compu.'
+  if ((g.error || g.status !== 0) && !(githubDisponible() && !fs.existsSync(path.join(repo, '.git')))) return 'Acá no hay git, y La Fragua lo necesita para trabajar en una rama aparte. En la nube no se puede forjar: copiá la propuesta y pasásela a Claude Code, o forjala desde Deprocast en tu compu.'
+  // En la nube no hay repositorio (el código baja como paquete): se forja sobre una copia y se abre un pull request.
+  if (!fs.existsSync(path.join(repo, '.git'))) return githubDisponible() ? null : 'En la nube La Fragua forja sobre una copia y abre un pull request en GitHub: falta GITHUB_FRAGUA_TOKEN (un token con permiso solo sobre este repo) en las variables de NaN. Mientras tanto, copiá la propuesta y pasásela a Claude Code.'
   return null
 }
 
@@ -196,21 +214,26 @@ export async function forjarMejora(db: Db, p: { propuestaId?: number | null; ped
   const r = db.prepare(`INSERT INTO fragua (propuesta_id, pedido, rama, estado, creada_en) VALUES (?, ?, '', 'haciendo', ?)`).run(prop?.id ?? null, pedido, ahora)
   const id = Number(r.lastInsertRowid)
   const rama = `fragua/${id}`
+  const modo: Forja['modo'] = fs.existsSync(path.join(repo, '.git')) ? 'git' : 'pr'
   const dir = dirDe(repo, id)
   const paso = (t: string) => pasoDeForja.set(id, t)
+  let pr: { numero: number; url: string } | null = null
   const fin = (c: Partial<Forja> & { estado: Forja['estado'] }) => {
     pasoDeForja.delete(id)
-    db.prepare('UPDATE fragua SET rama = ?, estado = ?, resumen = ?, archivos = ?, diff = ?, salida = ? WHERE id = ?')
-      .run(rama, c.estado, c.resumen ?? null, JSON.stringify(c.archivos ?? []), c.diff ?? null, c.salida ?? null, id)
+    db.prepare('UPDATE fragua SET rama = ?, estado = ?, resumen = ?, archivos = ?, diff = ?, salida = ?, modo = ?, pr_numero = ?, pr_url = ? WHERE id = ?')
+      .run(rama, c.estado, c.resumen ?? null, JSON.stringify(c.archivos ?? []), c.diff ?? null, c.salida ?? null, modo, pr?.numero ?? null, pr?.url ?? null, id)
+    if (modo === 'pr') borrarCopia(dir) // la copia de la nube no se guarda: lo que queda es el PR
     return leerForja(db, id)!
   }
   try {
     paso('preparando una copia aparte del código')
     fs.mkdirSync(path.dirname(dir), { recursive: true })
-    git(repo, 'worktree', 'add', '-b', rama, dir, 'HEAD')
-    // node_modules del repo, enlazado (junction): el typecheck necesita los tipos. Se desenlaza antes de borrar la copia.
-    if (fs.existsSync(path.join(repo, 'node_modules'))) fs.symlinkSync(path.join(repo, 'node_modules'), path.join(dir, 'node_modules'), 'junction')
-    const lista = git(dir, 'ls-files').split('\n').filter((f) => /^(src|web|test|scripts)\//.test(f) || /^(README\.md|package\.json)$/.test(f))
+    if (modo === 'git') {
+      git(repo, 'worktree', 'add', '-b', rama, dir, 'HEAD')
+      // node_modules del repo, enlazado (junction): el typecheck necesita los tipos. Se desenlaza antes de borrar la copia.
+      if (fs.existsSync(path.join(repo, 'node_modules'))) fs.symlinkSync(path.join(repo, 'node_modules'), path.join(dir, 'node_modules'), 'junction')
+    } else prepararCopia(repo, dir)
+    const lista = (modo === 'git' ? git(dir, 'ls-files').split('\n') : archivosDe(dir)).filter((f) => /^(src|web|test|scripts)\//.test(f) || /^(README\.md|package\.json)$/.test(f))
     paso('eligiendo qué archivos tocar')
     const { datos: elegidos } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'fragua' }, SISTEMA_ARCHIVOS, `PROPUESTA:\n${pedido}\n\nARCHIVOS:\n${lista.join('\n')}`, { temperatura: 0.1, maxTokens: 800 })
     const archivos = (Array.isArray(elegidos.archivos) ? elegidos.archivos : []).map(String).filter((f: string) => lista.includes(f)).slice(0, 6)
@@ -241,8 +264,15 @@ export async function forjarMejora(db: Db, p: { propuestaId?: number | null; ped
         paso(vuelta ? `typecheck y tests, otra vez (corrección ${vuelta})` : 'typecheck y tests (unos minutos)')
         const v = (o.verificar ?? verificarDefecto)(dir, repo)
         verifico = true
-        if (v.ok) { vueltas.push(v.salida); ok = true; break }
-        problema = v.salida
+        if (v.ok) {
+          // Plan v38, fase 2: además, que el servidor forjado levante y conteste (la prueba de humo).
+          const humo = o.humo ?? (o.verificar ? null : (d: string) => pruebaDeHumo(d, entornoLimpio()))
+          if (humo) {
+            paso('prueba de humo: levantando el servidor forjado')
+            const h = await humo(dir)
+            if (!h.ok) { problema = `${v.salida}\n\n${h.salida}` } else { vueltas.push(`${v.salida}\n\n${h.salida}`); ok = true; break }
+          } else { vueltas.push(v.salida); ok = true; break }
+        } else problema = v.salida
       }
       vueltas.push(problema)
       if (vuelta >= CORRECCIONES) break
@@ -256,6 +286,20 @@ export async function forjarMejora(db: Db, p: { propuestaId?: number | null; ped
     }
     const salida = vueltas.length > 1 ? vueltas.map((t, i) => `— ${i ? `corrección ${i}` : 'primera vuelta'} —\n${t}`).join('\n\n') : vueltas[0] ?? ''
     if (!tocados.size) return fin({ estado: 'fallo', resumen, salida })
+    if (modo === 'pr') {
+      // En la nube: el diff se arma comparando con el código que corre, y si pasó todo, el pull request.
+      const diff = [...tocados].map((f) => diffDe(f, fs.existsSync(path.join(repo, f)) ? fs.readFileSync(path.join(repo, f), 'utf8') : null, fs.readFileSync(path.join(dir, f), 'utf8'))).filter(Boolean).join('\n')
+      if (!ok) return fin({ estado: verifico ? 'rota' : 'fallo', resumen, archivos: [...tocados], diff: diff.slice(0, 200_000), salida })
+      paso('abriendo el pull request en GitHub')
+      try {
+        pr = await abrirPullRequest({
+          id, titulo: String(plan.resumen ?? pedido).split('\n')[0].slice(0, 70),
+          cuerpo: `${resumen}\n\n---\n\n\`\`\`\n${salida.slice(0, 50_000)}\n\`\`\`\n\nForjado y probado por La Fragua de Deprocast (typecheck, tests y prueba de humo). Se aprueba desde La Fragua o acá.`,
+          archivos: [...tocados].map((f) => ({ ruta: f, contenido: fs.readFileSync(path.join(dir, f), 'utf8') })), base: process.env.MASTRO_COMMIT ?? null,
+        })
+      } catch (e) { return fin({ estado: 'fallo', resumen, archivos: [...tocados], diff: diff.slice(0, 200_000), salida: `${salida}\n\nPasó todo, pero no pude abrir el pull request: ${e instanceof Error ? e.message : e}` }) }
+      return fin({ estado: 'lista', resumen, archivos: [...tocados], diff: diff.slice(0, 200_000), salida })
+    }
     git(dir, 'add', '-A') // node_modules está en .gitignore
     git(dir, ...firma(repo), 'commit', '-q', '-m', `Fragua #${id}: ${String(plan.resumen ?? pedido).split('\n')[0].slice(0, 70)}`)
     const diff = git(dir, 'diff', 'HEAD~1', 'HEAD')
@@ -269,10 +313,10 @@ export async function forjarMejora(db: Db, p: { propuestaId?: number | null; ped
  * Las propuestas abiertas que todavía no tienen forja (o cuyas forjas fallaron por algo ajeno, como un corte, y van
  * menos de dos intentos): primero las de prioridad alta, después las más viejas.
  */
-export function propuestasParaForjar(db: Db, limite: number): { id: number; titulo: string }[] {
+export function propuestasParaForjar(db: Db, limite: number, o: { soloAutocritica?: boolean } = {}): { id: number; titulo: string }[] {
   return db.prepare(`
     SELECT p.id, p.titulo FROM propuestas p
-    WHERE p.estado = 'abierta'
+    WHERE p.estado = 'abierta' ${o.soloAutocritica ? "AND p.origen = 'autocritica' AND p.prioridad = 'alta'" : ''}
       AND NOT EXISTS (SELECT 1 FROM fragua f WHERE f.propuesta_id = p.id AND f.estado IN ('haciendo', 'lista', 'rota', 'aplicada'))
       AND (SELECT COUNT(*) FROM fragua f WHERE f.propuesta_id = p.id) < 2
     ORDER BY CASE p.prioridad WHEN 'alta' THEN 0 WHEN 'media' THEN 1 ELSE 2 END, p.id
@@ -280,10 +324,10 @@ export function propuestasParaForjar(db: Db, limite: number): { id: number; titu
 }
 
 /** La Fragua de noche: forja de a una las propuestas que tocan, hasta el límite o el tope de gasto. */
-export async function forjarPendientes(db: Db, o: Opciones & { limite?: number; frenar?: () => string | null } = {}): Promise<{ forjas: Forja[]; frenado: string | null }> {
+export async function forjarPendientes(db: Db, o: Opciones & { limite?: number; frenar?: () => string | null; soloAutocritica?: boolean } = {}): Promise<{ forjas: Forja[]; frenado: string | null }> {
   soloDelDueno()
   const forjas: Forja[] = []
-  for (const p of propuestasParaForjar(db, o.limite ?? 3)) {
+  for (const p of propuestasParaForjar(db, o.limite ?? 3, { soloAutocritica: o.soloAutocritica })) {
     const frenado = o.frenar?.() ?? null
     if (frenado) return { forjas, frenado }
     forjas.push(await forjarMejora(db, { propuestaId: p.id }, o))
@@ -318,12 +362,36 @@ export function aplicarForja(db: Db, id: number, o: Opciones = {}, ahora = Date.
   return leerForja(db, id)!
 }
 
+/** Aprobar una forja de la nube: mergea su pull request; el supervisor la baja y la releva. Después se vigila (fragua-nube). */
+export async function aprobarForja(db: Db, id: number, ahora = Date.now()): Promise<Forja> {
+  soloDelDueno()
+  const f = leerForja(db, id)
+  if (!f) throw new Error(`No existe la forja ${id}`)
+  if (f.modo !== 'pr' || !f.prNumero) return aplicarForja(db, id, {}, ahora)
+  if (f.estado !== 'lista') throw new Error(`La forja ${id} está «${f.estado}»: solo se aprueba una que pasó los tests y la prueba de humo`)
+  const sha = await mergearPullRequest(f.prNumero, `Fragua #${id}: ${f.pedido.split('\n')[0].slice(0, 60)}`, f.rama)
+  db.prepare(`UPDATE fragua SET estado = 'aplicada', merge_sha = ?, vigilada = 0, resuelta_en = ? WHERE id = ?`).run(sha, ahora, id)
+  if (f.propuestaId) db.prepare(`UPDATE propuestas SET estado = 'aceptada', resuelta_en = ? WHERE id = ?`).run(ahora, f.propuestaId)
+  return leerForja(db, id)!
+}
+
+/** Volver atrás una forja aprobada en la nube (si es lo último que entró a main). */
+export async function revertirForja(db: Db, id: number, ahora = Date.now()): Promise<Forja> {
+  soloDelDueno()
+  const f = leerForja(db, id)
+  if (!f) throw new Error(`No existe la forja ${id}`)
+  if (f.estado !== 'aplicada' || !f.mergeSha) throw new Error('Solo se revierte una forja aprobada desde la nube (las de tu compu: git revert)')
+  await revertirEnMain(f.mergeSha, `él revirtió la Fragua #${id}`)
+  db.prepare(`UPDATE fragua SET estado = 'revertida', vigilada = 1, resuelta_en = ? WHERE id = ?`).run(ahora, id)
+  return leerForja(db, id)!
+}
+
 export function descartarForja(db: Db, id: number, o: Opciones = {}, ahora = Date.now()): Forja {
   const repo = path.resolve(o.repo ?? process.cwd())
   const f = leerForja(db, id)
   if (!f) throw new Error(`No existe la forja ${id}`)
   if (f.estado === 'aplicada') throw new Error('Ya está aplicada: para deshacerla, revertí el commit')
-  limpiar(repo, f, true)
+  if (f.modo === 'pr') { if (f.prNumero) void cerrarPullRequest(f.prNumero, f.rama).catch(() => {}) } else limpiar(repo, f, true)
   db.prepare(`UPDATE fragua SET estado = 'descartada', resuelta_en = ? WHERE id = ?`).run(ahora, id)
   return leerForja(db, id)!
 }
