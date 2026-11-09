@@ -160,13 +160,27 @@ export async function accesoGoogle(db: Db, forzar = false, ahora = Date.now()): 
 }
 
 /** Un pedido a una API de Google, con el acceso puesto (y uno renovado si el primero ya no vale). */
+/** Cuánto esperar antes de reintentar (inyectable: en los tests no se espera). */
+let dormir = (ms: number) => new Promise<void>((ok) => setTimeout(ok, ms))
+export function _probarEsperaGoogle(f: typeof dormir) { dormir = f }
+const SIN_CUPO = /quota|rate ?limit|ratelimitexceeded|userratelimitexceeded|too many requests/i
+
 export async function llamarGoogle<T = any>(db: Db, url: string, init: RequestInit = {}): Promise<T> {
+  let esperas = 0
   for (let intento = 0; ; intento++) {
     const token = await accesoGoogle(db, intento > 0)
     const r = await red(url, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(60_000) })
     if (r.status === 401 && intento === 0) continue
     const texto = await r.text()
     const j = texto ? (() => { try { return JSON.parse(texto) } catch { return texto } })() : null
+    // Sin cupo por minuto (Gmail lo agota rápido): se espera lo que pide Google, o 2, 8 y 20 s, y se vuelve a pedir.
+    if ((r.status === 429 || (r.status === 403 && SIN_CUPO.test(texto))) && esperas < 3) {
+      const pide = Number(r.headers.get('retry-after')) * 1000
+      await dormir(Math.min(60_000, pide > 0 ? pide : [2000, 8000, 20_000][esperas]))
+      esperas++
+      intento-- // no cuenta como intento de renovar el token
+      continue
+    }
     if (!r.ok) {
       const e = new Error(`Google ${r.status}: ${j?.error?.message ?? String(texto).slice(0, 200)}`) as Error & { status?: number }
       e.status = r.status

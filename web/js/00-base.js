@@ -34,10 +34,24 @@ async function api(ruta, cuerpo) {
   const r = await fetch('/api' + ruta, cuerpo === undefined ? {} : {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cuerpo),
   })
-  const j = await r.json()
+  let j = await r.json()
+  // Lo largo sigue de fondo en el servidor («en marcha», con una clave): se pregunta hasta que termina. Para quien llamó
+  // es lo mismo de siempre: recibe el resultado (o el error), solo que la conexión no queda colgada minutos.
+  if (r.status === 202 && j?.trabajo) j = await esperarTrabajo(j.trabajo)
   if (caduco()) return vigente(j)
-  if (!r.ok) throw new Error(j?.error ?? `HTTP ${r.status}`)
+  if (!r.ok && r.status !== 202) throw new Error(j?.error ?? `HTTP ${r.status}`)
   return j
+}
+
+/** Pregunta por un trabajo de fondo cada vez más espaciado (1 s → 4 s) hasta que termina; el error sale como error. */
+async function esperarTrabajo(clave) {
+  for (let i = 0; ; i++) {
+    await new Promise((ok) => setTimeout(ok, Math.min(4000, 1000 + i * 500)))
+    let t
+    try { t = await (await fetch(`/api/trabajos/${clave}`)).json() } catch { continue } // un corte de red no corta la espera
+    if (t.estado === 'listo') return t.resultado
+    if (t.estado === 'error' || t.estado === 'perdido') throw new Error(t.error ?? 'Falló')
+  }
 }
 /** Lo que piden las piezas que viven en todas las pantallas (el estado, el chat al costado, el Directo, 📥, la paleta). */
 const RUTAS_COMPARTIDAS = /^\/(estado|meta|hoy\/hud|menciones|uso|velocidad|chat|directo|bandeja|sombra|paleta|preguntas|zona)\b/

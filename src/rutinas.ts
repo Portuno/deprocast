@@ -347,6 +347,7 @@ export async function correrRutinas(db: Db, ahora = Date.now(), acciones: Accion
   const hoy = fechaLocal(ahora)
   const salida: { id: string; ok: boolean; mensaje: string | null }[] = []
   for (const r of pendientes(db, ahora)) {
+    await new Promise((ok) => setImmediate(ok)) // entre rutina y rutina, el servidor atiende lo que esperaba (Fragua #151)
     db.prepare('UPDATE rutinas SET ultima_fecha = ? WHERE id = ?').run(hoy, r.id)
     const accion = acciones[r.accion]
     if (!accion) continue

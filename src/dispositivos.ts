@@ -81,7 +81,11 @@ export async function recibirVoz(db: Db, d: Dispositivo, audio: Buffer, nombre: 
   const { huellaDe, leerWav } = await import('./conciencia/huella.ts')
   const voces = await import('./hablantes.ts')
   const wav = leerWav(new Uint8Array(audio))
-  const huella = wav ? huellaDe(wav.muestras, wav.sr) : null
+  // La huella sale de 15 s del medio: alcanza para reconocer la voz, y sobre el audio entero trababa el servidor
+  // segundos (Fragua #134: «bloqueo de 5545 ms (POST /api/dispositivo/voz)»).
+  const tramo = wav ? Math.min(wav.muestras.length, wav.sr * 15) : 0
+  const desde = wav ? Math.max(0, Math.floor((wav.muestras.length - tramo) / 2)) : 0
+  const huella = wav ? huellaDe(wav.muestras.subarray(desde, desde + tramo), wav.sr) : null
   const quien = huella ? voces.identificar(db, huella, ahora) : null
   voces.anotarTurno(db, { dispositivoId: d.id, hablanteId: quien?.hablante.id ?? null, texto, inicio: meta.inicio ?? ahora, fin: meta.fin, modo: meta.modo }, ahora)
   if (meta.modo === 'conversacion') {

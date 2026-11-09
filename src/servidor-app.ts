@@ -361,6 +361,8 @@ const tareasEstudio = new Map<number, { activa: boolean; que: string; error: str
 const procesando: { activo: boolean; resultado: Awaited<ReturnType<typeof procesarJugador>> | null; error: string | null } = { activo: false, resultado: null, error: null }
 
 const rutas: [string, RegExp, Ruta][] = [
+  // Lo que quedó corriendo de fondo (un pedido largo): cómo va y, al terminar, su resultado.
+  ['GET', /^\/api\/trabajos\/([\w]+)$/, async (_, [x]) => (await import('./trabajos.ts')).estadoTrabajo(x)],
   ['GET', /^\/api\/meta$/, () => meta()],
   ['GET', /^\/api\/estado$/, () => estado()],
 
@@ -2097,7 +2099,16 @@ const servidor = http.createServer(async (req, res) => {
       if (req.method === 'POST') cortas.clear() // lo que él cambia se ve en el acto
       const cuerpo = req.method === 'POST' ? await leerCuerpo(req) : {}
       const params = url.pathname.match(r[1])!.slice(1)
-      res.end(JSON.stringify((await r[2](cuerpo, params, url.searchParams)) ?? null))
+      const corre = Promise.resolve().then(() => r[2](cuerpo, params, url.searchParams))
+      if (req.method !== 'POST') return void res.end(JSON.stringify((await corre) ?? null))
+      // Lo largo (un tick, destilar, el radar, preparar la run, la academia): a los 8 s se contesta «en marcha» con una
+      // clave y el trabajo sigue de fondo, sin depender de la conexión. La pantalla pregunta hasta que termina (Fragua #83).
+      const { conPaciencia } = await import('./trabajos.ts')
+      const x = await conPaciencia(corre, `${req.method} ${url.pathname.replace(/\/\d+(?=\/|$)/g, '/:id')}`, Number(process.env.MASTRO_PACIENCIA_MS) || 8000)
+      if (x.listo) return void res.end(JSON.stringify(x.valor ?? null))
+      corre.catch((e) => { if (esErrorDeCodigo(e)) registrarError(db, 'ruta', `${req.method} ${url.pathname.replace(/\/\d+(?=\/|$)/g, '/:id')} (de fondo): ${e instanceof Error ? e.message : String(e)}`) })
+      res.writeHead(202)
+      res.end(JSON.stringify({ trabajo: x.clave, enMarcha: true }))
     } catch (e) {
       if (esErrorDeCodigo(e)) registrarError(db, 'ruta', `${req.method} ${url.pathname.replace(/\/\d+(?=\/|$)/g, '/:id')}: ${e instanceof Error ? e.message : String(e)}`)
       if (!res.headersSent) res.writeHead(400)
@@ -2178,6 +2189,7 @@ function encolarDirecto(sesion: number, f: () => Promise<unknown>) {
 }
 deFondo(() => {
   setInterval(async () => {
+    const fin = marcar('directo')
     try {
       const s = await latidoDirecto(db)
       if (s?.informe) mensajeDeMastropiero(db, conversacionHoy(db).id, `El Directo se cortó (no me llegó nada en 10 minutos: se cerró la pestaña o se apagó el servidor), así que lo cerré yo. ${s.informe}`)
@@ -2185,7 +2197,7 @@ deFondo(() => {
       // El bloque guiado que él arrancó: se cierra a su hora y avisa una vez si se fue del tema.
       const dicho = (await import('./bloques.ts')).vigilarBloque(db)
       if (dicho) mensajeDeMastropiero(db, conversacionHoy(db).id, dicho)
-    } catch (e) { console.error('  directo:', e instanceof Error ? e.message : e) }
+    } catch (e) { console.error('  directo:', e instanceof Error ? e.message : e) } finally { fin() }
   }, 60_000).unref()
 })
 
@@ -2267,21 +2279,25 @@ deFondo(() => setInterval(async () => {
 
 // Encargos programados: cada minuto, los que tocan.
 deFondo(() => setInterval(async () => {
-  try { await (await import('./programados.ts')).latidoProgramados(db) } catch (e) { console.error('  programados:', e instanceof Error ? e.message : e) }
+  const fin = marcar('programados')
+  try { await (await import('./programados.ts')).latidoProgramados(db) } catch (e) { console.error('  programados:', e instanceof Error ? e.message : e) } finally { fin() }
 }, 60_000).unref())
 
 // Google Tasks (cada 10 minutos, si lo prendió) y sus contactos (cada 6 horas).
 deFondo(() => setInterval(async () => {
-  try { const t = await import('./google/tareas.ts'); const { googleConectado } = await import('./google/oauth.ts'); if (googleConectado(db) && t.tareasActivas(db)) await t.sincronizarTareas(db) } catch (e) { console.error('  tareas de Google:', e instanceof Error ? e.message : e) }
+  const fin = marcar('tareas')
+  try { const t = await import('./google/tareas.ts'); const { googleConectado } = await import('./google/oauth.ts'); if (googleConectado(db) && t.tareasActivas(db)) await t.sincronizarTareas(db) } catch (e) { console.error('  tareas de Google:', e instanceof Error ? e.message : e) } finally { fin() }
 }, 10 * 60_000).unref())
 deFondo(() => setInterval(async () => {
-  try { const { googleConectado } = await import('./google/oauth.ts'); if (googleConectado(db) && (ajuste(db, 'google_alcances') ?? '').includes('contacts')) await (await import('./google/contactos.ts')).sincronizarContactos(db) } catch (e) { console.error('  contactos de Google:', e instanceof Error ? e.message : e) }
+  const fin = marcar('contactos')
+  try { const { googleConectado } = await import('./google/oauth.ts'); if (googleConectado(db) && (ajuste(db, 'google_alcances') ?? '').includes('contacts')) await (await import('./google/contactos.ts')).sincronizarContactos(db) } catch (e) { console.error('  contactos de Google:', e instanceof Error ? e.message : e) } finally { fin() }
 }, 6 * 3_600_000).unref())
 
 // Drive (plan v35): lo que espera para subir a su carpeta Mastropiero (cada 2 minutos), y cada media hora las
 // conversaciones de hoy (y las de ayer, para cerrarlas) y las carpetas de su Drive que entran al corpus.
 deFondo(() => setInterval(async () => {
-  try { const { googleConectado } = await import('./google/oauth.ts'); if (googleConectado(db)) await (await import('./google/drive.ts')).trabajarCola(db) } catch (e) { console.error('  drive:', e instanceof Error ? e.message : e) }
+  const fin = marcar('drive-cola')
+  try { const { googleConectado } = await import('./google/oauth.ts'); if (googleConectado(db)) await (await import('./google/drive.ts')).trabajarCola(db) } catch (e) { console.error('  drive:', e instanceof Error ? e.message : e) } finally { fin() }
 }, 2 * 60_000).unref())
 deFondo(() => setInterval(async () => {
   try {
@@ -2300,9 +2316,10 @@ deFondo(() => setInterval(async () => {
 // Las cuentas: lo aprobado se publica en su horario (solo con conector; «redacta» solo lo que él aprobó).
 deFondo(() => {
   setInterval(async () => {
+    const fin = marcar('cuentas')
     try {
       for (const p of await publicarPendientes(db)) if (p.estado === 'fallo') mensajeDeMastropiero(db, conversacionHoy(db).id, `No pude publicar: ${p.error}`)
-    } catch (e) { console.error('  cuentas:', e instanceof Error ? e.message : e) }
+    } catch (e) { console.error('  cuentas:', e instanceof Error ? e.message : e) } finally { fin() }
   }, 5 * 60_000).unref()
 })
 
@@ -2337,7 +2354,7 @@ deFondo(() => {
 deFondo(() => {
   if (telegramActivo() && !enVercel()) {
     escucharTelegram(db)
-    setInterval(() => void latidoTelegram(db).catch(() => {}), 60_000).unref()
+    setInterval(() => { const fin = marcar('telegram'); void latidoTelegram(db).catch(() => {}).finally(fin) }, 60_000).unref()
     alDecirSolo((texto) => void decirPorTelegram(texto).catch(() => {}))
   }
 })
