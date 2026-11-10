@@ -68,6 +68,8 @@ let bajar = async (fileId: string): Promise<{ datos: Buffer; nombre: string }> =
   return { datos: Buffer.from(await r.arrayBuffer()), nombre: String(f.result.file_path).split('/').pop() ?? 'archivo' }
 }
 let transcribir = (db: Db, audio: Buffer, nombre: string) => nanTranscribir(db, audio, nombre)
+/** Quién habla en una nota larga (Fragua #205): inyectable para las pruebas. */
+let separarNota = async (db: Db, texto: string) => (await import('./tandas.ts')).vocesDeNota(db, texto)
 let ver = async (db: Db, imagen: Buffer) => (await nanVision({ db, clase: 'mastropiero', agenteId: 'telegram' }, {
   sistema: 'Describí la imagen con detalle útil (qué es, texto visible, contexto), en castellano rioplatense, en 2 a 5 oraciones.', texto: 'Te mandaron esta foto:', imagen: `data:image/jpeg;base64,${imagen.toString('base64')}`,
 })).texto
@@ -97,7 +99,8 @@ async function conReintento<T extends { ok?: boolean; error_code?: number; param
 const enviar_ = (metodo: string, cuerpo: Record<string, unknown>) => conReintento(metodo, () => pedir(metodo, cuerpo))
 const enviarArchivo = (metodo: string, campos: Record<string, string>, campo: string, datos: Buffer, nombre: string) => conReintento(metodo, () => mandarArchivo(metodo, campos, campo, datos, nombre))
 
-export function _probarTelegram(o: { pedir?: typeof pedir; bajar?: typeof bajar; transcribir?: typeof transcribir; ver?: typeof ver; mandarArchivo?: typeof mandarArchivo; hablar?: typeof hablar; esperar?: typeof esperar }) {
+export function _probarTelegram(o: { pedir?: typeof pedir; bajar?: typeof bajar; transcribir?: typeof transcribir; ver?: typeof ver; mandarArchivo?: typeof mandarArchivo; hablar?: typeof hablar; esperar?: typeof esperar; separarNota?: typeof separarNota }) {
+  if (o.separarNota) separarNota = o.separarNota
   if (o.esperar) esperar = o.esperar
   if (o.pedir) pedir = o.pedir
   if (o.bajar) bajar = o.bajar
@@ -512,7 +515,7 @@ function notaQueYaEstaba(db: Db, normal: string, huella: string): { id: number; 
  * Una nota de voz larga queda como pieza suya (con fecha) y el escriba saca recuerdos y side quests de ella. Si es una
  * que ya estaba (la reenvió), no entra de nuevo: se cuenta el reenvío en la original.
  */
-export function guardarNotaDeVoz(db: Db, texto: string, segundos: number | null, id: string | null): { pieza: number | null; repetida: { id: number; fecha: string | null } | null } {
+export function guardarNotaDeVoz(db: Db, texto: string, segundos: number | null, id: string | null, paraEscriba?: string): { pieza: number | null; repetida: { id: number; fecha: string | null } | null } {
   asegurarFuente(db, { id: 'voz', nombre: 'Notas de voz', nivel: 'propia', descripcion: 'Lo que grabás caminando o pensando en voz alta.' })
   const normal = textoDeVozNormal(texto)
   const huella = crypto.createHash('sha1').update(normal).digest('hex')
@@ -526,7 +529,9 @@ export function guardarNotaDeVoz(db: Db, texto: string, segundos: number | null,
     titulo: `Nota de voz · ${fechaLocal()} ${new Date().toTimeString().slice(0, 5)} · ${texto.replace(/\s+/g, ' ').slice(0, 50)}`,
     origenId: id ? `telegram-voz:${id}` : null, datos: { segundos }, meta: { huella },
   })
-  if (pieza) void escribaDeMemoria(db, texto, null, { pieza }).catch(() => [])
+  // El escriba aprende solo de lo que dijo él (si había otras voces o un video de fondo, solo lo suyo).
+  const suyo = paraEscriba ?? texto
+  if (pieza && suyo.trim()) void escribaDeMemoria(db, suyo, null, { pieza }).catch(() => [])
   return { pieza, repetida: null }
 }
 
@@ -929,13 +934,18 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
     if (PARECE_SUENO.test(t)) return guardarSuenoTelegram(db, { texto: t })
     // Una nota larga es material (una caminata pensando en voz alta): queda como pieza suya, además de lo que se haga con ella.
     const larga = (voz.duration ?? 0) >= 90 || t.length >= 900
-    const g = larga ? guardarNotaDeVoz(db, t, voz.duration ?? null, voz.file_unique_id ?? voz.file_id) : null
+    // Una nota larga puede traer otras voces (alguien con él, un video de fondo): se separan antes de guardarla y de
+    // destilarla, y lo de los demás no se toma como suyo (Fragua #205).
+    const voces = larga ? await separarNota(db, t).catch(() => null) : null
+    const g = larga ? guardarNotaDeVoz(db, voces?.contenido ?? t, voz.duration ?? null, voz.file_unique_id ?? voz.file_id, voces ? voces.suyo : undefined) : null
     const pieza = g?.pieza ?? null
     if (PARECE_REGISTRO.test(t) && (await registrarYContar(db, await clasificar(db, { texto: t }).catch(() => null), { texto: t }))) return
     if (g?.repetida) await decir(`🎙 Ya lo tenía: es la nota${g.repetida.fecha ? ` del ${g.repetida.fecha.slice(8, 10)}/${g.repetida.fecha.slice(5, 7)}` : ''} (#${g.repetida.id}). No la guardo de nuevo.`)
     else if (pieza) await decir(`🎙 Guardé tu nota de voz${voz.duration ? ` (${Math.max(1, Math.round(voz.duration / 60))} min)` : ''} en tu corpus, como tuya.`)
     const guardada = pieza ?? g?.repetida?.id
-    return conversar(db, guardada ? `(Nota de voz por ${nombreCanal()}, ya guardada en su corpus [#${guardada}]. Si trae algo para anotar —una side quest, un gasto, una idea de proyecto— anotalo.) ${t}` : t, { porVoz: true })
+    const otras = voces ? ` En la grabación había ${voces.fondo ? 'un video o una grabación de fondo' : 'otras voces'}: abajo va solo lo que dijo él; lo demás no es suyo.` : ''
+    const dicho = voces ? voces.suyo || '(No se pudo saber qué parte dijo él.)' : t
+    return conversar(db, guardada ? `(Nota de voz por ${nombreCanal()}, ya guardada en su corpus [#${guardada}].${otras} Si trae algo para anotar —una side quest, un gasto, una idea de proyecto— anotalo.) ${dicho}` : dicho, { porVoz: true })
   }
   if (msg.photo?.length) {
     // Una foto (una comida, un ticket, la balanza…): se registra sola si es un registro; si no, se charla.

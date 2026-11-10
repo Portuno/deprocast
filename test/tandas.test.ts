@@ -137,3 +137,20 @@ test('voces en chats: aprender toma solo sus líneas', () => {
   assert.equal(soloSuVoz('[09:15] Ana: hola\n[09:16] Beto: chau', ['Lali']), '', 'un chat donde él no habla: nada')
   assert.equal(soloSuVoz('Una nota normal sin marcas.\nOtra línea.', ['Lali']), null, 'no es un chat')
 })
+
+test('las voces de una nota (Fragua #205): un vlog de fondo se marca y no queda como suyo', async () => {
+  const { vocesDeNota } = await import('../src/tandas.ts')
+  const db = abrir(':memory:')
+  const relleno = ' y lo digo con bastantes palabras para que la frase tenga cuerpo y se pueda leer bien'
+  const frases = [`Hoy quiero pensar cómo armo la propuesta para Versa${relleno}.`, `Hola chicos, bienvenidos a mi canal${relleno}.`, `Hoy les muestro mi rutina de skincare${relleno}.`, `Lo primero es el precio por hora${relleno}.`, `Suscribite si te gustó el video${relleno}.`]
+  _probarModelo(async () => ({ texto: JSON.stringify({ titulo: 'Propuesta para Versa', voces: 2, operador: 'A', nombres: {}, fondo: ['B'], frases: ['A', 'B', 'B', 'A', 'B'] }), llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }))
+  const r = (await vocesDeNota(db, frases.join(' ')))!
+  assert.ok(r, 'hay más de una voz')
+  assert.equal(r.fondo, true)
+  assert.match(r.contenido, /\[de fondo: Voz B\] Hola chicos/)
+  assert.doesNotMatch(r.suyo, /bienvenidos|Suscribite/)
+  assert.match(r.suyo, /propuesta para Versa[\s\S]*precio por hora/)
+  // Él solo: no hay nada que separar.
+  _probarModelo(async () => ({ texto: JSON.stringify({ titulo: 'x', voces: 1, operador: 'A', nombres: {}, frases: Array(5).fill('A') }), llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }))
+  assert.equal(await vocesDeNota(db, frases.join(' ')), null)
+})

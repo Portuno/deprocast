@@ -28,6 +28,7 @@ function bot() {
     pedir: async (metodo, cuerpo) => { const id = ++n; if (/^(sendMessage|editMessageText)$/.test(metodo)) enviados.push({ metodo, id, ...cuerpo }); return { ok: true, result: { message_id: id } } },
     mandarArchivo: async (metodo, campos, campo, datos, nombre) => { archivos.push({ metodo, campo, nombre, bytes: datos.length }); return { ok: true } },
     hablar: async (t) => Buffer.from(`voz:${t}`),
+    separarNota: async () => null, // una sola voz (la separación tiene su prueba)
     transcribir: async () => 'Mandé el mail',
   })
   _probarModelo(async (_l, o) => {
@@ -192,4 +193,26 @@ test('telegram: /mano manda una carta con sus 12 pesos; jugarla dice cómo cayó
   assert.equal(ultimo().metodo, 'editMessageText')
   assert.match(ultimo().text, /Pesada 8[\s\S]*territorio nuevo[\s\S]*— — —/)
   assert.ok(primera === a || leerQuantomo(db, a)?.etapa === 'proto')
+})
+
+test('una nota de voz larga con un video de fondo (Fragua #205): la pieza marca quién dice qué y al chat y al escriba va solo lo suyo', async () => {
+  const db = abrir(':memory:')
+  const { enviados, yo } = bot()
+  const SUYO = 'Hoy pensé en cómo vender el taller de IA a estudios de abogados. '
+  const VLOG = 'Hola chicos, bienvenidos a mi canal, hoy les muestro mi rutina de mañana. '
+  const vistos: string[] = []
+  _probarModelo(async (_l, o) => { vistos.push(String((o.mensajes.at(-1) as any).content)); return { texto: 'Anotado.', llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 } })
+  _probarTelegram({
+    transcribir: async () => `${SUYO}${VLOG}`.repeat(8),
+    separarNota: async () => ({ contenido: `[Lautaro] ${SUYO}\n[de fondo: Voz B] ${VLOG}`, suyo: SUYO, fondo: true, voces: { titulo: null, voces: 2, operador: 'A', nombres: {}, fondo: ['B'], turnos: [] } }),
+  })
+  await procesarActualizacion(db, yo({ voice: { file_id: 'f9', file_unique_id: 'u9', duration: 600 } }))
+  const nota = db.prepare(`SELECT contenido FROM corpus WHERE origen_id = 'telegram-voz:u9'`).get() as any
+  assert.match(nota.contenido, /\[de fondo: Voz B\] Hola chicos/)
+  const turno = vistos.find((v) => /Nota de voz por Telegram/.test(v))!
+  assert.match(turno, /había un video o una grabación de fondo: abajo va solo lo que dijo él/)
+  assert.match(turno, /cómo vender el taller/)
+  assert.doesNotMatch(turno, /bienvenidos a mi canal/, 'lo del vlog no llega como suyo')
+  assert.ok(enviados.length)
+  _probarTelegram({ separarNota: async () => null })
 })

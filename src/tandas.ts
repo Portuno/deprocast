@@ -115,13 +115,14 @@ function tramos(ruta: string, bytes: number): string[] {
 const SISTEMA_VOCES = `Te paso una nota de voz grabada por el operador, partida en frases numeradas (Whisper, sin marcas de quién habla). Puede ser él solo pensando en voz alta, o una charla con otras personas.
 Cada frase trae una pista acústica: la voz que le asignó un medidor de tono y timbre (A, B) y su tono en semitonos. Te digo cuánto confiar en la pista.
 Decidí quién dice cada frase y cuál de las voces es él (habla en primera persona de sus proyectos y su vida; los demás le hablan a él, le preguntan, le cuentan lo suyo).
-Forma: {"titulo": string (máx. 60, de qué va), "voces": number, "operador": "A" | null, "nombres": {"B": "nombre si se lo nombra"}, "frases": ["A" | "B" | "C" | "?"]}
+Forma: {"titulo": string (máx. 60, de qué va), "voces": number, "operador": "A" | null, "nombres": {"B": "nombre si se lo nombra"}, "fondo": ["B"], "frases": ["A" | "B" | "C" | "?"]}
+- «fondo»: las voces que no están hablando con él sino que suenan de fondo: un video, un vlog, la tele, un podcast, una grabación (le hablan a una audiencia, presentan, saludan a «los que me ven», no le contestan). Lo de fondo nunca es material suyo.
 - «frases» tiene exactamente una entrada por frase, en orden: la voz de cada una, o "?" si no se puede saber.
 - Si es una sola persona hablando: voces 1, operador "A" y todas las frases "A". No inventes una segunda voz porque cambie el tema o el tono de una frase.
 - Si hay diálogo, marcá con "A" al operador y con "B", "C"… a los demás. Las preguntas y sus respuestas suelen ser de voces distintas.
 - Si no se puede saber cuál es él, operador null. No inventes nombres.`
 
-type Voces = { titulo: string | null; voces: number; operador: string | null; nombres: Record<string, string>; turnos: { voz: string; texto: string }[] }
+export type Voces = { titulo: string | null; voces: number; operador: string | null; nombres: Record<string, string>; fondo?: string[]; turnos: { voz: string; texto: string }[] }
 
 /** Une frases seguidas de la misma voz. */
 function aTurnos(textos: string[], voces: string[]): { voz: string; texto: string }[] {
@@ -167,7 +168,8 @@ export async function separarVoces(db: Db, texto: string, nombreOperador: string
     const distintas = new Set(vs.filter((v) => v !== '?'))
     if (distintas.size <= 1 && !vs.includes('?')) return { ...solo, titulo, operador: datos.operador === null ? null : 'A' }
     const operador = typeof datos.operador === 'string' && distintas.has(datos.operador.toUpperCase()) ? datos.operador.toUpperCase() : null
-    return { titulo, voces: Math.max(1, distintas.size), operador, nombres: datos.nombres && typeof datos.nombres === 'object' ? datos.nombres : {}, turnos: aTurnos(unidades, vs) }
+    const fondo = Array.isArray(datos.fondo) ? datos.fondo.map((x: unknown) => String(x).toUpperCase().slice(0, 1)).filter((x: string) => distintas.has(x) && x !== operador) : []
+    return { titulo, voces: Math.max(1, distintas.size), operador, nombres: datos.nombres && typeof datos.nombres === 'object' ? datos.nombres : {}, fondo, turnos: aTurnos(unidades, vs) }
   } catch {
     // Sin modelo: si el sonido dice claramente dos voces, se respeta pero no se sabe cuál es él; si no, una sola voz.
     if (pista.length && new Set(pista.map((p) => p.voz)).size > 1) return { titulo: null, voces: 2, operador: null, nombres: {}, turnos: aTurnos(unidades, pista.map((p) => p.voz)) }
@@ -193,7 +195,7 @@ async function procesarAudio(db: Db, t: Tanda, ruta: string): Promise<number> {
   const yo = personaje(db, 'jugador').nombre
   // Con varios tramos los tiempos son aproximados: la pista acústica solo se usa con el audio entero.
   const v = await separarVoces(db, texto, yo, { palabras: partes.length === 1 ? palabras : [], ruta: partes.length === 1 ? ruta : undefined })
-  const quien = (voz: string) => (voz === '?' ? '¿?' : voz === v.operador ? yo : v.nombres[voz] || `Voz ${voz}`)
+  const quien = (voz: string) => (voz === '?' ? '¿?' : voz === v.operador ? yo : `${v.fondo?.includes(voz) ? 'de fondo: ' : ''}${v.nombres[voz] || `Voz ${voz}`}`)
   const contenido = v.voces > 1 || v.turnos.some((x) => x.voz === '?') ? v.turnos.map((x) => `[${quien(x.voz)}] ${x.texto}`).join('\n') : texto
   const [fecha, hora] = (t.fecha ?? '').split(' ')
   asegurarFuente(db, { id: 'voz', nombre: 'Notas de voz', nivel: 'propia', descripcion: 'Lo que grabás caminando o pensando en voz alta.' })
@@ -322,4 +324,22 @@ export async function procesarTandas(db: Db, o: { max?: number } = {}): Promise<
 /** Si el servidor se cortó con algo a medias, vuelve a la cola. */
 export function retomarTandas(db: Db) {
   db.prepare(`UPDATE tandas SET estado = 'pendiente' WHERE estado = 'procesando'`).run()
+}
+
+/**
+ * Una nota de voz larga que llegó por el chat (WhatsApp, Telegram): quién habla, por el contenido (Fragua #205). Si
+ * hay más de una voz (alguien con él, o un video de fondo), devuelve el texto con cada frase marcada y solo lo suyo
+ * aparte: lo de fondo y lo de los demás no se toma como material propio. null si es él solo.
+ */
+export async function vocesDeNota(db: Db, texto: string): Promise<{ contenido: string; suyo: string; fondo: boolean; voces: Voces } | null> {
+  const yo = personaje(db, 'jugador').nombre
+  const v = await separarVoces(db, texto, yo)
+  if (v.voces <= 1 && !v.turnos.some((x) => x.voz === '?')) return null
+  const quien = (voz: string) => (voz === '?' ? '¿?' : voz === v.operador ? yo : `${v.fondo?.includes(voz) ? 'de fondo: ' : ''}${v.nombres[voz] || `Voz ${voz}`}`)
+  return {
+    contenido: v.turnos.map((x) => `[${quien(x.voz)}] ${x.texto}`).join('\n'),
+    suyo: v.operador ? v.turnos.filter((x) => x.voz === v.operador).map((x) => x.texto).join('\n') : '',
+    fondo: !!v.fondo?.length,
+    voces: v,
+  }
 }
