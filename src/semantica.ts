@@ -148,27 +148,54 @@ export function cuantizar(v: Float32Array): { q: Int8Array; esc: number } {
   return { q, esc }
 }
 
-function indice(db: Db) {
-  let ix = indices.get(db)
-  // Si se borraron pasajes (una pieza que cambió o se fue), se recarga entero.
-  if (ix && (db.prepare('SELECT COUNT(*) AS n FROM pasajes WHERE id <= ?').get(ix.ultimo) as { n: number }).n !== ix.filas.length) ix = undefined
-  if (!ix) { ix = { filas: [], ultimo: 0 }; indices.set(db, ix) }
-  // Solo lo nuevo desde la última vez.
-  const nuevas = db.prepare('SELECT id, pieza_id, desde, hasta, vec FROM pasajes WHERE id > ? ORDER BY id').all(ix.ultimo) as any[]
-  for (const r of nuevas) {
-    ix.filas.push({ id: r.id, pieza: r.pieza_id, desde: r.desde, hasta: r.hasta, ...cuantizar(deBlob(r.vec)) })
-    ix.ultimo = r.id
-  }
-  return ix
+/**
+ * El índice de pasajes en memoria. Se pone al día de a poco y cediendo el turno (trababa la nube 3 a 6 s): lo nuevo se
+ * suma de a 2000 filas, y si se borraron pasajes (una pieza que cambió) se sacan solo esos, sin recargar todo. Si dos
+ * búsquedas lo piden a la vez, comparten la misma puesta al día.
+ */
+const poniendoAlDia = new WeakMap<Db, Promise<{ filas: Fila[]; ultimo: number }>>()
+const ceder = () => new Promise<void>((ok) => setImmediate(ok))
+function indice(db: Db): Promise<{ filas: Fila[]; ultimo: number }> {
+  const ya = poniendoAlDia.get(db)
+  if (ya) return ya
+  const p = (async () => {
+    let ix = indices.get(db)
+    if (!ix) { ix = { filas: [], ultimo: 0 }; indices.set(db, ix) }
+    // Lo que se borró desde la última vez: se saca del índice (solo los ids, sin decodificar vectores).
+    if ((db.prepare('SELECT COUNT(*) AS n FROM pasajes WHERE id <= ?').get(ix.ultimo) as { n: number }).n !== ix.filas.length) {
+      const vivos = new Set((db.prepare('SELECT id FROM pasajes WHERE id <= ?').all(ix.ultimo) as { id: number }[]).map((r) => r.id))
+      ix.filas = ix.filas.filter((f) => vivos.has(f.id))
+      await ceder()
+    }
+    // Solo lo nuevo desde la última vez, de a tandas.
+    const tanda = db.prepare('SELECT id, pieza_id, desde, hasta, vec FROM pasajes WHERE id > ? ORDER BY id LIMIT 2000')
+    for (;;) {
+      const nuevas = tanda.all(ix.ultimo) as any[]
+      if (!nuevas.length) break
+      for (const r of nuevas) {
+        ix.filas.push({ id: r.id, pieza: r.pieza_id, desde: r.desde, hasta: r.hasta, ...cuantizar(deBlob(r.vec)) })
+        ix.ultimo = r.id
+      }
+      if (nuevas.length < 2000) break
+      await ceder()
+    }
+    return ix
+  })()
+  poniendoAlDia.set(db, p)
+  p.finally(() => poniendoAlDia.delete(db)).catch(() => {})
+  return p
 }
 
 /** Los pasajes más cercanos, agrupados por pieza (cada una con su mejor pasaje). */
-function cercanosPorPasaje(db: Db, q: Float32Array, limite: number, niveles?: Nivel[]): { id: number; sim: number; desde: number; hasta: number }[] {
-  const ix = indice(db)
+async function cercanosPorPasaje(db: Db, q: Float32Array, limite: number, niveles?: Nivel[]): Promise<{ id: number; sim: number; desde: number; hasta: number }[]> {
+  const ix = await indice(db)
   if (!ix.filas.length) return []
   const qq = normalizado(q, DIMS_P)
   const puntajes: { f: Fila; sim: number }[] = []
-  for (const f of ix.filas) {
+  const filas = ix.filas // la de este momento (si el índice se pone al día mientras tanto, no cambia bajo los pies)
+  for (let k = 0; k < filas.length; k++) {
+    if (k && k % 20_000 === 0) await ceder()
+    const f = filas[k]
     let s = 0
     for (let i = 0; i < f.q.length; i++) s += f.q[i] * qq[i]
     puntajes.push({ f, sim: s * f.esc })
@@ -210,7 +237,7 @@ export async function cercanas(db: Db, consulta: string, limite: number, niveles
   const q = await vectorDe(db, consulta)
   if (!q) return []
   const out = new Map<number, { id: number; sim: number; desde?: number; hasta?: number }>()
-  if (hayPasajes) for (const x of cercanosPorPasaje(db, q, limite * 2, niveles)) out.set(x.id, x)
+  if (hayPasajes) for (const x of await cercanosPorPasaje(db, q, limite * 2, niveles)) out.set(x.id, x)
   if (hayViejos) {
     const filtro = niveles?.length ? `AND c.nivel IN (${niveles.map(() => '?').join(',')})` : ''
     // Solo las que todavía no tienen pasajes: las otras ya están mejor representadas.
