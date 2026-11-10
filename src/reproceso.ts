@@ -181,7 +181,8 @@ export async function trabajarReproceso(db: Db): Promise<void> {
         try {
           for (const paso of pasos) {
             estado.carriles[carril] = QUE_HACE.get(paso) ?? ''
-            if (await paso(db).catch((e) => { console.error('  reproceso:', e instanceof Error ? e.message : e); return false })) return true
+            // Cada paso que tarda más de un segundo queda anotado («paso reproceso:pasajes…»): para encontrar lo que traba.
+            if (await (await import('./autocritica.ts')).medirPaso(db, `reproceso:${QUE_HACE.get(paso) ?? '?'}`, () => paso(db)).catch((e) => { console.error('  reproceso:', e instanceof Error ? e.message : e); return false })) return true
           }
           return false
         } finally {

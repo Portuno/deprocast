@@ -58,7 +58,7 @@ import { perfilDeRendimiento, textoDeRendimiento } from './rendimiento.ts'
 import { listarRecomendaciones, recomendar, resolverRecomendacion } from './mentor.ts'
 import { listarPuentes, proponerPuentes, resolverPuente } from './puentes.ts'
 import { aCsv, agregarObra, avisoLibreria, conteos as conteosLibreria, cuadernoDeObra, editarObra, expandiendo, expandirObra, expandirTanda, listarObras, panorama, poblando, poblarLibreria } from './libreria.ts'
-import { esErrorDeCodigo, registrarError } from './autocritica.ts'
+import { esErrorDeCodigo, pasosEnMarcha, registrarError } from './autocritica.ts'
 import { aplicarForja, descartarForja, forjarMejora, leerForja, listarForjas, pasoDeForja, porQueNoSePuedeForjar, ramaActual, retomarFragua } from './fragua.ts'
 import { borrarCuaderno, charla, componentesDeEntidad, crearCuaderno, guia, haciendo, leerCuaderno, listarCuadernos, notas, preguntar, quitarFuente, sumarFuentes } from './cuadernos.ts'
 import { buscarHibrido, estadoVectores, nivelesDe, vectorizarPendientes } from './semantica.ts'
@@ -180,7 +180,7 @@ setInterval(() => {
   tic = ahora
   const t = Date.now()
   if (atraso > 1000) {
-    const durante = [...new Set(enMarcha.filter((m) => m.desde <= t && (m.hasta === null || m.hasta >= t - atraso - 600)).map((m) => m.nombre))]
+    const durante = [...new Set([...enMarcha.filter((m) => m.desde <= t && (m.hasta === null || m.hasta >= t - atraso - 600)).map((m) => m.nombre), ...pasosEnMarcha.keys()])]
     bloqueos.push({ en: new Date(t).toISOString(), ms: Math.round(atraso), durante })
     if (bloqueos.length > 15) bloqueos.shift()
     try { registrarError(db, 'lento', `bloqueo de ${Math.round(atraso)} ms (${durante.join(', ') || 'nada anotado'})`) } catch { /* medir no rompe nada */ }

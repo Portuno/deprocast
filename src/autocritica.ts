@@ -114,9 +114,15 @@ export async function autocritica(db: Db, ahora = Date.now()): Promise<{ id: num
 }
 
 /** Mide un paso (de la liga, del reproceso…): si tarda más de un segundo, queda anotado como «lento» con su nombre. */
+/** Los pasos medidos que están corriendo ahora (el vigía de bloqueos los nombra: así se sabe cuál trabó). */
+export const pasosEnMarcha = new Map<string, number>()
 export async function medirPaso<T>(db: Db, nombre: string, f: () => T | Promise<T>): Promise<T> {
   const t0 = performance.now()
+  pasosEnMarcha.set(nombre, (pasosEnMarcha.get(nombre) ?? 0) + 1)
   try { return await f() } finally {
+    const n = (pasosEnMarcha.get(nombre) ?? 1) - 1
+    if (n > 0) pasosEnMarcha.set(nombre, n)
+    else pasosEnMarcha.delete(nombre)
     const ms = performance.now() - t0
     if (ms > 1000) registrarError(db, 'lento', `paso ${nombre} tardó ${Math.round(ms)} ms`)
   }
