@@ -40,6 +40,9 @@ export function recibirCapas(db: Db, dispositivoId: number, minutos: MinutoCapa[
       Math.max(0, Math.min(400, Math.round(Number(m.pasos) || 0))), seg(m.caminando), conLugar ? lat : null, conLugar ? lon : null, conLugar ? num(m.precision) : null, ahora)
     n++
   }
+  // El último minuto con lugar es también la ubicación en vivo (si la prendió): activa las side quests cercanas.
+  const ultimo = [...minutos].filter((m) => m?.lat != null && m?.lon != null).sort((a, b) => Number(b.minuto) - Number(a.minuto))[0]
+  if (ultimo && ahora - Number(ultimo.minuto) < 15 * 60_000) void import('./ubicacion.ts').then((u) => u.recibirUbicacion(db, { lat: Number(ultimo.lat), lon: Number(ultimo.lon), precision: ultimo.precision ?? null, en: Number(ultimo.minuto), fuente: 'teléfono' }, ahora)).catch(() => {})
   return { guardados: n }
 }
 

@@ -25,6 +25,7 @@ import { bloqueParaPrompt } from '../bloques.ts'
 import { finanzasParaPrompt } from '../finanzas.ts'
 import { saludParaPrompt } from '../salud.ts'
 import { aprenderEnChat, aprenderParaPrompt, pideAprender } from '../aprender.ts'
+import { ubicacionParaPrompt } from '../ubicacion.ts'
 import { academiaParaPrompt } from '../academia.ts'
 import { personasParaPrompt } from '../personas.ts'
 import { libreriaParaPrompt } from '../libreria.ts'
@@ -360,6 +361,7 @@ Calendario: ${calendarioCorto()}${horarioParaPrompt(db, fechaLocal()) ? `
 ${horarioParaPrompt(db, fechaLocal())}` : ''}${hud && HUD[hud] ? `\nEn su panel de Hoy está mirando: ${HUD[hud]}. Si pregunta sin decir de qué («¿cómo voy?», «¿qué hago?»), es de eso.` : ''}
 ${hoy(db, mensaje)}
 ${vivoParaPrompt(db) || directoParaPrompt(db)}
+${ubicacionParaPrompt(db)}
 ${bloqueParaPrompt(db)}
 ${finanzasParaPrompt(db)}
 ${saludParaPrompt(db)}

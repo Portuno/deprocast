@@ -440,3 +440,25 @@ if (new URLSearchParams(location.search).has('compartido')) {
   history.replaceState(null, '', '/')
   setTimeout(() => toast('Recibido<small>Lo guardé y se lo pasé a Mastropiero.</small>'), 1500)
 }
+
+// La ubicación en vivo (Fragua #195): si la prendió, mientras la pantalla está abierta manda dónde está (cada 2 minutos
+// o si se movió más de 50 m). Con su permiso del navegador; si lo niega, no insiste.
+let vigiaUbicacion = null
+let ultimaUbicacion = null
+function vigilarUbicacion(ya = false) {
+  if (vigiaUbicacion != null || !navigator.geolocation) return
+  const empezar = () => {
+    vigiaUbicacion = navigator.geolocation.watchPosition((p) => {
+      const u = { lat: p.coords.latitude, lon: p.coords.longitude, precision: p.coords.accuracy, t: Date.now() }
+      const lejos = ultimaUbicacion ? Math.hypot((u.lat - ultimaUbicacion.lat) * 111_000, (u.lon - ultimaUbicacion.lon) * 85_000) > 50 : true
+      if (!ultimaUbicacion || lejos || u.t - ultimaUbicacion.t > 120_000) { ultimaUbicacion = u; api('/ubicacion', { lat: u.lat, lon: u.lon, precision: u.precision }).catch(() => {}) }
+    }, () => detenerUbicacion(), { enableHighAccuracy: false, maximumAge: 60_000, timeout: 30_000 })
+  }
+  if (ya) empezar()
+  else api('/ubicacion').then((u) => { if (u.prendida) empezar() }).catch(() => {})
+}
+function detenerUbicacion() {
+  if (vigiaUbicacion != null) navigator.geolocation?.clearWatch(vigiaUbicacion)
+  vigiaUbicacion = null
+}
+vigilarUbicacion()

@@ -1233,6 +1233,21 @@ CREATE TABLE IF NOT EXISTS chat_mencionados (
   en INTEGER NOT NULL,
   PRIMARY KEY (conversacion_id, tipo, ref)
 );
+-- La ubicación en vivo (Fragua #195): solo si la prendió; cada señal vence a los 15 minutos. Y qué side quests ya avisaron.
+CREATE TABLE IF NOT EXISTS ubicacion_senales (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  lat REAL NOT NULL,
+  lon REAL NOT NULL,
+  precision REAL,
+  fuente TEXT NOT NULL,
+  en INTEGER NOT NULL,
+  vence INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ubicacion_senales_en ON ubicacion_senales (en);
+CREATE TABLE IF NOT EXISTS ubicacion_avisos (
+  mision_id INTEGER PRIMARY KEY,
+  en INTEGER NOT NULL
+);
 -- Los tramos de cada unidad que se destila (Fragua #196): cada uno con su salida, para que un fallo no rehaga todo.
 CREATE TABLE IF NOT EXISTS takeout_tramos (
   pieza_id INTEGER NOT NULL,

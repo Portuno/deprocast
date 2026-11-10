@@ -707,6 +707,10 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/taller\/(\d+)\/valorar$/, (b, [a]) => valorarArtefacto(db, id(a), Number(b.estrellas), b.nota ?? null)],
   // La matriz de un término (sus ejes) y los homónimos.
   ['GET', /^\/api\/entidades\/(\d+)\/ejes$/, (_, [e]) => ejesDe(db, id(e))],
+  // La ubicación en vivo (Fragua #195): solo si la prendió.
+  ['GET', /^\/api\/ubicacion$/, async () => { const u = await import('./ubicacion.ts'); return { prendida: u.ubicacionPrendida(db), actual: u.ubicacionActual(db) } }],
+  ['POST', /^\/api\/ubicacion$/, async (b) => (await import('./ubicacion.ts')).recibirUbicacion(db, { lat: Number(b.lat), lon: Number(b.lon), precision: b.precision == null ? null : Number(b.precision), fuente: 'compu' })],
+  ['POST', /^\/api\/ubicacion\/prender$/, async (b) => (await import('./ubicacion.ts')).prenderUbicacion(db, !!b.prendida)],
   // Lo lento y lo que se rompe (plan v38, fase 1): para decidir con datos.
   ['GET', /^\/api\/errores$/, async (_, __, q) => (await import('./fallos.ts')).erroresRecientes(db, Math.min(24 * 30, Number(q.get('horas')) || 24))],
   ['GET', /^\/api\/lento$/, async (_, __, q) => (await import('./autocritica.ts')).lento(db, Date.now(), Math.min(30, Number(q.get('dias')) || 7))],
@@ -1677,6 +1681,11 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
     if (ruta === 'capas' && req.method === 'POST') {
       const b = JSON.parse((await leerCrudo(req, 2 * 1024 * 1024)).toString('utf8') || '{}')
       return responder(200, (await import('./capas.ts')).recibirCapas(db, disp.id, b.minutos))
+    }
+    // La ubicación desde un dispositivo (Fragua #195): solo si la prendió.
+    if (ruta === 'ubicacion' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 16 * 1024)).toString('utf8') || '{}')
+      return responder(200, await (await import('./ubicacion.ts')).recibirUbicacion(db, { lat: Number(b.lat), lon: Number(b.lon), precision: b.precision == null ? null : Number(b.precision), en: Number(b.en) || undefined, fuente: disp.nombre }))
     }
     // El rescate (plan v38, fase 6): inventario → subir cada ítem crudo → cerrar (recién ahí se procesa).
     const rs = await import('./rescate.ts')

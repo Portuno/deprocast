@@ -116,7 +116,7 @@ async function montarMapa() {
     <div class="titulo"><h1>Mapa</h1><p>Dónde pasa lo de tu mundo: los lugares que aparecen en tu archivo, los eventos de tu Línea, lo que encontró el Radar, tus side quests y tu calendario.</p></div>
     <div class="mp-barra">
       <div class="mp-capas">${Object.entries(CAPAS_MAPA_UI).map(([k, c]) => `<button class="chip-capa ${mapaEstado.capas.has(k) ? 'activo' : ''}" data-capa="${k}" style="--c:${c.color}">${c.icono} ${esc(c.nombre)} <small data-cuenta="${k}"></small></button>`).join('')}</div>
-      <div class="fila"><input class="campo-suelto" id="mp-buscar" placeholder="Buscar un lugar…"><button class="btn btn-chico" id="mp-yo" title="Centrar en donde estás">◎ Centrar en mí</button><button class="btn btn-chico" id="mp-mundi" title="Tu vida anclada al tablero de la historia">${ico('hexagon')} Mapamundi</button></div>
+      <div class="fila"><input class="campo-suelto" id="mp-buscar" placeholder="Buscar un lugar…"><button class="btn btn-chico" id="mp-yo" title="Centrar en donde estás">◎ Centrar en mí</button><button class="btn btn-chico" id="mp-mundi" title="Tu vida anclada al tablero de la historia">${ico('hexagon')} Mapamundi</button><button class="btn btn-chico" id="mp-vivo" title="Que Deprocast sepa dónde estás, para avisarte de side quests cercanas">📍 Ubicación en vivo</button></div>
     </div>
     <div class="mp-lienzo" id="mp-mapa"></div>
     <p class="tenue chico" id="mp-nota"></p>`
@@ -136,6 +136,20 @@ async function montarMapa() {
     } catch (err) { error(err) }
   }
   $('#mp-mundi').onclick = () => irA('mapamundi')
+  // La ubicación en vivo (Fragua #195): con su ok explícito; apagarla borra lo guardado.
+  const pintarVivo = (u) => { const b = $('#mp-vivo'); if (b) { b.classList.toggle('activo', !!u.prendida); b.textContent = u.prendida ? `📍 En vivo${u.actual ? ` · hace ${Math.max(0, Math.round((Date.now() - u.actual.en) / 60_000))} min` : ''}` : '📍 Ubicación en vivo' } }
+  api('/ubicacion').then(pintarVivo).catch(() => {})
+  $('#mp-vivo').onclick = async () => {
+    try {
+      const u = await api('/ubicacion')
+      if (u.prendida) {
+        if (!(await confirmar('¿Apagar la ubicación en vivo?', { detalle: 'Deja de anotar dónde estás y borra lo que había.', si: 'Apagar' }))) return
+        await api('/ubicacion/prender', { prendida: false }); detenerUbicacion(); pintarVivo({ prendida: false }); toast('Ubicación en vivo apagada', 'suave'); return
+      }
+      if (!(await confirmar('¿Prender la ubicación en vivo?', { detalle: 'Deprocast anota dónde estás mientras esta pantalla esté abierta (y desde el teléfono, si la app tiene el permiso), para avisarte una vez cuando pases cerca de una side quest. Queda solo en tu Deprocast, se guarda una semana y se borra al apagarla.', si: 'Prender' }))) return
+      await api('/ubicacion/prender', { prendida: true }); vigilarUbicacion(true); pintarVivo({ prendida: true }); toast('Ubicación en vivo prendida', 'suave')
+    } catch (e) { error(e) }
+  }
   $('#mp-yo').onclick = () => {
     if (!navigator.geolocation) return toast('Este navegador no da la ubicación')
     navigator.geolocation.getCurrentPosition((p) => $('#mp-mapa')._mapa?.flyTo([p.coords.latitude, p.coords.longitude], 13), () => toast('No me diste permiso para ver dónde estás', 'suave'))
