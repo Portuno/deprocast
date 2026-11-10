@@ -4,6 +4,7 @@
  * La Fragua. Así el sistema se arregla de noche y él solo aprueba. No toca código: solo propone.
  */
 import { type Db } from './db.ts'
+import { registrarFallo } from './fallos.ts'
 import { pedirJson } from './modelo.ts'
 
 const DIA = 86_400_000
@@ -12,6 +13,12 @@ const DIA = 86_400_000
 export function registrarError(db: Db, origen: string, texto: string, ahora = Date.now()) {
   const t = texto.replace(/\s+/g, ' ').trim().slice(0, 600)
   if (!t) return
+  // Lo que no es «lento» va como fallo estructurado: con código, causa, acción y huella (Fragua #191).
+  if (origen !== 'lento') {
+    registrarFallo(db, { origen, mensaje: t }, ahora)
+    try { db.prepare('DELETE FROM errores WHERE ultima < ?').run(ahora - 30 * DIA) } catch { /* nada */ }
+    return
+  }
   try {
     const ya = db.prepare('SELECT id FROM errores WHERE origen = ? AND texto = ? AND ultima > ?').get(origen, t, ahora - DIA) as { id: number } | undefined
     if (ya) db.prepare('UPDATE errores SET veces = veces + 1, ultima = ? WHERE id = ?').run(ahora, ya.id)
@@ -61,14 +68,14 @@ const QUEJA = /no anda|no funciona|no me deja|no carga|no aparece|no responde|se
 
 export function materialDeAutocritica(db: Db, ahora = Date.now(), dias = 2): string {
   const desde = ahora - dias * DIA
-  const errores = db.prepare('SELECT origen, texto, veces FROM errores WHERE ultima >= ? ORDER BY veces DESC, ultima DESC LIMIT 25').all(desde) as { origen: string; texto: string; veces: number }[]
+  const errores = db.prepare(`SELECT origen, texto, veces, codigo, accion FROM errores WHERE ultima >= ? AND COALESCE(ajeno, 0) = 0 AND COALESCE(recuperado, 0) = 0 ORDER BY veces DESC, ultima DESC LIMIT 25`).all(desde) as { origen: string; texto: string; veces: number; codigo: string | null; accion: string | null }[]
   const quejas = (db.prepare(`SELECT m.texto FROM mensajes m JOIN conversaciones c ON c.id = m.conversacion_id WHERE m.rol = 'operador' AND c.con = 'mastropiero' AND m.en >= ? ORDER BY m.id DESC LIMIT 200`).all(desde) as { texto: string }[])
     .map((m) => m.texto).filter((t) => QUEJA.test(t)).slice(0, 12)
   const rutinas = (db.prepare(`SELECT texto FROM mensajes WHERE rol = 'asistente' AND modelo = 'rutina' AND (texto LIKE 'No pude %' OR texto LIKE 'Falló «%') AND en >= ? ORDER BY id DESC LIMIT 10`).all(desde) as { texto: string }[]).map((m) => m.texto)
   const forjas = db.prepare(`SELECT id, pedido, estado, salida FROM fragua WHERE estado IN ('fallo', 'rota') AND creada_en >= ? ORDER BY id DESC LIMIT 5`).all(desde) as { id: number; pedido: string; estado: string; salida: string | null }[]
   const tandas = (db.prepare(`SELECT archivo, error FROM tandas WHERE estado = 'fallo' AND creada_en >= ? ORDER BY id DESC LIMIT 8`).all(desde) as { archivo: string; error: string | null }[])
   return [
-    errores.length ? `ERRORES DEL SERVIDOR:\n${errores.map((e) => `- [${e.origen}${e.veces > 1 ? ` ×${e.veces}` : ''}] ${e.texto}`).join('\n')}` : '',
+    errores.length ? `ERRORES DEL SERVIDOR:\n${errores.map((e) => `- [${e.origen}${e.codigo && e.codigo !== 'desconocido' ? ` · ${e.codigo}` : ''}${e.veces > 1 ? ` ×${e.veces}` : ''}] ${e.texto}${e.accion && e.codigo !== 'desconocido' ? ` → ${e.accion}` : ''}`).join('\n')}` : '',
     quejas.length ? `LO QUE EL OPERADOR SE QUEJÓ:\n${quejas.map((q) => `- «${q.slice(0, 400)}»`).join('\n')}` : '',
     rutinas.length ? `RUTINAS QUE FALLARON:\n${rutinas.map((r) => `- ${r.slice(0, 300)}`).join('\n')}` : '',
     forjas.length ? `FORJAS QUE NO SALIERON:\n${forjas.map((f) => `- #${f.id} (${f.estado}) ${f.pedido.split('\n')[0].slice(0, 120)}: ${(f.salida ?? '').slice(-400)}`).join('\n')}` : '',

@@ -101,7 +101,8 @@ $('#btn-estado').onclick = modalEstado
 /** Cuánto tarda cada ruta (p50, p95, máximo) y cuánto se trabó el servidor, desde que arrancó o desde el último reinicio. */
 async function modalVelocidad() {
   let v, l
-  try { [v, l] = await Promise.all([api('/velocidad'), api('/lento').catch(() => null)]) } catch (e) { return error(e) }
+  let fx = null
+  try { [v, l, fx] = await Promise.all([api('/velocidad'), api('/lento').catch(() => null), api('/errores?horas=24').catch(() => null)]) } catch (e) { return error(e) }
   const color = (ms) => (ms >= 1000 ? 'mal' : ms >= 200 ? 'aviso' : 'ok')
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>⏱ Velocidad</h2>
     <p class="tenue">Medido en vivo desde hace ${v.minutos} min. El bucle es cuánto tuvo que esperar algo para correr: si pasa de unos cientos de ms, el servidor se está trabando.</p>
@@ -112,7 +113,9 @@ async function modalVelocidad() {
     <div class="fila"><button class="btn" id="vel-reiniciar">Empezar a medir de nuevo</button></div>
     ${l ? `<h3 class="sub">Lo lento de la semana</h3><p class="tenue chico">Los pedidos que tardaron más de un segundo en los últimos ${l.dias} días (sobreviven a los reinicios).</p>
       ${l.rutas.length ? `<table class="dsc-tabla vel-tabla"><thead><tr><th>Ruta</th><th>Veces</th><th>Mediana</th><th>Peor</th></tr></thead><tbody>${l.rutas.slice(0, 20).map((r) => `<tr><td><code>${esc(r.ruta)}</code></td><td>${r.veces}</td><td class="vel-${color(r.mediana)}">${r.mediana}</td><td class="vel-${color(r.peor)}">${r.peor}</td></tr>`).join('')}</tbody></table>` : '<p class="tenue chico">Nada lento.</p>'}
-      <h3 class="sub">Lo que se rompió</h3>${l.errores.length ? `<table class="dsc-tabla vel-tabla"><thead><tr><th>Dónde</th><th>Veces</th><th>Qué</th></tr></thead><tbody>${l.errores.slice(0, 30).map((x) => `<tr><td>${esc(x.origen)}</td><td>${x.veces}</td><td>${esc(x.texto.slice(0, 160))}</td></tr>`).join('')}</tbody></table>` : '<p class="tenue chico">Nada.</p>'}` : ''}`)
+` : ''}
+    ${fx ? `<h3 class="sub">Lo que se rompió (24 h)</h3>${fx.top.length ? `<ol class="vel-top">${fx.top.map((x) => `<li><b>${esc(x.codigo)}</b> ×${x.veces} · ${esc(x.origen)}${x.donde ? ` · <code>${esc(x.donde.slice(0, 60))}</code>` : ''}<br><small>${esc(x.accion)}</small></li>`).join('')}</ol>` : '<p class="tenue chico">Nada.</p>'}
+      ${fx.grupos.length > 3 ? `<table class="dsc-tabla vel-tabla"><thead><tr><th>Código</th><th>Veces</th><th>Dónde</th><th>Qué</th></tr></thead><tbody>${fx.grupos.slice(0, 40).map((x) => `<tr class="${x.ajeno || x.recuperado ? 'tenue' : ''}"><td>${esc(x.codigo)}${x.recuperado ? ' <small>(se recuperó)</small>' : x.ajeno ? ' <small>(ajeno)</small>' : ''}</td><td>${x.veces}</td><td>${esc(x.origen)}</td><td>${esc(String(x.mensaje).slice(0, 140))}</td></tr>`).join('')}</tbody></table>` : ''}` : ''}`)
   $('#modal').classList.add('modal-ancho')
   $('#vel-reiniciar').onclick = async () => { try { await api('/velocidad/reiniciar', {}); modalVelocidad() } catch (e) { error(e) } }
 }

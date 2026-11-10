@@ -708,6 +708,7 @@ const rutas: [string, RegExp, Ruta][] = [
   // La matriz de un término (sus ejes) y los homónimos.
   ['GET', /^\/api\/entidades\/(\d+)\/ejes$/, (_, [e]) => ejesDe(db, id(e))],
   // Lo lento y lo que se rompe (plan v38, fase 1): para decidir con datos.
+  ['GET', /^\/api\/errores$/, async (_, __, q) => (await import('./fallos.ts')).erroresRecientes(db, Math.min(24 * 30, Number(q.get('horas')) || 24))],
   ['GET', /^\/api\/lento$/, async (_, __, q) => (await import('./autocritica.ts')).lento(db, Date.now(), Math.min(30, Number(q.get('dias')) || 7))],
   // El censo de un canal de YouTube (Fragua #187): verlo y aprobarlo (con cambios al plan).
   ['GET', /^\/api\/youtube\/censo$/, async (_, __, q) => (await import('./youtube-canal.ts')).leerCenso(db, String(q.get('canal') ?? ''))],

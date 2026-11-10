@@ -3388,3 +3388,8 @@ span.ej-chip { cursor: default; }
 .disp-rescate { color: var(--aviso); }
 .disp-rescate.mal { color: var(--mal); }
 @media (max-width: 720px) { .tudia { padding: var(--e-3); } }
+
+/* Lo que se rompió, agrupado (Fragua, propuesta 191) */
+.vel-top { margin: 0 0 var(--e-3); padding-left: 1.2em; display: grid; gap: var(--e-2); font-size: var(--t-3); }
+.vel-top small { color: var(--tenue); }
+.vel-tabla tr.tenue td { color: var(--tenue); }

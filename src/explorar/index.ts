@@ -87,6 +87,7 @@ async function cadena<A, R>(ctx: Ctx, c: Canal, accion: string, backends: Backen
     } catch (e) {
       const err = e instanceof ErrorExplorar ? e : new ErrorExplorar('ROTO', e instanceof Error ? e.message : String(e))
       anotarSalud(ctx.db, c.id, b.id, ctx.ahora, err)
+      void import('../fallos.ts').then((f) => f.registrarFallo(ctx.db, { origen: `explorar:${c.id}`, mensaje: `${b.nombre}: ${err.message}`, donde: b.id, recuperado: !CORTAN.includes(err.codigo), ajeno: true })).catch(() => {})
       if (CORTAN.includes(err.codigo)) throw err
       ultimo = err.codigo
       fallas.push(`${b.nombre}: ${err.message}`)

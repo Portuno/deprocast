@@ -256,7 +256,11 @@ async function recorrer(l: Llamada, modelos: string[], llamar: (modelo: string, 
       if (r.status >= 200 && r.status < 300 && !truncada(r)) return { modelo, r }
       const d = decidir(r, modelo, n)
       if (d.accion === 'cortar') throw new Error(d.motivo)
-      if (d.accion === 'siguiente') { motivos.push(`${modelo}: ${motivoDe(r)}`); break }
+      if (d.accion === 'siguiente') {
+        motivos.push(`${modelo}: ${motivoDe(r)}`)
+        void import('./fallos.ts').then((f) => f.registrarFallo(l.db, { origen: 'modelo', mensaje: `${modelo}: ${motivoDe(r)}`, donde: modelo, salida: r.body.slice(0, 300), recuperado: true }, Date.now())).catch(() => {})
+        break
+      }
       if (d.razonarPoco) (n.trunc++, (razonarPoco = true))
       else if (r.status === 429) n.rate++
       else n.server++

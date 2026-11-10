@@ -2046,6 +2046,8 @@ CREATE INDEX IF NOT EXISTS quantomos_etapa ON quantomos(etapa);
 
 /** Columnas que se sumaron después de la primera versión: se agregan sin tocar los datos. */
 const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
+  // Los fallos estructurados (Fragua #191): código, huella, dónde, entrada/salida, causa, acción y banderas.
+  errores: [['codigo', 'TEXT'], ['huella', 'TEXT'], ['donde', 'TEXT'], ['entrada', 'TEXT'], ['salida', 'TEXT'], ['causa', 'TEXT'], ['accion', 'TEXT'], ['reintentable', 'INTEGER'], ['recuperado', 'INTEGER'], ['ajeno', 'INTEGER']],
   // Los dispositivos como lista (plan v38, fase 6): su tipo y su estado (rescate → activo).
   dispositivos: [['tipo', "TEXT NOT NULL DEFAULT 'telefono'"], ['estado', "TEXT NOT NULL DEFAULT 'activo'"], ['rescate_fin', 'INTEGER']],
   // Mapamundi: cómo se conoce a cada grande (la etiqueta del tablero).

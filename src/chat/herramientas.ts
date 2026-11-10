@@ -1877,6 +1877,9 @@ export const HERRAMIENTAS: Herramienta[] = [
         return v.markdown ? { titulo: v.titulo, markdown: v.markdown, aviso: v.aviso, via: 'el lector propio' } : { error: v.aviso ?? (e instanceof Error ? e.message : 'No pude leer esa página') }
       })
       if ('error' in l) return { error: l.error }
+      // Una página que devuelve un error (un JSON con estadoHttp 409, «nombre_ocupado»…) no es contenido (Fragua #191).
+      const err = (await import('../fallos.ts')).errorEnRespuesta(l.markdown)
+      if (err) return { error: `El sitio respondió ${err.estado ?? 'con un error'}${err.codigo ? ` (${err.codigo})` : ''}: ${err.mensaje}`, salida: l.markdown.slice(0, 600) }
       return { titulo: l.titulo, ...tramo(l.markdown, a.desde ?? 0), aviso: l.aviso, via: l.via }
     },
     resumen: (a, r) => `leyó ${recorte(a.url, 50)}${r?.total > (r?.hasta ?? 0) ? ` (${Math.round((r.hasta / r.total) * 100)} %)` : ''}`,
@@ -2279,12 +2282,23 @@ export async function ejecutarHerramienta(hs: Herramienta[], nombre: string, arg
   } catch {
     return { resultado: { error: 'Argumentos que no son JSON válido' }, resumen: `${nombre}: argumentos inválidos`, ok: false }
   }
+  // Un fallo (Fragua #191): se registra estructurado y viaja en un bloque «fallo» aparte, con su código y su acción.
+  const conFallo = async (resultado: Record<string, unknown>, mensaje: string) => {
+    const { registrarFallo, bloqueFallo } = await import('../fallos.ts')
+    const donde = typeof a?.url === 'string' ? a.url : typeof a?.id !== 'undefined' ? `${nombre}:${a.id}` : null
+    const f = registrarFallo(ctx.db, { origen: `herramienta:${nombre}`, mensaje, donde, entrada: recorte(argumentos ?? '', 600), salida: typeof resultado.salida === 'string' ? resultado.salida : null })
+    return { ...resultado, fallo: bloqueFallo(f) }
+  }
   try {
     const { resultado, inversa } = separarInversa(await h.ejecutar(a, ctx))
     const fallo = !!(resultado && typeof resultado === 'object' && 'error' in (resultado as object))
-    return { resultado, resumen: h.resumen?.(a, resultado) ?? nombre.replace(/_/g, ' '), ok: !fallo, inversa }
+    if (fallo) {
+      const r = resultado as Record<string, unknown>
+      return { resultado: await conFallo(r, String(r.error)), resumen: h.resumen?.(a, resultado) ?? nombre.replace(/_/g, ' '), ok: false, inversa }
+    }
+    return { resultado, resumen: h.resumen?.(a, resultado) ?? nombre.replace(/_/g, ' '), ok: true, inversa }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    return { resultado: { error: msg }, resumen: `${nombre} falló: ${recorte(msg, 80)}`, ok: false }
+    return { resultado: await conFallo({ error: msg }, msg), resumen: `${nombre} falló: ${recorte(msg, 80)}`, ok: false }
   }
 }
