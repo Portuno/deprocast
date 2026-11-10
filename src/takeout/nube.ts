@@ -600,11 +600,45 @@ export async function destilarUnidad(db: Db, fila: { pieza_id: number; lote: str
   const origen = deVideo ? deVideo : enCarpeta ? enCarpeta : p.meta?.chat ? `${p.meta.grupo ? 'un chat grupal' : 'una conversación'} con ${p.meta.ia ?? 'Gemini'}` : p.titulo.startsWith('Contexto · ') ? 'el contexto entero de un cuaderno de NotebookLM (sus fuentes, notas, chats y lo que generó)' : deArchivo ? origenDe(p) : p.nivel === 'propia' ? 'una nota de voz suya (transcripta)' : 'una pieza de su archivo'
   const tramos = tramosDeTexto(textoDeUnidad(db, p))
   const salidas: any[] = []
+  // Cada tramo, con su salida guardada (Fragua #196): un reintento rehace solo los que fallaron, con el motivo del error
+  // anterior en el pedido; al tercer fallo el tramo queda «no entendido» y la unidad sigue con lo que sí salió.
+  const huella = (t: string) => crypto.createHash('sha1').update(t).digest('hex').slice(0, 16)
+  const leerTramo = db.prepare('SELECT estado, intentos, salida, error, huella FROM takeout_tramos WHERE pieza_id = ? AND idx = ?')
+  const guardarTramo = db.prepare(`INSERT INTO takeout_tramos (pieza_id, idx, huella, estado, intentos, salida, error) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(pieza_id, idx) DO UPDATE SET huella = excluded.huella, estado = excluded.estado, intentos = excluded.intentos, salida = excluded.salida, error = excluded.error`)
+  const pendientes: string[] = []
+  const noEntendidos: string[] = []
   for (const [i, t] of tramos.entries()) {
-    salidas.push(await destilar(db, SISTEMA_DESTILADO(yo, deQue(fila.lote), fila.lote.startsWith('youtube-') ? EXTRA_YOUTUBE : ''), `Unidad: ${origen} · «${p.titulo}» · fecha ${p.fecha ?? 'sin fecha'}${tramos.length > 1 ? ` · tramo ${i + 1} de ${tramos.length}` : ''}\n\nCatálogo de entidades que ya conoce:\n${cat.texto || '(vacío)'}\n\nTexto:\n${t}`, deArchivo ? 'reproceso' : 'takeout'))
+    const h = huella(t)
+    const ya = leerTramo.get(p.id, i) as { estado: string; intentos: number; salida: string | null; error: string | null; huella: string } | undefined
+    const mismo = !!ya && ya.huella === h
+    if (mismo && ya.estado === 'hecho' && ya.salida) { salidas.push(json<any>(ya.salida, {})); continue }
+    const donde = `tramo ${i + 1} de ${tramos.length}${tramos.length > 1 ? ` («${t.replace(/\s+/g, ' ').trim().slice(0, 50)}…»)` : ''}`
+    if (mismo && ya.estado === 'no_entendido') { noEntendidos.push(`${donde}: ${ya.error}`); continue }
+    const intentos = mismo ? ya.intentos : 0
+    const previo = mismo && ya.error ? `\n\nLa vez anterior este tramo falló así: ${ya.error}. Devolvé SOLO el objeto JSON con la forma pedida, completo.` : ''
+    try {
+      const salida = await destilar(db, SISTEMA_DESTILADO(yo, deQue(fila.lote), fila.lote.startsWith('youtube-') ? EXTRA_YOUTUBE : ''), `Unidad: ${origen} · «${p.titulo}» · fecha ${p.fecha ?? 'sin fecha'}${tramos.length > 1 ? ` · tramo ${i + 1} de ${tramos.length}` : ''}\n\nCatálogo de entidades que ya conoce:\n${cat.texto || '(vacío)'}\n\nTexto:\n${t}${previo}`, deArchivo ? 'reproceso' : 'takeout')
+      salidas.push(salida)
+      guardarTramo.run(p.id, i, h, 'hecho', intentos + 1, JSON.stringify(salida), null)
+    } catch (e) {
+      const motivo = (e instanceof Error ? e.message : String(e)).replace(/^El modelo no devolvió un JSON válido: /, 'el modelo no devolvió el JSON pedido: ').slice(0, 300)
+      const n = intentos + 1
+      guardarTramo.run(p.id, i, h, n >= 3 ? 'no_entendido' : 'pendiente', n, null, motivo)
+      if (n >= 3) noEntendidos.push(`${donde}: ${motivo}`)
+      else pendientes.push(`${donde}: ${motivo}`)
+    }
   }
+  // Si algún tramo todavía tiene intentos, la unidad vuelve a la cola (y solo se rehacen esos).
+  if (pendientes.length) throw new Error(`Falta${pendientes.length === 1 ? '' : 'n'} ${pendientes.length} de ${tramos.length} tramo${tramos.length === 1 ? '' : 's'} (se reintenta solo eso): ${pendientes.join(' · ')}`)
+  if (!salidas.length) throw new Error(`No se entendió ningún tramo: ${noEntendidos.join(' · ')}`)
   const d = juntarDestilados(salidas)
   guardarDestilado(db, fila, p, d, cat, ahora)
+  if (noEntendidos.length) {
+    const aviso = `Parcial: ${noEntendidos.length} de ${tramos.length} tramo${tramos.length === 1 ? '' : 's'} sin entender (${noEntendidos.join(' · ')})`
+    db.prepare('UPDATE takeout_destilado SET error = ? WHERE pieza_id = ?').run(aviso.slice(0, 500), p.id)
+    void import('../autocritica.ts').then((a) => a.registrarError(db, 'takeout', `«${p.titulo}»: ${aviso}`)).catch(() => {})
+  }
 }
 
 function guardarDestilado(db: Db, fila: { pieza_id: number; lote: string }, p: any, d: Destilado, cat: ReturnType<typeof catalogo>, ahora: number) {

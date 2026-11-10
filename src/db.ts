@@ -1233,6 +1233,17 @@ CREATE TABLE IF NOT EXISTS chat_mencionados (
   en INTEGER NOT NULL,
   PRIMARY KEY (conversacion_id, tipo, ref)
 );
+-- Los tramos de cada unidad que se destila (Fragua #196): cada uno con su salida, para que un fallo no rehaga todo.
+CREATE TABLE IF NOT EXISTS takeout_tramos (
+  pieza_id INTEGER NOT NULL,
+  idx INTEGER NOT NULL,
+  huella TEXT NOT NULL,
+  estado TEXT NOT NULL DEFAULT 'pendiente',
+  intentos INTEGER NOT NULL DEFAULT 0,
+  salida TEXT,
+  error TEXT,
+  PRIMARY KEY (pieza_id, idx)
+);
 -- El censo de un canal de YouTube (Fragua #187): sus videos, grupos, plan y costo; nada entra al corpus hasta su ok.
 CREATE TABLE IF NOT EXISTS youtube_censos (
   canal TEXT PRIMARY KEY,

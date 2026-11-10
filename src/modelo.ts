@@ -32,7 +32,7 @@ export async function pedirJson<T = any>(
   let ultimo = ''
   for (let intento = 0; intento < 2; intento++) {
     const r = await llamarModelo(l, {
-      mensajes: intento ? [...mensajes, { role: 'assistant', content: ultimo.slice(0, 4000) }, { role: 'user', content: 'Eso no es un JSON válido. Devolvé SOLO el objeto JSON, completo y bien formado, sin texto alrededor.' }] : mensajes,
+      mensajes: intento ? [...mensajes, { role: 'assistant', content: ultimo.slice(0, 4000) }, { role: 'user', content: `Eso no es un JSON válido (${porQueNoEsJson(ultimo)}). Devolvé SOLO el objeto JSON, completo y bien formado, sin texto alrededor.` }] : mensajes,
       // Modo JSON (response_format): el modelo no puede contestar prosa. El que no lo acepta pasa al siguiente de la cadena.
       herramientas: [], json: true, temperatura: o.temperatura ?? 0.4, maxTokens: o.maxTokens ?? 4096, razonarPoco: o.largo || undefined,
       // Respuesta larga: en streaming (el proxy de NaN corta a los ~125 s lo que no manda nada) y razonando poco

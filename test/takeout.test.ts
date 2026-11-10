@@ -268,3 +268,38 @@ test('nombres importados: se corrigen antes de aceptar (el leído queda como ali
   const parecida = nube.estadoTakeout(db).nombres.find((n: any) => n.clave === 'persona conocida larg') as any
   assert.equal(parecida.parecida.id, ya)
 })
+
+test('destilado por tramos (Fragua #196): un tramo que rompe el JSON se reintenta solo, con el motivo; al tercero queda «no entendido» y la unidad termina', async () => {
+  const db = abrir(':memory:')
+  const { asegurarFuente, insertar } = await import('../src/corpus.ts')
+  asegurarFuente(db, { id: 'pruebas', nombre: 'Pruebas', nivel: 'investigacion' })
+  // Cuatro tramos (cada uno ~70 mil caracteres): el tercero es el que el modelo no entiende.
+  const parte = (n: number) => `## Parte ${n}\n\n${`Texto de la parte ${n}. `.repeat(3500)}`
+  const id = insertar(db, { fuente: 'pruebas', titulo: 'Cuaderno largo', contenido: [1, 2, 3, 4].map(parte).join('\n\n') })!
+  db.prepare(`INSERT INTO takeout_destilado (pieza_id, lote, estado) VALUES (?, 'notebook-1', 'procesando')`).run(id)
+  const pedidos: string[] = []
+  let rompe = true
+  nube._probarTakeout({
+    destilar: async (_db, _s, usuario) => {
+      pedidos.push(usuario)
+      if (rompe && /Texto de la parte 3/.test(usuario)) throw new Error('El modelo no devolvió un JSON válido: se cortó antes de cerrar el JSON (812 caracteres)')
+      return { resumen: 'Ok.', valor: 1, temas: [], proyectos: [], personas: [], ideas: [], decisiones: [], abierto: [], sobre_el: [] }
+    },
+  })
+  const fila = { pieza_id: id, lote: 'notebook-1' }
+  await assert.rejects(nube.destilarUnidad(db, fila, 1), /Falta 1 de 4 tramos \(se reintenta solo eso\): tramo 3 de 4 .*no devolvió el JSON pedido: se cortó/)
+  assert.equal(pedidos.length, 4)
+  // El reintento rehace solo el tramo 3, con el motivo de la vez anterior en el pedido.
+  await assert.rejects(nube.destilarUnidad(db, fila, 2), /Falta 1 de 4/)
+  assert.equal(pedidos.length, 5)
+  assert.match(pedidos[4], /Texto de la parte 3[\s\S]*La vez anterior este tramo falló así: el modelo no devolvió el JSON pedido: se cortó/)
+  // Al tercer fallo: no entendido, y la unidad termina con los otros tres (el aviso dice cuál y por qué).
+  await nube.destilarUnidad(db, fila, 3)
+  assert.equal(pedidos.length, 6)
+  assert.match((db.prepare('SELECT error FROM takeout_destilado WHERE pieza_id = ?').get(id) as any).error, /^Parcial: 1 de 4 tramos sin entender \(tramo 3 de 4/)
+  assert.equal((db.prepare(`SELECT COUNT(*) AS n FROM takeout_tramos WHERE pieza_id = ? AND estado = 'hecho'`).get(id) as any).n, 3)
+  // Una pasada más no vuelve a pagar nada.
+  rompe = false
+  await nube.destilarUnidad(db, fila, 4)
+  assert.equal(pedidos.length, 6)
+})
