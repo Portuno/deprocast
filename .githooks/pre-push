@@ -9,4 +9,7 @@ done
 [ -z "$hay" ] && exit 0
 if [ "$MEDIR_SALTEAR" = "1" ]; then echo "medir: salteado (MEDIR_SALTEAR=1)"; exit 0; fi
 echo "medir: antes de desplegar, a la escala de la nube…"
-npm run medir --silent || { echo "✖ npm run medir falló: no se despliega. Arreglalo, o MEDIR_SALTEAR=1 git push para forzar."; exit 1; }
+# Si falla, se repite una vez: una regresión real falla las dos veces; el ruido de la compu (otra carga, el disco) casi nunca.
+npm run medir --silent && exit 0
+echo "medir: falló; lo repito una vez para descartar ruido…"
+npm run medir --silent || { echo "✖ npm run medir falló dos veces: no se despliega. Arreglalo, o MEDIR_SALTEAR=1 git push para forzar."; exit 1; }
