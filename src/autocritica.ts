@@ -43,10 +43,16 @@ export function lento(db: Db, ahora = Date.now(), dias = 7) {
     rutas.set(m[1], ms)
   }
   const med = (xs: number[]) => { const s = [...xs].sort((a, b) => a - b); return s[Math.floor(s.length / 2)] }
+  // Los bloqueos del event loop: cuántas veces apareció cada tarea en marcha mientras todo estaba frenado.
+  const bloqueos = filas.filter((x) => x.origen === 'lento' && x.texto.startsWith('bloqueo de ')).map((x) => ({ ms: Number(/bloqueo de (\d+)/.exec(x.texto)?.[1] ?? 0), durante: (/\((.*)\)$/.exec(x.texto)?.[1] ?? '').split(', ').filter(Boolean), veces: x.veces }))
+  const porTarea = new Map<string, number>()
+  for (const b of bloqueos.filter((x) => x.ms < 60_000)) for (const t of b.durante) porTarea.set(t, (porTarea.get(t) ?? 0) + b.veces)
   return {
     dias,
     rutas: [...rutas].map(([ruta, ms]) => ({ ruta, veces: ms.length, mediana: med(ms), peor: Math.max(...ms) })).sort((a, b) => b.veces * b.mediana - a.veces * a.mediana),
     errores: filas.filter((x) => x.origen !== 'lento').map((x) => ({ origen: x.origen, texto: x.texto, veces: x.veces, ultima: x.ultima })).slice(0, 80),
+    // Más de un minuto es el contenedor dormido, no un bloqueo.
+    bloqueos: { veces: bloqueos.filter((x) => x.ms < 60_000).reduce((s, x) => s + x.veces, 0), peor: Math.max(0, ...bloqueos.filter((x) => x.ms < 60_000).map((x) => x.ms)), porTarea: [...porTarea].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([tarea, veces]) => ({ tarea, veces })) },
   }
 }
 

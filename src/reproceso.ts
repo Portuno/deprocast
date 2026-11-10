@@ -141,7 +141,7 @@ async function hacerSintesis(db: Db): Promise<boolean> {
     const hechos = (db.prepare(`SELECT COUNT(*) AS n FROM takeout_destilado WHERE estado = 'hecho'`).get() as { n: number }).n
     const antes = Number(ajuste(db, 'reproceso_historia_n') ?? 0)
     if (hechos < antes + 25) return false
-    const proyectos = proyectosConHistoria(db, REPROCESO)
+    const proyectos = await proyectosConHistoria(db, REPROCESO)
     for (const [i, x] of proyectos.entries()) {
       if (!estado.trabajando) return true
       estado.paso = `historia de ${x.nombre} (${i + 1} de ${proyectos.length})`

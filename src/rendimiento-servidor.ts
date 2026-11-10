@@ -53,7 +53,8 @@ export function medirPedido(req: http.IncomingMessage, res: http.ServerResponse,
     m.max = Math.max(m.max, ms)
     m.bytes += bytes
     // Lo que tarda por esperar a un modelo o a un archivo grande no es un problema del servidor: solo las rutas rápidas.
-    if (ms > LENTO_MS && !/\/(chat\/:id\/mensajes|mensajes|directo\/:id\/(cuadro|audio|cerrar)|tandas|youtube|exportar|mudanza|takeout\/|apps\/|cargas|imagen|archivo|log|documento|entrevista-audio|informe|asis|tobe|guia|manual|kpis\/proponer|descubrir|tarjetas$)/.test(ruta)) {
+    // Un 202 es un trabajo que pasó al fondo a los 8 s (conPaciencia): no es una ruta lenta (Fragua #200).
+    if (ms > LENTO_MS && res.statusCode !== 202 && !/\/(chat\/:id\/mensajes|mensajes|directo\/:id\/(cuadro|audio|cerrar)|tandas|youtube|exportar|mudanza|takeout\/|apps\/|cargas|imagen|archivo|log|documento|entrevista-audio|informe|asis|tobe|guia|manual|kpis\/proponer|descubrir|tarjetas$)/.test(ruta)) {
       m.lentos++
       alLento?.(ruta, ms)
     }

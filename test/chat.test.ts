@@ -167,3 +167,39 @@ test('respeta numeración literal en listas', () => {
   assert.deepEqual(numerosDeLista('charla suelta\nsin listas'), [])
   assert.deepEqual(numerosDeLista('texto\n1. a\n2. b'), [1, 2])
 })
+
+test('sin tope de herramientas por turno (Fragua #190): 12 vueltas siguen hasta terminar; la misma llamada por tercera vez no corre', async () => {
+  const db = abrir(':memory:')
+  const pasos: Parameters<typeof guion>[0] = []
+  for (let i = 0; i < 12; i++) pasos.push(() => ({ llamadas: [{ nombre: 'leer_memoria', argumentos: { tema: `cosa ${i}` } }] }))
+  // Tres veces lo mismo: la tercera vuelve con un aviso en vez de ejecutarse.
+  for (let i = 0; i < 3; i++) pasos.push(() => ({ llamadas: [{ nombre: 'leer_memoria', argumentos: { tema: 'igual' } }] }))
+  pasos.push(() => ({ texto: 'Terminé las 15 lecturas.' }))
+  const vistos = guion(pasos)
+  const c = crearConversacion(db)
+  await enviar(db, c.id, 'leé todo')
+  const ms = mensajes(db, c.id)
+  assert.equal(ms.at(-1)!.texto, 'Terminé las 15 lecturas.')
+  assert.ok(!ms.some((m) => /Corté acá|demasiadas vueltas/.test(m.texto ?? '')))
+  assert.match(ms.filter((m) => m.rol === 'herramienta').at(-1)!.texto!, /Ya hiciste exactamente esta llamada dos veces/)
+  assert.ok(!vistos.some((v) => v.mensajes.some((m: any) => m.role === 'system' && /cerrá con lo que ya tenés/.test(String(m.content)))), 'nadie le pide que corte')
+})
+
+test('sin tope de herramientas (Fragua #190): si se agota el presupuesto de tokens del turno, dice qué hizo y qué falta, sin herramientas', async () => {
+  const db = abrir(':memory:')
+  db.prepare(`INSERT OR REPLACE INTO ajustes (clave, valor) VALUES ('chat_tokens_turno', '50000')`).run()
+  const vistos: { herramientas: number; sistema: string }[] = []
+  _probarModelo(async (_l, o) => {
+    vistos.push({ herramientas: (o.herramientas as any[]).length, sistema: o.mensajes.filter((m: any) => m.role === 'system').map((m: any) => m.content).join(' ') })
+    const agotado = !(o.herramientas as any[]).length
+    return { texto: agotado ? 'Leí 2 de 4. Faltan: la 3 y la 4.' : '', razonamiento: null, modelo: 'falso', tokens: 21_000, llamadas: agotado ? [] : [{ id: `x${vistos.length}`, nombre: 'leer_memoria', argumentos: JSON.stringify({ tema: `t${vistos.length}` }) }] }
+  })
+  const c = crearConversacion(db)
+  await enviar(db, c.id, 'leé las cuatro')
+  assert.equal(mensajes(db, c.id).at(-1)!.texto, 'Leí 2 de 4. Faltan: la 3 y la 4.')
+  assert.equal(vistos.length, 4)
+  assert.equal(vistos[3].herramientas, 0)
+  assert.match(vistos[3].sistema, /Se terminó el presupuesto de tokens de este turno/)
+  assert.match(vistos[2].sistema, /Te queda poco presupuesto/)
+  assert.doesNotMatch(vistos[1].sistema, /Te queda poco presupuesto/)
+})

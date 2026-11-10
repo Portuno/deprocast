@@ -959,6 +959,8 @@ export async function vueltaTelegram(db: Db): Promise<number> {
       if (racha.conflictos === 1) registrarError(db, 'servidor', `telegram: ${AVISO_OTRA_INSTANCIA}`)
       return esperaTelegram(true, racha.conflictos)
     }
+    // 429 (Fragua #202): Telegram dice cuánto esperar; se espera eso y se sigue, sin contarlo como falla ni loguearlo.
+    if (r?.ok === false && r.error_code === 429) return Math.min(60, Math.max(1, Number(r.parameters?.retry_after) || 5)) * 1000
     if (r?.ok === false) throw new Error(r.description ?? 'Telegram dijo que no')
     if (racha.conflictos || racha.fallas) console.log('  telegram: volvió a andar')
     racha.conflictos = 0

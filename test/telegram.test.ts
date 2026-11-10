@@ -169,6 +169,11 @@ test('telegram: un 409 se registra una sola vez y espera cada vez más; un timeo
   respuesta = async () => ({ ok: true, result: [] })
   assert.equal(await vueltaTelegram(db), 300)
   assert.equal(estadoTelegram().ultimoError, null)
+
+  // 429 (Fragua #202): espera lo que dice Telegram, sin contarlo como falla.
+  respuesta = async () => ({ ok: false, error_code: 429, description: 'Too Many Requests: retry after 5', parameters: { retry_after: 5 } })
+  assert.equal(await vueltaTelegram(db), 5000)
+  assert.equal(estadoTelegram().ultimoError, null)
 })
 
 test('telegram: /mano manda una carta con sus 12 pesos; jugarla dice cómo cayó y trae la siguiente en el mismo mensaje', async () => {

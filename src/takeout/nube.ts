@@ -697,24 +697,34 @@ export function _probarHistoria(f: typeof historiar) {
 /** Los proyectos con historia en el archivo: los que ya son entidades y los propuestos que aparecen 3 veces o más. */
 type Mencion = { fecha: string | null; titulo: string; estado: string; ideas: string[]; decisiones: string[]; pieza: number }
 /** Con «lote» = REPROCESO lee todo lo destilado (del Takeout y del resto del corpus): la historia completa de cada proyecto. */
-export function proyectosConHistoria(db: Db, lote_: string) {
-  const salidas = (db.prepare(`SELECT pieza_id, salida FROM takeout_destilado WHERE (lote = ? OR ? = '${REPROCESO}') AND estado = 'hecho' AND salida IS NOT NULL`).all(lote_, lote_) as { pieza_id: number; salida: string }[])
-    .map((s) => ({ pieza: s.pieza_id, d: json<any>(s.salida, null) })).filter((s) => s.d)
+/**
+ * Los proyectos con historia en el archivo. Recorre todos los destilados (miles en la nube): de a 100 por vez, cediendo
+ * el turno entre tandas (Fragua #201: de una sola pasada trababa el servidor hasta 7 s).
+ */
+export async function proyectosConHistoria(db: Db, lote_: string) {
+  const filas = db.prepare(`SELECT pieza_id, salida FROM takeout_destilado WHERE (lote = ? OR ? = '${REPROCESO}') AND estado = 'hecho' AND salida IS NOT NULL`).all(lote_, lote_) as { pieza_id: number; salida: string }[]
   const cat = catalogo(db)
+  const aceptados = db.prepare(`SELECT entidad_id FROM takeout_nombres WHERE clave = ? AND estado != 'descartada'`)
   const porProyecto = new Map<string, { nombre: string; entidad: number | null; menciones: Mencion[] }>()
-  for (const s of salidas) for (const p of lista(s.d.proyectos)) {
+  for (const [n, f] of filas.entries()) {
+    if (n % 100 === 99) await ceder()
+    const s = { pieza: f.pieza_id, d: json<any>(f.salida, null) }
+    if (!s.d) continue
+    for (const p of lista(s.d.proyectos)) {
     const e = cat.buscar(p.nombre)
-    const aceptado = e ? null : (db.prepare(`SELECT entidad_id FROM takeout_nombres WHERE clave = ? AND estado != 'descartada'`).get(claveDe(p.nombre)) as { entidad_id: number | null } | undefined)
+    const aceptado = e ? null : (aceptados.get(claveDe(p.nombre)) as { entidad_id: number | null } | undefined)
     const clave = e ? `e:${e.id}` : aceptado ? (aceptado.entidad_id ? `e:${aceptado.entidad_id}` : `n:${claveDe(p.nombre)}`) : null
     if (!clave) continue
     const x = porProyecto.get(clave) ?? { nombre: String(p.nombre), entidad: e?.id ?? aceptado?.entidad_id ?? null, menciones: [] as Mencion[] }
     x.menciones.push({ fecha: s.d.fecha ?? null, titulo: s.d.titulo ?? '', estado: txt(p.estado_entonces), ideas: lista(p.ideas).map((i) => txt(i, 300)), decisiones: lista(s.d.decisiones).map((i) => txt(i, 200)).slice(0, 3), pieza: s.pieza })
     porProyecto.set(clave, x)
+    }
   }
   return [...porProyecto.values()].filter((x) => x.entidad || x.menciones.length >= 3).sort((a, b) => b.menciones.length - a.menciones.length)
 }
+const ceder = () => new Promise<void>((ok) => setImmediate(ok))
 
-export async function historiaDe(db: Db, lote_: string, x: ReturnType<typeof proyectosConHistoria>[number], preguntar: boolean, ahora: number) {
+export async function historiaDe(db: Db, lote_: string, x: Awaited<ReturnType<typeof proyectosConHistoria>>[number], preguntar: boolean, ahora: number) {
   const yo = personaje(db, 'jugador').nombre
   const ms = x.menciones.sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)))
   let archivo = ms.map((m) => `- ${m.fecha ?? 's/f'} · ${m.titulo}: ${m.estado}${m.ideas.length ? ` | ideas: ${m.ideas.join('; ')}` : ''}${m.decisiones.length ? ` | decidió: ${m.decisiones.join('; ')}` : ''}`).join('\n')
@@ -828,7 +838,7 @@ async function unPaso(db: Db): Promise<boolean> {
   enHistoria = true
   try {
     marcarLote(db, lote_.id, 'historia')
-    const proyectos = proyectosConHistoria(db, lote_.id)
+    const proyectos = await proyectosConHistoria(db, lote_.id)
     for (const [i, x] of proyectos.entries()) {
       try { await historiaDe(db, lote_.id, x, i < 12, Date.now()) } catch (e) { console.error('  takeout historia:', e instanceof Error ? e.message : e) }
     }

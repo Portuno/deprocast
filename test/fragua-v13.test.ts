@@ -109,7 +109,7 @@ test('Telegram: un 502 o un timeout al mandar se reintenta (un 400 no), y una no
   assert.ok(tg.guardarNotaDeVoz(db, `${texto} Y algo nuevo que agrego al final, bastante distinto de lo anterior y largo de verdad para cambiar todo.`.repeat(2), 200, 'f3').pieza, 'una nota distinta sí entra')
 })
 
-test('chat: lo ya leído en vueltas anteriores viaja recortado, desde la 5.ª se le pide cerrar y no pasa de 8 vueltas', async () => {
+test('chat: lo ya leído en vueltas anteriores viaja recortado; sin tope de vueltas, pero la misma llamada repetida cierra el turno (Fragua #190)', async () => {
   const C = await import('../src/chat/index.ts')
   const largo = 'x'.repeat(5000)
   const conv: any[] = [
@@ -130,9 +130,11 @@ test('chat: lo ya leído en vueltas anteriores viaja recortado, desde la 5.ª se
   })
   const c = C.crearConversacion(db)
   await C.enviar(db, c.id, 'Hacé algo que no termina nunca')
-  assert.equal(vistos.length, 8, 'corta en 8 vueltas')
-  assert.ok(!vistos[4].some((m) => m.role === 'system' && /cerrá con lo que ya tenés/.test(m.content)))
-  assert.ok(vistos[5].some((m) => m.role === 'system' && /Llevás 5 vueltas/.test(m.content)), 'desde la 5.ª se le pide cerrar')
+  // Dos veces se ejecuta; la 3.ª y la 4.ª se bloquean (repetidas) y la siguiente va sin herramientas, a cerrar.
+  assert.equal(vistos.length, 4, 'la misma llamada una y otra vez no gira para siempre')
+  assert.ok(!vistos.some((v) => v.some((m) => m.role === 'system' && /cerrá con lo que ya tenés|Llevás \d+ vueltas/.test(m.content))), 'nadie le pide cortar por cantidad')
+  const ms = C.mensajes(db, c.id)
+  assert.match(ms.filter((m) => m.rol === 'herramienta').at(-1)!.texto!, /Ya hiciste exactamente esta llamada/)
 })
 
 test('Telegram: un 429 espera lo que pide retry_after; el último mensaje procesado queda en la base (un relevo no contesta dos veces)', async () => {

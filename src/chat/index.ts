@@ -11,7 +11,7 @@ import { anotarUso } from '../uso.ts'
 import { afirmaAccion, correccionesParaPrompt, pareceCorreccion, registrarCorreccion } from './correcciones.ts'
 import { armarHistorial } from './historial.ts'
 import { comoTexto } from './adjuntos.ts'
-import { fechaLocal, type Db } from '../db.ts'
+import { ajuste, fechaLocal, type Db } from '../db.ts'
 import { anotar } from '../decisiones.ts'
 import { CLASES } from '../clases.ts'
 import { asientos, especializacion } from '../auditor.ts'
@@ -43,9 +43,14 @@ import { archivoRelevante } from '../semantica.ts'
 import { vozPara } from '../personalidad.ts'
 
 export const MASTROPIERO = 'mastropiero'
-const MAX_VUELTAS = 8
-/** Desde esta vuelta se le pide que cierre con lo que tiene. */
-const AVISO_VUELTAS = 5
+/**
+ * Sin tope de herramientas por turno (Fragua #190): el único límite es un presupuesto de tokens del turno (ajuste
+ * chat_tokens_turno, 2 millones por defecto). Al 80 % se le pide que vaya cerrando; si se agota, contesta qué completó
+ * y cuáles son los pasos que faltan. Lo que sí se corta es el bucle: la misma herramienta con los mismos argumentos
+ * por tercera vez.
+ */
+const TOKENS_TURNO = 2_000_000
+const tokensDelTurno = (db: Db) => Math.max(50_000, Number(ajuste(db, 'chat_tokens_turno')) || TOKENS_TURNO)
 /** Lo que ya leyó en una vuelta anterior del mismo turno viaja recortado a esto. */
 export const RECORTE_YA_LEIDO = 1500
 
@@ -441,22 +446,41 @@ async function bucle(t: Turno): Promise<string> {
   const conv = [...t.previos]
   const desde = conv.length
   const clase = t.clase === 'mastropiero' || !cadena(t.clase).length || t.clase === 'vectorizador' ? 'mastropiero' : t.clase
-  for (let vuelta = 0; vuelta < MAX_VUELTAS; vuelta++) {
+  const presupuesto = tokensDelTurno(t.db)
+  let gastados = 0
+  const repetidas = new Map<string, number>()
+  let soloRepetidas = 0 // vueltas seguidas en que todo lo que pidió era una repetición bloqueada
+  for (let vuelta = 0; ; vuelta++) {
     if (t.vivo) Object.assign(t.vivo, { borrador: '', herramienta: null, argumentos: null })
     if (vuelta > 0 && t.nuevos) conv.push(...t.nuevos())
     recortarYaLeido(conv, desde)
-    const cierre = vuelta >= AVISO_VUELTAS ? [{ role: 'system', content: `Llevás ${vuelta} vueltas de herramientas en este turno: cerrá con lo que ya tenés y contestá (como mucho una vuelta más).` }] : []
+    const agotado = gastados >= presupuesto || soloRepetidas >= 2
+    const cierre = agotado
+      ? [{ role: 'system', content: soloRepetidas >= 2 && gastados < presupuesto ? 'Estás repitiendo las mismas llamadas. Sin más herramientas: contestá con lo que ya tenés y decí concretamente qué te falta y por qué no salió.' : 'Se terminó el presupuesto de tokens de este turno. Sin más herramientas: decí en pocas líneas qué completaste y cuáles son los pasos concretos que faltan (con nombre), y que seguís en cuanto él diga «seguí». No le devuelvas la pelota con un «decime cómo seguimos».' }]
+      : gastados >= presupuesto * 0.8 ? [{ role: 'system', content: 'Te queda poco presupuesto en este turno: priorizá lo que falta para terminar y, si no llegás, decí qué quedó pendiente.' }] : []
     const r = await llamarModelo({ db: t.db, clase, agenteId: t.agenteId, modelos: t.modelos }, {
-      mensajes: [{ role: 'system', content: t.sistema }, ...conv, ...cierre], herramientas: esquemas(t.grupos ? activas(t.hs, t.grupos) : t.hs), temperatura: 0.5, maxTokens: 4096,
+      mensajes: [{ role: 'system', content: t.sistema }, ...conv, ...cierre], herramientas: agotado ? [] : esquemas(t.grupos ? activas(t.hs, t.grupos) : t.hs), temperatura: 0.5, maxTokens: 4096,
     }, t.vivo ? (parcial) => (t.vivo!.borrador = parcial) : undefined)
+    gastados += r.tokens || 0
     t.alGuardar({ rol: 'asistente', texto: r.texto || null, llamadas: r.llamadas, razonamiento: r.razonamiento, modelo: r.modelo, tokens: r.tokens })
     if (t.vivo) t.vivo.borrador = ''
     const asistente: Record<string, unknown> = { role: 'assistant', content: r.texto }
     if (r.llamadas.length) asistente.tool_calls = r.llamadas.map((l) => ({ id: l.id, type: 'function', function: { name: l.nombre, arguments: l.argumentos } }))
     if (r.razonamiento) asistente.reasoning_content = r.razonamiento
     conv.push(asistente)
-    if (!r.llamadas.length) return r.texto
+    if (!r.llamadas.length || agotado) return r.texto
+    let bloqueadas = 0
     for (const l of r.llamadas) {
+      // El bucle: la misma llamada (herramienta y argumentos) por tercera vez no se ejecuta; se le avisa.
+      const firma = `${l.nombre}|${l.argumentos}`
+      repetidas.set(firma, (repetidas.get(firma) ?? 0) + 1)
+      if ((repetidas.get(firma) ?? 0) >= 3) {
+        const aviso = JSON.stringify({ error: 'Ya hiciste exactamente esta llamada dos veces en este turno y dio lo mismo: no la repitas. Usá lo que ya tenés o probá otro camino.' })
+        t.alGuardar({ rol: 'herramienta', texto: aviso, llamadaId: l.id, herramienta: l.nombre, resumen: null, deshacer: null })
+        conv.push({ role: 'tool', tool_call_id: l.id, content: aviso })
+        bloqueadas++
+        continue
+      }
       if (t.vivo) {
         t.vivo.herramienta = l.nombre
         try {
@@ -470,10 +494,8 @@ async function bucle(t: Turno): Promise<string> {
       t.alGuardar({ rol: 'herramienta', texto: contenido, llamadaId: l.id, herramienta: l.nombre, resumen: x.resumen, deshacer: x.inversa ?? null })
       conv.push({ role: 'tool', tool_call_id: l.id, content: contenido })
     }
+    soloRepetidas = bloqueadas === r.llamadas.length ? soloRepetidas + 1 : 0
   }
-  const corte = 'Corté acá: fueron demasiadas vueltas de herramientas en un solo turno. Decime cómo seguimos.'
-  t.alGuardar({ rol: 'asistente', texto: corte })
-  return corte
 }
 
 /** Un agente contesta un mensaje suelto (lo usa Mastropiero con hablar_con_agente). */
