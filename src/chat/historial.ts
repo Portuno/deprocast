@@ -14,7 +14,8 @@
  * El diario no se resume (solo se elide). No hay almacén para «recuperar» lo elidido: si hace falta, la herramienta se
  * vuelve a llamar (el paper muestra que recuperar no paga).
  */
-import type { Db } from '../db.ts'
+import { fechaLocal, type Db } from '../db.ts'
+import { diaSemana } from '../zona.ts'
 import { llamarModelo } from '../modelo.ts'
 import type { Mensaje } from './index.ts'
 import { comoTexto as imagenComoTexto, conImagenes } from './adjuntos.ts'
@@ -55,9 +56,15 @@ function bloques(ms: Mensaje[]): Bloque[] {
   return out
 }
 
-function aModelo(b: Bloque, o: { reciente: boolean; turnoEnCurso: boolean; verImagenes?: boolean }): MsjModelo[] {
+function aModelo(b: Bloque, o: { reciente: boolean; turnoEnCurso: boolean; verImagenes?: boolean; hoy?: string }): MsjModelo[] {
   return b.mensajes.map((m): MsjModelo => {
-    if (m.rol === 'operador') return { role: 'user', content: o.verImagenes ? conImagenes(m.texto ?? '') : imagenComoTexto(m.texto ?? '') }
+    if (m.rol === 'operador') {
+      const content = o.verImagenes ? conImagenes(m.texto ?? '') : imagenComoTexto(m.texto ?? '')
+      // Lo de un día anterior lleva su fecha y hora absolutas (Fragua #214): no se confunde con hoy.
+      const dia = m.en > 1e12 ? fechaLocal(m.en) : null // sin hora real (pruebas, importados): sin fecha
+      if (dia && o.hoy && dia !== o.hoy && typeof content === 'string') return { role: 'user', content: `[${dia} ${new Date(m.en).toTimeString().slice(0, 5)} · día anterior] ${content}` }
+      return { role: 'user', content }
+    }
     if (m.rol === 'herramienta') {
       const t = m.texto ?? ''
       return { role: 'tool', tool_call_id: m.llamadaId, content: o.reciente ? recorte(t, TOPE_VENTANA_HERRAMIENTA) : t.length > ELIDIR_DESDE ? stub(t.length) : t }
@@ -99,19 +106,35 @@ const comoTexto = (bs: Bloque[]) => bs.flatMap((b) => b.mensajes).map((m) => {
  * Arma el historial para el próximo llamado. `cid` sirve para recordar el resumen (null: sin resumen recordado);
  * `resumirViejo` en false (el diario) solo elide y, si hace falta, descarta.
  */
-export async function armarHistorial(db: Db, ms: Mensaje[], o: { cid?: number | null; resumirViejo?: boolean; verImagenes?: boolean } = {}): Promise<MsjModelo[]> {
+export async function armarHistorial(db: Db, ms: Mensaje[], o: { cid?: number | null; resumirViejo?: boolean; verImagenes?: boolean; ahora?: number } = {}): Promise<MsjModelo[]> {
   const bs = bloques(ms)
+  const hoy = fechaLocal(o.ahora ?? Date.now())
   // La ventana reciente arranca en el anteúltimo mensaje del operador (sus dos últimos turnos).
   const operadores = bs.map((b, i) => (b.mensajes[0].rol === 'operador' ? i : -1)).filter((i) => i >= 0)
   const inicioReciente = operadores.length >= 2 ? operadores.at(-2)! : operadores.length ? operadores[0] : Math.max(0, bs.length - 1)
   const ultimoOperador = operadores.at(-1) ?? -1
   let medio = bs.slice(0, inicioReciente)
   // Las imágenes se ven solo en el mensaje que se acaba de mandar; las anteriores viajan como su descripción.
-  const reciente = bs.slice(inicioReciente).flatMap((b, k) => aModelo(b, { reciente: true, turnoEnCurso: inicioReciente + k > ultimoOperador, verImagenes: o.verImagenes && inicioReciente + k === ultimoOperador }))
+  const ventana = bs.slice(inicioReciente)
+  const reciente = ventana.map((b, k) => aModelo(b, { reciente: true, turnoEnCurso: inicioReciente + k > ultimoOperador, verImagenes: o.verImagenes && inicioReciente + k === ultimoOperador, hoy }))
+  // Fragua #214: donde cambia el día, una marca con la fecha absoluta. Lo de días anteriores queda aparte y dicho como
+  // tal; si todo es de hoy, no se agrega nada.
+  const marcaDia = (dia: string) => ({ role: 'system', content: dia === hoy
+    ? `— Desde acá, mensajes de hoy (${diaSemana(hoy)}, ${hoy}). Lo de arriba es de días anteriores. —`
+    : `— Mensajes del ${diaSemana(dia)} (${dia}): día anterior, no es de hoy. Una hora o una reunión que se nombre acá es de ese día. —` })
+  const conDias = (lista: { b: Bloque; ms: MsjModelo[] }[]) => {
+    let previo: string | null = null
+    return lista.flatMap(({ b, ms: x }) => {
+      const en = b.mensajes[0].en
+      const dia = en > 1e12 ? fechaLocal(en) : previo
+      const marca = dia && dia !== previo && (dia !== hoy || previo !== null) ? [marcaDia(dia)] : []
+      previo = dia
+      return [...marca, ...x]
+    })
+  }
   const armar = (resumen: string | null) => [
     ...(resumen ? [{ role: 'system', content: `Resumen de lo anterior de esta conversación (lo armaste vos para no perder el hilo):\n${resumen}` }] : []),
-    ...medio.flatMap((b) => aModelo(b, { reciente: false, turnoEnCurso: false })),
-    ...reciente,
+    ...conDias([...medio.map((b) => ({ b, ms: aModelo(b, { reciente: false, turnoEnCurso: false, hoy }) })), ...ventana.map((b, k) => ({ b, ms: reciente[k] }))]),
   ]
   let resumen: string | null = null
   // Un resumen ya hecho: lo que cubre sale del medio.

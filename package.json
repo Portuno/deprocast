@@ -14,6 +14,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "doctor": "node --disable-warning=ExperimentalWarning src/cli.ts doctor",
     "medir": "node --disable-warning=ExperimentalWarning scripts/medir.ts",
+    "prepare": "node scripts/hooks.ts",
     "probar-voz": "node --disable-warning=ExperimentalWarning scripts/probar-voz.ts",
     "grafo:muestra": "node --disable-warning=ExperimentalWarning scripts/grafo-muestra.ts"
   },

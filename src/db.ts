@@ -1248,6 +1248,15 @@ CREATE TABLE IF NOT EXISTS ubicacion_avisos (
   mision_id INTEGER PRIMARY KEY,
   en INTEGER NOT NULL
 );
+-- Los bloqueos del servidor (Fragua #212): cada vez que algo frenó todo, cuánto y qué estaba corriendo. La autocrítica
+-- los junta por hora y arma (o suma a) una propuesta con la evidencia.
+CREATE TABLE IF NOT EXISTS bloqueos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  en INTEGER NOT NULL,
+  ms INTEGER NOT NULL,
+  durante TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS bloqueos_en ON bloqueos (en);
 -- Los tramos de cada unidad que se destila (Fragua #196): cada uno con su salida, para que un fallo no rehaga todo.
 CREATE TABLE IF NOT EXISTS takeout_tramos (
   pieza_id INTEGER NOT NULL,
@@ -2147,7 +2156,18 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
     ['creditos', 'REAL'], //        …y cuánto costó la llamada
   ],
   propuestas: [
-    ['origen', 'TEXT'], // chat | autocritica
+    ['origen', 'TEXT'], // chat | autocritica | bloqueos
+    // Cómo se cerró (Fragua #211): mano | commit | forja | grupo, y el commit que la cerró (sha, link, autor, fecha) con
+    // el historial de los que la nombraron; los shas que él deshizo no vuelven a cerrarla.
+    ['cerrada_por', 'TEXT'],
+    ['cierre', 'TEXT'],
+    ['cierres', 'TEXT'],
+    ['deshechos', 'TEXT'],
+    ['nota', 'TEXT'], //            lo que falta, si un commit la tocó a medias
+    ['cubierta_por', 'INTEGER'], // Fragua #208: la propuesta del grupo cuya forja la resolvió
+    ['clave', 'TEXT'], //           Fragua #212: bloqueo:<paso>, para sumar en vez de repetir
+    ['evidencia', 'TEXT'], //       Fragua #212: las horas con bloqueos, para decir si mejoró o empeoró
+    ['en_cola', 'INTEGER'], //      Fragua #215: esperando que vuelva el token para forjarse sola
   ],
   proyectos: [
     ['entidad_id', 'INTEGER'], // la entidad tipo proyecto (el espacio de proyecto los junta)
@@ -2169,7 +2189,7 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
     ['nota', 'TEXT'],
   ],
   // La Fragua en la nube (plan v38, fase 2): pull request, el commit que quedó en main y si ya se vigiló.
-  fragua: [['modo', "TEXT NOT NULL DEFAULT 'git'"], ['pr_numero', 'INTEGER'], ['pr_url', 'TEXT'], ['merge_sha', 'TEXT'], ['vigilada', 'INTEGER NOT NULL DEFAULT 0']],
+  fragua: [['modo', "TEXT NOT NULL DEFAULT 'git'"], ['pr_numero', 'INTEGER'], ['pr_url', 'TEXT'], ['merge_sha', 'TEXT'], ['vigilada', 'INTEGER NOT NULL DEFAULT 0'], ['cubre', 'TEXT']],
   // WhatsApp (plan v37): el mensaje crudo y si ya se atendió, para retomar lo que un reinicio cortó.
   whatsapp_vistos: [
     ['crudo', 'TEXT'],

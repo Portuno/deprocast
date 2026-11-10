@@ -58,8 +58,8 @@ import { perfilDeRendimiento, textoDeRendimiento } from './rendimiento.ts'
 import { listarRecomendaciones, recomendar, resolverRecomendacion } from './mentor.ts'
 import { listarPuentes, proponerPuentes, resolverPuente } from './puentes.ts'
 import { aCsv, agregarObra, avisoLibreria, conteos as conteosLibreria, cuadernoDeObra, editarObra, expandiendo, expandirObra, expandirTanda, listarObras, panorama, poblando, poblarLibreria } from './libreria.ts'
-import { esErrorDeCodigo, pasosEnMarcha, registrarError } from './autocritica.ts'
-import { aplicarForja, descartarForja, forjarMejora, leerForja, listarForjas, pasoDeForja, porQueNoSePuedeForjar, ramaActual, retomarFragua } from './fragua.ts'
+import { anotarBloqueo, esErrorDeCodigo, pasosEnMarcha, registrarError } from './autocritica.ts'
+import { aplicarForja, descartarForja, estadoReal, forjarMejora, leerForja, listarForjas, pasoDeForja, porQueNoSePuedeForjar, ramaActual, retomarFragua, type Forja } from './fragua.ts'
 import { borrarCuaderno, charla, componentesDeEntidad, crearCuaderno, guia, haciendo, leerCuaderno, listarCuadernos, notas, preguntar, quitarFuente, sumarFuentes } from './cuadernos.ts'
 import { buscarHibrido, estadoVectores, nivelesDe, vectorizarPendientes } from './semantica.ts'
 import { editarMovimiento, importarCSV, listarMovimientos, registrarMovimiento, resolverSugerido, resumenMes, resumenPorProyecto, ritmoMeta, sugeridos } from './finanzas.ts'
@@ -173,20 +173,25 @@ function marcar(nombre: string): () => void {
   return () => { m.hasta = Date.now() }
 }
 const bloqueos: { en: string; ms: number; durante: string[] }[] = []
+// npm run medir (Fragua #213) lo baja a 200 ms para fallar con lo que en la nube ya molesta.
+const UMBRAL_BLOQUEO = Number(process.env.MASTRO_BLOQUEO_MS) || 1000
+// El tic, a un cuarto del umbral (como mucho medio segundo): con un tic más largo que la traba, la traba no se ve.
+const TIC_VIGIA = Math.min(500, Math.max(20, Math.round(UMBRAL_BLOQUEO / 4)))
 let tic = performance.now()
 setInterval(() => {
   const ahora = performance.now()
-  const atraso = ahora - tic - 500
+  const atraso = ahora - tic - TIC_VIGIA
   tic = ahora
   const t = Date.now()
-  if (atraso > 1000) {
-    const durante = [...new Set([...enMarcha.filter((m) => m.desde <= t && (m.hasta === null || m.hasta >= t - atraso - 600)).map((m) => m.nombre), ...pasosEnMarcha.keys()])]
+  if (atraso > UMBRAL_BLOQUEO) {
+    const durante = [...new Set([...enMarcha.filter((m) => m.desde <= t && (m.hasta === null || m.hasta >= t - atraso - TIC_VIGIA - 100)).map((m) => m.nombre), ...pasosEnMarcha.keys()])]
     bloqueos.push({ en: new Date(t).toISOString(), ms: Math.round(atraso), durante })
     if (bloqueos.length > 15) bloqueos.shift()
     try { registrarError(db, 'lento', `bloqueo de ${Math.round(atraso)} ms (${durante.join(', ') || 'nada anotado'})`) } catch { /* medir no rompe nada */ }
+    anotarBloqueo(db, atraso, durante, t) // Fragua #212: la autocrítica los junta por hora
   }
   for (let i = enMarcha.length - 1; i >= 0; i--) if (enMarcha[i].hasta !== null && t - enMarcha[i].hasta! > 10_000) enMarcha.splice(i, 1)
-}, 500).unref()
+}, TIC_VIGIA).unref()
 // La hora del operador, no la del servidor (la nube corre en UTC): antes de que nada formatee una hora.
 const zona = aplicarZona(db)
 // Adiós a los Cien Días (plan v23): una sola vez, su conocimiento al corpus, respaldo y fuera sus tablas.
@@ -1306,12 +1311,33 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
 
   // La Fragua (forjar corre en segundo plano; aplicar es solo desde acá, con su ok)
-  ['GET', /^\/api\/fragua$/, () => ({ rama: ramaActual(), noSePuede: corta('fragua-puede', 60_000, () => porQueNoSePuedeForjar()), forjas: listarForjas(db).map(({ diff: _, ...f }) => ({ ...f, paso: pasoDeForja.get(f.id) ?? null })), propuestas: db.prepare(`SELECT id, titulo, detalle, area, prioridad, estado FROM propuestas WHERE estado = 'abierta' ORDER BY id DESC`).all() })],
+  ['GET', /^\/api\/fragua$/, async () => {
+    const forjas = listarForjas(db)
+    // La última forja de cada propuesta, con su estado real (Fragua #209), al lado del título.
+    const ultima = new Map<number, Forja>()
+    for (const f of forjas) if (f.propuestaId && !ultima.has(f.propuestaId)) ultima.set(f.propuestaId, f)
+    const forjaDe = (pid: number) => { const f = ultima.get(pid); return f ? { id: f.id, ...estadoReal(f) } : null }
+    const [{ gruposDePropuestas }, { cerradasRecientes }, { estadoToken }] = await Promise.all([import('./fragua-grupos.ts'), import('./fragua-commits.ts'), import('./fragua-token.ts')])
+    return {
+      rama: ramaActual(), noSePuede: corta('fragua-puede', 60_000, () => porQueNoSePuedeForjar()),
+      token: estadoToken(db),
+      forjas: forjas.map(({ diff: _, ...f }) => ({ ...f, paso: pasoDeForja.get(f.id) ?? null, real: estadoReal(f) })),
+      propuestas: (db.prepare(`SELECT id, titulo, detalle, area, prioridad, estado, nota, en_cola, origen FROM propuestas WHERE estado = 'abierta' ORDER BY id DESC`).all() as any[]).map((p) => ({ ...p, enCola: p.en_cola ?? null, forja: forjaDe(p.id) })),
+      grupos: gruposDePropuestas(db),
+      cerradas: cerradasRecientes(db),
+    }
+  }],
   ['GET', /^\/api\/fragua\/(\d+)$/, (_, [f]) => leerForja(db, id(f)) ?? (() => { throw new Error(`No existe la forja ${f}`) })()],
-  ['POST', /^\/api\/fragua$/, (b) => {
+  ['POST', /^\/api\/fragua$/, async (b) => {
     const motivo = porQueNoSePuedeForjar()
     if (motivo) throw new Error(motivo)
-    void forjarMejora(db, { propuestaId: b.propuestaId ? Number(b.propuestaId) : null, pedido: b.pedido || null }).then((f) => {
+    // Token vencido (Fragua #215): la propuesta no se pierde, queda en cola y se forja sola cuando vuelva.
+    const tk = await import('./fragua-token.ts')
+    const token = tk.estadoToken(db)
+    if (token.vencido && b.propuestaId) { tk.encolar(db, Number(b.propuestaId)); return { encolada: true, aviso: token.aviso } }
+    if (token.vencido) throw new Error(`${token.aviso} ${tk.PASOS_RENOVAR}`)
+    const cubre = Array.isArray(b.grupo) ? b.grupo.map(Number).filter(Boolean) : undefined
+    void forjarMejora(db, { propuestaId: b.propuestaId ? Number(b.propuestaId) : null, pedido: b.pedido || null, cubre }).then((f) => {
       const que = f.estado === 'lista' ? 'pasó el typecheck y los tests: está en La Fragua para que la leas y la apliques' : f.estado === 'rota' ? 'quedó hecha pero no pasa los tests' : `no salió (${(f.salida ?? '').slice(0, 160)})`
       mensajeDeMastropiero(db, conversacionHoy(db).id, `La forja #${f.id} ${que}.`)
     }).catch((e) => console.error('  fragua:', e instanceof Error ? e.message : e))
@@ -1320,6 +1346,12 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/fragua\/(\d+)\/aplicar$/, async (_, [f]) => (await import('./fragua.ts')).aprobarForja(db, id(f))],
   ['POST', /^\/api\/fragua\/(\d+)\/revertir$/, async (_, [f]) => (await import('./fragua.ts')).revertirForja(db, id(f))],
   ['POST', /^\/api\/fragua\/(\d+)\/descartar$/, (_, [f]) => descartarForja(db, id(f))],
+  // Cerrada por un commit que no era (Fragua #211): vuelve a abierta y ese commit no la cierra más.
+  ['POST', /^\/api\/propuestas\/(\d+)\/reabrir$/, async (_, [p]) => (await import('./fragua-commits.ts')).reabrirPropuesta(db, id(p))],
+  ['POST', /^\/api\/propuestas\/(\d+)\/cola$/, async (_, [p]) => ((await import('./fragua-token.ts')).sacarDeCola(db, id(p)), { ok: true })],
+  // Las otras del grupo, cubiertas por la principal (Fragua #208).
+  ['POST', /^\/api\/propuestas\/cubrir$/, async (b) => (await import('./fragua-grupos.ts')).cubrirCon(db, Number(b.principal), (Array.isArray(b.ids) ? b.ids : []).map(Number))],
+  ['POST', /^\/api\/fragua\/commits$/, async () => (await import('./fragua-commits.ts')).revisarCommits(db)],
 
   // Economía de agentes
   ['GET', /^\/api\/economia$/, (_, __, q) => ({ semana: q.get('semana') || semanaDe(), tarifas: TARIFAS, resultados: RESULTADOS, tabla: tablaEconomia(db, q.get('semana') || semanaDe()), historia: db.prepare('SELECT semana, COUNT(*) AS agentes, ROUND(SUM(neto), 1) AS neto FROM temporadas GROUP BY semana ORDER BY semana DESC LIMIT 8').all() })],
@@ -1891,7 +1923,7 @@ const servidor = http.createServer(async (req, res) => {
   }
   // Qué versión de la pantalla sirve (pública: para saber si un deploy llegó, sin datos de nadie).
   // vias: qué integraciones tiene cargadas este servidor (solo sí/no, nunca el valor): para saber si una variable nueva de NaN llegó.
-  if (url.pathname === '/version') return void res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ web: VERSION_WEB, commit: process.env.MASTRO_COMMIT ?? null, arranco: ARRANCO, caliente, activo: fondoActivo, vias: { gemini: !!process.env.GEMINI_API_KEY?.trim(), fragua: !!process.env.GITHUB_FRAGUA_TOKEN?.trim(), supadata: !!process.env.SUPADATA_API_KEY?.trim() }, bloqueos: bloqueos.slice(-8) }))
+  if (url.pathname === '/version') return void res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ web: VERSION_WEB, commit: process.env.MASTRO_COMMIT ?? null, arranco: ARRANCO, caliente, activo: fondoActivo, vias: { gemini: !!process.env.GEMINI_API_KEY?.trim(), fragua: !!process.env.GITHUB_FRAGUA_TOKEN?.trim(), supadata: !!process.env.SUPADATA_API_KEY?.trim() }, bloqueos: bloqueos.slice(url.searchParams.has('todos') ? 0 : -8) }))
   if (!autorizado(req) && !['/manifest.webmanifest', '/icono.svg'].includes(url.pathname)) {
     if (url.pathname.startsWith('/api/')) return void res.writeHead(401, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify({ error: 'Falta la clave' }))
     return void res.writeHead(303, { location: '/entrar' }).end()
@@ -2496,6 +2528,21 @@ deFondo(() => {
 // WhatsApp: lo que Mastropiero dice solo también sale por ahí (si escribió en las últimas 24 horas).
 deFondo(() => alDecirSolo((texto) => void import('./whatsapp.ts').then((wa) => wa.decirPorWhatsapp(db, texto)).catch(() => {})))
 // La Fragua en la nube (plan v38, fase 2): lo aprobado que no llegó a correr en 15 minutos, se revierte solo.
+// La Fragua sola (Fragua #211, #212, #215): los commits que nombran propuestas las cierran; el token se mira (avisa
+// antes de que venza y forja lo que quedó en cola cuando vuelve); los bloqueos de la última hora arman su propuesta.
+const avisarFragua = (t: string) => mensajeDeMastropiero(db, conversacionHoy(db).id, t, { canales: true })
+deFondo(() => {
+  const commits = () => { const fin = marcar('fragua-commits'); void import('./fragua-commits.ts').then((c) => c.revisarCommits(db)).catch((e) => console.error('  fragua commits:', e instanceof Error ? e.message : e)).finally(fin) }
+  setTimeout(commits, 90_000).unref()
+  setInterval(commits, 10 * 60_000).unref()
+  const token = () => { const fin = marcar('fragua-token'); void import('./fragua-token.ts').then(async (tk) => {
+    await tk.revisarToken(db, Date.now(), avisarFragua)
+    await tk.forjarCola(db, (pid) => forjarMejora(db, { propuestaId: pid }).then((f) => avisarFragua(`La propuesta #${pid} estaba en cola por el token: ya se forjó (forja #${f.id}, ${estadoReal(f)?.texto ?? f.estado}).`)))
+  }).catch((e) => console.error('  fragua token:', e instanceof Error ? e.message : e)).finally(fin) }
+  setTimeout(token, 120_000).unref()
+  setInterval(token, 3 * 3_600_000).unref()
+  setInterval(() => { void import('./autocritica.ts').then((a) => { const r = a.propuestaPorBloqueos(db); if (r?.nueva) console.log(`  ⚒ bloqueos → propuesta #${r.id}`) }).catch(() => {}) }, 60 * 60_000).unref()
+})
 deFondo(() => setInterval(() => { const fin = marcar('fragua-vigia'); void import('./fragua-nube.ts').then((f) => f.vigilarAprobadas(db, Date.now(), (t) => mensajeDeMastropiero(db, conversacionHoy(db).id, t, { canales: true }))).catch((e) => console.error('  fragua vigía:', e instanceof Error ? e.message : e)).finally(fin) }, 5 * 60_000).unref())
 // El rescate (plan v38, fase 6): cada hora se borran las copias del servidor ya procesadas y subidas al Drive.
 deFondo(() => { setInterval(() => void import('./rescate.ts').then((r) => r.limpiar(db)).catch(() => {}), 3_600_000).unref() })

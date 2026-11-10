@@ -1,0 +1,12 @@
+#!/bin/sh
+# Fragua #213: antes de cada despliegue (un push a main, que la nube baja sola), medir a la escala de la nube.
+# Si algo traba el servidor más de 200 ms o una ruta pasa el doble de su línea de base, no se sube.
+# Para forzarlo igual: MEDIR_SALTEAR=1 git push
+hay=""
+while read local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in refs/heads/main) hay=1 ;; esac
+done
+[ -z "$hay" ] && exit 0
+if [ "$MEDIR_SALTEAR" = "1" ]; then echo "medir: salteado (MEDIR_SALTEAR=1)"; exit 0; fi
+echo "medir: antes de desplegar, a la escala de la nube…"
+npm run medir --silent || { echo "✖ npm run medir falló: no se despliega. Arreglalo, o MEDIR_SALTEAR=1 git push para forzar."; exit 1; }

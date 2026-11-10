@@ -33,17 +33,51 @@ async function refrescarFragua() {
   try { d = await api('/fragua') } catch (e) { return error(e) }
   const haciendo = d.forjas.some((f) => f.estado === 'haciendo')
   const fecha = (ms) => new Date(ms).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-  cont.innerHTML = `${d.noSePuede ? `<p class="aviso">${esc(d.noSePuede)}</p>` : ''}
-    <section class="seccion">
-      <div class="seccion-cab"><h3>Propuestas abiertas · ${d.propuestas.length}</h3><span class="tenue">Las deja Mastropiero cuando ve algo para mejorar (o se las pedís en el chat). Forjar una la convierte en un cambio para revisar.</span></div>
-      ${d.propuestas.length ? `<div class="tarjetas">${d.propuestas.map((p) => `
+  const tk = d.token ?? {}
+  const vencido = !!tk.vencido
+  // Las agrupadas por causa (Fragua #208) se muestran dentro de su grupo, no sueltas.
+  const grupos = d.grupos ?? []
+  const enGrupo = new Set(grupos.flatMap((g) => g.ids))
+  const porId = new Map(d.propuestas.map((p) => [p.id, p]))
+  const sueltas = d.propuestas.filter((p) => !enGrupo.has(p.id))
+  // Dónde está lo forjado de cada una (Fragua #209): en rama, aplicada en la nube, descartada… y si lleva una semana esperando.
+  const lineaForja = (f) => f ? `<p class="tenue chico fr-estado">⚒ Forja #${f.id}: ${esc(f.texto)}${f.archivos ? ` · ${f.archivos} archivos` : ''}${f.viejo ? ` · <b class="fr-viejo">hace ${f.dias} días sin aplicar</b>` : ''} <button class="btn btn-chico" data-ver="${f.id}">Ver</button>${f.enlace ? ` <a href="${esc(f.enlace)}" target="_blank" rel="noopener">diff ↗</a>` : ''}</p>` : ''
+  const tarjeta = (p) => `
         <article class="tarjeta" data-prop="${p.id}">
-          <div class="tarjeta-cab">#${p.id}${p.area ? `<span class="chip">${esc(p.area)}</span>` : ''}${p.prioridad ? `<span class="estado-chip ${p.prioridad === 'alta' ? 'vivo' : ''}">${esc(p.prioridad)}</span>` : ''}</div>
+          <div class="tarjeta-cab">#${p.id}${p.area ? `<span class="chip">${esc(p.area)}</span>` : ''}${p.prioridad ? `<span class="estado-chip ${p.prioridad === 'alta' ? 'vivo' : ''}">${esc(p.prioridad)}</span>` : ''}${p.origen === 'bloqueos' ? '<span class="chip" title="La armó sola el vigía de bloqueos">vigía</span>' : ''}</div>
           <h4>${esc(p.titulo)}</h4>
+          ${lineaForja(p.forja)}
+          ${p.nota ? `<p class="tenue chico">◐ ${esc(p.nota)}</p>` : ''}
+          ${p.enCola ? `<p class="tenue chico">⏳ En cola desde ${fecha(p.enCola)}: se forja sola cuando vuelva el token. <button class="btn btn-chico" data-sacar-cola>Sacar de la cola</button></p>` : ''}
           ${p.detalle ? `<p class="recorte" title="Tocá para ver todo">${esc(p.detalle)}</p>` : ''}
-          <div class="tarjeta-pie">${d.noSePuede ? '<button class="btn btn-chico btn-primario" data-copiar title="Copia la propuesta como pedido, para pegarla en Claude Code">Copiar para Claude Code</button>' : `<button class="btn btn-chico btn-primario" data-forjar ${haciendo ? 'disabled title="Hay una forja en curso"' : ''}>⚒ Forjar</button>`}<span class="espacio"></span><button class="btn btn-chico" data-mover title="No es de Deprocast: pasala a un encargo, una idea o un proyecto">Mover a…</button><button class="btn btn-chico" data-hecha title="Ya se resolvió por otro lado: queda como forjada">✓ Ya está</button><button class="btn btn-chico" data-descartar title="Descartar la propuesta">Descartar</button></div>
-        </article>`).join('')}</div>` : '<p class="vacio">No hay propuestas abiertas. Pedí una mejora arriba o contale al chat qué cambiarías.</p>'}
+          <div class="tarjeta-pie">${d.noSePuede ? '<button class="btn btn-chico btn-primario" data-copiar title="Copia la propuesta como pedido, para pegarla en Claude Code">Copiar para Claude Code</button>' : `<button class="btn btn-chico btn-primario" data-forjar ${haciendo && !vencido ? 'disabled title="Hay una forja en curso"' : tk.aviso ? `title="${esc(tk.aviso)}"` : ''}>${vencido ? '⏳ A la cola' : '⚒ Forjar'}</button>`}<span class="espacio"></span><button class="btn btn-chico" data-mover title="No es de Deprocast: pasala a un encargo, una idea o un proyecto">Mover a…</button><button class="btn btn-chico" data-hecha title="Ya se resolvió por otro lado: queda como forjada">✓ Ya está</button><button class="btn btn-chico" data-descartar title="Descartar la propuesta">Descartar</button></div>
+        </article>`
+  const cierre = (c) => c.cerradaPor === 'commit' && c.cierre
+    ? `<span class="chip" title="Cerrada sola porque el commit la nombra">por commit</span> ${c.cierre.url ? `<a href="${esc(c.cierre.url)}" target="_blank" rel="noopener"><code>${esc(c.cierre.sha.slice(0, 7))}</code> ↗</a>` : `<code>${esc(c.cierre.sha.slice(0, 7))}</code>`} <small class="tenue">${esc(c.cierre.autor)} · ${esc(String(c.cierre.fecha).slice(0, 10))}</small>`
+    : c.cerradaPor === 'grupo' ? `<span class="chip">cubierta por #${c.cubiertaPor}</span>`
+    : c.cerradaPor === 'forja' ? '<span class="chip">por su forja</span>' : '<span class="chip">a mano</span>'
+  cont.innerHTML = `${d.noSePuede ? `<p class="aviso">${esc(d.noSePuede)}</p>` : ''}
+    ${tk.aviso ? `<div class="aviso"><b>⚠ ${esc(tk.aviso)}</b>${tk.enCola ? ` · ${tk.enCola} en cola` : ''}${tk.pasos ? `<details><summary class="tenue">Cómo renovarlo</summary><p class="chico">${esc(tk.pasos)}</p></details>` : ''}</div>` : ''}
+    ${grupos.length ? `<section class="seccion">
+      <div class="seccion-cab"><h3>Misma causa · ${grupos.length} ${grupos.length === 1 ? 'grupo' : 'grupos'}</h3><span class="tenue">Propuestas que son el mismo problema con otro nombre: se arreglan una vez. Forjar el grupo escribe el arreglo común; al aplicarse, las otras quedan cubiertas.</span></div>
+      ${grupos.map((g) => `<div class="fr-grupo" data-grupo="${g.ids.join(',')}" data-principal="${g.principal}">
+        <div class="fila"><b>${esc(g.nombre)}</b><span class="tenue chico">${g.ids.map((x) => `#${x}`).join(' · ')}</span><span class="espacio"></span>${d.noSePuede ? '' : `<button class="btn btn-chico btn-primario" data-forjar-grupo ${haciendo && !vencido ? 'disabled' : ''}>⚒ Forjar el grupo</button>`}<button class="btn btn-chico" data-cubrir title="El arreglo común ya está: cierra las otras como cubiertas por #${g.principal}">Cubrir con #${g.principal}</button></div>
+        <div class="tarjetas">${g.ids.map((x) => porId.get(x)).filter(Boolean).map(tarjeta).join('')}</div>
+      </div>`).join('')}
+    </section>` : ''}
+    <section class="seccion">
+      <div class="seccion-cab"><h3>Propuestas abiertas · ${d.propuestas.length}</h3><span class="tenue">Las deja Mastropiero cuando ve algo para mejorar (o se las pedís en el chat). Forjar una la convierte en un cambio para revisar. Un commit que dice «Fragua #N» la cierra sola.</span></div>
+      ${sueltas.length ? `<div class="tarjetas">${sueltas.map(tarjeta).join('')}</div>` : d.propuestas.length ? '' : '<p class="vacio">No hay propuestas abiertas. Pedí una mejora arriba o contale al chat qué cambiarías.</p>'}
     </section>
+    ${(d.cerradas ?? []).length ? `<section class="seccion"><details>
+      <summary><h3 class="en-linea">Cerradas en las últimas dos semanas · ${d.cerradas.length}</h3> <span class="tenue">las que cerró un commit se pueden reabrir</span></summary>
+      ${d.cerradas.map((c) => `<div class="forja-fila" data-cerrada="${c.id}">
+        <span class="num">#${c.id}</span>
+        <span class="que"><b title="${esc(c.titulo)}">${esc(c.titulo)}</b><small>${c.estado === 'descartada' ? 'descartada · ' : ''}${fecha(c.resueltaEn)}</small></span>
+        <span>${cierre(c)}</span>
+        ${c.cerradaPor === 'commit' || c.cerradaPor === 'grupo' ? '<button class="btn btn-chico" data-reabrir title="No era el commit que correspondía: vuelve a abierta">Reabrir</button>' : '<span></span>'}
+      </div>`).join('')}
+    </details></section>` : ''}
     <section class="seccion">
       <div class="seccion-cab"><h3>Forjas</h3><span class="tenue">${d.rama ? `Se aplican sobre la rama <code>${esc(d.rama)}</code>.` : ''}</span></div>
       ${d.forjas.map((f) => {
@@ -51,7 +85,7 @@ async function refrescarFragua() {
         const titulo = (f.pedido || '').split('\n')[0]
         return `<div class="forja-fila">
           <span class="num">#${f.id}</span>
-          <span class="que"><b title="${esc(titulo)}">${esc(titulo)}</b><small>${fecha(f.creadaEn)}${f.archivos?.length ? ` · ${f.archivos.map(esc).join(', ')}` : ''}${f.paso ? ` · <span class="pensando">${esc(f.paso)}…</span>` : ''}</small></span>
+          <span class="que"><b title="${esc(titulo)}">${esc(titulo)}</b><small>${fecha(f.creadaEn)}${f.real ? ` · ${esc(f.real.texto)}${f.real.viejo ? ` · <b>hace ${f.real.dias} días sin aplicar</b>` : ''}` : ''}${f.archivos?.length ? ` · ${f.archivos.map(esc).join(', ')}` : ''}${f.paso ? ` · <span class="pensando">${esc(f.paso)}…</span>` : ''}</small></span>
           <span class="estado-chip ${clase}">${txt}</span>
           ${['lista', 'rota', 'fallo', 'aplicada', 'revertida'].includes(f.estado) ? `<button class="btn btn-chico" data-ver="${f.id}">Ver</button>` : '<span></span>'}
         </div>`
@@ -69,7 +103,15 @@ ${p.detalle ?? ''}
 Revisá si sigue vigente en el código, implementala con tests y marcala hecha.`); toast(`#${id} copiada<small>Pegala en Claude Code.</small>`, 'suave') } catch (e) { error(e) }
     }
     const forjar = $('[data-forjar]', el)
-    if (forjar) forjar.onclick = async () => { try { await api('/fragua', { propuestaId: id }); toast('A la fragua<small>Te aviso en Hoy cuando termine.</small>'); refrescarFragua() } catch (e) { error(e) } }
+    if (forjar) forjar.onclick = async () => {
+      try {
+        const r = await api('/fragua', { propuestaId: id })
+        toast(r.encolada ? `#${id} en cola<small>Se forja sola cuando vuelva el token.</small>` : 'A la fragua<small>Te aviso en Hoy cuando termine.</small>')
+        refrescarFragua()
+      } catch (e) { error(e) }
+    }
+    const sacar = $('[data-sacar-cola]', el)
+    if (sacar) sacar.onclick = async () => { try { await api(`/propuestas/${id}/cola`, {}); refrescarFragua() } catch (e) { error(e) } }
     $('[data-descartar]', el).onclick = async () => { try { await api(`/propuestas/${id}`, { estado: 'descartada' }); refrescarFragua() } catch (e) { error(e) } }
     $('[data-mover]', el).onclick = async () => {
       // No es de Deprocast (plan v38): a un encargo (Para delegar), una idea o una nota de un proyecto.
@@ -84,6 +126,22 @@ Revisá si sigue vigente en el código, implementala con tests y marcala hecha.`
     if (det) det.onclick = () => det.classList.toggle('abierto')
   })
   $$('[data-ver]', cont).forEach((b) => (b.onclick = () => verForja(Number(b.dataset.ver), d.rama)))
+  $$('[data-grupo]', cont).forEach((g) => {
+    const ids = g.dataset.grupo.split(',').map(Number)
+    const principal = Number(g.dataset.principal)
+    const forjarG = $('[data-forjar-grupo]', g)
+    if (forjarG) forjarG.onclick = async () => {
+      try { const r = await api('/fragua', { propuestaId: principal, grupo: ids }); toast(r.encolada ? 'En cola<small>Se forja sola cuando vuelva el token.</small>' : `El grupo a la fragua<small>Un arreglo para ${ids.length} propuestas.</small>`); refrescarFragua() } catch (e) { error(e) }
+    }
+    $('[data-cubrir]', g).onclick = async () => {
+      if (!(await confirmar(`¿Cerrar ${ids.length - 1} como cubiertas por #${principal}?`, { detalle: 'Queda el rastro de cuál las absorbió; se pueden reabrir.', si: 'Cubrir' }))) return
+      try { await api('/propuestas/cubrir', { principal, ids }); toast(`Cubiertas por #${principal}`, 'suave'); refrescarFragua() } catch (e) { error(e) }
+    }
+  })
+  $$('[data-cerrada]', cont).forEach((fila) => {
+    const b = $('[data-reabrir]', fila)
+    if (b) b.onclick = async () => { try { await api(`/propuestas/${fila.dataset.cerrada}/reabrir`, {}); toast(`#${fila.dataset.cerrada} reabierta`, 'suave'); refrescarFragua() } catch (e) { error(e) } }
+  })
   clearTimeout(fraguaEspera)
   if (haciendo) fraguaEspera = setTimeout(() => cuandoSeVea(() => { if (vista === 'fragua') refrescarFragua() }), 5000)
 }

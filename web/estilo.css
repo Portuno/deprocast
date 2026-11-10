@@ -1616,6 +1616,14 @@ details.puentes > summary { cursor: pointer; padding: 6px 0; }
 .forja-fila .que b { display: block; font-weight: 500; font-size: var(--t-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .forja-fila .que small { color: var(--debil); font-size: var(--t-2); }
 @media (max-width: 720px) { .forja-fila { grid-template-columns: minmax(0, 1fr) auto; } .forja-fila .num { display: none; } }
+/* La Fragua: los grupos por causa, lo cerrado por commit y el estado real de cada forja */
+.fr-grupo { border: 1px solid var(--linea); border-radius: var(--r-m); padding: 10px 12px; background: var(--panel-2); }
+.fr-grupo + .fr-grupo { margin-top: 10px; }
+.fr-grupo > .fila { gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.fr-estado { margin: 2px 0 6px; }
+.fr-viejo { color: var(--aviso); font-weight: 600; }
+details > summary h3.en-linea { display: inline; margin: 0; }
+
 
 /* Librería: el recorrido y la planilla */
 .lib-flujo { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 10px; margin: 6px 0 12px; }

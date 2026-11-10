@@ -137,11 +137,14 @@ export async function deduplicarMemoria(db: Db, umbral = 0.75, umbralSentido = 0
   if (!vs.some((r) => r.id > hasta)) return { grupos: 0, archivados: 0 }
   // Si ya tienen vector (el reproceso), también se juntan los que dicen lo mismo con otras palabras.
   const vecs = vectoresDe(db, 'memoria')
+  await new Promise<void>((ok) => setImmediate(ok))
   const datos = vs.map((r) => ({ r, n: normal(r.texto), p: palabras(r.texto), num: numeros(r.texto), v: vecs.get(r.id) }))
+  await new Promise<void>((ok) => setImmediate(ok))
   const padre = vs.map((_, i) => i)
   const raiz = (i: number): number => (padre[i] === i ? i : (padre[i] = raiz(padre[i])))
   const porNumeros = new Map<string, number[]>()
-  datos.forEach((d, i) => porNumeros.set(d.num, [...(porNumeros.get(d.num) ?? []), i]))
+  // Empujando en el lugar: con spread era cuadrático (miles en el mismo grupo: medio segundo trabado, lo vio npm run medir).
+  datos.forEach((d, i) => { const xs = porNumeros.get(d.num); if (xs) xs.push(i); else porNumeros.set(d.num, [i]) })
   let pares = 0
   for (const idx of porNumeros.values()) {
     for (let x = 0; x < idx.length; x++) {
@@ -155,18 +158,25 @@ export async function deduplicarMemoria(db: Db, umbral = 0.75, umbralSentido = 0
   }
   fijarAjuste(db, 'memoria_dedup_hasta', String(vs.at(-1)!.id))
   const grupos = new Map<number, Recuerdo[]>()
-  vs.forEach((r, i) => grupos.set(raiz(i), [...(grupos.get(raiz(i)) ?? []), r]))
-  let archivados = 0
+  vs.forEach((r, i) => { const k = raiz(i); const xs = grupos.get(k); if (xs) xs.push(r); else grupos.set(k, [r]) })
   let n = 0
-  const arch = db.prepare(`UPDATE memoria SET estado = 'archivada', reemplaza = COALESCE(reemplaza, ?) WHERE id = ?`)
+  const aArchivar: [number, number][] = []
   for (const g of grupos.values()) {
     if (g.length < 2) continue
     n++
     // Queda el que él ya revisó; si no, el más completo; a igualdad, el más nuevo.
     const queda = [...g].sort((a, b) => Number(b.revisada) - Number(a.revisada) || b.texto.length - a.texto.length || b.id - a.id)[0]
-    for (const r of g) if (r.id !== queda.id) (arch.run(queda.id, r.id), archivados++)
+    for (const r of g) if (r.id !== queda.id) aArchivar.push([queda.id, r.id])
   }
-  return { grupos: n, archivados }
+  // De a 200 por transacción, cediendo entre tandas: una escritura suelta por recuerdo trababa medio segundo (medir).
+  const arch = db.prepare(`UPDATE memoria SET estado = 'archivada', reemplaza = COALESCE(reemplaza, ?) WHERE id = ?`)
+  for (let i = 0; i < aArchivar.length; i += 200) {
+    const propia = !(db as { isTransaction?: boolean }).isTransaction // si ya hay una abierta, se escribe adentro de esa
+    if (propia) db.exec('BEGIN')
+    try { for (const [q, id] of aArchivar.slice(i, i + 200)) arch.run(q, id); if (propia) db.exec('COMMIT') } catch (e) { if (propia) db.exec('ROLLBACK'); throw e }
+    await new Promise<void>((ok) => setImmediate(ok))
+  }
+  return { grupos: n, archivados: aArchivar.length }
 }
 
 export function revisar(db: Db, id: number) {

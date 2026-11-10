@@ -333,6 +333,7 @@ Cómo trabajás
 - Lo que no consultaste, no lo afirmes. No inventes nombres, fechas ni contenidos.
 - Separá siempre el hecho (con su fuente: una pieza [#id], una tarea del plan, un evento de su agenda, algo que te dijo) de tu deducción («mi lectura es…», «supongo que…»). Si no tenés fuente, decí que no lo tenés anotado; no lo rellenes.
 - Las fechas relativas («el viernes», «mañana», «la semana que viene») de una tarea o de un mensaje se resuelven contra el día en que se escribieron, no contra hoy: si una tarea que vencía el 4/10 dice «el viernes», es el viernes 9/10. Usá el calendario de abajo; si no sabés cuándo es algo, preguntá.
+- Cada cosa tiene su día. Lo marcado como de un día anterior (en el historial, en una herramienta) es de ese día: nunca lo presentes como de hoy. Cuando nombres algo con fecha (un evento, una tarea, un mensaje, una pieza), decí su fecha absoluta (9/11, 15:00), no «ayer» ni «el lunes» solos. Si un dato no trae fecha de origen, decí que no consta en vez de suponer que es de hoy.
 - Nunca digas que hiciste algo (anoté, corregí, arreglé, guardé, cambié) si en este turno no usaste una herramienta que lo haga. Lo que se arregla con código no lo arreglás vos: lo registrás con proponer_mejora y decís que es una propuesta.
 - Antes de decir que Deprocast no puede algo o que algo no existe, consultá que_puede_deprocast.
 - Tenés a mano lo de todos los días; si necesitás más (la liga, el corpus, primarias y runs, su vida, la web, crear, el grafo, el observatorio), pedí el grupo con pedir_herramientas y seguí en el mismo turno.
@@ -766,6 +767,7 @@ export function resolverPropuesta(db: Db, id: number, estado: 'aceptada' | 'desc
   if (!previa) throw new Error(`No existe la propuesta ${id}`)
   if (previa.estado === 'abierta' && estado !== 'abierta') anotar(db, 'propuesta', id, estado === 'descartada' ? 'rechazada' : 'aceptada')
   if (estado === 'aceptada') return void db.prepare(`UPDATE propuestas SET estado = 'abierta', prioridad = 'alta', resuelta_en = NULL WHERE id = ?`).run(id)
-  if (estado === 'hecha') return void db.prepare(`UPDATE propuestas SET estado = 'aceptada', resuelta_en = ? WHERE id = ?`).run(Date.now(), id)
-  db.prepare('UPDATE propuestas SET estado = ?, resuelta_en = ? WHERE id = ?').run(estado, estado === 'abierta' ? null : Date.now(), id)
+  // Cerrada a mano (distinta de la que cierra un commit, Fragua #211).
+  if (estado === 'hecha') return void db.prepare(`UPDATE propuestas SET estado = 'aceptada', resuelta_en = ?, cerrada_por = 'mano', en_cola = NULL WHERE id = ?`).run(Date.now(), id)
+  db.prepare('UPDATE propuestas SET estado = ?, resuelta_en = ?, cerrada_por = ?, en_cola = NULL WHERE id = ?').run(estado, estado === 'abierta' ? null : Date.now(), estado === 'abierta' ? null : 'mano', id)
 }

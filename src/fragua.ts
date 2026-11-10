@@ -10,7 +10,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { type Db } from './db.ts'
+import { fijarAjuste, type Db } from './db.ts'
 import { pedirJson } from './modelo.ts'
 import { abrirPullRequest, borrarCopia, cerrarPullRequest, diffDe, githubDisponible, mergearPullRequest, prepararCopia, pruebaDeHumo, revertirEnMain } from './fragua-nube.ts'
 
@@ -31,13 +31,51 @@ export type Forja = {
   salida: string | null
   creadaEn: number
   resueltaEn: number | null
+  /** La nube confirmó que corre el commit aprobado (o que se revirtió). */
+  vigilada: boolean
+  /** Fragua #208: las otras propuestas del grupo que esta forja resuelve. */
+  cubre: number[]
 }
 
 const deFila = (r: any): Forja => ({
   id: r.id, propuestaId: r.propuesta_id, pedido: r.pedido, rama: r.rama, estado: r.estado, resumen: r.resumen, archivos: r.archivos ? JSON.parse(r.archivos) : [],
   diff: r.diff, salida: r.salida, creadaEn: r.creada_en, resueltaEn: r.resuelta_en,
   modo: r.modo === 'pr' ? 'pr' : 'git', prNumero: r.pr_numero ?? null, prUrl: r.pr_url ?? null, mergeSha: r.merge_sha ?? null,
+  vigilada: r.vigilada === 1, cubre: r.cubre ? JSON.parse(r.cubre) : [],
 })
+
+/**
+ * El estado real de una forja (Fragua #209): no solo «forjada», sino dónde está el cambio. En rama (esperando su ok,
+ * con o sin los tests pasados), aplicada (en su compu, o en la nube y corriendo), descartada, revertida o no salió. Una
+ * que pasó los tests y lleva más de una semana sin aplicarse queda marcada.
+ */
+export function estadoReal(f: Pick<Forja, 'estado' | 'modo' | 'rama' | 'prNumero' | 'prUrl' | 'mergeSha' | 'vigilada' | 'creadaEn' | 'resueltaEn' | 'archivos'>, ahora = Date.now()) {
+  const dias = Math.floor((ahora - f.creadaEn) / 86_400_000)
+  const donde = f.modo === 'pr' ? (f.prNumero ? `pull request #${f.prNumero}` : 'copia en la nube') : `rama ${f.rama}`
+  const base = { donde, archivos: f.archivos.length, enlace: f.prUrl ?? null, dias }
+  switch (f.estado) {
+    case 'haciendo': return { ...base, clave: 'forjando', texto: 'forjándose ahora', pruebas: null, viejo: false }
+    case 'lista': return { ...base, clave: 'en_rama', texto: `en ${donde}, pasa typecheck y tests: falta tu ok`, pruebas: true, viejo: dias >= 7 }
+    case 'rota': return { ...base, clave: 'en_rama', texto: `en ${donde}, no pasa los tests`, pruebas: false, viejo: dias >= 7 }
+    case 'fallo': return { ...base, clave: 'fallo', texto: 'no salió: no hay cambio escrito', pruebas: null, viejo: false }
+    case 'aplicada': return f.modo === 'pr'
+      ? (f.vigilada ? { ...base, clave: 'aplicada', texto: `aplicada en la nube (${f.mergeSha?.slice(0, 7) ?? 'main'}), corriendo`, pruebas: true, viejo: false }
+        : { ...base, clave: 'aplicada', texto: 'aprobada: esperando que la nube la tome', pruebas: true, viejo: false })
+      : { ...base, clave: 'aplicada', texto: `aplicada en tu compu (${donde})`, pruebas: true, viejo: false }
+    case 'descartada': return { ...base, clave: 'descartada', texto: 'descartada', pruebas: null, viejo: false }
+    case 'revertida': return { ...base, clave: 'revertida', texto: 'revertida: volvió lo de antes', pruebas: null, viejo: false }
+  }
+}
+
+/** Fragua #208: al aplicarse la forja de un grupo, las otras propuestas quedan cubiertas por la principal. */
+function cubrir(db: Db, f: Forja, ahora: number) {
+  if (!f.propuestaId) return
+  db.prepare(`UPDATE propuestas SET estado = 'aceptada', resuelta_en = ?, cerrada_por = 'forja' WHERE id = ?`).run(ahora, f.propuestaId)
+  for (const otra of f.cubre) {
+    if (otra === f.propuestaId) continue
+    db.prepare(`UPDATE propuestas SET estado = 'aceptada', resuelta_en = ?, cerrada_por = 'grupo', cubierta_por = ? WHERE id = ? AND estado = 'abierta'`).run(ahora, f.propuestaId, otra)
+  }
+}
 
 /** En qué paso va cada forja (para la pantalla). */
 export const pasoDeForja = new Map<number, string>()
@@ -50,7 +88,13 @@ export function ramaActual(repo = process.cwd()): string | null {
   const ya = ramas.get(k)
   if (ya && Date.now() - ya.en < 30_000) return ya.rama
   let rama: string | null = null
-  try { rama = git(k, 'rev-parse', '--abbrev-ref', 'HEAD') } catch { /* sin git */ }
+  // Leer .git/HEAD es instantáneo; lanzar git trababa el servidor ~300 ms en cada pedido (lo vio npm run medir).
+  try {
+    const head = fs.readFileSync(path.join(k, '.git', 'HEAD'), 'utf8').trim()
+    rama = head.startsWith('ref: refs/heads/') ? head.slice('ref: refs/heads/'.length) : 'HEAD'
+  } catch {
+    try { rama = git(k, 'rev-parse', '--abbrev-ref', 'HEAD') } catch { /* sin git */ }
+  }
   ramas.set(k, { rama, en: Date.now() })
   return rama
 }
@@ -191,32 +235,41 @@ function archivosDe(dir: string): string[] {
  * dos (el código baja de GitHub como paquete): antes moría con «spawnSync git ENOENT» a mitad de camino.
  * Devuelve el motivo si no se puede, o null.
  */
+/** ¿Hay git en esta máquina? Se pregunta una vez por proceso (lanzarlo traba el servidor un rato). */
+let hayGit: boolean | null = null
+const gitInstalado = () => {
+  if (hayGit === null) { const g = spawnSync('git', ['--version'], { encoding: 'utf8', windowsHide: true }); hayGit = !g.error && g.status === 0 }
+  return hayGit
+}
+
 export function porQueNoSePuedeForjar(repo = process.cwd()): string | null {
   if (process.env.MASTRO_USUARIO) return 'La Fragua es solo del dueño de este Deprocast.'
-  const g = spawnSync('git', ['--version'], { encoding: 'utf8', windowsHide: true })
-  if ((g.error || g.status !== 0) && !(githubDisponible() && !fs.existsSync(path.join(repo, '.git')))) return 'Acá no hay git, y La Fragua lo necesita para trabajar en una rama aparte. En la nube no se puede forjar: copiá la propuesta y pasásela a Claude Code, o forjala desde Deprocast en tu compu.'
+  if (!gitInstalado() && !(githubDisponible() && !fs.existsSync(path.join(repo, '.git')))) return 'Acá no hay git, y La Fragua lo necesita para trabajar en una rama aparte. En la nube no se puede forjar: copiá la propuesta y pasásela a Claude Code, o forjala desde Deprocast en tu compu.'
   // En la nube no hay repositorio (el código baja como paquete): se forja sobre una copia y se abre un pull request.
   if (!fs.existsSync(path.join(repo, '.git'))) return githubDisponible() ? null : 'En la nube La Fragua forja sobre una copia y abre un pull request en GitHub: falta GITHUB_FRAGUA_TOKEN (un token con permiso solo sobre este repo) en las variables de NaN. Mientras tanto, copiá la propuesta y pasásela a Claude Code.'
   return null
 }
 
 /** Forja una propuesta (o un pedido en palabras) en su propia rama. No toca main. */
-export async function forjarMejora(db: Db, p: { propuestaId?: number | null; pedido?: string | null }, o: Opciones = {}, ahora = Date.now()): Promise<Forja> {
+export async function forjarMejora(db: Db, p: { propuestaId?: number | null; pedido?: string | null; cubre?: number[] }, o: Opciones = {}, ahora = Date.now()): Promise<Forja> {
   soloDelDueno()
   const repo = path.resolve(o.repo ?? process.cwd())
   const motivo = o.repo ? null : porQueNoSePuedeForjar(repo)
   if (motivo) throw new Error(motivo)
   const prop = p.propuestaId ? db.prepare('SELECT * FROM propuestas WHERE id = ?').get(p.propuestaId) as any : null
   if (p.propuestaId && !prop) throw new Error(`No existe la propuesta ${p.propuestaId}`)
-  const pedido = prop ? `${prop.titulo}\n\n${prop.detalle}` : String(p.pedido ?? '').trim()
+  // Un grupo (Fragua #208): la principal y las que comparten su causa, en un solo pedido; el arreglo común, una vez.
+  const otras = prop ? (p.cubre ?? []).filter((x) => x !== prop.id).map((x) => db.prepare(`SELECT id, titulo, detalle FROM propuestas WHERE id = ? AND estado = 'abierta'`).get(x) as { id: number; titulo: string; detalle: string } | undefined).filter((x): x is { id: number; titulo: string; detalle: string } => !!x) : []
+  const pedido = prop ? `${prop.titulo}\n\n${prop.detalle}${otras.length ? `\n\nMISMA CAUSA (un solo arreglo común que resuelva también estas):\n${otras.map((x) => `- #${x.id} ${x.titulo}: ${x.detalle.slice(0, 1200)}`).join('\n')}` : ''}` : String(p.pedido ?? '').trim()
   if (!pedido) throw new Error('¿Qué mejora querés forjar?')
   if (db.prepare(`SELECT 1 FROM fragua WHERE estado = 'haciendo'`).get()) throw new Error('Ya hay algo en la fragua; esperá que termine')
-  const r = db.prepare(`INSERT INTO fragua (propuesta_id, pedido, rama, estado, creada_en) VALUES (?, ?, '', 'haciendo', ?)`).run(prop?.id ?? null, pedido, ahora)
+  const r = db.prepare(`INSERT INTO fragua (propuesta_id, pedido, rama, estado, creada_en, cubre) VALUES (?, ?, '', 'haciendo', ?, ?)`).run(prop?.id ?? null, pedido, ahora, otras.length ? JSON.stringify(otras.map((x) => x.id)) : null)
   const id = Number(r.lastInsertRowid)
   const rama = `fragua/${id}`
   const modo: Forja['modo'] = fs.existsSync(path.join(repo, '.git')) ? 'git' : 'pr'
   const dir = dirDe(repo, id)
   const paso = (t: string) => pasoDeForja.set(id, t)
+  const refs = prop ? ` (Fragua #${[prop.id, ...otras.map((x) => x.id)].join(', #')})` : ''
   let pr: { numero: number; url: string } | null = null
   const fin = (c: Partial<Forja> & { estado: Forja['estado'] }) => {
     pasoDeForja.delete(id)
@@ -293,15 +346,20 @@ export async function forjarMejora(db: Db, p: { propuestaId?: number | null; ped
       paso('abriendo el pull request en GitHub')
       try {
         pr = await abrirPullRequest({
-          id, titulo: String(plan.resumen ?? pedido).split('\n')[0].slice(0, 70),
+          id, titulo: `${String(plan.resumen ?? pedido).split('\n')[0].slice(0, 70)}${refs}`,
           cuerpo: `${resumen}\n\n---\n\n\`\`\`\n${salida.slice(0, 50_000)}\n\`\`\`\n\nForjado y probado por La Fragua de Deprocast (typecheck, tests y prueba de humo). Se aprueba desde La Fragua o acá.`,
           archivos: [...tocados].map((f) => ({ ruta: f, contenido: fs.readFileSync(path.join(dir, f), 'utf8') })), base: process.env.MASTRO_COMMIT ?? null,
         })
-      } catch (e) { return fin({ estado: 'fallo', resumen, archivos: [...tocados], diff: diff.slice(0, 200_000), salida: `${salida}\n\nPasó todo, pero no pude abrir el pull request: ${e instanceof Error ? e.message : e}` }) }
+      } catch (e) {
+        // Token vencido (Fragua #215): la propuesta no se pierde, queda en cola para cuando vuelva.
+        const vencio = (e as { status?: number }).status === 401
+        if (vencio) { fijarAjuste(db, 'fragua_token_vencido', '1'); if (prop) db.prepare('UPDATE propuestas SET en_cola = ? WHERE id = ?').run(Date.now(), prop.id) }
+        return fin({ estado: 'fallo', resumen, archivos: [...tocados], diff: diff.slice(0, 200_000), salida: `${salida}\n\nPasó todo, pero no pude abrir el pull request: ${e instanceof Error ? e.message : e}${vencio ? '\n\nEl token de GitHub venció: la propuesta quedó en cola y se forja sola cuando lo renueves.' : ''}` })
+      }
       return fin({ estado: 'lista', resumen, archivos: [...tocados], diff: diff.slice(0, 200_000), salida })
     }
     git(dir, 'add', '-A') // node_modules está en .gitignore
-    git(dir, ...firma(repo), 'commit', '-q', '-m', `Fragua #${id}: ${String(plan.resumen ?? pedido).split('\n')[0].slice(0, 70)}`)
+    git(dir, ...firma(repo), 'commit', '-q', '-m', `Forja #${id}: ${String(plan.resumen ?? pedido).split('\n')[0].slice(0, 70)}${refs}`)
     const diff = git(dir, 'diff', 'HEAD~1', 'HEAD')
     return fin({ estado: ok ? 'lista' : verifico ? 'rota' : 'fallo', resumen, archivos: [...tocados], diff: diff.slice(0, 200_000), salida })
   } catch (e) {
@@ -355,10 +413,10 @@ export function aplicarForja(db: Db, id: number, o: Opciones = {}, ahora = Date.
   if (f.estado !== 'lista') throw new Error(`La forja ${id} está «${f.estado}»: solo se aplica una que pasó los tests`)
   const sucio = git(repo, 'status', '--porcelain', '--untracked-files=no')
   if (sucio) throw new Error('Hay cambios sin commitear en el repo: commitealos o descartalos antes de aplicar una forja')
-  git(repo, ...firma(repo), 'merge', '--no-ff', '-q', '-m', `Fragua #${id} aplicada`, f.rama)
+  git(repo, ...firma(repo), 'merge', '--no-ff', '-q', '-m', `Forja #${id} aplicada`, f.rama)
   limpiar(repo, f, true)
   db.prepare(`UPDATE fragua SET estado = 'aplicada', resuelta_en = ? WHERE id = ?`).run(ahora, id)
-  if (f.propuestaId) db.prepare(`UPDATE propuestas SET estado = 'aceptada', resuelta_en = ? WHERE id = ?`).run(ahora, f.propuestaId)
+  cubrir(db, f, ahora)
   return leerForja(db, id)!
 }
 
@@ -369,9 +427,9 @@ export async function aprobarForja(db: Db, id: number, ahora = Date.now()): Prom
   if (!f) throw new Error(`No existe la forja ${id}`)
   if (f.modo !== 'pr' || !f.prNumero) return aplicarForja(db, id, {}, ahora)
   if (f.estado !== 'lista') throw new Error(`La forja ${id} está «${f.estado}»: solo se aprueba una que pasó los tests y la prueba de humo`)
-  const sha = await mergearPullRequest(f.prNumero, `Fragua #${id}: ${f.pedido.split('\n')[0].slice(0, 60)}`, f.rama)
+  const sha = await mergearPullRequest(f.prNumero, `Forja #${id}: ${f.pedido.split('\n')[0].slice(0, 60)}${f.propuestaId ? ` (Fragua #${[f.propuestaId, ...f.cubre].join(', #')})` : ''}`, f.rama)
   db.prepare(`UPDATE fragua SET estado = 'aplicada', merge_sha = ?, vigilada = 0, resuelta_en = ? WHERE id = ?`).run(sha, ahora, id)
-  if (f.propuestaId) db.prepare(`UPDATE propuestas SET estado = 'aceptada', resuelta_en = ? WHERE id = ?`).run(ahora, f.propuestaId)
+  cubrir(db, f, ahora)
   return leerForja(db, id)!
 }
 

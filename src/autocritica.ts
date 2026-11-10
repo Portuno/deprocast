@@ -3,8 +3,9 @@
  * fallaron, tandas que no se procesaron) y lo que el operador se quejó, y lo convierte en propuestas de mejora para
  * La Fragua. Así el sistema se arregla de noche y él solo aprueba. No toca código: solo propone.
  */
-import { type Db } from './db.ts'
+import { ajuste as ajusteDe, fijarAjuste as fijarAjusteDe, type Db } from './db.ts'
 import { registrarFallo } from './fallos.ts'
+import { abiertaParecida, sumarAPropuesta } from './fragua-grupos.ts'
 import { pedirJson } from './modelo.ts'
 
 const DIA = 86_400_000
@@ -113,6 +114,9 @@ export async function autocritica(db: Db, ahora = Date.now()): Promise<{ id: num
     const detalle = String(p?.detalle ?? '').trim().slice(0, 3000)
     if (titulo.length < 4 || detalle.length < 20 || vistas.has(norm(titulo))) continue
     vistas.add(norm(titulo))
+    // Fragua #208: con la misma causa que una abierta, se suma a esa.
+    const ya = abiertaParecida(db, titulo, detalle, p?.area)
+    if (ya) { sumarAPropuesta(db, ya.id, titulo, detalle, ahora); continue }
     const prioridad = ['alta', 'media', 'baja'].includes(p?.prioridad) ? p.prioridad : 'media'
     const r = alta.run(titulo, detalle, String(p?.area ?? 'otro').slice(0, 30), prioridad, ahora)
     creadas.push({ id: Number(r.lastInsertRowid), titulo })
@@ -133,4 +137,58 @@ export async function medirPaso<T>(db: Db, nombre: string, f: () => T | Promise<
     const ms = performance.now() - t0
     if (ms > 1000) registrarError(db, 'lento', `paso ${nombre} tardó ${Math.round(ms)} ms`)
   }
+}
+
+// ─── los bloqueos, solos a la Fragua (Fragua #212) ──────────────────────
+
+/** Anota un bloqueo del servidor (lo llama el vigía). Se guardan dos semanas. */
+export function anotarBloqueo(db: Db, ms: number, durante: string[], ahora = Date.now()) {
+  try {
+    db.prepare('INSERT INTO bloqueos (en, ms, durante) VALUES (?, ?, ?)').run(ahora, Math.round(ms), JSON.stringify(durante))
+    db.prepare('DELETE FROM bloqueos WHERE en < ?').run(ahora - 14 * DIA)
+  } catch { /* medir no rompe nada */ }
+}
+
+type Hora = { fecha: string; bloqueos: number; peor: number; pasos: { paso: string; veces: number; peor: number }[] }
+const SEMANA = 7 * DIA
+
+/**
+ * Cada hora: si hubo más de tres bloqueos de más de dos segundos (y menos de un minuto: más es el contenedor dormido),
+ * arma una propuesta con los pasos que estaban corriendo, cuántas veces cada uno y el peor tiempo. El mismo paso en la
+ * misma semana suma a la propuesta que ya existe (y dice si mejoró, empeoró o sigue igual), en vez de abrir otra.
+ */
+export function propuestaPorBloqueos(db: Db, ahora = Date.now()): { id: number; nueva: boolean } | null {
+  const desde = Math.max(ahora - 3_600_000, Number(ajusteDe(db, 'bloqueos_revisado_hasta') || 0))
+  const filas = (db.prepare('SELECT en, ms, durante FROM bloqueos WHERE en > ? AND en <= ? AND ms > 2000 AND ms < 60000').all(desde, ahora) as { en: number; ms: number; durante: string }[])
+  if (filas.length <= 3) return null
+  fijarAjusteDe(db, 'bloqueos_revisado_hasta', String(ahora))
+  const pasos = new Map<string, { veces: number; peor: number }>()
+  for (const f of filas) for (const p of (JSON.parse(f.durante) as string[]).length ? JSON.parse(f.durante) as string[] : ['nada anotado']) {
+    const x = pasos.get(p) ?? { veces: 0, peor: 0 }
+    pasos.set(p, { veces: x.veces + 1, peor: Math.max(x.peor, f.ms) })
+  }
+  const lista = [...pasos].map(([paso, x]) => ({ paso, ...x })).sort((a, b) => b.veces - a.veces || b.peor - a.peor)
+  const hora: Hora = { fecha: new Date(ahora).toISOString(), bloqueos: filas.length, peor: Math.max(...filas.map((f) => f.ms)), pasos: lista.slice(0, 8) }
+  const principal = lista[0].paso
+  const clave = `bloqueo:${principal}`
+  const previa = db.prepare(`SELECT id, estado, creada_en, evidencia FROM propuestas WHERE clave = ? ORDER BY id DESC LIMIT 1`).get(clave) as { id: number; estado: string; creada_en: number; evidencia: string | null } | undefined
+  const historia = previa ? (JSON.parse(previa.evidencia ?? '[]') as Hora[]) : []
+  const antes = historia.at(-1)
+  const tendencia = !antes ? null
+    : hora.peor > antes.peor * 1.25 || hora.bloqueos > antes.bloqueos * 1.25 ? 'empeoró'
+    : hora.peor < antes.peor * 0.8 && hora.bloqueos <= antes.bloqueos ? 'mejoró' : 'sigue igual'
+  const evidencia = (h: Hora) => `${h.fecha.slice(0, 16).replace('T', ' ')} UTC: ${h.bloqueos} bloqueos, el peor de ${h.peor} ms. Pasos en marcha: ${h.pasos.map((p) => `${p.paso} ×${p.veces} (peor ${p.peor} ms)`).join(' · ')}`
+  if (previa && previa.creada_en >= ahora - SEMANA) {
+    historia.push(hora)
+    const cambio = `\n\nOTRA HORA CON BLOQUEOS — ${evidencia(hora)}.${antes ? ` Desde la vez anterior (${antes.bloqueos} bloqueos, peor ${antes.peor} ms): ${tendencia}.` : ''}`
+    // Si se había cerrado y vuelve a pasar en la misma semana, se reabre.
+    db.prepare(`UPDATE propuestas SET detalle = detalle || ?, evidencia = ?, estado = 'abierta', resuelta_en = NULL, cerrada_por = NULL WHERE id = ?`).run(cambio, JSON.stringify(historia.slice(-24)), previa.id)
+    return { id: previa.id, nueva: false }
+  }
+  const detalle = `El vigía del servidor vio ${hora.bloqueos} bloqueos de más de dos segundos en una hora: todo Deprocast frenado mientras corría esto.
+EVIDENCIA — ${evidencia(hora)}.${antes ? `\nLa semana anterior (${antes.fecha.slice(0, 10)}): ${antes.bloqueos} bloqueos, peor ${antes.peor} ms → ${tendencia}.` : ''}
+QUÉ CAMBIAR: encontrar en «${principal}» el trabajo síncrono largo (un bucle sobre miles de filas, un cálculo O(n²), una lectura entera) y partirlo en tramos que cedan el event loop (await cada pocos miles), o hacerlo incremental. Criterio de hecho: con el volumen de la nube, ese paso no traba más de 200 ms seguidos.`
+  const r = db.prepare(`INSERT INTO propuestas (titulo, detalle, area, prioridad, estado, origen, clave, evidencia, creada_en) VALUES (?, ?, 'motores', 'alta', 'abierta', 'bloqueos', ?, ?, ?)`)
+    .run(`Bloqueos del servidor durante «${principal.slice(0, 80)}»`, detalle, clave, JSON.stringify([...historia.slice(-23), hora]), ahora)
+  return { id: Number(r.lastInsertRowid), nueva: true }
 }

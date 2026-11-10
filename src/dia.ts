@@ -16,7 +16,8 @@ export async function verDia(db: Db, fecha = fechaLocal()) {
   const semana = semanaDe(new Date(`${fecha}T12:00:00`).getTime())
   return {
     fecha, dia: diaSemana(fecha),
-    agenda: eventos.map((e) => ({ hora: e.todoElDia ? 'todo el día' : `${hora(e.inicio)}–${hora(e.fin)}`, titulo: e.titulo, lugar: e.lugar, fuente: 'su calendario' })),
+    // Cada evento con su fecha absoluta (Fragua #214): leído otro día, no se confunde con la agenda de hoy.
+    agenda: eventos.map((e) => ({ fecha, hora: e.todoElDia ? 'todo el día' : `${hora(e.inicio)}–${hora(e.fin)}`, titulo: e.titulo, lugar: e.lugar, fuente: 'su calendario' })),
     fijo: bloquesDelDia(db, fecha).map((b) => ({ ...b, fuente: 'su horario fijo' })),
     runs: runs.map((r) => ({ inicio: r.inicio, fin: r.fin, estado: r.estado, bandas: misionesDeRun(db, r.id).map((m) => `${m.inicio}–${m.fin} ${m.titulo} [${m.estado}]`), fuente: 'la run' })),
     primarias: listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana, abiertas: true }).map((m) => ({ id: m.id, titulo: m.titulo, estado: m.estado, fuente: 'sus primarias de la semana' })),
@@ -29,10 +30,10 @@ export async function verDia(db: Db, fecha = fechaLocal()) {
 /** La agenda de varios días (como máximo 14). */
 export async function verAgenda(db: Db, desde = fechaLocal(), hasta?: string) {
   const fin = hasta && hasta >= desde ? hasta : desde
-  const dias: { fecha: string; dia: string; eventos: { hora: string; titulo: string; lugar: string | null }[]; fijo: { desde: string; hasta: string; que: string }[] }[] = []
+  const dias: { fecha: string; dia: string; eventos: { fecha: string; hora: string; titulo: string; lugar: string | null }[]; fijo: { desde: string; hasta: string; que: string }[] }[] = []
   for (let f = desde, i = 0; f <= fin && i < 14; i++) {
     const { eventos } = await agendaDelDia(f).catch(() => ({ eventos: [] as Awaited<ReturnType<typeof agendaDelDia>>['eventos'] }))
-    dias.push({ fecha: f, dia: diaSemana(f), eventos: eventos.map((e) => ({ hora: e.todoElDia ? 'todo el día' : `${hora(e.inicio)}–${hora(e.fin)}`, titulo: e.titulo, lugar: e.lugar })), fijo: bloquesDelDia(db, f) })
+    dias.push({ fecha: f, dia: diaSemana(f), eventos: eventos.map((e) => ({ fecha: f, hora: e.todoElDia ? 'todo el día' : `${hora(e.inicio)}–${hora(e.fin)}`, titulo: e.titulo, lugar: e.lugar })), fijo: bloquesDelDia(db, f) })
     f = fechaLocal(new Date(`${f}T12:00:00`).getTime() + 86_400_000)
   }
   return dias

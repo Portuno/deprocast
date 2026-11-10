@@ -25,6 +25,22 @@ export const githubDisponible = () => !!(repoDe() && tokenDe())
 let red: typeof fetch = (...a) => fetch(...a)
 export function _probarGithub(f: typeof fetch) { red = f }
 
+/**
+ * El vencimiento del token (Fragua #215): GitHub lo manda en cada respuesta a un token con fecha
+ * (github-authentication-token-expiration). Se guarda el último visto y si el último pedido volvió 401.
+ */
+let venceVisto: number | null = null
+let vencidoVisto: boolean | null = null
+export const vencimientoVisto = () => ({ vence: venceVisto, vencido: vencidoVisto })
+export function _probarVencimiento(v: { vence: number | null; vencido: boolean | null }) { venceVisto = v.vence; vencidoVisto = v.vencido }
+/** «2027-02-08 15:00:00 UTC» o «2027-02-08 12:00:00 -0300» → ms. */
+export function leerVencimiento(v: string | null | undefined): number | null {
+  if (!v) return null
+  const iso = v.trim().replace(' ', 'T').replace(/ UTC$/, 'Z').replace(/ ([+-]\d{2})(\d{2})$/, '$1:$2')
+  const ms = Date.parse(iso)
+  return Number.isFinite(ms) ? ms : null
+}
+
 async function gh<T = any>(metodo: string, ruta: string, cuerpo?: unknown): Promise<T> {
   const r = await red(`https://api.github.com/repos/${repoDe()}${ruta}`, {
     method: metodo,
@@ -32,6 +48,10 @@ async function gh<T = any>(metodo: string, ruta: string, cuerpo?: unknown): Prom
     body: cuerpo ? JSON.stringify(cuerpo) : undefined,
     signal: AbortSignal.timeout(60_000),
   })
+  const vence = leerVencimiento(r.headers.get('github-authentication-token-expiration'))
+  if (vence) venceVisto = vence
+  if (r.status === 401) vencidoVisto = true
+  else if (r.ok) vencidoVisto = false
   const texto = await r.text()
   const j = texto ? (() => { try { return JSON.parse(texto) } catch { return texto } })() : null
   if (!r.ok) throw Object.assign(new Error(`GitHub ${r.status}: ${j?.message ?? String(texto).slice(0, 200)}`), { status: r.status })
@@ -51,13 +71,13 @@ export async function abrirPullRequest(p: { id: number; titulo: string; cuerpo: 
     entradas.push({ path: a.ruta, mode: '100644', type: 'blob', sha: b.sha })
   }
   const arbol = await gh<{ sha: string }>('POST', '/git/trees', { base_tree: arbolBase, tree: entradas })
-  const commit = await gh<{ sha: string }>('POST', '/git/commits', { message: `Fragua #${p.id}: ${p.titulo}`, tree: arbol.sha, parents: [base] })
+  const commit = await gh<{ sha: string }>('POST', '/git/commits', { message: `Forja #${p.id}: ${p.titulo}`, tree: arbol.sha, parents: [base] })
   const rama = `fragua/${p.id}`
   try { await gh('POST', '/git/refs', { ref: `refs/heads/${rama}`, sha: commit.sha }) } catch (e) {
     if ((e as { status?: number }).status !== 422) throw e
     await gh('PATCH', `/git/refs/heads/${rama}`, { sha: commit.sha, force: true }) // la rama ya estaba (otra vuelta)
   }
-  const pr = await gh<{ number: number; html_url: string }>('POST', '/pulls', { title: `Fragua #${p.id}: ${p.titulo}`, head: rama, base: 'main', body: p.cuerpo })
+  const pr = await gh<{ number: number; html_url: string }>('POST', '/pulls', { title: `Forja #${p.id}: ${p.titulo}`, head: rama, base: 'main', body: p.cuerpo })
   return { numero: pr.number, url: pr.html_url, rama }
 }
 
@@ -88,6 +108,31 @@ export async function revertirEnMain(mergeSha: string, motivo: string): Promise<
   const nuevo = await gh<{ sha: string }>('POST', '/git/commits', { message: `Revertir ${mergeSha.slice(0, 7)}: ${motivo}`, tree: arbol, parents: [mergeSha] })
   await gh('PATCH', '/git/refs/heads/main', { sha: nuevo.sha })
   return nuevo.sha
+}
+
+/** Un pedido liviano al repo, para saber si el token sigue valiendo (y leer su vencimiento). */
+export async function tocarGithub(): Promise<{ ok: boolean; status: number | null }> {
+  try { await gh('GET', ''); return { ok: true, status: 200 } } catch (e) { return { ok: false, status: (e as { status?: number }).status ?? null } }
+}
+
+/** Un commit (o un pull request mergeado) que puede nombrar propuestas de la Fragua (Fragua #211). */
+export type CommitRef = { sha: string; url: string | null; autor: string; fecha: string; mensaje: string; pr?: number | null }
+
+/** Los commits de main desde una fecha (hasta 500). */
+export async function commitsDesde(desde: string): Promise<CommitRef[]> {
+  const out: CommitRef[] = []
+  for (let pagina = 1; pagina <= 5; pagina++) {
+    const xs = await gh<any[]>('GET', `/commits?sha=main&since=${encodeURIComponent(desde)}&per_page=100&page=${pagina}`)
+    out.push(...xs.map((c) => ({ sha: String(c.sha), url: c.html_url ?? null, autor: c.author?.login ?? c.commit?.author?.name ?? '?', fecha: c.commit?.committer?.date ?? c.commit?.author?.date ?? new Date().toISOString(), mensaje: String(c.commit?.message ?? '') })))
+    if (xs.length < 100) break
+  }
+  return out
+}
+
+/** Los pull requests mergeados desde una fecha (su título y su descripción también pueden nombrar propuestas). */
+export async function prsMergeadosDesde(desde: string): Promise<CommitRef[]> {
+  const xs = await gh<any[]>('GET', '/pulls?state=closed&sort=updated&direction=desc&per_page=50')
+  return xs.filter((p) => p.merged_at && p.merged_at >= desde).map((p) => ({ sha: String(p.merge_commit_sha ?? `pr-${p.number}`), url: p.html_url ?? null, autor: p.user?.login ?? '?', fecha: p.merged_at, mensaje: `${p.title ?? ''}\n\n${p.body ?? ''}`, pr: p.number }))
 }
 
 // ─── el taller de copia ─────────────────────────────────────────────────
