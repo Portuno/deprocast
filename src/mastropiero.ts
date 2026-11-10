@@ -87,7 +87,7 @@ export async function tick(db: Db, o: { ahora?: number; reclutar?: boolean } = {
   const ev: Evento[] = []
   purgar(db, ahora, ev)
   // Mantenimiento de fondo (sin tokens): los recuerdos repetidos se juntan solos, no son una tarea del jugador.
-  const limpia = deduplicarMemoria(db)
+  const limpia = await deduplicarMemoria(db)
   if (limpia.archivados) ev.push({ tipo: 'memoria', texto: `juntó ${limpia.archivados} recuerdo${limpia.archivados === 1 ? '' : 's'} repetido${limpia.archivados === 1 ? '' : 's'} en ${limpia.grupos}` })
   // Pasado el tope diario de tokens, la liga reparte pero no corre: nadie falla ni pierde racha por eso.
   const tope = topeAlcanzado(db, ahora)

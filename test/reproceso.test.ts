@@ -66,7 +66,7 @@ test('recuerdos por sentido: la memoria del prompt trae lo que tiene que ver aun
   recordar(db, { texto: 'Su mascota es una gata llamada Michi', tipo: 'hecho' })
   await vectorizarItems(db)
   const antes = memoriaVigente(db).length
-  deduplicarMemoria(db)
+  await deduplicarMemoria(db, 0.75, 0.93, { forzar: true })
   assert.equal(memoriaVigente(db).length, antes - 1)
   assert.ok(memoriaVigente(db).some((r) => r.id === perro.id) || memoriaVigente(db).some((r) => /gata/.test(r.texto)))
 })

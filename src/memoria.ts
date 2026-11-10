@@ -2,13 +2,13 @@
  * Lo que Mastropiero sabe del operador: hechos, metas, preferencias, sueños y visión, con fecha.
  * Nace de lo que el operador dice (nunca de terceros). Nada se pisa: corregir crea una versión nueva.
  */
-import { fechaLocal, type Db } from './db.ts'
+import { ajuste, fechaLocal, fijarAjuste, type Db } from './db.ts'
 import { anotar, haceSolo } from './decisiones.ts'
 import { pedirJson } from './modelo.ts'
 import { agregarItem, entidadDelJugador, personaje } from './personajes.ts'
 import { anotarSideQuest } from './misiones.ts'
 import { sugerirMovimiento } from './finanzas.ts'
-import { parecidoA, vectoresDe } from './semantica.ts'
+import { cosenoNormalizados, parecidoA, vectoresDe } from './semantica.ts'
 
 export const TIPOS_MEMORIA = ['hecho', 'meta', 'preferencia', 'sueño', 'vision', 'correccion'] as const
 export type TipoMemoria = (typeof TIPOS_MEMORIA)[number]
@@ -119,21 +119,41 @@ function mismos(a: { n: string; p: Set<string> }, b: { n: string; p: Set<string>
   return comun / (a.p.size + b.p.size - comun) >= umbral
 }
 
-export function deduplicarMemoria(db: Db, umbral = 0.75, umbralSentido = 0.93): { grupos: number; archivados: number } {
+/**
+ * Junta los recuerdos repetidos. Incremental (trabó la nube minutos enteros: con miles de recuerdos, comparar todos
+ * contra todos en cada tick de la liga eran 10 a 30 s por pasada, y al arrancar casi 8 minutos sin atender nada):
+ * - solo se comparan los recuerdos nuevos (desde la última pasada) contra el resto; la primera vez, todos;
+ * - solo dentro del mismo grupo de números (los que nombran otros números no son el mismo recuerdo);
+ * - los vectores ya vienen normalizados: el coseno es un producto punto, sin alocar;
+ * - cede el turno cada tanto, para que el servidor siga atendiendo mientras compara.
+ */
+const ultimaDedup = new WeakMap<Db, number>()
+export async function deduplicarMemoria(db: Db, umbral = 0.75, umbralSentido = 0.93, o: { forzar?: boolean; ahora?: number } = {}): Promise<{ grupos: number; archivados: number }> {
+  const ahora = o.ahora ?? Date.now()
+  if (!o.forzar && ahora - (ultimaDedup.get(db) ?? 0) < 10 * 60_000) return { grupos: 0, archivados: 0 }
+  ultimaDedup.set(db, ahora)
   const vs = (db.prepare(`SELECT * FROM memoria WHERE estado = 'vigente' AND tipo != 'correccion' ORDER BY id`).all() as any[]).map(deFila)
+  const hasta = Number(ajuste(db, 'memoria_dedup_hasta') ?? 0)
+  if (!vs.some((r) => r.id > hasta)) return { grupos: 0, archivados: 0 }
   // Si ya tienen vector (el reproceso), también se juntan los que dicen lo mismo con otras palabras.
   const vecs = vectoresDe(db, 'memoria')
   const datos = vs.map((r) => ({ r, n: normal(r.texto), p: palabras(r.texto), num: numeros(r.texto), v: vecs.get(r.id) }))
   const padre = vs.map((_, i) => i)
   const raiz = (i: number): number => (padre[i] === i ? i : (padre[i] = raiz(padre[i])))
-  for (let i = 0; i < datos.length; i++) {
-    for (let j = i + 1; j < datos.length; j++) {
-      const a = datos[i]
-      const b = datos[j]
-      if (a.num !== b.num) continue
-      if (mismos(a, b, umbral) || (a.v && b.v && parecidoA(a.v, b.v) >= umbralSentido)) padre[raiz(j)] = raiz(i)
+  const porNumeros = new Map<string, number[]>()
+  datos.forEach((d, i) => porNumeros.set(d.num, [...(porNumeros.get(d.num) ?? []), i]))
+  let pares = 0
+  for (const idx of porNumeros.values()) {
+    for (let x = 0; x < idx.length; x++) {
+      for (let y = x + 1; y < idx.length; y++) {
+        const a = datos[idx[x]], b = datos[idx[y]]
+        if (a.r.id <= hasta && b.r.id <= hasta) continue // los dos ya se compararon en una pasada anterior
+        if (++pares % 2000 === 0) await new Promise<void>((ok) => setImmediate(ok))
+        if (mismos(a, b, umbral) || (a.v && b.v && cosenoNormalizados(a.v, b.v) >= umbralSentido)) padre[raiz(idx[y])] = raiz(idx[x])
+      }
     }
   }
+  fijarAjuste(db, 'memoria_dedup_hasta', String(vs.at(-1)!.id))
   const grupos = new Map<number, Recuerdo[]>()
   vs.forEach((r, i) => grupos.set(raiz(i), [...(grupos.get(raiz(i)) ?? []), r]))
   let archivados = 0

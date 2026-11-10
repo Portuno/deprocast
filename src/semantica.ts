@@ -39,7 +39,9 @@ const normalizado = (v: ArrayLike<number>, dims: number) => {
 export const aDimsP = (v: ArrayLike<number>) => normalizado(v, DIMS_P)
 const aBlob = (v: number[], dims = DIMS) => Buffer.from(normalizado(v, dims).buffer)
 const deBlob = (b: Uint8Array) => new Float32Array(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength))
-const punto = (a: Float32Array, b: Float32Array) => {
+/** El coseno de dos vectores ya normalizados (los de vec_items lo están): sin volver a normalizar ni alocar. */
+export const cosenoNormalizados = (a: Float32Array, b: Float32Array) => punto(a, b)
+function punto(a: Float32Array, b: Float32Array) {
   let s = 0
   const n = Math.min(a.length, b.length)
   for (let i = 0; i < n; i++) s += a[i] * b[i]

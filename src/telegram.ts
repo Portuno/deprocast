@@ -527,6 +527,8 @@ const esAccion = (nombre: string | null | undefined) => {
 }
 const HERRAMIENTAS_ACCION = () => herramientasLista.map((h) => [h.nombre, h.familia] as [string, string])
 
+/** Los mensajes de Mastropiero que ya salieron por un canal (para no mandar dos veces el mismo texto). */
+const yaDichos = new Set<number>()
 async function conversar(db: Db, texto: string, o: { porVoz?: boolean } = {}) {
   const c = conversacionHoy(db)
   const canal = canalActual.getStore()
@@ -547,7 +549,11 @@ async function conversar(db: Db, texto: string, o: { porVoz?: boolean } = {}) {
   canal?.entregado?.()
   const r = await p
   if (r?.rapida) return void (await decir(r.rapida))
-  const respuestaSola = mensajes(db, c.id, desde).filter((m) => m.rol === 'asistente' && m.texto && m.via !== ('rapida' as any)).map((m) => m.texto).join('\n\n')
+  // Solo lo que todavía no se dijo: si otro mensaje suyo armó un turno aparte que ya contestó, eso no se repite.
+  const nuevos = mensajes(db, c.id, desde).filter((m) => m.rol === 'asistente' && m.texto && m.via !== ('rapida' as any) && !yaDichos.has(m.id))
+  for (const m of nuevos) yaDichos.add(m.id)
+  if (yaDichos.size > 500) for (const id of [...yaDichos].slice(0, 250)) yaDichos.delete(id)
+  const respuestaSola = nuevos.map((m) => m.texto).join('\n\n')
   // Lo que hizo en el sistema (plan v38): un renglón al pie, para que se vea y se pueda deshacer.
   const hechas = mensajes(db, c.id, desde).filter((m) => m.rol === 'herramienta' && m.resumen && esAccion(m.herramienta)).map((m) => m.resumen!)
   const respuesta = respuestaSola && hechas.length ? `${respuestaSola}\n\n_✓ ${[...new Set(hechas)].slice(0, 5).join(' · ')}. Si algo no era, decime «deshacé»._` : respuestaSola
