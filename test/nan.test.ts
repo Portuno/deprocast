@@ -197,3 +197,17 @@ test('el tiempo agotado leyendo la respuesta es un 504 que pasa al siguiente mod
     srv.close()
   }
 })
+
+test('lo que lee cada clase tiene tope: un clasificador ya no recibe la pieza entera (300 millones de tokens en diez días)', async () => {
+  const { mensajesDe, LECTURA_MAX, recortarMedio } = await import('../src/motores.ts')
+  const largo = `PRINCIPIO ${'x'.repeat(600_000)} FINAL`
+  const r = recortarMedio(largo, 12_000)
+  assert.ok(r.length < 12_200 && r.startsWith('PRINCIPIO') && r.endsWith('FINAL'))
+  assert.match(r, /\[… recortado: 588\.\d{3} de 600\.\d{3} caracteres …\]/)
+  const ficha = { id: 'CLA-0006', clase: 'clasificador', instrucciones: 'Clasificá.' } as any
+  const contexto = { capa: { nivel: 1, nombre: 'x' }, esquema: { clase: 'clasificador', produce: '', salida: '' }, tarea: { id: 1, tipo: 'clasificar', dominio: null, payload: {} }, pieza: { id: 9, titulo: 'Chat enorme', contenido: largo } } as any
+  const [, usuario] = mensajesDe({ ficha, contexto, lector: { buscar: () => [] }, efectos: { iniciativa: 0 } } as any)
+  assert.ok(String(usuario.content).length < LECTURA_MAX.clasificador! + 2_000, `mandó ${String(usuario.content).length} caracteres`)
+  const sinTope = mensajesDe({ ficha: { ...ficha, clase: 'ejecutivo' }, contexto, lector: { buscar: () => [] }, efectos: { iniciativa: 0 } } as any)[1]
+  assert.ok(String(sinTope.content).length > 600_000, 'las clases sin tope siguen igual')
+})

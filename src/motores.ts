@@ -159,10 +159,26 @@ export function mensajesDe({ ficha, contexto, lector, efectos }: Entrada) {
     ficha.clase === 'buscador' ? 'Citá por id solo fuentes provistas. Si no hay fuente, citas vacías.' : '',
     contexto.operador ? `Trabajás para ${contexto.operador.nombre}.\n${contexto.operador.quien}` : '',
   ].filter(Boolean).join('\n')
+  // Lo que lee cada clase, con tope (con los créditos de NaN, nov 2026): los clasificadores recibían la pieza entera
+  // (~160 mil tokens por llamada, 300 millones en diez días) y para clasificar alcanza con el comienzo y el final.
+  // Lo largo igual se destila entero, por tramos, en el reproceso.
+  const tope = LECTURA_MAX[ficha.clase]
+  const pieza = contexto.pieza && tope && contexto.pieza.contenido.length > tope
+    ? { ...contexto.pieza, contenido: recortarMedio(contexto.pieza.contenido, tope) }
+    : contexto.pieza
   return [
     { role: 'system', content: sistema },
-    { role: 'user', content: JSON.stringify({ ...contexto, fuentes }) },
+    { role: 'user', content: JSON.stringify({ ...contexto, pieza, fuentes }) },
   ]
+}
+
+/** Cuántos caracteres de la pieza lee cada clase (las que no figuran, sin tope). */
+export const LECTURA_MAX: Partial<Record<string, number>> = { clasificador: 12_000, extractor: 48_000, generativo: 32_000, gerente: 16_000, auditor: 16_000, buscador: 8_000 }
+/** El comienzo y el final de un texto largo, con un aviso de cuánto se dejó afuera. */
+export function recortarMedio(t: string, max: number): string {
+  const cabeza = Math.floor(max * 0.75)
+  const cola = max - cabeza
+  return `${t.slice(0, cabeza)}\n\n[… recortado: ${(t.length - max).toLocaleString('es-AR')} de ${t.length.toLocaleString('es-AR')} caracteres …]\n\n${t.slice(-cola)}`
 }
 
 function objetoJson(contenido: string): Salida {
