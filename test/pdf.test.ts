@@ -34,7 +34,7 @@ test('armar_pdf: por WhatsApp sale como documento; desde la pantalla queda como 
   assert.ok(GRUPOS.crear.includes('armar_pdf') && gruposDelMensaje('armame un PDF con las ideas de la semana').includes('crear'))
   const mandados: { nombre: string; bytes: number }[] = []
   const canal = { nombre: 'WhatsApp', decir: async () => null, bajar: async () => ({ datos: Buffer.alloc(0), nombre: '' }), archivo: async (datos: Buffer, nombre: string) => { mandados.push({ nombre, bytes: datos.length }) } }
-  const r = await conCanal(canal as any, () => h.ejecutar({ titulo: 'Ideas de la semana', contenido: '- Una\n- Dos' }, {} as any)) as any
+  const r = await conCanal(canal as any, async () => h.ejecutar({ titulo: 'Ideas de la semana', contenido: '- Una\n- Dos' }, {} as any)) as any
   assert.equal(r.enviado, 'WhatsApp')
   assert.deepEqual(mandados.map((m) => m.nombre), ['Ideas-de-la-semana.pdf'])
   const p = await h.ejecutar({ titulo: 'Informe', contenido: 'Texto' }, {} as any) as any
