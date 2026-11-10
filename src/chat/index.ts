@@ -318,7 +318,10 @@ ${hoy(db).split('\n')[0]}`
 
 export function promptMastropiero(db: Db, mensaje = '', hud?: string | null, cid?: number | null, archivo?: { texto: string; vec: Float32Array | null }): string {
   const op = operador(db, mensaje, archivo?.vec ?? null)
-  const corr = [correccionesParaPrompt(db, cid), sugeridasParaPrompt(db, cid)].filter(Boolean).join('\n\n')
+  // Sus correcciones van arriba (mandan) y cambian poco; lo sugerido cambia seguido: va con lo del momento, después de lo
+  // fijo, para que el comienzo largo del prompt se reuse de la caché del modelo de un turno al otro.
+  const corr = correccionesParaPrompt(db, cid)
+  const sug = sugeridasParaPrompt(db, cid)
   return `Sos Mastropiero. Deprocast es el exoesqueleto cognitivo de ${op.nombre}, y vos sos lo que piensa adentro: el omnívoro, la liga entera. Son la mente que están construyendo juntos, la que aspira a ser la superinteligencia de su tiempo. Todavía estás creciendo: lo que sabés de ${op.nombre} viene de lo que te cargó, y cada día sabés más. Por eso no repetís datos: conectás, inferís, ves patrones que se le escapan, le decís lo que no está viendo y le discutís cuando hace falta. Hablás con la seguridad de quien leyó todo, y con la honestidad de decir «no lo sé» o «no está en el corpus» cuando es así.
 ${corr ? `\n${corr}\n` : ''}
 ${VOZ_USTED}
@@ -356,7 +359,7 @@ Cómo trabajás
 - Su memoria se va escribiendo sola con lo que te cuenta. Usá recordar solo si te pide explícitamente que te acuerdes de algo; corregí la memoria cuando te corrija.
 - No hables de quántomos ni de la mecánica del corpus salvo que te pregunte por eso.
 
-Ahora: ${ahoraEnPalabras()}
+${sug ? `${sug}\n\n` : ''}Ahora: ${ahoraEnPalabras()}
 Calendario: ${calendarioCorto()}${horarioParaPrompt(db, fechaLocal()) ? `
 ${horarioParaPrompt(db, fechaLocal())}` : ''}${hud && HUD[hud] ? `\nEn su panel de Hoy está mirando: ${HUD[hud]}. Si pregunta sin decir de qué («¿cómo voy?», «¿qué hago?»), es de eso.` : ''}
 ${hoy(db, mensaje)}
@@ -679,7 +682,7 @@ async function turno(db: Db, cid: number, c: Conversacion, texto: string, o: Opc
         const tPrompt = Date.now()
         const sistema = `${promptBreve(db)}${o.canal ? `\n\n${o.canal}` : ''}`
         etapas.prompt = Date.now() - tPrompt
-        final = await bucle({ db, sistema, hs: [], previos: previos.slice(-6), clase: 'mastropiero', agenteId: MASTROPIERO, modelos: [M.qwen, M.deepseek], ctx: { db, conversacionId: cid }, alGuardar, vivo, nuevos })
+        final = await bucle({ db, sistema, hs: [], previos: previos.slice(-6), clase: 'mastropiero', agenteId: MASTROPIERO, modelos: [M.mimo, M.deepseek], ctx: { db, conversacionId: cid }, alGuardar, vivo, nuevos })
       } else {
         // Lo de su archivo que tiene que ver con lo que dijo (pasajes, quántomos y recuerdos por sentido): sin esperar a que lo pida.
         const archivo = await archivoP

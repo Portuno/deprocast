@@ -26,7 +26,7 @@ describe('la velocidad del chat (plan v34, #129)', () => {
     })
     await enviar(db, cid, '¿estás?')
     assert.equal(vistos.length, 1)
-    assert.deepEqual(vistos[0].modelos, [M.qwen, M.deepseek])
+    assert.deepEqual(vistos[0].modelos, [M.mimo, M.deepseek])
     assert.equal(vistos[0].herramientas, 0)
     assert.match(vistos[0].sistema, /mensaje breve/)
     assert.doesNotMatch(vistos[0].sistema, /Cómo trabajás/, 'sin el expediente entero')

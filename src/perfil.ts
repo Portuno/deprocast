@@ -5,7 +5,7 @@
  * - los números de su Deprocast (piezas, entidades, misiones, agentes, mails).
  */
 import { fechaLocal, type Db } from './db.ts'
-import { tokensHoy, usoDelMes } from './nan.ts'
+import { creditosPorUso, tokensHoy, usoDelMes } from './nan.ts'
 import { entidadDelJugador } from './personajes.ts'
 
 const contar = (db: Db, sql: string): number | null => {
@@ -48,7 +48,9 @@ export function perfil(db: Db, ahora = Date.now()) {
     usuario: process.env.MASTRO_USUARIO ? Number(process.env.MASTRO_USUARIO) : null,
     uso: {
       hoy,
-      mes: { tokens: mes.reduce((s, x) => s + x.tokens, 0), llamadas: mes.reduce((s, x) => s + x.llamadas, 0), errores: mes.reduce((s, x) => s + x.errores, 0), modelos: mes.slice(0, 5).map((x) => ({ modelo: x.modelo, tokens: x.tokens })) },
+      mes: { tokens: mes.reduce((s, x) => s + x.tokens, 0), llamadas: mes.reduce((s, x) => s + x.llamadas, 0), errores: mes.reduce((s, x) => s + x.errores, 0), modelos: mes.slice(0, 5).map((x) => ({ modelo: x.modelo, tokens: x.tokens, creditos: x.creditos })),
+        // Los créditos de NaN (nov 2026): el total, cuánto de la entrada salió de la caché y en qué se van.
+        creditos: Math.round(mes.reduce((s, x) => s + (x.creditos ?? 0), 0) * 100) / 100, cache: (() => { const u = creditosPorUso(db, ahora, 1000); const e = u.reduce((s, x) => s + x.entrada, 0); return e ? Math.round((100 * u.reduce((s, x) => s + x.cacheados, 0)) / e) : null })(), usos: creditosPorUso(db, ahora) },
       dias: [...dias].map(([fecha, v]) => ({ fecha, ...v })),
       tope: Number(process.env.MASTRO_TOPE_DIA) || null,
     },

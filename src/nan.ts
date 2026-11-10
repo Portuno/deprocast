@@ -19,47 +19,87 @@ const fondo = () => (deFondo.getStore() ? 1 : 0)
 export const NAN_BASE_DEFECTO = 'https://api.nan.builders/v1'
 
 export const M = {
-  deepseek: 'deepseek-v4-flash', // 284B MoE · 1M ctx · visión — el cupo más grande
-  glm: 'glm5.3-flash', //           razonamiento · 1M ctx
-  qwen: 'qwen3.8-flash', //         6B activos · 262K ctx · visión — rápido, cupo chico
+  deepseek: 'deepseek-v4-flash', //  1M ctx · visión · herramientas probadas: el del chat
+  mimo: 'mimo-v2.6-flash', //        1M ctx · el más barato y casi no gasta razonando: lo de fondo
+  pro: 'deepseek-v4-pro', //         el razonador: lo poco y que importa (autocrítica, Fragua, runs)
+  glm: 'glm5.3-flash', //            razona; entrada barata pero sin caché y lento (8 s con herramientas)
+  qwen: 'qwen3.8-flash', //          visión; razona mucho (~300 tokens por respuesta corta)
   embed: 'qwen3-embedding',
 } as const
 
-/** Cupo mensual de tokens según el panel de NaN (oct 2026). Se resetea el 1 de cada mes. */
-export const CUPOS: Record<string, number> = {
-  [M.deepseek]: 3_000_000_000,
-  [M.glm]: 2_000_000_000,
-  [M.qwen]: 500_000_000,
+/**
+ * Lo que cuesta cada modelo en créditos de NaN por millón de tokens (nov 2026): la entrada, la entrada que ya estaba en
+ * caché (mucho más barata: reusar el mismo comienzo del prompt estira los créditos) y la salida (el razonamiento cuenta
+ * como salida). Medido el 10/11: MiMo y DeepSeek Flash cachean el prefijo repetido; GLM, Hy4 y DeepSeek Pro no.
+ */
+export const PRECIOS: Record<string, { entrada: number; cache: number; salida: number }> = {
+  [M.deepseek]: { entrada: 10.5, cache: 0.21, salida: 42 },
+  [M.mimo]: { entrada: 7, cache: 0.14, salida: 14 },
+  [M.pro]: { entrada: 66, cache: 2.2, salida: 198 },
+  [M.glm]: { entrada: 5.25, cache: 9.1, salida: 17.5 },
+  [M.qwen]: { entrada: 7.5, cache: 0.8, salida: 23.5 },
+  'hy4': { entrada: 41.7, cache: 2.1, salida: 125.05 },
+  'glm5.3': { entrada: 49, cache: 9.1, salida: 154 },
+  'kimi-k3.1-pro': { entrada: 100, cache: 10, salida: 500 },
+  'qwen3.8-max': { entrada: 100, cache: 12.5, salida: 300 },
+}
+/** Los créditos de una llamada. */
+export function creditosDe(modelo: string, entrada: number, cacheados: number, salida: number): number | null {
+  const p = PRECIOS[modelo]
+  if (!p) return null
+  const c = Math.min(cacheados, entrada)
+  return ((entrada - c) * p.entrada + c * p.cache + salida * p.salida) / 1_000_000
 }
 
 /**
- * Ruteo por clase. Criterio:
- * - Lo que juzga (gerente, auditor) va primero a GLM, que razona.
- * - Lo largo o con fuentes (generativo, extractor, buscador) va a DeepSeek: 1M de contexto y el cupo mayor.
- * - Lo corto y masivo (clasificador) va a Qwen, el más liviano.
- * - Ejecutivo y crawler no usan modelo: uno corre funciones de lista blanca, el otro trae con fetch.
- * - Mastropiero (el chat con herramientas) va a DeepSeek: probado con tool calling en 3–4 s; Qwen y GLM detrás.
- * Se pisa con NAN_CADENA_<CLASE>=modelo1,modelo2 (y NAN_CADENA_MASTROPIERO).
+ * Ruteo (nov 2026, con los créditos de NaN y medido el 10/11). Criterio:
+ * - Lo que él ve y le habla (el chat, Telegram, el Directo, la mañana) va a DeepSeek Flash: herramientas probadas,
+ *   2–4 s, y cachea el prompt largo del chat (el turno siguiente paga 0,21 en vez de 10,5 por millón).
+ * - Lo de fondo (destilar, el escriba, el reproceso, el takeout, YouTube, el Taller…) va a MiMo: la mitad de entrada,
+ *   un tercio de salida, cachea igual y casi no razona. DeepSeek Flash detrás.
+ * - Lo poco y que importa (la autocrítica, La Fragua, las primarias y las runs, las lecciones, el informe) va a
+ *   DeepSeek Pro, el razonador barato de los grandes; Flash detrás.
+ * - Lo que juzga (gerente, auditor) pasa de GLM a DeepSeek Flash: GLM tardaba 8 s con herramientas y no cachea.
+ * - Ejecutivo y crawler no usan modelo; el vectorizador, sus embeddings.
+ * Se pisa con NAN_CADENA_<CLASE>=modelo1,modelo2 (también NAN_CADENA_MASTROPIERO, _FONDO y _PROFUNDO).
  */
-const CADENAS: Record<ClaseId | 'mastropiero', string[]> = {
-  mastropiero: [M.deepseek, M.qwen, M.glm],
-  generativo: [M.deepseek, M.glm],
-  gerente: [M.glm, M.deepseek],
-  auditor: [M.glm, M.deepseek],
-  extractor: [M.deepseek, M.qwen],
-  buscador: [M.deepseek, M.qwen],
-  clasificador: [M.qwen, M.deepseek],
+const CADENAS: Record<ClaseId | 'mastropiero' | 'fondo' | 'profundo', string[]> = {
+  mastropiero: [M.deepseek, M.mimo, M.qwen],
+  fondo: [M.mimo, M.deepseek],
+  profundo: [M.pro, M.deepseek],
+  generativo: [M.mimo, M.deepseek],
+  gerente: [M.deepseek, M.glm],
+  auditor: [M.deepseek, M.glm],
+  extractor: [M.mimo, M.deepseek],
+  buscador: [M.mimo, M.deepseek],
+  clasificador: [M.mimo, M.deepseek],
   crawler: [],
   vectorizador: [M.embed],
   ejecutivo: [],
 }
+/** Lo que él ve en el momento: calidad y velocidad primero (la cadena de Mastropiero). */
+const INTERACTIVOS = new Set(['mastropiero', 'chat', 'telegram', 'directo', 'matinal', 'brujula', 'mapamundi', 'academia', 'pensar', 'captura', 'correcciones'])
+/** Lo poco y que importa: el razonador. */
+const PROFUNDOS = new Set(['autocritica', 'fragua', 'primarias', 'run', 'run-pedido', 'lecciones', 'reporte', 'evolucion', 'procesos'])
+/**
+ * La cadena de una llamada: la que trae (un turno breve elige la suya), la de su uso (profundo, interactivo o de
+ * fondo) para lo que corre como Mastropiero, o la de su clase (los agentes de la liga).
+ */
+export function cadenaPara(l: { clase: ClaseId | 'mastropiero'; agenteId?: string | null; modelos?: string[] }): string[] {
+  if (l.modelos?.length) return l.modelos
+  if (l.clase === 'mastropiero' && l.agenteId) {
+    if (PROFUNDOS.has(l.agenteId)) return cadena('profundo')
+    if (!INTERACTIVOS.has(l.agenteId)) return cadena('fondo')
+  }
+  return cadena(l.clase)
+}
 
 /** Modelos que obedecen reasoning_effort (igual que la 0.7.1). */
 const OBEDECEN_ESFUERZO = new Set<string>([M.glm, 'gemma4', 'qwen3.6'])
-/** Presupuesto extra para modelos que piensan antes de escribir: sin esto GLM gasta todo en razonar y devuelve content vacío. */
+/** Presupuesto extra para modelos que piensan antes de escribir: sin esto gastan todo en razonar y devuelven content vacío. Solo se paga lo que usan. */
 export const PRESUPUESTO_RAZONAMIENTO = 4096
 function piensa(modelo: string) {
-  return modelo === M.glm || (modelo !== '' && modelo === env('NAN_MIMO_ID'))
+  return modelo === M.glm || modelo === M.mimo || modelo === M.qwen || modelo === M.pro || modelo === 'hy4' || (modelo !== '' && modelo === env('NAN_MIMO_ID'))
 }
 
 function env(nombre: string, def = ''): string {
@@ -70,19 +110,19 @@ export function assertPermitido(id: string) {
   if (id === 'glm5.3' || id === 'glm5.2' || id.endsWith('-fallback')) throw new Error(`modelo NaN prohibido: ${id}`)
 }
 
-/** MiMo entra como último recurso de las cadenas de chat cuando NAN_MIMO_ID tiene el id exacto (ver `mastro nan modelos`). */
-export function cadena(clase: ClaseId | 'mastropiero'): string[] {
+/** NAN_MIMO_ID (de antes, cuando MiMo no estaba en el catálogo) se suma al final si no está ya. */
+export function cadena(clase: ClaseId | 'mastropiero' | 'fondo' | 'profundo'): string[] {
   const propia = env(`NAN_CADENA_${clase.toUpperCase()}`)
   const base = propia ? propia.split(',').map((s) => s.trim()).filter(Boolean) : [...(CADENAS[clase] ?? CADENAS.mastropiero)]
   const mimo = env('NAN_MIMO_ID')
-  if (mimo && !propia && clase !== 'vectorizador' && base.length) base.push(mimo)
+  if (mimo && !propia && clase !== 'vectorizador' && base.length && !base.includes(mimo)) base.push(mimo)
   for (const id of base) assertPermitido(id)
   return base
 }
 
-export function cupoDe(modelo: string): number | null {
-  if (CUPOS[modelo]) return CUPOS[modelo]
-  return modelo === env('NAN_MIMO_ID') && modelo ? 1_000_000_000 : null
+/** Los cupos mensuales de tokens ya no existen (NaN cobra créditos por token): queda por compatibilidad. */
+export function cupoDe(_modelo: string): number | null {
+  return null
 }
 
 // ─── transporte (inyectable para tests) ─────────────────────────────────
@@ -235,12 +275,16 @@ export function cuerpoChat(modelo: string, o: { mensajes: Record<string, unknown
 
 /** modelos: una cadena propia para esta llamada (un turno breve del chat va primero al modelo rápido). */
 type Llamada = { db: Db; clase: ClaseId | 'mastropiero'; agenteId: string; modelos?: string[] }
+export type { Llamada }
 
 function anotar(l: Llamada, modelo: string, r: Respuesta, ms: number) {
   const u = r.json?.usage
+  const entrada = u?.prompt_tokens ?? u?.total_tokens ?? null
+  const cache = u?.prompt_tokens_details?.cached_tokens ?? u?.prompt_cache_hit_tokens ?? null
+  const salida = u?.completion_tokens ?? null
   l.db.prepare(
-    `INSERT INTO llamadas (motor, modelo, clase, agente_id, tokens_in, tokens_out, latencia_ms, status, en, fondo) VALUES ('nan', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(modelo, l.clase, l.agenteId, u?.prompt_tokens ?? u?.total_tokens ?? null, u?.completion_tokens ?? null, ms, r.status, Date.now(), fondo())
+    `INSERT INTO llamadas (motor, modelo, clase, agente_id, tokens_in, tokens_out, latencia_ms, status, en, fondo, tokens_cache, creditos) VALUES ('nan', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(modelo, l.clase, l.agenteId, entrada, salida, ms, r.status, Date.now(), fondo(), cache, entrada != null ? creditosDe(modelo, entrada, cache ?? 0, salida ?? 0) : null)
 }
 
 async function recorrer(l: Llamada, modelos: string[], llamar: (modelo: string, razonarPoco: boolean) => Promise<Respuesta>) {
@@ -282,7 +326,7 @@ export async function nanChat(
   l: Llamada,
   o: { mensajes: { role: string; content: string }[]; temperatura: number; maxTokens: number; json: boolean },
 ): Promise<{ texto: string; modelo: string }> {
-  const { modelo, r } = await recorrer(l, l.modelos?.length ? l.modelos : cadena(l.clase), (m, razonarPoco) => pedir('POST', '/chat/completions', cuerpoChat(m, { ...o, razonarPoco })))
+  const { modelo, r } = await recorrer(l, cadenaPara(l), (m, razonarPoco) => pedir('POST', '/chat/completions', cuerpoChat(m, { ...o, razonarPoco })))
   const contenido = r.json?.choices?.[0]?.message?.content
   return { texto: typeof contenido === 'string' ? contenido.trim() : '', modelo }
 }
@@ -294,7 +338,7 @@ export async function nanChatHerramientas(
   l: Llamada,
   o: { mensajes: Record<string, unknown>[]; herramientas: unknown[]; temperatura: number; maxTokens: number; razonarPoco?: boolean; json?: boolean },
 ): Promise<{ texto: string; llamadas: LlamadaHerramienta[]; razonamiento: string | null; modelo: string; tokens: number }> {
-  const { modelo, r } = await recorrer(l, l.modelos?.length ? l.modelos : cadena(l.clase), (m, razonarPoco) =>
+  const { modelo, r } = await recorrer(l, cadenaPara(l), (m, razonarPoco) =>
     pedir('POST', '/chat/completions', cuerpoChat(m, { ...o, json: !!o.json && !o.herramientas.length, razonarPoco: o.razonarPoco || razonarPoco })))
   const msg = r.json?.choices?.[0]?.message ?? {}
   return {
@@ -355,7 +399,7 @@ export async function nanChatHerramientasStream(
   o: { mensajes: Record<string, unknown>[]; herramientas: unknown[]; temperatura: number; maxTokens: number; razonarPoco?: boolean; json?: boolean },
   alTexto: (parcial: string) => void,
 ): ReturnType<typeof nanChatHerramientas> {
-  const modelo = (l.modelos?.length ? l.modelos : cadena(l.clase))[0]
+  const modelo = (cadenaPara(l))[0]
   const t0 = Date.now()
   // Se corta por silencio (90 s sin un byte), no por duración: una respuesta larga (un juego de 20K tokens) que
   // sigue llegando no se corta. Tope total de 15 minutos.
@@ -547,8 +591,18 @@ export function usoDelMes(db: Db, ahora = Date.now()) {
     .prepare(
       `SELECT modelo, COUNT(*) AS llamadas, COALESCE(SUM(tokens_in), 0) + COALESCE(SUM(tokens_out), 0) AS tokens,
               SUM(CASE WHEN status BETWEEN 200 AND 299 THEN 0 ELSE 1 END) AS errores
-       FROM llamadas WHERE motor = 'nan' AND en >= ? GROUP BY modelo ORDER BY tokens DESC`,
+              , COALESCE(SUM(tokens_cache), 0) AS cacheados, ROUND(COALESCE(SUM(creditos), 0), 2) AS creditos
+       FROM llamadas WHERE motor = 'nan' AND en >= ? GROUP BY modelo ORDER BY creditos DESC, tokens DESC`,
     )
-    .all(desde) as { modelo: string; llamadas: number; tokens: number; errores: number }[]
+    .all(desde) as { modelo: string; llamadas: number; tokens: number; errores: number; cacheados: number; creditos: number }[]
   return filas.map((f) => ({ ...f, cupo: cupoDe(f.modelo) }))
+}
+
+/** En qué se van los créditos del mes: por uso (el agente o la tarea que llamó), con cuánto salió de la caché. */
+export function creditosPorUso(db: Db, ahora = Date.now(), limite = 8) {
+  const d = new Date(ahora)
+  const desde = new Date(d.getFullYear(), d.getMonth(), 1).getTime()
+  return db.prepare(`SELECT COALESCE(agente_id, clase) AS uso, COUNT(*) AS llamadas, ROUND(COALESCE(SUM(creditos), 0), 2) AS creditos,
+      COALESCE(SUM(tokens_in), 0) AS entrada, COALESCE(SUM(tokens_cache), 0) AS cacheados
+    FROM llamadas WHERE motor = 'nan' AND en >= ? GROUP BY COALESCE(agente_id, clase) ORDER BY creditos DESC LIMIT ?`).all(desde, limite) as { uso: string; llamadas: number; creditos: number; entrada: number; cacheados: number }[]
 }

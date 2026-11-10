@@ -4,7 +4,7 @@ import { abrir } from '../src/db.ts'
 import { publicar, tareas } from '../src/bus.ts'
 import { tick } from '../src/mastropiero.ts'
 import { forjar } from '../src/roster.ts'
-import { _probar, assertPermitido, cadena, cuerpoChat, M, usoDelMes } from '../src/nan.ts'
+import { _probar, assertPermitido, cadena, cadenaPara, creditosDe, cuerpoChat, M, PRESUPUESTO_RAZONAMIENTO, usoDelMes } from '../src/nan.ts'
 
 process.env.NAN_API_KEY = 'test'
 
@@ -26,12 +26,14 @@ const ok = (contenido: unknown) => () => ({
   json: { choices: [{ message: { content: JSON.stringify(contenido) } }], usage: { prompt_tokens: 100, completion_tokens: 20 } },
 })
 
-test('cadenas por clase, overrides y MiMo opcional', () => {
-  assert.deepEqual(cadena('auditor'), [M.glm, M.deepseek])
-  assert.deepEqual(cadena('clasificador'), [M.qwen, M.deepseek])
+test('cadenas por clase, overrides y NAN_MIMO_ID (sin duplicar)', () => {
+  assert.deepEqual(cadena('auditor'), [M.deepseek, M.glm])
+  assert.deepEqual(cadena('clasificador'), [M.mimo, M.deepseek])
   assert.deepEqual(cadena('ejecutivo'), [])
   process.env.NAN_MIMO_ID = 'mimo-x'
   assert.equal(cadena('generativo').at(-1), 'mimo-x')
+  process.env.NAN_MIMO_ID = M.mimo
+  assert.deepEqual(cadena('generativo'), [M.mimo, M.deepseek], 'el que ya está no se repite')
   assert.deepEqual(cadena('vectorizador'), [M.embed])
   process.env.NAN_CADENA_GENERATIVO = 'qwen3.8-flash'
   assert.deepEqual(cadena('generativo'), ['qwen3.8-flash'])
@@ -45,11 +47,28 @@ test('DeepSeek: max_tokens ≥ 16384 y la palabra JSON', () => {
   const b = cuerpoChat(M.deepseek, { mensajes: [{ role: 'user', content: 'hola' }], temperatura: 0.2, maxTokens: 512, json: true })
   assert.equal(b.max_tokens, 16384)
   assert.match(JSON.stringify(b.messages), /JSON/)
-  assert.equal(cuerpoChat(M.qwen, { mensajes: [], temperatura: 0.2, maxTokens: 512, json: true }).max_tokens, 512)
+  // Los que piensan antes de escribir llevan presupuesto para razonar (solo se paga lo que usan).
+  assert.equal(cuerpoChat(M.mimo, { mensajes: [], temperatura: 0.2, maxTokens: 512, json: true }).max_tokens, 512 + PRESUPUESTO_RAZONAMIENTO)
+  assert.equal(cuerpoChat(M.embed, { mensajes: [], temperatura: 0.2, maxTokens: 512, json: true }).max_tokens, 512)
+})
+
+test('el ruteo por uso (nov 2026): el chat y lo que él ve, a DeepSeek Flash; lo de fondo, a MiMo; lo que importa, a DeepSeek Pro; y los créditos de cada llamada', () => {
+  assert.deepEqual(cadenaPara({ clase: 'mastropiero', agenteId: 'mastropiero' }), [M.deepseek, M.mimo, M.qwen])
+  assert.deepEqual(cadenaPara({ clase: 'mastropiero', agenteId: 'directo' })[0], M.deepseek)
+  assert.deepEqual(cadenaPara({ clase: 'mastropiero', agenteId: 'takeout' }), [M.mimo, M.deepseek])
+  assert.deepEqual(cadenaPara({ clase: 'mastropiero', agenteId: 'escriba' }), [M.mimo, M.deepseek])
+  assert.deepEqual(cadenaPara({ clase: 'mastropiero', agenteId: 'autocritica' }), [M.pro, M.deepseek])
+  assert.deepEqual(cadenaPara({ clase: 'extractor', agenteId: 'EXT-0001' }), [M.mimo, M.deepseek], 'los agentes de la liga, por su clase')
+  assert.deepEqual(cadenaPara({ clase: 'mastropiero', agenteId: 'takeout', modelos: [M.qwen] }), [M.qwen], 'la cadena propia de una llamada manda')
+  // Créditos: 10.000 de entrada (8.000 cacheados) y 500 de salida en DeepSeek Flash = (2.000 × 10,5 + 8.000 × 0,21 + 500 × 42) / 1M.
+  assert.equal(Math.round(creditosDe(M.deepseek, 10_000, 8_000, 500)! * 1e6), 2_000 * 10.5 + 8_000 * 0.21 + 500 * 42)
+  assert.ok(creditosDe(M.mimo, 10_000, 8_000, 500)! < creditosDe(M.deepseek, 10_000, 8_000, 500)! * 0.55, 'MiMo cuesta casi la mitad')
+  assert.equal(creditosDe('desconocido', 1, 0, 1), null)
 })
 
 test('402 pasa al siguiente modelo, 429 reintenta, y el tick cierra la tarea', async () => {
   const db = abrir(':memory:')
+  process.env.NAN_CADENA_GENERATIVO = `${M.deepseek},${M.glm}` // la mecánica de reintentos, con una cadena fija
   const pedidos = falso([() => ({ status: 402 }), () => ({ status: 429 }), ok({ texto: 'hecho por glm' })])
   forjar(db, { clase: 'generativo', motor: 'nan' })
   publicar(db, { clase: 'generativo', payload: { texto: 'escribí algo' }, publicadaPor: 'operador' })
@@ -59,6 +78,7 @@ test('402 pasa al siguiente modelo, 429 reintenta, y el tick cierra la tarea', a
   const uso = usoDelMes(db)
   assert.equal(uso.find((u) => u.modelo === M.glm)!.tokens, 120)
   assert.equal(uso.find((u) => u.modelo === M.deepseek)!.errores, 1)
+  delete process.env.NAN_CADENA_GENERATIVO
 })
 
 test('401 corta la cadena y la corrida cuenta como fallo', async () => {
@@ -88,6 +108,7 @@ test('GLM cortado sin texto: reintenta con poco razonamiento y con presupuesto e
     () => ({ status: 200, json: { choices: [{ finish_reason: 'length', message: { content: '' } }], usage: { prompt_tokens: 10, completion_tokens: 512 } } }),
     ok({ veredicto: 'ok', hallazgos: [] }),
   ])
+  process.env.NAN_CADENA_AUDITOR = `${M.glm},${M.deepseek}`
   forjar(db, { clase: 'auditor', motor: 'nan' })
   publicar(db, { clase: 'auditor', payload: { texto: 'revisá' }, publicadaPor: 'operador' })
   await tick(db, { reclutar: false })
@@ -95,17 +116,20 @@ test('GLM cortado sin texto: reintenta con poco razonamiento y con presupuesto e
   assert.ok(pedidos[0].body.max_tokens > 4096)
   assert.ok(Array.isArray(JSON.parse(pedidos[0].body.messages[1].content).log))
   assert.equal(tareas(db, 'hecha')[0].resultado?.veredicto, 'ok')
+  delete process.env.NAN_CADENA_AUDITOR
 })
 
 test('respuesta cortada con JSON a medias: también es truncado y pasa al siguiente modelo', async () => {
   const db = abrir(':memory:')
   const cortada = () => ({ status: 200, json: { choices: [{ finish_reason: 'length', message: { content: '{"veredicto": "ok", "hallaz' } }] } })
   const pedidos = falso([cortada, cortada, ok({ veredicto: 'alerta', hallazgos: ['x'] })])
+  process.env.NAN_CADENA_AUDITOR = `${M.glm},${M.deepseek}`
   forjar(db, { clase: 'auditor', motor: 'nan' })
   publicar(db, { clase: 'auditor', payload: { texto: 'revisá' }, publicadaPor: 'operador' })
   await tick(db, { reclutar: false })
   assert.deepEqual(pedidos.map((p) => p.body.model), [M.glm, M.glm, M.deepseek])
   assert.equal(tareas(db, 'hecha')[0].resultado?.veredicto, 'alerta')
+  delete process.env.NAN_CADENA_AUDITOR
 })
 
 test('streaming: el acumulador junta texto y pedidos de herramienta en pedazos', async () => {

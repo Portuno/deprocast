@@ -27,7 +27,9 @@ async function montarPerfil() {
       </div>
       ${graficoDias(p.uso.dias)}
       ${p.chat?.length ? `<p class="tenue chico">Velocidad del chat (7 días): ${p.chat.map((c) => `${{ breve: 'lo corto', confirmacion: 'confirmaciones', completo: 'lo demás', diario: 'diario' }[c.tipo] ?? c.tipo} ${(c.tipico_ms / 1000).toFixed(1)} s típico, ${(c.lento_ms / 1000).toFixed(1)} s lento (${c.turnos})`).join(' · ')}.</p>` : ''}
-      ${p.uso.mes.modelos.length ? `<p class="tenue chico">Modelos del mes: ${p.uso.mes.modelos.map((m) => `${esc(m.modelo)} ${fmtTokens(m.tokens)}`).join(' · ')}</p>` : ''}
+      ${p.uso.mes.creditos != null ? `<p class="chico">Créditos de NaN este mes: <b>${p.uso.mes.creditos.toLocaleString('es-AR')}</b>${p.uso.mes.cache != null ? ` · ${p.uso.mes.cache} % de la entrada salió de la caché` : ''}</p>` : ''}
+      ${p.uso.mes.modelos.length ? `<p class="tenue chico">Modelos del mes: ${p.uso.mes.modelos.map((m) => `${esc(m.modelo)} ${fmtTokens(m.tokens)}${m.creditos ? ` (${m.creditos} cr.)` : ''}`).join(' · ')}</p>` : ''}
+      ${p.uso.mes.usos?.length ? `<p class="tenue chico">En qué se van: ${p.uso.mes.usos.filter((u) => u.creditos > 0).map((u) => `${esc(u.uso)} ${u.creditos} cr.`).join(' · ') || 'todavía sin créditos anotados'}</p>` : ''}
     </section>
 
     <section class="perfil-bloque"><h2>Tu Deprocast</h2>
