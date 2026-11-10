@@ -599,10 +599,10 @@ export function usoDelMes(db: Db, ahora = Date.now()) {
 }
 
 /** En qué se van los créditos del mes: por uso (el agente o la tarea que llamó), con cuánto salió de la caché. */
-export function creditosPorUso(db: Db, ahora = Date.now(), limite = 8) {
+export function creditosPorUso(db: Db, ahora = Date.now(), limite = 8, porTokens = false) {
   const d = new Date(ahora)
   const desde = new Date(d.getFullYear(), d.getMonth(), 1).getTime()
   return db.prepare(`SELECT COALESCE(agente_id, clase) AS uso, COUNT(*) AS llamadas, ROUND(COALESCE(SUM(creditos), 0), 2) AS creditos,
       COALESCE(SUM(tokens_in), 0) AS entrada, COALESCE(SUM(tokens_cache), 0) AS cacheados
-    FROM llamadas WHERE motor = 'nan' AND en >= ? GROUP BY COALESCE(agente_id, clase) ORDER BY creditos DESC LIMIT ?`).all(desde, limite) as { uso: string; llamadas: number; creditos: number; entrada: number; cacheados: number }[]
+    FROM llamadas WHERE motor = 'nan' AND en >= ? GROUP BY COALESCE(agente_id, clase) ORDER BY ${porTokens ? 'entrada DESC' : 'creditos DESC, entrada DESC'} LIMIT ?`).all(desde, limite) as { uso: string; llamadas: number; creditos: number; entrada: number; cacheados: number }[]
 }

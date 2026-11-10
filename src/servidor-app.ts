@@ -1037,6 +1037,8 @@ const rutas: [string, RegExp, Ruta][] = [
     return { ok: true }
   }],
   ['GET', /^\/api\/perfil$/, async () => (await import('./perfil.ts')).perfil(db)],
+  // En qué se van los tokens y los créditos del mes, por uso (para decidir topes y ruteo).
+  ['GET', /^\/api\/creditos$/, async (_, __, q) => ({ porUso: (await import('./nan.ts')).creditosPorUso(db, Date.now(), Math.min(60, Number(q.get('n')) || 25), q.get('orden') === 'tokens'), porModelo: usoDelMes(db) })],
   ['POST', /^\/api\/google\/cliente$/, async (b) => (await import('./google/oauth.ts')).guardarCliente(db, { json: b.json ? String(b.json) : undefined, id: b.id ? String(b.id) : undefined, secreto: b.secreto ? String(b.secreto) : undefined }, b.origen ? String(b.origen) : undefined)],
   ['POST', /^\/api\/google\/sincronizar$/, async () => (await import('./google/gmail.ts')).sincronizarGmail(db)],
   ['POST', /^\/api\/google\/desconectar$/, async () => { await (await import('./google/oauth.ts')).desconectarGoogle(db); return { ok: true } }],
