@@ -530,6 +530,12 @@ const HERRAMIENTAS_ACCION = () => herramientasLista.map((h) => [h.nombre, h.fami
 /** Los mensajes de Mastropiero que ya salieron por un canal (para no mandar dos veces el mismo texto). */
 const yaDichos = new Set<number>()
 async function conversar(db: Db, texto: string, o: { porVoz?: boolean } = {}) {
+  // Registro pegado de su sesión de Claude Code (Fragua #207): a la bitácora, sin armar un turno.
+  const b = await import('./bitacora-dev.ts')
+  if (!o.porVoz && !texto.includes(b.NOTA_MEZCLA) && b.esRegistro(texto)) {
+    await b.anotarRegistro(db, b.separar([texto]).registro, otroCanal() ? 'WhatsApp' : 'Telegram')
+    return void (await decir(b.AVISO_ANOTADO))
+  }
   const c = conversacionHoy(db)
   const canal = canalActual.getStore()
   const opc = { canal: canal?.estilo ?? null }

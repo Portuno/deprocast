@@ -339,7 +339,7 @@ function encolar(db: Db, de: string, ms: any[]): Promise<unknown> {
 async function atender(db: Db, de: string, ms: any[], entregado: () => void) {
   const ids = ms.map((m) => String(m.id))
   const ultimo = ids.at(-1)!
-  const u = ms.length === 1 ? aTelegram(ms[0]) : { message: { chat: { id: 'whatsapp' }, text: ms.map((m) => aTelegram(m)?.message?.text ?? '').filter(Boolean).join('\n') } }
+  let u = ms.length === 1 ? aTelegram(ms[0]) : { message: { chat: { id: 'whatsapp' }, text: ms.map((m) => aTelegram(m)?.message?.text ?? '').filter(Boolean).join('\n') } }
   let respondio = false
   let reaccion = false
   // Sin reacciones automáticas (le molestaban): lo que dice que está trabajando es el «escribiendo…», renovado.
@@ -348,6 +348,22 @@ async function atender(db: Db, de: string, ms: any[], entregado: () => void) {
   const latido = setInterval(() => { if (!respondio) void graph(db, `${cfg(db).numeroId}/messages`, { method: 'POST', body: JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: ultimo, typing_indicator: { type: 'text' } }) }).catch(() => {}) }, 20_000)
   const quitarAviso = () => { if (reaccion) { reaccion = false; void reaccionar(db, de, ultimo, '') } }
   try {
+    // Lo que pega de su sesión de Claude Code es registro, no un pedido (Fragua #207): a la bitácora, y sigue solo lo suyo.
+    const textos = ms.map((m) => aTelegram(m)?.message?.text)
+    if (u && textos.every((t): t is string => typeof t === 'string' && !!t.trim())) {
+      const b = await import('./bitacora-dev.ts')
+      const s = b.separar(textos)
+      if (s.registro.length) {
+        await b.anotarRegistro(db, s.registro, 'WhatsApp')
+        if (!s.suyo.length) {
+          respondio = true
+          await mandarTexto(db, de, b.AVISO_ANOTADO)
+          marcarHecho(db, ids)
+          return
+        }
+        u = { message: { chat: { id: 'whatsapp' }, text: [...s.suyo, b.NOTA_MEZCLA].join('\n') } }
+      }
+    }
     if (!u) {
       await mandarTexto(db, de, 'Ese tipo de mensaje todavía no lo entiendo: mandame texto, un audio, una foto, un video o un archivo.')
     } else {
