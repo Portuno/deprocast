@@ -102,3 +102,26 @@ test('un canal grande: lo que va por título y descripción queda en una pieza b
   assert.match(p.contenido, /## Tema suelto número 0[\s\S]*60 min · 1\.000 vistas/)
   assert.equal(k.leerCenso(db, 'canal:@grande')!.estado, 'terminado')
 })
+
+test('el censo a pedido (Fragua #194): un @canal que nunca se mandó se censa en el momento desde el chat y queda esperando el ok', async () => {
+  const db = abrir(':memory:')
+  k._probarCanal({
+    pedir: async (url) => {
+      const j = (x: unknown) => new Response(JSON.stringify(x), { status: 200 })
+      if (url.includes('/channels?')) { assert.match(url, /forHandle=%40cami_verdun7/); return j({ items: [{ snippet: { title: 'Camila Verdún' }, contentDetails: { relatedPlaylists: { uploads: 'UUcv' } } }] }) }
+      if (url.includes('/playlistItems?')) return j({ items: [{ contentDetails: { videoId: 'cami0000001' } }] })
+      if (url.includes('/videos?')) return j({ items: [{ id: 'cami0000001', snippet: { title: 'Mi rutina', publishedAt: '2026-01-01T00:00:00Z', description: '' }, contentDetails: { duration: 'PT12M', caption: 'false' }, statistics: { viewCount: '100' } }] })
+      return new Response('{}', { status: 404 })
+    },
+    escribir: async () => ({ resumen: 'Rutinas.', conviene: 'Entero.' }),
+  })
+  const h = HERRAMIENTAS.find((x) => x.nombre === 'ver_censo_canal')!
+  const r = await h.ejecutar({ canal: '@cami_verdun7' }, { db } as any) as any
+  assert.equal(r.titulo, 'Camila Verdún')
+  assert.equal(r.videos, 1)
+  assert.equal(r.costo.videosEntero, 1)
+  assert.equal((db.prepare(`SELECT estado FROM youtube_cola WHERE id = 'canal:@cami_verdun7'`).get() as any).estado, 'censo')
+  // La segunda vez lo lee (no lo vuelve a armar).
+  k._probarCanal({ pedir: async () => { throw new Error('no debería pedir de nuevo') } })
+  assert.equal(((await h.ejecutar({ canal: 'https://www.youtube.com/@cami_verdun7' }, { db } as any)) as any).titulo, 'Camila Verdún')
+})

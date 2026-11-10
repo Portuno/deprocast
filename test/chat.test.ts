@@ -203,3 +203,15 @@ test('sin tope de herramientas (Fragua #190): si se agota el presupuesto de toke
   assert.match(vistos[2].sistema, /Te queda poco presupuesto/)
   assert.doesNotMatch(vistos[1].sistema, /Te queda poco presupuesto/)
 })
+
+test('nada de lecciones por el chat salvo pedido (Fragua #199): lo que aprende no viaja al prompt si no lo nombra', async () => {
+  const { crearAprendizaje, pideAprender } = await import('../src/aprender.ts')
+  const db = abrir(':memory:')
+  crearAprendizaje(db, { tema: 'Francés', nivelObjetivo: 'B1' })
+  assert.doesNotMatch(promptMastropiero(db, '¿qué tengo hoy?'), /Quiere aprender: Francés/)
+  assert.match(promptMastropiero(db, '¿qué tengo hoy?'), /no ofrezcas clases, ejercicios, repasos/)
+  assert.match(promptMastropiero(db, 'dame la clase de francés'), /Quiere aprender: Francés/)
+  assert.ok(pideAprender('practiquemos un rato') && pideAprender('repasemos') && !pideAprender('¿cómo viene la plata?'))
+  db.prepare(`INSERT OR REPLACE INTO ajustes (clave, valor) VALUES ('aprender_en_chat', '1')`).run()
+  assert.match(promptMastropiero(db, '¿qué tengo hoy?'), /Quiere aprender: Francés/, 'si él lo quiere, vuelve')
+})

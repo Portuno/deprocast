@@ -59,7 +59,7 @@ export async function reunirDatos(db: Db, ahora = Date.now()): Promise<{ texto: 
     rinde ? `Cómo rinde según sus runs:\n${rinde}` : '',
     saludParaPrompt(db, ahora),
     finanzasParaPrompt(db, ahora),
-    aprenderParaPrompt(db, ahora),
+    (await import('./aprender.ts')).aprenderEnChat(db) ? aprenderParaPrompt(db, ahora) : '',
     memoria ? `Lo que sabés de él:\n${memoria}` : '',
   ].filter(Boolean)
   return { texto: partes.join('\n'), poco: !p.total && !directo && !animo.length && !prims.length && !saludParaPrompt(db, ahora) }

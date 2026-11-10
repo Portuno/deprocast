@@ -300,7 +300,8 @@ async function bandaActual(db: Db) {
 /** Cada minuto: si arrancó una banda nueva, se la manda sola (con botones). */
 export async function latidoTelegram(db: Db) {
   if (!telegramConfigurado() || !suChat()) return
-  await practicasProgramadas(db)
+  // La práctica de idioma ya no se abre sola (Fragua #199): con /idioma, cuando él quiere.
+  if ((await import('./aprender.ts')).aprenderEnChat(db)) await practicasProgramadas(db)
   await avisoBucles(db).catch((e) => console.error('[telegram] bucles:', e instanceof Error ? e.message : e))
   // Las bandas de la run ya no salen de acá: las manda avisarBandas, un minuto antes y por todos sus canales (Fragua #182).
 }

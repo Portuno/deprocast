@@ -317,16 +317,9 @@ export async function trabajarYoutube(db: Db): Promise<void> {
       try {
         if (item.tipo === 'canal') {
           // Un canal entero (Fragua #187): primero el censo y el informe; nada entra al corpus hasta su ok.
-          const nombre = item.id.replace(/^canal:/, '')
-          let porApi: string | null = null
-          let censo = await k.censar(db, item.id).catch((e) => { porApi = e instanceof Error ? e.message : String(e); return null })
-          if (!censo) {
-            const ids = await canalPorServicio(db, nombre, item.max_videos ?? MAX_POR_CANAL).catch(() => null)
-              ?? await videosDelCanal(nombre, pedirWeb, item.max_videos ?? MAX_POR_CANAL).then((c) => (c.videos.length ? c.videos : null)).catch(() => null)
-            if (ids) censo = await k.censar(db, item.id, { videos: await conTitulos(ids), fuente: 'la lista de videos (sin duración ni vistas: la API de datos de YouTube daría más)' })
-          }
-          if (censo) { censoListo(db, item, censo); continue }
-          db.prepare(`UPDATE youtube_cola SET estado = 'compu', motivo = ? WHERE id = ?`).run(`la nube no puede listar el canal${porApi ? ` (${porApi})` : ''}: lo trae tu compu`, item.id)
+          const r = await censarCanal(db, item)
+          if (r.censo) { censoListo(db, item, r.censo); continue }
+          db.prepare(`UPDATE youtube_cola SET estado = 'compu', motivo = ? WHERE id = ?`).run(`la nube no puede listar el canal${r.motivo ? ` (${r.motivo})` : ''}: lo trae tu compu`, item.id)
           continue
         }
         const directo = await leerVideo(item.url, pedirWeb).catch(() => null)
@@ -368,6 +361,36 @@ async function conTitulos(ids: string[]) {
   const out: import('./youtube-canal.ts').VideoCenso[] = []
   for (const [i, id] of ids.entries()) out.push({ id, titulo: i < 300 ? (await cascara(id)).titulo ?? id : id, fecha: null, segundos: null, vistas: null, subtitulos: null, descripcion: '' })
   return out
+}
+
+/** El censo de un canal de la cola: por la API de datos; si no, la lista de ids (servicio o pestaña de videos). */
+async function censarCanal(db: Db, item: ItemCola): Promise<{ censo: import('./youtube-canal.ts').Censo | null; motivo: string | null }> {
+  const k = await import('./youtube-canal.ts')
+  const nombre = item.id.replace(/^canal:/, '')
+  let motivo: string | null = null
+  let censo = await k.censar(db, item.id).catch((e) => { motivo = e instanceof Error ? e.message : String(e); return null })
+  if (!censo) {
+    const ids = await canalPorServicio(db, nombre, item.max_videos ?? MAX_POR_CANAL).catch(() => null)
+      ?? await videosDelCanal(nombre, pedirWeb, item.max_videos ?? MAX_POR_CANAL).then((c) => (c.videos.length ? c.videos : null)).catch(() => null)
+    if (ids) censo = await k.censar(db, item.id, { videos: await conTitulos(ids), fuente: 'la lista de videos (sin duración ni vistas: la API de datos de YouTube daría más)' })
+  }
+  return { censo, motivo }
+}
+
+/**
+ * El censo a pedido (Fragua #194): un canal que él nombra en el chat («@nombre» o su link) y que todavía no tiene censo
+ * se encola y se censa en el momento. Queda esperando su ok, igual que el que llega por la cola.
+ */
+export async function censoAPedido(db: Db, canal: string): Promise<import('./youtube-canal.ts').Censo> {
+  const limpio = canal.trim().replace(/^canal:/, '')
+  const url = /^https?:\/\//i.test(limpio) ? limpio : `https://www.youtube.com/${limpio.startsWith('@') || /^(channel|c|user)\//.test(limpio) ? limpio : `@${limpio}`}`
+  const x = await encolarYoutube(db, url, {})
+  if (!x || x.tipo !== 'canal') throw new Error('Eso no es un canal de YouTube («@nombre» o el link del canal)')
+  const item = fila(db, `canal:${x.id}`)!
+  const r = await censarCanal(db, item)
+  if (!r.censo) throw new Error(`No pude listar el canal${r.motivo ? `: ${r.motivo}` : ''}`)
+  db.prepare(`UPDATE youtube_cola SET estado = 'censo', motivo = 'esperando tu ok', leido_en = ? WHERE id = ?`).run(Date.now(), item.id)
+  return r.censo
 }
 
 /** El censo está: el canal espera su ok, y si lo mandó él, Mastropiero se lo presenta por donde le habla. */

@@ -1220,11 +1220,12 @@ export const HERRAMIENTAS: Herramienta[] = [
   // ─── Lo que faltaba para manejar todo desde el chat (plan v38, fase 1½) ───
   {
     nombre: 'ver_censo_canal', familia: 'lectura',
-    descripcion: 'El censo de un canal de YouTube que él mandó (Fragua #187): cuántos videos y horas, los grupos (series y formatos) con el plan de cada uno (entero / resumen / nada), los refritos, el costo en tokens y qué conviene. Nada entra al corpus hasta que él lo apruebe.',
+    descripcion: 'El censo de un canal de YouTube (Fragua #187 y #194): cuántos videos y horas, los grupos (series y formatos) con el plan de cada uno (entero / resumen / nada), los refritos, el costo en tokens y qué conviene. Si el canal todavía no tiene censo, lo arma en el momento (a partir de «@nombre» o del link). Nada entra al corpus hasta que él lo apruebe.',
     parametros: S({ canal: str('El canal: «canal:@nombre» (como vino en el aviso), «@nombre» o su link') }, ['canal']),
     ejecutar: async (a, { db }) => {
-      const c = (await import('../youtube-canal.ts')).leerCenso(db, String(a.canal).replace(/^https?:\/\/(www\.)?youtube\.com\//i, ''))
-      if (!c) return { error: 'Ese canal no tiene censo todavía (o no se mandó)' }
+      const k = await import('../youtube-canal.ts')
+      const nombre = String(a.canal).trim().replace(/^https?:\/\/(www\.)?youtube\.com\//i, '').replace(/\/(videos|featured)?$/, '')
+      const c = k.leerCenso(db, nombre) ?? k.leerCenso(db, nombre.toLowerCase()) ?? await (await import('../youtube.ts')).censoAPedido(db, String(a.canal))
       return { canal: c.canal, titulo: c.titulo, estado: c.estado, videos: c.videos.length, horas: Math.round(c.horas * 10) / 10, refritos: c.refritos.length, informe: c.informe,
         grupos: c.grupos.map((g) => ({ grupo: g.nombre, videos: g.ids.length, horas: g.horas, conSubtitulos: g.conSubtitulos, plan: c.plan[g.clave] })), costo: c.costo }
     },

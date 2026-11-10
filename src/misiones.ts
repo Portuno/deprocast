@@ -776,7 +776,7 @@ async function generar(
     textoDeRendimiento(perfilDeRendimiento(db, o.ahora)) ? `\nCómo rinde según sus runs (datos, no opiniones):\n${textoDeRendimiento(perfilDeRendimiento(db, o.ahora))}` : '',
     finanzasParaPrompt(db, o.ahora) ? `\nSu plata (tenela en cuenta: lo que trae ingresos pesa más si la meta viene lejos):\n${finanzasParaPrompt(db, o.ahora)}` : '',
     focoParaRun(db, o.ahora) ? `\n${focoParaRun(db, o.ahora)}` : '',
-    aprenderParaPrompt(db, o.ahora) ? `\nLo que quiere aprender (si entra, una banda corta de práctica de lo que lleva más días quieto):\n${aprenderParaPrompt(db, o.ahora)}` : '',
+    (await import('./aprender.ts')).aprenderEnChat(db) && aprenderParaPrompt(db, o.ahora) ? `\nLo que quiere aprender (si entra, una banda corta de práctica de lo que lleva más días quieto):\n${aprenderParaPrompt(db, o.ahora)}` : '',
   ].filter(Boolean).join('\n')
   const { datos, modelo } = await pedirJson<{ resumen?: string; misiones?: any[] }>({ db, clase: 'mastropiero', agenteId: 'run' }, SISTEMA_RUN, usuario, { temperatura: 0.6, maxTokens: 6000 })
   const ps = (datos.misiones ?? []).map(deModelo).filter((x): x is Propuesta => !!x)

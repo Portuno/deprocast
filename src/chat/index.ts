@@ -24,7 +24,7 @@ import { vivoParaPrompt } from '../vivo.ts'
 import { bloqueParaPrompt } from '../bloques.ts'
 import { finanzasParaPrompt } from '../finanzas.ts'
 import { saludParaPrompt } from '../salud.ts'
-import { aprenderParaPrompt } from '../aprender.ts'
+import { aprenderEnChat, aprenderParaPrompt, pideAprender } from '../aprender.ts'
 import { academiaParaPrompt } from '../academia.ts'
 import { personasParaPrompt } from '../personas.ts'
 import { libreriaParaPrompt } from '../libreria.ts'
@@ -363,8 +363,8 @@ ${vivoParaPrompt(db) || directoParaPrompt(db)}
 ${bloqueParaPrompt(db)}
 ${finanzasParaPrompt(db)}
 ${saludParaPrompt(db)}
-${aprenderParaPrompt(db)}
-${academiaParaPrompt(db)}
+${aprenderEnChat(db) || pideAprender(mensaje) ? `${aprenderParaPrompt(db)}
+${academiaParaPrompt(db)}` : 'Lo que está aprendiendo (idiomas, Academia) no se trae al chat: no ofrezcas clases, ejercicios, repasos ni avisos de metas de aprendizaje salvo que él lo pida en este mensaje (Fragua #199).'}
 ${leccionesChat(db)}
 ${personasParaPrompt(db)}
 ${libreriaParaPrompt(db)}

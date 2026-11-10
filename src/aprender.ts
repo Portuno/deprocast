@@ -3,7 +3,7 @@
  * cada uno, sus recursos (la Librería y el corpus) y el repaso espaciado: después de practicar, una o dos preguntas que
  * vuelven a los 1, 3, 7 y 16 días (por Telegram o en Hoy). Lo usan el chat, el Mentor, las runs y la rutina del lunes.
  */
-import { fechaLocal, type Db } from './db.ts'
+import { ajuste, fechaLocal, type Db } from './db.ts'
 import { buscar } from './corpus.ts'
 import { pedirJson } from './modelo.ts'
 import { asegurarPorNombre } from './entidades.ts'
@@ -97,6 +97,15 @@ export function recursosDe(db: Db, tema: string) {
   try { piezas = buscar(db, tema, 6).map((p) => ({ id: p.id, titulo: p.titulo, nivel: p.nivel })) } catch { /* consulta rara para FTS */ }
   return { obras, piezas }
 }
+
+/**
+ * Nada de lecciones ni repasos por el chat salvo pedido (Fragua #199: «no me interesan las lecciones de francés por acá
+ * a menos que lo pida explícitamente»). Con el ajuste aprender_en_chat apagado (por defecto): ni prácticas que se abren
+ * solas, ni side quests de clases, ni el ritmo de las metas en el chat, el audio de la mañana o las runs. Las clases
+ * viven en Aprender → Academia. Si él lo pide en ese turno («dame la clase», «practiquemos», «repasemos»), va.
+ */
+export const aprenderEnChat = (db: Db) => ajuste(db, 'aprender_en_chat') === '1'
+export const pideAprender = (texto: string) => /\b(clase|clases|lecci[oó]n|lecciones|practic\w*|practiq\w*|repas\w*|ejercicio\w*|tarjetas?|idiomas?|academia|tutor|examen|aprend\w*|franc[eé]s|ingl[eé]s|alem[aá]n|italiano|portugu[eé]s|valenci[aà]|catal[aà]n|vocabulario|conjug\w*)\b/i.test(texto)
 
 /** Para Mastropiero: lo que quiere aprender y cómo viene cada cosa. */
 export function aprenderParaPrompt(db: Db, ahora = Date.now()): string {

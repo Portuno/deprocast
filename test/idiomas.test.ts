@@ -278,8 +278,12 @@ test('Telegram (opcional): /idioma abre la sesión con sus capas, lo que contest
   await boton(`tj:${id}:bien`, carta.id)
   assert.equal(t.leerTarjeta(db, Number(id))!.intervalo, 1)
 
-  // Con hora (opcional), la práctica llega sola, una vez por día.
+  // Con hora (opcional), la práctica llega sola, una vez por día; pero solo si él quiere aprendizaje en el chat (Fragua #199).
   idi.editarIdioma(db, fr.aprendizajeId, { hora: '00:00' })
+  const sinPedir = enviados.length
+  await tg.latidoTelegram(db)
+  assert.equal(enviados.length, sinPedir, 'sin aprender_en_chat, nada de idiomas que llegue solo')
+  db.prepare(`INSERT OR REPLACE INTO ajustes (clave, valor) VALUES ('aprender_en_chat', '1')`).run()
   const antes = enviados.length
   await tg.latidoTelegram(db)
   assert.match(ultimo().text, /Francés.*práctica/)

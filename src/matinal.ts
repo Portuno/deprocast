@@ -58,7 +58,7 @@ export async function materialMatinal(db: Db, fecha: string, ahora = Date.now())
     forjas.length ? `La Fragua dejó ${forjas.length} mejora${forjas.length > 1 ? 's' : ''} lista${forjas.length > 1 ? 's' : ''} para aplicar: ${forjas.map((f) => f.pedido.split('\n')[0].slice(0, 80)).join(' · ')}` : '',
     saludParaPrompt(db, ahora),
     finanzasParaPrompt(db, ahora),
-    aprenderParaPrompt(db, ahora),
+    (await import('./aprender.ts')).aprenderEnChat(db) ? aprenderParaPrompt(db, ahora) : '',
     capasParaPrompt(db, ayer, ahora),
     aportes.length ? `Aportes nuevos de sus ayudantes: ${aportes.map((a) => a.titulo).join(' · ')}` : '',
     `Lo que sabés de él:\n${memoriaParaPrompt(db, 20)}`,
