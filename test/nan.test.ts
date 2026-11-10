@@ -149,3 +149,27 @@ test('si fallan todos los modelos, el error dice el motivo de cada uno (y no «N
     return true
   })
 })
+
+test('el tiempo agotado leyendo la respuesta es un 504 que pasa al siguiente modelo (Fragua #105 y #124), no un error crudo', async () => {
+  const http = await import('node:http')
+  const { transporteReal, decidir } = await import('../src/nan.ts')
+  // Un servidor que manda los encabezados y se queda callado (como NaN cuando el modelo tarda).
+  const srv = http.createServer((_req, res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.write('{"id":') })
+  await new Promise<void>((ok) => srv.listen(0, '127.0.0.1', ok))
+  const antes = process.env.NAN_TIEMPO_MS
+  process.env.NAN_TIEMPO_MS = '5000'
+  try {
+    const { port } = srv.address() as import('node:net').AddressInfo
+    const t0 = Date.now()
+    const r = await transporteReal(`http://127.0.0.1:${port}/chat/completions`, { method: 'POST', body: '{}' })
+    assert.equal(r.status, 504)
+    assert.match(r.body, /^tiempo agotado/)
+    assert.ok(Date.now() - t0 < 9000)
+    assert.deepEqual(decidir(r, 'x', { server: 0, rate: 0, trunc: 0 }), { accion: 'siguiente' }, 'no reintenta el mismo modelo')
+    assert.equal(decidir({ status: 502, body: 'bad gateway' }, 'x', { server: 0, rate: 0, trunc: 0 }).accion, 'reintentar', 'otro 5xx sí se reintenta')
+  } finally {
+    process.env.NAN_TIEMPO_MS = antes
+    srv.closeAllConnections()
+    srv.close()
+  }
+})

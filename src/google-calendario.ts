@@ -112,20 +112,37 @@ function deGoogle(e: any): EventoGoogle | null {
   return { id: e.id, titulo: e.summary ?? '(sin título)', inicio, fin: Number.isFinite(fin) ? fin : inicio + 3_600_000, todoElDia, lugar: e.location ?? null, descripcion: e.description ?? null, url: e.htmlLink ?? null, deDeprocast: e.extendedProperties?.private?.deprocast ?? null }
 }
 
-/** Lo que ya se le pidió a Google (2 minutos): Hoy lo pide seguido. Se borra con cada alta, cambio o baja. */
-const recientes = new Map<string, { en: number; eventos: EventoGoogle[] }>()
+/**
+ * Lo que ya se le pidió a Google, por mes entero (Fragua #106: cada rango nuevo eran ~1,3 s de ida y vuelta). Fresco
+ * 2 minutos; hasta 30 se devuelve al instante y se actualiza de fondo. Se borra con cada alta, cambio o baja.
+ */
+const recientes = new Map<string, { en: number; eventos: EventoGoogle[]; trayendo?: Promise<EventoGoogle[]> }>()
 const REUSO_MS = 120_000
+const VIEJO_MS = 30 * 60_000
 export const olvidarGoogle = () => recientes.clear()
 
 /** Los eventos entre dos días (YYYY-MM-DD, ambos incluidos), con las repeticiones desplegadas. */
 export async function listarGoogle(desde: string, hasta: string): Promise<EventoGoogle[]> {
-  const k = `${desde}|${hasta}`
+  const ini = `${desde.slice(0, 7)}-01`
+  const [a, m] = hasta.slice(0, 7).split('-').map(Number)
+  const fin = `${hasta.slice(0, 7)}-${String(new Date(a, m, 0).getDate()).padStart(2, '0')}` // el último día del mes de «hasta»
+  const k = `${ini}|${fin}`
+  const traer = () => {
+    const ya = recientes.get(k)
+    if (ya?.trayendo) return ya.trayendo
+    const p = listarGoogleSinCache(ini, fin).then((eventos) => { recientes.set(k, { en: Date.now(), eventos }); if (recientes.size > 24) recientes.delete(recientes.keys().next().value!); return eventos })
+    recientes.set(k, { ...(ya ?? { en: 0, eventos: [] }), trayendo: p })
+    p.catch(() => { const x = recientes.get(k); if (x) { delete x.trayendo; if (!x.en) recientes.delete(k) } })
+    return p
+  }
   const ya = recientes.get(k)
-  if (ya && Date.now() - ya.en < REUSO_MS) return ya.eventos
-  const eventos = await listarGoogleSinCache(desde, hasta)
-  recientes.set(k, { en: Date.now(), eventos })
-  if (recientes.size > 50) recientes.delete(recientes.keys().next().value!)
-  return eventos
+  const edad = ya?.en ? Date.now() - ya.en : Infinity
+  let eventos: EventoGoogle[]
+  if (edad < REUSO_MS) eventos = ya!.eventos
+  else if (edad < VIEJO_MS) { eventos = ya!.eventos; void traer().catch(() => {}) }
+  else eventos = await traer()
+  const t0 = medianoche(desde), t1 = medianoche(diaSiguiente(hasta))
+  return eventos.filter((e) => e.inicio < t1 && Math.max(e.fin, e.inicio + 1) > t0)
 }
 
 async function listarGoogleSinCache(desde: string, hasta: string): Promise<EventoGoogle[]> {

@@ -827,11 +827,28 @@ async function relacionadas(db: Db, consulta: string, tema: string, excluir: Set
 export const UMBRAL_SENTIDO = 0.53
 
 /** Los recursos de un dominio, para la pantalla: su material, las obras de la Librería y lo relacionado del corpus. */
-export async function recursosDominio(db: Db, d: Dominio) {
+/**
+ * Las piezas parecidas al tema de un dominio, guardadas 6 horas (Fragua #84): buscarlas por sentido vectoriza la
+ * consulta y recorre los pasajes, y era lo que hacía tardar 2 a 7 s cada visita a la Academia. Se rehacen si cambia el
+ * tema, el material atado o los vectores; «adelantar» las deja listas.
+ */
+const recursosGuardados = new WeakMap<Db, Map<number, { clave: string; en: number; piezas: { id: number; titulo: string; nivel: string; por: string; sim: number | null; largo: number }[] }>>()
+const VIDA_RECURSOS = 6 * 3_600_000
+export async function recursosDominio(db: Db, d: Dominio, ahora = Date.now()) {
   const material = materialDe(db, d.id)
   const atadas = new Set(material.map((m) => m.piezaId).filter((x): x is number => x != null))
-  const piezas = (await relacionadas(db, d.tema, d.tema, atadas, 6)).map((p) => ({ id: p.id, titulo: p.titulo, nivel: p.nivel, por: p.por ?? 'palabras', sim: (p as any).sim ?? null, largo: p.contenido.length }))
-  return { material, obras: recursosDe(db, d.tema).obras, piezas }
+  // La clave: el tema, el material atado y el último pasaje vectorizado (si el Reproceso suma vectores, se rehace).
+  const ultimoPasaje = (db.prepare('SELECT MAX(id) AS n FROM pasajes').get() as { n: number | null }).n ?? 0
+  const clave = `${d.tema}|${[...atadas].sort((a, b) => a - b).join(',')}|${ultimoPasaje}`
+  if (!recursosGuardados.has(db)) recursosGuardados.set(db, new Map())
+  const guardadas = recursosGuardados.get(db)!
+  let g = guardadas.get(d.id)
+  if (!g || g.clave !== clave || ahora - g.en > VIDA_RECURSOS) {
+    const piezas = (await relacionadas(db, d.tema, d.tema, atadas, 6)).map((p) => ({ id: p.id, titulo: p.titulo, nivel: p.nivel, por: p.por ?? 'palabras', sim: (p as any).sim ?? null, largo: p.contenido.length }))
+    g = { clave, en: ahora, piezas }
+    guardadas.set(d.id, g)
+  }
+  return { material, obras: recursosDe(db, d.tema).obras, piezas: g.piezas }
 }
 
 /**
@@ -1022,6 +1039,8 @@ export async function adelantarAcademia(db: Db, o: { tope?: () => boolean; ahora
     if (!sesionLista(db, d.id, 'clase')) await paso('la próxima clase', () => prepararSesionTutor(db, d.id, { prioridadVisual: 1 }))
     if (examenHabilitado(db, d.id) && !sesionLista(db, d.id, 'examen')) await paso('el examen', () => prepararSesionTutor(db, d.id, { examen: true, prioridadVisual: 1 }))
     if (tocaProyecto(db, d.id, d.tutorNivel)) await paso('el proyecto del nivel', () => proponerProyecto(db, d.id))
+    // Lo que muestra al abrir el dominio (las piezas parecidas): listo, sin anotarlo en el tablero.
+    try { const x = leerDominio(db, d.id); if (x) await recursosDominio(db, x) } catch { /* se arma al abrirlo */ }
     // La voz de la explicación de la clase lista (queda en caché: el ▶ suena sin esperar).
     const lista = sesionLista(db, d.id, 'clase')
     if (lista?.estado === 'lista' && !tope()) { try { await audiosDe(db, lista.id, { parte: 'explicacion' }) } catch { /* sin voz: se genera al tocar ▶ */ } }

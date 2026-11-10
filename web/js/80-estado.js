@@ -100,8 +100,8 @@ $('#btn-estado').onclick = modalEstado
 
 /** Cuánto tarda cada ruta (p50, p95, máximo) y cuánto se trabó el servidor, desde que arrancó o desde el último reinicio. */
 async function modalVelocidad() {
-  let v
-  try { v = await api('/velocidad') } catch (e) { return error(e) }
+  let v, l
+  try { [v, l] = await Promise.all([api('/velocidad'), api('/lento').catch(() => null)]) } catch (e) { return error(e) }
   const color = (ms) => (ms >= 1000 ? 'mal' : ms >= 200 ? 'aviso' : 'ok')
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>⏱ Velocidad</h2>
     <p class="tenue">Medido en vivo desde hace ${v.minutos} min. El bucle es cuánto tuvo que esperar algo para correr: si pasa de unos cientos de ms, el servidor se está trabando.</p>
@@ -109,7 +109,10 @@ async function modalVelocidad() {
     <table class="dsc-tabla vel-tabla"><thead><tr><th>Ruta</th><th>Veces</th><th>p50</th><th>p95</th><th>Máx</th><th>KB</th></tr></thead><tbody>
       ${v.rutas.slice(0, 40).map((r) => `<tr><td><code>${esc(r.ruta)}</code>${r.lentos ? ` <span class="chip vel-mal">${r.lentos} lentos</span>` : ''}</td><td>${r.veces}</td><td class="vel-${color(r.p50)}">${r.p50}</td><td class="vel-${color(r.p95)}">${r.p95}</td><td class="vel-${color(r.max)}">${r.max}</td><td>${r.kbPromedio}</td></tr>`).join('')}
     </tbody></table>
-    <div class="fila"><button class="btn" id="vel-reiniciar">Empezar a medir de nuevo</button></div>`)
+    <div class="fila"><button class="btn" id="vel-reiniciar">Empezar a medir de nuevo</button></div>
+    ${l ? `<h3 class="sub">Lo lento de la semana</h3><p class="tenue chico">Los pedidos que tardaron más de un segundo en los últimos ${l.dias} días (sobreviven a los reinicios).</p>
+      ${l.rutas.length ? `<table class="dsc-tabla vel-tabla"><thead><tr><th>Ruta</th><th>Veces</th><th>Mediana</th><th>Peor</th></tr></thead><tbody>${l.rutas.slice(0, 20).map((r) => `<tr><td><code>${esc(r.ruta)}</code></td><td>${r.veces}</td><td class="vel-${color(r.mediana)}">${r.mediana}</td><td class="vel-${color(r.peor)}">${r.peor}</td></tr>`).join('')}</tbody></table>` : '<p class="tenue chico">Nada lento.</p>'}
+      <h3 class="sub">Lo que se rompió</h3>${l.errores.length ? `<table class="dsc-tabla vel-tabla"><thead><tr><th>Dónde</th><th>Veces</th><th>Qué</th></tr></thead><tbody>${l.errores.slice(0, 30).map((x) => `<tr><td>${esc(x.origen)}</td><td>${x.veces}</td><td>${esc(x.texto.slice(0, 160))}</td></tr>`).join('')}</tbody></table>` : '<p class="tenue chico">Nada.</p>'}` : ''}`)
   $('#modal').classList.add('modal-ancho')
   $('#vel-reiniciar').onclick = async () => { try { await api('/velocidad/reiniciar', {}); modalVelocidad() } catch (e) { error(e) } }
 }

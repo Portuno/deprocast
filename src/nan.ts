@@ -90,16 +90,24 @@ export function cupoDe(modelo: string): number | null {
 type Respuesta = { status: number; body: string; json?: any }
 /** Un corte de red (sin conexión, DNS, reset) no es un error del modelo: vuelve como 599 y se reintenta con espera. */
 export const SIN_RED = 599
-let transporte = async (url: string, init: RequestInit): Promise<Respuesta> => {
+/**
+ * Cuánto se espera una respuesta del modelo (plan v38, fase 1; Fragua #105 y #124): lo que pide él, 3 minutos; lo que
+ * corre de fondo (misiones, reproceso, rutinas), 5. NAN_TIEMPO_MS y NAN_TIEMPO_FONDO_MS para cambiarlo.
+ */
+export const tiempoDeEspera = () => Math.max(5_000, Number(fondo() ? env('NAN_TIEMPO_FONDO_MS', '300000') : env('NAN_TIEMPO_MS', '180000')) || 180_000)
+export const transporteReal = async (url: string, init: RequestInit): Promise<Respuesta> => {
   let res: Response
+  let body: string
   try {
-    res = await fetch(url, { ...init, signal: AbortSignal.timeout(180_000) })
+    res = await fetch(url, { ...init, signal: AbortSignal.timeout(tiempoDeEspera()) })
+    // El cuerpo también, adentro: NaN a veces manda los encabezados y tarda en mandar la respuesta; si el tiempo se
+    // agota leyéndola, es un 504 (se pasa al siguiente modelo), no un error crudo que mata la misión o la rutina.
+    body = await res.text()
   } catch (e) {
     const causa = e instanceof Error ? `${e.message}${(e as any).cause?.code ? ` (${(e as any).cause.code})` : ''}` : String(e)
     if (e instanceof Error && e.name === 'TimeoutError') return { status: 504, body: `tiempo agotado: ${causa}`, json: undefined }
     return { status: SIN_RED, body: `sin conexión: ${causa}`, json: undefined }
   }
-  const body = await res.text()
   let json: unknown
   try {
     json = JSON.parse(body)
@@ -108,6 +116,7 @@ let transporte = async (url: string, init: RequestInit): Promise<Respuesta> => {
   }
   return { status: res.status, body, json }
 }
+let transporte = transporteReal
 let dormir = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 /**
@@ -200,6 +209,8 @@ export function decidir(r: Respuesta, modelo: string, n: { server: number; rate:
   if (r.status === 429) return n.rate >= 4 ? { accion: 'siguiente' } : { accion: 'reintentar', esperaMs: Math.min(30_000, 400 * 2 ** n.rate) }
   // Sin red: el siguiente modelo tampoco llegaría; mejor esperar un poco (2, 5 y 10 s) y volver a probar.
   if (r.status === SIN_RED) return n.server >= 3 ? { accion: 'cortar', motivo: `Sin conexión con NaN (${r.body.replace(/^sin conexión: /, '')}). Revisá internet y probá de nuevo.` } : { accion: 'reintentar', esperaMs: [2000, 5000, 10_000][n.server] }
+  // Un modelo que se quedó sin contestar el tiempo entero no va a contestar más rápido la segunda vez: al siguiente.
+  if (r.status === 504 && /^tiempo agotado/.test(r.body)) return { accion: 'siguiente' }
   if (r.status >= 500) return n.server >= 2 ? { accion: 'siguiente' } : { accion: 'reintentar', esperaMs: Math.min(30_000, 400 * 2 ** n.server) }
   if (r.status === 400) return { accion: 'cortar', motivo: `NaN 400: ${r.body.slice(0, 200)}` }
   return { accion: 'siguiente' }
