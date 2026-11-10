@@ -1153,7 +1153,8 @@ const rutas: [string, RegExp, Ruta][] = [
     if (!x) throw new Error(`No existe el grafo ${g}`)
     // Sin foto todavía: se calcula ahora (en el hilo aparte) y la pantalla espera; con foto, la última (o la pedida).
     const foto = q.get('foto') ? gr.leerFoto(db, Number(q.get('foto'))) : gr.ultimaFoto(db, x.id) ?? await gr.recalcular(db, x.id)
-    return { grafo: x, foto, calculando: gr.estaCalculando(x.id), historia: gr.historia(db, x.id), huecos: (await import('./grafo/huecos.ts')).huecosDe(db, x.id), zonas: foto ? (await import('./grafo/mapa.ts')).zonas(db, x, foto, 30) : [] }
+    const hu = await import('./grafo/huecos.ts')
+    return { grafo: x, foto, calculando: gr.estaCalculando(x.id), historia: gr.historia(db, x.id), huecos: hu.huecosDe(db, x.id).map((h) => ({ ...h, delta: hu.deltaDe(db, h) })), grafeador: hu.proximoTrabajo(db, x.id), zonas: foto ? (await import('./grafo/mapa.ts')).zonas(db, x, foto, 30) : [] }
   }],
   // La salud: estado, historia semanal y su calibración, lo que cambió, posibles bucles y alias (sin modelo).
   ['GET', /^\/api\/grafos\/(\d+)\/salud$/, async (_, [g]) => (await import('./grafo/salud.ts')).saludDe(db, id(g))],
@@ -1178,11 +1179,17 @@ const rutas: [string, RegExp, Ruta][] = [
   }],
   ['POST', /^\/api\/grafos\/de$/, async (b) => (await import('./grafo/leer.ts')).grafoDe(db, b.fuente, String(b.nombre ?? 'Grafo'))],
   // Los huecos: la pregunta, responderla, que la investigue un agente, a La Fragua, al Radar, descartar.
-  ['POST', /^\/api\/grafos\/huecos\/(\d+)\/(pregunta|responder|investigar|fragua|radar|descartar)$/, async (b, [h, accion]) => {
+  ['POST', /^\/api\/grafos\/huecos\/(\d+)\/(pregunta|responder|investigar|fragua|derivar|radar|descartar)$/, async (b, [h, accion]) => {
     const hu = await import('./grafo/huecos.ts')
     if (accion === 'pregunta') { soloNube('La pregunta del hueco'); return hu.preguntarHueco(db, id(h), { forzar: !!b.forzar }) }
-    if (accion === 'responder') return hu.responderHueco(db, id(h), String(b.texto ?? ''))
+    if (accion === 'responder') {
+      const r = hu.responderHueco(db, id(h), String(b.texto ?? ''))
+      // Lo que su respuesta deja abierto para el sistema va solo a La Fragua (Fragua #197; en la nube: gasta tokens).
+      if (enLaNube()) void hu.derivarDeRespuesta(db, id(h)).catch((e) => console.error('  hueco → fragua:', e instanceof Error ? e.message : e))
+      return r
+    }
     if (accion === 'investigar') { soloNube('Que lo investigue un agente'); return hu.investigarHueco(db, id(h)) }
+    if (accion === 'derivar') { soloNube('Ver qué deja tu respuesta para el sistema'); const r = await hu.derivarDeRespuesta(db, id(h)); return { ...hu.leerHueco(db, id(h))!, derivada: r.propuestaId } }
     if (accion === 'fragua') return hu.aLaFragua(db, id(h))
     if (accion === 'radar') { soloNube('El Radar'); return hu.alRadar(db, id(h)) }
     return hu.descartarHueco(db, id(h))

@@ -189,3 +189,59 @@ export function huecosParaPrompt(db: Db, max = 5): string {
   return hs.length ? `Huecos estructurales de su grafo (grupos de ideas suyos que casi no se tocan):\n${hs.map((h) => `- [${h.terminosA.slice(0, 4).join(', ')}] ↔ [${h.terminosB.slice(0, 4).join(', ')}]${h.pregunta ? `: ${h.pregunta}` : ''}`).join('\n')}` : ''
 }
 
+
+// ─── el ciclo del hueco (Fragua #197) ───────────────────────────────────
+
+/**
+ * Lo que su respuesta deja abierto como funcionalidad de Deprocast se vuelve propuesta de La Fragua sola (sin que él
+ * lo tenga que pedir dos veces), con su pieza citada. Si la respuesta no pide nada del sistema, no se arma nada (lo de
+ * sus proyectos no va a La Fragua: es suyo). Gasta tokens: en la nube.
+ */
+export async function derivarDeRespuesta(db: Db, id: number, ahora = Date.now()): Promise<{ propuestaId: number | null }> {
+  const h = leerHueco(db, id)
+  if (!h?.respuestaPieza) return { propuestaId: null }
+  if (h.propuestaId) return { propuestaId: h.propuestaId }
+  const respuesta = (db.prepare('SELECT contenido FROM corpus WHERE id = ?').get(h.respuestaPieza) as { contenido: string } | undefined)?.contenido ?? ''
+  const d = await modelo(db, `Leés la respuesta del operador a un hueco de su grafo de ideas (dos grupos que casi no se tocan). Decidí si deja abierta una FUNCIONALIDAD de Deprocast (su sistema: el chat, los agentes, el corpus, el grafo, la Academia…) que habría que construir o cambiar. Si habla de sus proyectos, su vida o algo que no es el sistema, no es una propuesta. Concreto: qué cambiar y cómo se nota que está hecho.
+Forma: {"funcionalidad": null | {"titulo": string (máx. 90), "detalle": string (qué cambiar, por qué, criterio de hecho; 3 a 6 frases), "area": "liga" | "chat" | "corpus" | "pantalla" | "motores" | "otro"}}`,
+    `El hueco: [${h.terminosA.slice(0, 6).join(', ')}] ↔ [${h.terminosB.slice(0, 6).join(', ')}]\nLa pregunta: ${h.pregunta ?? '(sin pregunta)'}\nSu respuesta [#${h.respuestaPieza}]:\n${respuesta.slice(0, 4000)}`)
+  const f = d?.funcionalidad
+  if (!f?.titulo || !f?.detalle) return { propuestaId: null }
+  const area = ['liga', 'chat', 'corpus', 'pantalla', 'motores', 'otro'].includes(f.area) ? f.area : 'otro'
+  const detalle = `${String(f.detalle).trim()}\n\nSale de su respuesta [#${h.respuestaPieza}] al hueco del grafo «${h.terminosA.slice(0, 3).join(', ')} ↔ ${h.terminosB.slice(0, 3).join(', ')}».`
+  const propuestaId = Number(db.prepare(`INSERT INTO propuestas (titulo, detalle, area, prioridad, estado, origen, creada_en) VALUES (?, ?, ?, 'media', 'abierta', 'grafo', ?)`).run(String(f.titulo).slice(0, 160), detalle, area, ahora).lastInsertRowid)
+  db.prepare('UPDATE grafo_huecos SET propuesta_id = ?, actualizado_en = ? WHERE id = ?').run(propuestaId, ahora, id)
+  return { propuestaId }
+}
+
+/** Cómo se movió el puente: desde que apareció, y desde que él respondió (si respondió). */
+export function deltaDe(db: Db, h: HuecoSeguido): { desde: number | null; hoy: number | null; desdeRespuesta: number | null } {
+  const hist = h.historia.filter((x) => x.puente != null)
+  const respondio = h.respuestaPieza ? (db.prepare('SELECT creado_en FROM corpus WHERE id = ?').get(h.respuestaPieza) as { creado_en: number } | undefined)?.creado_en ?? null : null
+  const antes = respondio != null ? [...hist].reverse().find((x) => x.en <= respondio)?.puente ?? null : null
+  return { desde: hist[0]?.puente ?? h.puente ?? null, hoy: hist.at(-1)?.puente ?? null, desdeRespuesta: antes }
+}
+
+/**
+ * El Grafeador: lee el estado del grafo (grupos, bisagras, puntos de entrada, huecos y en qué quedó cada uno) y se
+ * propone su próximo trabajo, en orden: derivar lo que una respuesta dejó abierto, mirar si un hueco respondido ya se
+ * reflejó en el grafo, preguntar el hueco abierto más fuerte, y si no hay huecos, lo que la foto muestra (una bisagra
+ * frágil, un grupo aislado). Sin modelo: es la agenda; cada paso lo hace la acción de siempre.
+ */
+export function proximoTrabajo(db: Db, grafoId: number): { que: string; por_que: string; hueco: number | null; accion: 'derivar' | 'mirar' | 'preguntar' | 'responder' | 'foto' | 'nada' } {
+  const hs = huecosDe(db, grafoId)
+  const sinDerivar = hs.find((h) => h.respuestaPieza && !h.propuestaId && h.estado !== 'cerrado')
+  if (sinDerivar) return { que: `Ver si tu respuesta al hueco «${sinDerivar.terminosA[0]} ↔ ${sinDerivar.terminosB[0]}» deja algo para el sistema`, por_que: 'Respondiste y todavía no se miró si pide una funcionalidad.', hueco: sinDerivar.id, accion: 'derivar' }
+  const respondido = hs.find((h) => h.respuestaPieza && h.estado === 'en_curso')
+  if (respondido) {
+    const d = deltaDe(db, respondido)
+    return { que: `Mirar si tu respuesta acercó «${respondido.terminosA[0]}» y «${respondido.terminosB[0]}»`, por_que: d.desdeRespuesta != null && d.hoy != null ? `El puente estaba en ${d.desdeRespuesta} y hoy está en ${d.hoy}.` : 'Falta una foto nueva del grafo para verlo.', hueco: respondido.id, accion: 'mirar' }
+  }
+  const abierto = hs.filter((h) => h.estado === 'abierto').sort((a, b) => b.puntaje - a.puntaje)[0]
+  if (abierto && !abierto.pregunta) return { que: `Proponer la pregunta del hueco «${abierto.terminosA[0]} ↔ ${abierto.terminosB[0]}»`, por_que: `Es el hueco más fuerte abierto (puntaje ${abierto.puntaje}).`, hueco: abierto.id, accion: 'preguntar' }
+  if (abierto) return { que: `Esperar tu respuesta al hueco «${abierto.terminosA[0]} ↔ ${abierto.terminosB[0]}»`, por_que: 'Ya tiene pregunta: falta lo tuyo.', hueco: abierto.id, accion: 'responder' }
+  const f = ultimaFoto(db, grafoId)
+  if (!f) return { que: 'Sacar la primera foto del grafo', por_que: 'Todavía no hay estado para leer.', hueco: null, accion: 'foto' }
+  const grupos = new Set(f.nodos.map((n: any) => n.com).filter((c: number) => c >= 0)).size
+  return { que: `Sin huecos abiertos: ${grupos} grupos y ${f.huecos.length} posibles huecos en la foto`, por_que: 'Cuando la próxima foto muestre un hueco nuevo, lo tomo.', hueco: null, accion: 'nada' }
+}

@@ -65,7 +65,7 @@ async function traerGrafo() {
   let r
   try { r = await api(`/grafos/${gf.actual}`) } catch (e) { avisoEstado(''); return error(e) }
   if (pedido !== gf.pedido) return
-  gf.foto = r.foto; gf.mostrado = r.foto; gf.historia = r.historia; gf.calculando = r.calculando; gf.seguidos = r.huecos ?? []; gf.zonas = r.zonas ?? []; gf.hueco = null
+  gf.foto = r.foto; gf.mostrado = r.foto; gf.historia = r.historia; gf.calculando = r.calculando; gf.seguidos = r.huecos ?? []; gf.zonas = r.zonas ?? []; gf.hueco = null; gf.grafeador = r.grafeador ?? null
   avisoEstado(r.foto ? '' : 'Todavía no hay texto para este grafo.')
   $('#gf-comparar').innerHTML = '<option value="">Comparar con…</option>' + r.historia.filter((h) => h.id !== r.foto?.id).map((h) => `<option value="${h.id}">${new Date(h.en).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${h.metricas?.n ?? '?'} conceptos</option>`).join('')
   encuadrar()
@@ -311,6 +311,7 @@ function estructuraHTML(g) {
     ${sinResumen ? '<button class="btn btn-chico" id="gf-zonas" title="Mastropiero lee cada grupo y escribe de qué va (en la nube: gasta tokens)">✦ De qué va cada grupo</button>' : ''}</section>
     <section><h4>Bisagras <small class="tenue">(unen tus áreas)</small></h4><p class="gf-lista">${bisagras.map((n) => `<a href="#" data-gf-nodo="${n.i}">${esc(n.forma)}</a>`).join(' · ')}</p></section>
     ${entradas.length ? `<section><h4>Puntos de entrada <small class="tenue">(aparecen poco, conectan mucho)</small></h4><p class="gf-lista">${entradas.map((n) => `<a href="#" data-gf-nodo="${n.i}">${esc(n.forma)}</a>`).join(' · ')}</p></section>` : ''}
+    ${gf.grafeador && gf.mostrado === gf.foto ? `<section class="gf-grafeador"><h4>El Grafeador propone</h4><p class="chico">${esc(gf.grafeador.que)}</p><p class="chico tenue">${esc(gf.grafeador.por_que)}</p>${gf.grafeador.hueco ? `<button class="btn btn-chico" data-gf-seguido="${gf.grafeador.hueco}">Abrir ese hueco</button>` : ''}</section>` : ''}
     ${gf.seguidos.length && !gf.quitados && gf.mostrado === gf.foto ? `<section><h4>Huecos <small class="tenue">(grupos que casi no se tocan: ahí viven ideas nuevas)</small></h4><ul class="gf-huecos">${gf.seguidos.slice(0, 6).map((h) => `<li><button class="gf-hueco" data-gf-seguido="${h.id}"><span>${h.terminosA.slice(0, 3).map(esc).join(', ')}</span><b>↔</b><span>${h.terminosB.slice(0, 3).map(esc).join(', ')}</span><i class="chip gf-h-${h.estado}">${ESTADO_HUECO[h.estado] ?? h.estado}</i></button>${h.pregunta ? `<small>${esc(h.pregunta)}</small>` : h.bisagras.length ? `<small class="tenue">hoy los une apenas: ${h.bisagras.slice(0, 3).map(esc).join(', ')}</small>` : '<small class="tenue">nada los une todavía</small>'}</li>`).join('')}</ul></section>`
       : g.huecos?.length ? `<section><h4>Huecos <small class="tenue">(grupos que casi no se tocan)</small></h4><ul class="gf-huecos">${g.huecos.slice(0, 5).map((h, k) => `<li><button class="gf-hueco" data-gf-hueco="${k}"><span>${h.terminosA.slice(0, 3).map(esc).join(', ')}</span><b>↔</b><span>${h.terminosB.slice(0, 3).map(esc).join(', ')}</span></button></li>`).join('')}</ul></section>` : ''}
     ${g.automaticas?.length ? `<section><h4>Aparecen en casi todo</h4><p class="chico tenue">Si no son concepto para vos, frenalas en Mis grafos → Diccionario: ${g.automaticas.slice(0, 8).map(esc).join(', ')}</p></section>` : ''}
@@ -391,7 +392,7 @@ function huecoHTML(h) {
   const hist = h.historia.filter((x) => x.puente != null)
   return `<section><div class="aca-sec-cab"><h3>Un hueco</h3><button class="btn btn-chico" id="gfh-cerrar">✕</button></div>
     <p class="gf-hueco-lados"><span>${h.terminosA.slice(0, 5).map(esc).join(', ')}</span><b>↔</b><span>${h.terminosB.slice(0, 5).map(esc).join(', ')}</span></p>
-    <p class="chico tenue">${h.bisagras.length ? `Hoy los une apenas: ${h.bisagras.map(esc).join(', ')}.` : 'Hoy nada los une.'} Estado: ${ESTADO_HUECO[h.estado] ?? h.estado}${hist.length > 1 ? ` · puente ${hist[0].puente} → ${hist.at(-1).puente}` : ''}</p>
+    <p class="chico tenue">${h.bisagras.length ? `Hoy los une apenas: ${h.bisagras.map(esc).join(', ')}.` : 'Hoy nada los une.'} Estado: ${ESTADO_HUECO[h.estado] ?? h.estado}${hist.length > 1 ? ` · puente ${hist[0].puente} → ${hist.at(-1).puente}` : ''}${h.delta?.desdeRespuesta != null && h.delta?.hoy != null ? ` · desde tu respuesta: ${h.delta.desdeRespuesta} → ${h.delta.hoy}` : ''}</p>
     ${h.pregunta ? `<blockquote class="gf-pregunta">${esc(h.pregunta)}</blockquote>${h.porQue ? `<p class="chico tenue">${esc(h.porQue)}</p>` : ''}${h.puentes.length ? `<p class="chico">Posibles puentes: ${h.puentes.map(esc).join(' · ')}</p>` : ''}`
       : '<div class="fila"><button class="btn btn-primario btn-chico" id="gfh-pregunta">💡 Proponer la pregunta que los une</button></div>'}
     ${h.pregunta && h.estado !== 'cerrado' ? `<form id="gfh-resp"><textarea class="campo-suelto" name="texto" rows="4" placeholder="Tu respuesta (queda como pieza tuya y como quántomo para La Mano)" required></textarea><div class="fila"><button class="btn btn-primario btn-chico">Responder</button></div></form>` : ''}
@@ -399,6 +400,7 @@ function huecoHTML(h) {
     <div class="fila gf-salidas">
       <button class="btn btn-chico" id="gfh-agente" title="En la nube: busca material que una los dos grupos y lo trae a tu corpus">🔎 Que lo investigue un agente</button>
       <button class="btn btn-chico" id="gfh-fragua" ${h.propuestaId ? 'disabled' : ''} title="Si toca el sistema o tus proyectos: una propuesta abierta">${h.propuestaId ? '✓ En La Fragua' : '→ La Fragua'}</button>
+      ${h.respuestaPieza && !h.propuestaId ? '<button class="btn btn-chico" id="gfh-derivar" title="En la nube: mira si tu respuesta pide algo del sistema y, si pide, arma la propuesta con tu respuesta citada">⚒ ¿Deja algo para el sistema?</button>' : ''}
       <button class="btn btn-chico" id="gfh-radar" title="En la nube: el Radar busca oportunidades con esta pregunta">→ Radar</button>
     </div>
     ${h.agente?.urls?.length ? `<p class="chico">El agente trajo ${h.agente.urls.length}: ${h.agente.urls.map((u) => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(new URL(u).hostname)}</a>`).join(' · ')}</p>` : ''}
@@ -415,6 +417,7 @@ function engancharHueco(h) {
   if (f) f.onsubmit = (e) => { e.preventDefault(); accion($('button', f), `/grafos/huecos/${h.id}/responder`, { texto: f.texto.value }, () => 'Guardada: tu respuesta es pieza tuya y quántomo para La Mano') }
   $('#gfh-agente').onclick = (e) => accion(e.target, `/grafos/huecos/${h.id}/investigar`, {}, (r) => r.guardadas?.length ? `El agente trajo ${r.guardadas.length} fuente${r.guardadas.length === 1 ? '' : 's'} al corpus` : (r.aviso ?? 'Nada nuevo'))
   $('#gfh-fragua').onclick = (e) => accion(e.target, `/grafos/huecos/${h.id}/fragua`, {}, () => 'Quedó como propuesta en La Fragua')
+  if ($('#gfh-derivar')) $('#gfh-derivar').onclick = (e) => accion(e.target, `/grafos/huecos/${h.id}/derivar`, {}, (r) => (r.derivada ? 'Tu respuesta dejó una propuesta en La Fragua (con tu respuesta citada)' : 'Tu respuesta no pide nada del sistema: queda como pieza tuya'))
   $('#gfh-radar').onclick = (e) => accion(e.target, `/grafos/huecos/${h.id}/radar`, {}, (r) => r.nuevas?.length ? `El Radar encontró ${r.nuevas.length}: ${r.nuevas.slice(0, 3).join(' · ')}` : (r.aviso ?? 'El Radar no encontró nada nuevo'))
   $('#gfh-descartar').onclick = async () => { try { await api(`/grafos/huecos/${h.id}/descartar`, {}); gf.seguidos = gf.seguidos.filter((x) => x.id !== h.id); gf.hueco = null; gf.resaltar = null; pintarPanel(); dibujar() } catch (e) { error(e) } }
   $$('[data-gfh-fb]', p).forEach((b) => (b.onclick = async () => { try { await api('/devoluciones', { superficie: 'grafo', ref: h.id, valor: Number(b.dataset.gfhFb), nota: `${h.terminosA.slice(0, 3).join(', ')} ↔ ${h.terminosB.slice(0, 3).join(', ')}${h.pregunta ? ` — ${h.pregunta}` : ''}` }); $$('[data-gfh-fb]', p).forEach((x) => x.classList.toggle('on', x === b)); toast('Anotado', 'suave') } catch (e) { error(e) } }))

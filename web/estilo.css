@@ -3393,3 +3393,7 @@ span.ej-chip { cursor: default; }
 .vel-top { margin: 0 0 var(--e-3); padding-left: 1.2em; display: grid; gap: var(--e-2); font-size: var(--t-3); }
 .vel-top small { color: var(--tenue); }
 .vel-tabla tr.tenue td { color: var(--tenue); }
+
+/* El Grafeador: su próximo trabajo, arriba de los huecos (Fragua, propuesta 197) */
+.gf-grafeador { border-left: 3px solid var(--acento); padding-left: var(--e-3); }
+.gf-grafeador p { margin: 2px 0; }

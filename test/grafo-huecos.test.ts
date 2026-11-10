@@ -76,3 +76,47 @@ test('Re-tejer: cuando escribe algo que une los dos grupos, la foto siguiente ve
   assert.equal(despues.historia.length, 2)
   assert.equal(despues.estado, 'cerrado')
 })
+
+test('el ciclo del hueco (Fragua #197): el Grafeador propone su próximo trabajo; la respuesta deja su propuesta en La Fragua con la pieza citada, y el delta desde la respuesta', async () => {
+  const db = base()
+  const voz = gr.grafoPorClave(db, 'voz')
+  await gr.recalcular(db, voz.id, { ahora: T })
+  let pidioFuncionalidad = 0
+  hu._probarHuecosGrafo({
+    modelo: async (_db, sistema, usuario) => {
+      if (/FUNCIONALIDAD/.test(sistema)) { pidioFuncionalidad++; return /pila/.test(usuario) ? { funcionalidad: { titulo: 'Avisar cuando dos grupos del grafo se tocan', detalle: 'Que el chat avise cuando una idea nueva une dos grupos. Hecho: llega el aviso.', area: 'chat' } } : { funcionalidad: null } }
+      return { pregunta: '¿Qué tiene en común fermentar una masa con cargar una batería?', por_que: 'Energía.', puentes: ['energía guardada'], toca_proyectos: false, consultas: [] }
+    },
+  })
+  const h = hu.huecosDe(db, voz.id)[0]
+  assert.equal(hu.proximoTrabajo(db, voz.id).accion, 'preguntar')
+  await hu.preguntarHueco(db, h.id)
+  assert.equal(hu.proximoTrabajo(db, voz.id).accion, 'responder')
+  const r = hu.responderHueco(db, h.id, 'Las dos cosas acumulan energía: la levadura con gas, la pila con carga. Me gustaría que me avise cuando pase algo así.', T + 1)
+  const g = hu.proximoTrabajo(db, voz.id)
+  assert.deepEqual([g.accion, g.hueco], ['derivar', h.id])
+  const d = await hu.derivarDeRespuesta(db, h.id, T + 2)
+  const p = db.prepare('SELECT titulo, detalle, area, origen FROM propuestas WHERE id = ?').get(d.propuestaId) as any
+  assert.equal(p.titulo, 'Avisar cuando dos grupos del grafo se tocan')
+  assert.ok(p.detalle.includes(`Sale de su respuesta [#${r.piezaId}] al hueco del grafo`), p.detalle)
+  assert.deepEqual([p.area, p.origen], ['chat', 'grafo'])
+  assert.equal((await hu.derivarDeRespuesta(db, h.id)).propuestaId, d.propuestaId, 'una sola por hueco')
+  assert.equal(pidioFuncionalidad, 1)
+  // El ciclo siguiente: lo que escribió une los grupos y el delta se ve desde la respuesta.
+  assert.equal(hu.proximoTrabajo(db, voz.id).accion, 'mirar')
+  for (let i = 0; i < 8; i++) insertar(db, { fuente: 'operador', nivel: 'propia', titulo: `Puente ${i}`, contenido: 'La corriente del horno y la resistencia del horno cocinan la harina; el voltaje del horno levanta la levadura.', origenId: `p${i}` }, T + 10)
+  await gr.recalcular(db, voz.id, { ahora: T + 20 })
+  const delta = hu.deltaDe(db, hu.leerHueco(db, h.id)!)
+  assert.ok(delta.desdeRespuesta != null && delta.hoy != null && delta.hoy > delta.desdeRespuesta, `el puente creció desde la respuesta: ${JSON.stringify(delta)}`)
+})
+
+test('el ciclo del hueco: una respuesta que no pide nada del sistema no arma propuesta', async () => {
+  const db = base()
+  const voz = gr.grafoPorClave(db, 'voz')
+  await gr.recalcular(db, voz.id, { ahora: T })
+  const h = hu.huecosDe(db, voz.id)[0]
+  await hu.preguntarHueco(db, h.id)
+  hu.responderHueco(db, h.id, 'Es que los dos me gustan los domingos: cocinar y arreglar cosas de la casa.', T + 1)
+  assert.equal((await hu.derivarDeRespuesta(db, h.id)).propuestaId, null)
+  assert.equal(hu.leerHueco(db, h.id)!.propuestaId, null)
+})
