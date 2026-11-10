@@ -36,7 +36,7 @@ export function lento(db: Db, ahora = Date.now(), dias = 7) {
   const filas = db.prepare('SELECT origen, texto, veces, ultima FROM errores WHERE ultima >= ? ORDER BY ultima DESC').all(desde) as { origen: string; texto: string; veces: number; ultima: number }[]
   const rutas = new Map<string, number[]>()
   for (const f of filas.filter((x) => x.origen === 'lento')) {
-    const m = /^(.+?) tardó (\d+) ms$/.exec(f.texto)
+    const m = /^(.+?) tardó (\d+) ms$/.exec(f.texto) // rutas («GET /api/x tardó…») y pasos («paso liga:x tardó…»)
     if (!m) continue
     const ms = rutas.get(m[1]) ?? []
     for (let i = 0; i < f.veces; i++) ms.push(Number(m[2]))
@@ -111,4 +111,13 @@ export async function autocritica(db: Db, ahora = Date.now()): Promise<{ id: num
     creadas.push({ id: Number(r.lastInsertRowid), titulo })
   }
   return creadas
+}
+
+/** Mide un paso (de la liga, del reproceso…): si tarda más de un segundo, queda anotado como «lento» con su nombre. */
+export async function medirPaso<T>(db: Db, nombre: string, f: () => T | Promise<T>): Promise<T> {
+  const t0 = performance.now()
+  try { return await f() } finally {
+    const ms = performance.now() - t0
+    if (ms > 1000) registrarError(db, 'lento', `paso ${nombre} tardó ${Math.round(ms)} ms`)
+  }
 }

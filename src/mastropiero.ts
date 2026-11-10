@@ -85,15 +85,16 @@ export const tickEnCurso = () => enTick
 export async function tick(db: Db, o: { ahora?: number; reclutar?: boolean } = {}): Promise<Evento[]> {
   const ahora = o.ahora ?? Date.now()
   const ev: Evento[] = []
-  purgar(db, ahora, ev)
+  const { medirPaso } = await import('./autocritica.ts')
+  await medirPaso(db, 'liga:purgar', () => purgar(db, ahora, ev))
   // Mantenimiento de fondo (sin tokens): los recuerdos repetidos se juntan solos, no son una tarea del jugador.
-  const limpia = await deduplicarMemoria(db)
+  const limpia = await medirPaso(db, 'liga:recuerdos', () => deduplicarMemoria(db))
   if (limpia.archivados) ev.push({ tipo: 'memoria', texto: `juntó ${limpia.archivados} recuerdo${limpia.archivados === 1 ? '' : 's'} repetido${limpia.archivados === 1 ? '' : 's'} en ${limpia.grupos}` })
   // Pasado el tope diario de tokens, la liga reparte pero no corre: nadie falla ni pierde racha por eso.
   const tope = topeAlcanzado(db, ahora)
-  await repartir(db, ahora, (o.reclutar ?? true) && !tope, ev)
+  await medirPaso(db, 'liga:repartir', () => repartir(db, ahora, (o.reclutar ?? true) && !tope, ev))
   if (tope) ev.push({ tipo: 'tope', texto: `la liga no corre: ${tope}` })
-  else await correr(db, ahora, ev)
+  else await medirPaso(db, 'liga:correr', () => correr(db, ahora, ev))
   const n = numeroDeTick(db) + 1
   const alta = db.prepare('INSERT INTO cronica (tick, tipo, texto, en) VALUES (?, ?, ?, ?)')
   // Un tick sin novedades también cuenta: queda su número aunque no deje eventos.

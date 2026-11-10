@@ -226,9 +226,10 @@ export async function vueltaDeLiga(db: Db, o: { nube: boolean; tick: () => Promi
   if (ahora - ultimaCasa >= MIN) {
     ultimaCasa = ahora
     casa = true
-    despachar(db, { drenar: o.nube && autoPrendido(db), ahora })
-    asegurarClases(db, ahora)
-    metaanalizar(db, ahora)
+    const { medirPaso } = await import('./autocritica.ts')
+    await medirPaso(db, 'casa:despachar', () => despachar(db, { drenar: o.nube && autoPrendido(db), ahora }))
+    await medirPaso(db, 'casa:clases', () => asegurarClases(db, ahora))
+    await medirPaso(db, 'casa:metaanalizar', () => metaanalizar(db, ahora))
   }
   if (frenoDeAuto(db, o.nube, ahora) || tickEnCurso()) return { casa, tick: false }
   await o.tick()
