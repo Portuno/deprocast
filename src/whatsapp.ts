@@ -224,7 +224,7 @@ function canal(db: Db, para: string, mensajeId: string, g: Ganchos = {}): Canal 
       return true
     },
     archivo: async (datos, nombre) => {
-      const id = await subirMedio(db, datos, nombre.endsWith('.md') ? 'text/plain' : 'application/octet-stream', nombre)
+      const id = await subirMedio(db, datos, nombre.endsWith('.md') ? 'text/plain' : nombre.endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream', nombre)
       return graph(db, `${cfg(db).numeroId}/messages`, { method: 'POST', body: JSON.stringify({ messaging_product: 'whatsapp', to: para, type: 'document', document: { id, filename: nombre } }) })
     },
   }

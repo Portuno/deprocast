@@ -336,6 +336,28 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (_, r) => `leyó «${r?.nombre ?? ''}» de tu Drive`,
   },
   {
+    nombre: 'armar_pdf', familia: 'accion',
+    descripcion: 'Arma un PDF (A4, maquetado simple: título, secciones, párrafos, listas, citas y al pie la fecha y el número de página) y se lo manda por el mismo canal por el que habla (WhatsApp o Telegram); en la pantalla queda como archivo en el chat. Para cuando pide un documento, informe, resumen o PDF para leer o mandar. El contenido va en Markdown: «# título», «## sección», «- ítem», «1. ítem», «> cita», «---». Si ya salió por WhatsApp o Telegram, no repitas el contenido: decí en una línea qué le mandaste. Si no salió por ningún canal (está en la pantalla), poné en tu respuesta la «marca» tal cual, para que vea el archivo.',
+    parametros: S({ titulo: str('El título del documento'), contenido: str('El texto en Markdown'), nombre: str('Nombre del archivo, sin .pdf (opcional)') }, ['titulo', 'contenido']),
+    ejecutar: async (a) => {
+      const { pdfDesdeMarkdown } = await import('../pdf.ts')
+      const fecha = new Date().toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' })
+      const datos = pdfDesdeMarkdown(String(a.contenido), { titulo: String(a.titulo), pie: `Deprocast · ${fecha}`, autor: 'Mastropiero' })
+      const base = String(a.nombre || a.titulo).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'documento'
+      const nombre = `${base}.pdf`
+      const fs = await import('node:fs')
+      const path = await import('node:path')
+      const { dirAdjuntos } = await import('./adjuntos.ts')
+      fs.mkdirSync(dirAdjuntos(), { recursive: true })
+      const archivo = `${Date.now()}-${base}.pdf`
+      fs.writeFileSync(path.join(dirAdjuntos(), archivo), datos)
+      const paginas = (datos.toString('latin1').match(/\/Type \/Page\b/g) ?? []).length
+      const enviado = await (await import('../telegram.ts')).mandarArchivoAlCanal(datos, nombre).catch((e) => { throw new Error(`Armé el PDF pero no lo pude mandar: ${e instanceof Error ? e.message : e}`) })
+      return { enviado, paginas, nombre, marca: `[archivo:/adjuntos/${archivo}|${nombre}|${paginas} página${paginas === 1 ? '' : 's'}]` }
+    },
+    resumen: (a, r: any) => `armó el PDF «${a.titulo}»${r?.enviado ? ` y lo mandó por ${r.enviado}` : ''}`,
+  },
+  {
     nombre: 'guardar_en_drive', familia: 'accion',
     descripcion: 'Guarda un documento en SU carpeta «Mastropiero» de Google Drive (en Documentos, o en una subcarpeta), como Google Doc: un resumen, un plan, un borrador, una lista, lo que él pida o lo que convenga dejarle a mano. Devuelve el link.',
     parametros: S({ titulo: str('El título del documento'), contenido: str('El texto (puede llevar listas y títulos simples)'), carpeta: str('Subcarpeta dentro de Documentos, opcional') }, ['titulo', 'contenido']),
@@ -2208,7 +2230,7 @@ export const GRUPOS: Record<string, string[]> = {
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus'],
   mapamundi: ['ver_mapamundi', 'disputar'],
   observatorio: ['seguir_tema', 'ver_observatorio', 'crear_campana', 'armar_campana'],
-  crear: ['difundir_idea', 'ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
+  crear: ['armar_pdf', 'difundir_idea', 'ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
 
 /** Los grupos que el mensaje ya anuncia (para no gastar una vuelta pidiéndolos). */
@@ -2223,7 +2245,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/\bmails?\b|correo|gmail|bandeja|inbox|borrador|me escribi[oó]|contest(ar|[aá]le) a/.test(t)) g.push('correo')
   if (/drive|planilla|sheets?\b|hoja de c[aá]lculo|spreadsheet|excel|docs\.google/.test(t)) g.push('drive')
   if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal|reddit|subreddit|github|repo\b|twitter|tweet|tuit|linkedin|instagram|facebook/.test(t)) g.push('web')
-  if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo|mis redes|difund/.test(t)) g.push('crear')
+  if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo|mis redes|difund|\bpdf\b|informe|documento/.test(t)) g.push('crear')
   if (/mapamundi|hex[aá]gono|disputa|grande de la historia|\bzama\b|sagunto/.test(t)) g.push('mapamundi')
   if (/grafo|mis temas|de qu[eé] hablo|qu[eé] conecta|me repito|mis zonas|zonas de mi|bisagra|hueco/.test(t)) g.push('grafo')
   if (/observatorio|qu[eé] se dice|narrativa|hashtag|tendencia|segu[ií] (el|al|a la) tema|segu[ií]me|campa[ñn]a/.test(t)) g.push('observatorio')

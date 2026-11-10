@@ -170,6 +170,18 @@ export type Canal = {
 const canalActual = new AsyncLocalStorage<Canal>()
 export const conCanal = <T>(c: Canal, f: () => Promise<T>): Promise<T> => canalActual.run(c, f)
 const otroCanal = () => canalActual.getStore() ?? null
+/** Marca que el turno vino por Telegram (para mandarle archivos por el mismo canal). */
+const turnoTelegram = new AsyncLocalStorage<true>()
+/**
+ * Un archivo (un PDF que armó, por ejemplo) por el canal del turno: WhatsApp o Telegram. Devuelve por dónde salió, o
+ * null si el turno vino de la pantalla (ahí lo ve como archivo en el chat).
+ */
+export async function mandarArchivoAlCanal(datos: Buffer, nombre: string): Promise<string | null> {
+  const c = otroCanal()
+  if (c?.archivo) { await c.archivo(datos, nombre); return c.nombre }
+  if (turnoTelegram.getStore() && telegramActivo() && suChat()) { await enviarArchivo('sendDocument', { chat_id: suChat()! }, 'document', datos, nombre); return 'Telegram' }
+  return null
+}
 const nombreCanal = () => otroCanal()?.nombre ?? 'Telegram'
 const bajarDe = (id: string) => otroCanal()?.bajar(id) ?? bajar(id)
 const escribiendo = () => (otroCanal() ? otroCanal()!.escribiendo?.() ?? Promise.resolve() : pedir('sendChatAction', { chat_id: suChat(), action: 'typing' }))
@@ -541,9 +553,10 @@ async function conversar(db: Db, texto: string, o: { porVoz?: boolean } = {}) {
   const opc = { canal: canal?.estilo ?? null }
   // Si ya está contestando, esto se suma a ese turno: la respuesta de todo junto la manda el mensaje que lo empezó. Lo
   // que resuelve el carril rápido («ya la hice») se contesta en el acto, sin esperar ese turno.
+  const enviarAca = () => (otroCanal() ? enviar(db, c.id, texto, opc) : turnoTelegram.run(true, () => enviar(db, c.id, texto, opc)))
   if (estaPensando(c.id)) {
     await escribiendo()?.catch(() => {})
-    const p = enviar(db, c.id, texto, opc)
+    const p = enviarAca()
     canal?.entregado?.()
     const r = await p
     if (r?.rapida) await decir(r.rapida)
@@ -551,7 +564,7 @@ async function conversar(db: Db, texto: string, o: { porVoz?: boolean } = {}) {
   }
   const desde = mensajes(db, c.id).at(-1)?.id ?? 0
   await escribiendo()?.catch(() => {})
-  const p = enviar(db, c.id, texto, opc)
+  const p = enviarAca()
   canal?.entregado?.()
   const r = await p
   if (r?.rapida) return void (await decir(r.rapida))

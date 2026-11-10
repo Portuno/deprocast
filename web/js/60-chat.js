@@ -6,6 +6,9 @@ const chat = { conversaciones: [], actual: null, mensajes: [], pensando: false, 
 /** Markdown mínimo y seguro: se escapa todo primero; después se marcan bloques, tablas, listas y referencias. */
 function md(texto) {
   const bloques = []
+  // Los archivos que armó (un PDF): fuera del texto, como tarjeta al final.
+  const docs = []
+  texto = String(texto ?? '').replace(/\[archivo:(\/adjuntos\/[^\]|\s]+)\|([^\]|]*)\|([^\]]*)\]/g, (_, url, nombre, p) => { docs.push({ url, nombre, p }); return '' })
   // Citas al corpus: [#410] o [#410, #388] → notas al pie numeradas en el orden en que aparecen.
   const citas = new Map()
   let t = esc(texto ?? '')
@@ -67,7 +70,12 @@ function md(texto) {
     .replace(/\b(entidad(?:es)?) #(\d+)/gi, '$1 <a class="ref" data-ref-ent="$2">#$2</a>')
     .replace(/(^|[\s(,[])#(\d+)\b(?![^<]*<\/a>)/g, '$1<a class="ref" data-pieza="$2">#$2</a>')
     .replace(/\b([A-Z]{3}-\d{4})\b(?![^<]*<\/a>)/g, '<a class="ref" data-agente="$1">$1</a>')
-    .replace(/\u0000(\d+)\u0000/g, (_, n) => `<pre><code>${bloques[Number(n)]}</code></pre>`)
+    .replace(/\u0000(\d+)\u0000/g, (_, n) => `<pre><code>${bloques[Number(n)]}</code></pre>`) + tarjetasDocs(docs, 'lo armó Mastropiero')
+}
+
+/** Archivos como tarjetas (los que subió él o los que armó Mastropiero). */
+function tarjetasDocs(docs, nota) {
+  return docs.length ? `<div class="m-docs">${docs.map((x) => `<a class="m-doc" href="${esc(x.url)}" target="_blank" rel="noopener"><i>${ICONO_ARCHIVO[(x.nombre.split('.').pop() || '').toLowerCase()] ?? '📄'}</i><span><b>${esc(x.nombre)}</b><small>${esc(x.p)} · ${nota}</small></span></a>`).join('')}</div>` : ''
 }
 
 function quienEs(c) {
@@ -499,7 +507,7 @@ function textoConImagenes(texto) {
   const limpio = String(texto ?? '')
     .replace(/\[imagen:(\/adjuntos\/[^\]|\s]+)\|([^\]]*)\]/g, (_, url, d) => { imgs.push({ url, d }); return '' })
     .replace(/\[archivo:(\/adjuntos\/[^\]|\s]+)\|([^\]|]*)\|([^\]]*)\]/g, (_, url, nombre, p) => { docs.push({ url, nombre, p }); return '' }).trim()
-  return `${limpio ? `<div>${conMenciones(esc(limpio))}</div>` : ''}${imgs.length ? `<div class="m-imgs ${imgs.length === 1 ? 'una' : ''}">${imgs.map((x) => `<button type="button" class="m-img" data-ver-img="${esc(x.url)}" data-desc="${esc(x.d)}" title="Ver grande"><img src="${esc(x.url)}${x.url.startsWith('/adjuntos/') ? '?ancho=480' : ''}" alt="${esc(x.d)}" loading="lazy" decoding="async"></button>`).join('')}</div>` : ''}${docs.length ? `<div class="m-docs">${docs.map((x) => `<a class="m-doc" href="${esc(x.url)}" target="_blank" rel="noopener"><i>${ICONO_ARCHIVO[(x.nombre.split('.').pop() || '').toLowerCase()] ?? '📄'}</i><span><b>${esc(x.nombre)}</b><small>${esc(x.p)} · lo leyó Mastropiero</small></span></a>`).join('')}</div>` : ''}`
+  return `${limpio ? `<div>${conMenciones(esc(limpio))}</div>` : ''}${imgs.length ? `<div class="m-imgs ${imgs.length === 1 ? 'una' : ''}">${imgs.map((x) => `<button type="button" class="m-img" data-ver-img="${esc(x.url)}" data-desc="${esc(x.d)}" title="Ver grande"><img src="${esc(x.url)}${x.url.startsWith('/adjuntos/') ? '?ancho=480' : ''}" alt="${esc(x.d)}" loading="lazy" decoding="async"></button>`).join('')}</div>` : ''}${tarjetasDocs(docs, 'lo leyó Mastropiero')}`
 }
 
 /** Una imagen del chat, grande, con lo que Mastropiero vio en ella. */
