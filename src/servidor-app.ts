@@ -1410,8 +1410,11 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/personas\/grafo$/, () => grafoPersonas(db)],
   // El reproceso (corre en la nube) y la línea temporal que arma.
   // El estado del Procesar hace ~20 conteos sobre tablas grandes y la pantalla lo pide cada 8 s: se reusa 15 s.
-  ['GET', /^\/api\/reproceso$/, () => {
-    if (!reprocesoReciente || Date.now() - reprocesoReciente.en > 15_000) reprocesoReciente = { en: Date.now(), valor: estadoReproceso(db) }
+  ['GET', /^\/api\/reproceso$/, async () => {
+    if (!reprocesoReciente || Date.now() - reprocesoReciente.en > 15_000) {
+      await (await import('./reproceso.ts')).contarDeAPoco(db) // lo grande, de a uno y cediendo el turno (cada 2 min)
+      reprocesoReciente = { en: Date.now(), valor: estadoReproceso(db) }
+    }
     return reprocesoReciente.valor
   }],
   ['POST', /^\/api\/reproceso$/, (b) => { reprocesoReciente = null; return controlarReproceso(db, String(b.accion ?? '')) }],

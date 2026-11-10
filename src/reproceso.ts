@@ -23,14 +23,29 @@ import { juntarBucles, resumenBucles } from './bucles.ts'
 export const enLaNube = () => process.env.MASTRO_NUBE === '1' || process.env.MASTRO_REPROCESO_LOCAL === '1'
 
 /** Lo que entra al destilado: su voz, su material y lo que investigó, con texto suficiente; no lo generado, lo descartado en la Criba ni lo que ya destiló el Takeout. */
-const ELEGIBLES = `c.nivel IN ('propia', 'primaria', 'investigacion') AND LENGTH(c.contenido) >= 400 AND COALESCE(c.peso, 1) != 0
+// octet_length (bytes) y no LENGTH (caracteres): sale de la cabecera, sin leer el texto. Con el corpus de la nube, que no
+// entra en memoria, LENGTH leía todo del disco en cada vuelta y trababa el servidor más de un segundo (npm run medir).
+const ELEGIBLES = `c.nivel IN ('propia', 'primaria', 'investigacion') AND octet_length(c.contenido) >= 400 AND COALESCE(c.peso, 1) != 0
   AND COALESCE(c.origen_id, '') NOT LIKE 'takeout:%' AND COALESCE(c.origen_id, '') NOT LIKE 'linea:%'`
+
+const SQL_ENCOLAR = `INSERT OR IGNORE INTO takeout_destilado (pieza_id, lote, prioridad, estado)
+    SELECT c.id, '${REPROCESO}', CASE c.nivel WHEN 'propia' THEN 3 WHEN 'primaria' THEN 2 ELSE 1 END + MIN(COALESCE(c.peso, 0), 12) / 4, 'pendiente'
+    FROM corpus c WHERE ${ELEGIBLES} AND NOT EXISTS (SELECT 1 FROM takeout_destilado d WHERE d.pieza_id = c.id)`
 
 /** Suma a la cola lo que falta destilar (lo nuevo que entró también). Lo suyo primero. */
 export function encolarReproceso(db: Db): number {
-  return Number(db.prepare(`INSERT OR IGNORE INTO takeout_destilado (pieza_id, lote, prioridad, estado)
-    SELECT c.id, '${REPROCESO}', CASE c.nivel WHEN 'propia' THEN 3 WHEN 'primaria' THEN 2 ELSE 1 END + MIN(COALESCE(c.peso, 0), 12) / 4, 'pendiente'
-    FROM corpus c WHERE ${ELEGIBLES} AND NOT EXISTS (SELECT 1 FROM takeout_destilado d WHERE d.pieza_id = c.id)`).run().changes)
+  return Number(db.prepare(SQL_ENCOLAR).run().changes)
+}
+
+const ceder = () => new Promise<void>((ok) => setImmediate(ok))
+const TRAMO_IDS = 500
+/** Lo mismo, de a tramos de ids y cediendo el turno entre tramo y tramo: así corre en cada vuelta sin trabar nada. */
+export async function encolarDeAPoco(db: Db): Promise<number> {
+  const max = (db.prepare('SELECT COALESCE(MAX(id), 0) AS n FROM corpus').get() as { n: number }).n
+  const tramo = db.prepare(`${SQL_ENCOLAR} AND c.id > ? AND c.id <= ?`)
+  let n = 0
+  for (let desde = 0; desde < max; desde += TRAMO_IDS) { n += Number(tramo.run(desde, desde + TRAMO_IDS).changes); await ceder() }
+  return n
 }
 
 
@@ -44,16 +59,37 @@ const tomadas = new Set<number>() // piezas que un carril ya agarró para pasaje
 let enSintesis = false
 let enItems = false
 
-/** Las piezas que todavía no tienen pasajes (sin las que fallaron tres veces). */
-function sinPasajes(db: Db, n: number): number[] {
-  return (db.prepare(`SELECT c.id FROM corpus c WHERE NOT EXISTS (SELECT 1 FROM pasajes p WHERE p.pieza_id = c.id)
-    AND NOT EXISTS (SELECT 1 FROM reproceso_fallos f WHERE f.pieza_id = c.id AND f.paso = 'pasajes' AND f.intentos >= 3)
-    ORDER BY c.nivel = 'propia' DESC, c.nivel = 'generada', COALESCE(c.peso, 0) DESC, c.id DESC LIMIT ?`).all(n + tomadas.size) as { id: number }[])
-    .map((r) => r.id).filter((id) => !tomadas.has(id)).slice(0, n)
+/**
+ * Las piezas que todavía no tienen pasajes (sin las que fallaron tres veces), en orden: lo suyo primero, lo generado al
+ * final, lo que más pesa antes. Recorrer todo el corpus en cada vuelta trababa el servidor: se arma una cola en memoria
+ * de a tramos (cediendo el turno) y se rearma cuando se vacía o tiene más de dos minutos.
+ */
+const colaPasajes = new WeakMap<Db, { ids: number[]; en: number }>()
+export async function sinPasajes(db: Db, n: number): Promise<number[]> {
+  const sinPasajesEn = (desde: number, hasta: number) => db.prepare(`SELECT c.id, c.nivel, COALESCE(c.peso, 0) AS peso FROM corpus c WHERE c.id > ? AND c.id <= ?
+    AND NOT EXISTS (SELECT 1 FROM pasajes p WHERE p.pieza_id = c.id)
+    AND NOT EXISTS (SELECT 1 FROM reproceso_fallos f WHERE f.pieza_id = c.id AND f.paso = 'pasajes' AND f.intentos >= 3)`).all(desde, hasta) as { id: number; nivel: string; peso: number }[]
+  let c = colaPasajes.get(db)
+  const listo = (id: number) => !!db.prepare('SELECT 1 FROM pasajes WHERE pieza_id = ? LIMIT 1').get(id)
+  if (c) c.ids = c.ids.filter((id) => !tomadas.has(id))
+  if (!c || !c.ids.length || Date.now() - c.en > 120_000) {
+    const max = (db.prepare('SELECT COALESCE(MAX(id), 0) AS n FROM corpus').get() as { n: number }).n
+    const todas: { id: number; nivel: string; peso: number }[] = []
+    for (let desde = 0; desde < max; desde += TRAMO_IDS) { todas.push(...sinPasajesEn(desde, desde + TRAMO_IDS)); await ceder() }
+    todas.sort((a, b) => Number(b.nivel === 'propia') - Number(a.nivel === 'propia') || Number(a.nivel === 'generada') - Number(b.nivel === 'generada') || b.peso - a.peso || b.id - a.id)
+    c = { ids: todas.slice(0, 400).map((x) => x.id), en: Date.now() }
+    colaPasajes.set(db, c)
+  }
+  const out: number[] = []
+  while (out.length < n && c.ids.length) {
+    const id = c.ids.shift()!
+    if (!tomadas.has(id) && !listo(id)) out.push(id)
+  }
+  return out
 }
 
 async function hacerPasajes(db: Db): Promise<boolean> {
-  const ids = sinPasajes(db, 8)
+  const ids = await sinPasajes(db, 8)
   if (!ids.length) return false
   for (const id of ids) tomadas.add(id)
   estado.paso = 'pasajes'
@@ -81,8 +117,13 @@ async function hacerItems(db: Db): Promise<boolean> {
   }
 }
 
+/** La próxima unidad a destilar: la de más prioridad y, entre esas, la más nueva. */
+export function siguienteDestilado(db: Db) {
+  return db.prepare(`SELECT d.pieza_id, d.lote, d.intentos FROM takeout_destilado d JOIN corpus c ON c.id = d.pieza_id WHERE d.lote = ? AND d.estado = 'pendiente' ORDER BY d.prioridad DESC, c.fecha DESC LIMIT 1`).get(REPROCESO) as { pieza_id: number; lote: string; intentos: number } | undefined
+}
+
 async function hacerDestilado(db: Db): Promise<boolean> {
-  const fila = db.prepare(`SELECT d.pieza_id, d.lote, d.intentos FROM takeout_destilado d JOIN corpus c ON c.id = d.pieza_id WHERE d.lote = ? AND d.estado = 'pendiente' ORDER BY d.prioridad DESC, c.fecha DESC LIMIT 1`).get(REPROCESO) as { pieza_id: number; lote: string; intentos: number } | undefined
+  const fila = siguienteDestilado(db)
   if (!fila) return false
   // Tomarla de forma atómica: si otro carril la agarró primero, no se repite.
   if (!db.prepare(`UPDATE takeout_destilado SET estado = 'procesando', intentos = intentos + 1 WHERE pieza_id = ? AND estado = 'pendiente'`).run(fila.pieza_id).changes) return true
@@ -158,17 +199,32 @@ const CARRILES = 4
 /** Qué paso de la pantalla es cada cosa que hace un carril. */
 const QUE_HACE = new Map<(db: Db) => Promise<boolean>, string>([[hacerPasajes, 'pasajes'], [hacerItems, 'recuerdos'], [hacerDestilado, 'destilado'], [hacerImportado, 'importado'], [hacerTarjetas, 'tarjetas'], [hacerBucles, 'bucles'], [hacerSuenos, 'suenos']])
 
+/**
+ * Al arrancar una pasada: fuera los pasajes de piezas que ya no están (de a tramos de ids, cediendo el turno: de un tirón
+ * eran 150 mil filas y más de un segundo trabado), y lo que quedó a medias vuelve a la cola.
+ */
+export async function alEmpezarReproceso(db: Db) {
+  db.prepare(`UPDATE takeout_destilado SET estado = 'pendiente' WHERE lote = ? AND estado = 'procesando'`).run(REPROCESO)
+  // Por el índice de pieza_id (solo números): recorrer la tabla leía los vectores de 2 KB de cada pasaje (300 MB).
+  const max = (db.prepare('SELECT COALESCE(MAX(pieza_id), 0) AS n FROM pasajes').get() as { n: number }).n
+  const huerfanas = db.prepare('SELECT DISTINCT p.pieza_id AS id FROM pasajes p INDEXED BY pasajes_pieza WHERE p.pieza_id > ? AND p.pieza_id <= ? AND NOT EXISTS (SELECT 1 FROM corpus c WHERE c.id = p.pieza_id)')
+  const borrar = db.prepare('DELETE FROM pasajes WHERE pieza_id = ?')
+  for (let desde = 0; desde < max; desde += 5000) {
+    for (const h of huerfanas.all(desde, desde + 5000) as { id: number }[]) borrar.run(h.id)
+    await ceder()
+  }
+}
+
 /** Trabaja hasta que no quede nada o se pause. Si ya anda, no hace nada. */
 export async function trabajarReproceso(db: Db): Promise<void> {
   if (estado.trabajando || !enLaNube() || !nanConfigurado()) return
   estado.trabajando = true
   try {
-    db.prepare('DELETE FROM pasajes WHERE pieza_id NOT IN (SELECT id FROM corpus)').run()
-    db.prepare(`UPDATE takeout_destilado SET estado = 'pendiente' WHERE lote = ? AND estado = 'procesando'`).run(REPROCESO)
+    await alEmpezarReproceso(db)
     let vuelta = 0
     for (;;) {
       if (ajuste(db, 'reproceso_activo') !== '1') { estado.paso = 'en pausa'; break }
-      if (vuelta++ % 20 === 0) encolarReproceso(db)
+      if (vuelta++ % 20 === 0) await encolarDeAPoco(db)
       // No espera al Takeout: los pasajes y los vectores siguen, y dos carriles ayudan a destilar lo importado
       // (lo importado primero: es lo que acabás de subir).
       const conImportado = takeoutTrabajando() || importadoPendiente(db).destilado > 0
@@ -202,11 +258,52 @@ export async function trabajarReproceso(db: Db): Promise<void> {
   }
 }
 
+/**
+ * Los conteos grandes de la pantalla (recorren el corpus, los pasajes, los destilados). La ruta los hace de a uno y
+ * cediendo el turno (contarDeAPoco) y se reusan dos minutos; sin eso, el estado del Procesar trababa 1,5 s cada vez.
+ */
+const SQL_POR_HACER = `SELECT COUNT(*) AS n FROM corpus c WHERE ${ELEGIBLES} AND NOT EXISTS (SELECT 1 FROM takeout_destilado d WHERE d.pieza_id = c.id)`
+const CONTEOS: Record<string, string> = {
+  porHacer: SQL_POR_HACER,
+  pasajesPiezas: 'SELECT COUNT(DISTINCT pieza_id) AS n FROM pasajes',
+  corpus: 'SELECT COUNT(*) AS n FROM corpus',
+  pasajes: 'SELECT COUNT(*) AS n FROM pasajes',
+  itemsHechos: 'SELECT COUNT(*) AS n FROM vec_items',
+  itemsMemoria: `SELECT COUNT(*) AS n FROM memoria m WHERE m.estado = 'vigente' AND NOT EXISTS (SELECT 1 FROM vec_items v WHERE v.tipo = 'memoria' AND v.id = m.id)`,
+  itemsQuantomos: `SELECT COUNT(*) AS n FROM quantomos q WHERE q.etapa IN ('sellado', 'proto') AND NOT EXISTS (SELECT 1 FROM vec_items v WHERE v.tipo = 'quantomo' AND v.id = q.id)`,
+  eventos: 'SELECT COUNT(*) AS n FROM eventos',
+  relaciones: `SELECT COUNT(*) AS n FROM conexiones WHERE origen LIKE 'destilado:%'`,
+  cronicas: `SELECT COUNT(*) AS n FROM corpus WHERE origen_id LIKE 'linea:mes:%'`,
+  tarjetasPiezas: 'SELECT COUNT(*) AS n FROM tarjetas_piezas',
+}
+const conteos = new WeakMap<Db, { en: number; v: Record<string, number> }>()
+export async function contarDeAPoco(db: Db, maxEdadMs = 120_000) {
+  const ya = conteos.get(db)
+  if (ya && Date.now() - ya.en < maxEdadMs) return
+  const v: Record<string, number> = {}
+  for (const [k, sql] of Object.entries(CONTEOS)) {
+    if (k === 'porHacer') continue
+    v[k] = (db.prepare(sql).get() as { n: number }).n
+    await ceder()
+  }
+  // Los dos que recorren todo (el corpus, los destilados con su JSON), de a tramos de ids.
+  const maxC = (db.prepare('SELECT COALESCE(MAX(id), 0) AS n FROM corpus').get() as { n: number }).n
+  const tramo = db.prepare(`${SQL_POR_HACER} AND c.id > ? AND c.id <= ?`)
+  v.porHacer = 0
+  for (let d = 0; d < maxC; d += TRAMO_IDS) { v.porHacer += (tramo.get(d, d + TRAMO_IDS) as { n: number }).n; await ceder() }
+  v.tarjetasFaltan = 0
+  for (let d = 0; d < maxC; d += 2000) { v.tarjetasFaltan += cuantasFaltan(db, { desde: d, hasta: d + 2000 }); await ceder() }
+  conteos.set(db, { en: Date.now(), v })
+}
+
 /** Para la pantalla: cuánto va de cada paso, lo gastado, lo que falta y lo último que destiló. */
 export function estadoReproceso(db: Db, ahora = Date.now()) {
   const n = (sql: string, ...a: (string | number)[]) => (db.prepare(sql).get(...a) as { n: number }).n
+  // Lo grande, de lo contado de a poco si está fresco; si no (las pruebas, el primer pedido), en el momento.
+  const fresco = conteos.get(db)
+  const k = (clave: string) => (fresco && Date.now() - fresco.en < 300_000 && clave in fresco.v ? fresco.v[clave] : clave === 'tarjetasFaltan' ? cuantasFaltan(db) : n(CONTEOS[clave]))
   const destilado = Object.fromEntries((db.prepare(`SELECT estado, COUNT(*) AS n FROM takeout_destilado WHERE lote = ? GROUP BY estado`).all(REPROCESO) as { estado: string; n: number }[]).map((r) => [r.estado, r.n]))
-  const porHacer = n(`SELECT COUNT(*) AS n FROM corpus c WHERE ${ELEGIBLES} AND NOT EXISTS (SELECT 1 FROM takeout_destilado d WHERE d.pieza_id = c.id)`)
+  const porHacer = k('porHacer')
   const ultimaHora = n(`SELECT COUNT(*) AS n FROM takeout_destilado WHERE lote = ? AND estado = 'hecho' AND hecho_en >= ?`, REPROCESO, ahora - 3_600_000)
   const pendientes = (destilado.pendiente ?? 0) + (destilado.procesando ?? 0) + porHacer
   const t = tokensReproceso(db, ahora)
@@ -214,18 +311,14 @@ export function estadoReproceso(db: Db, ahora = Date.now()) {
     activo: ajuste(db, 'reproceso_activo') === '1', enLaNube: enLaNube(), trabajando: estado.trabajando, paso: estado.paso,
     // Qué se está haciendo en este momento: los carriles del Procesar y, si anda, el obrero del Takeout (imágenes, audios, destilado de lo importado).
     ahora: [...new Set([...estado.carriles.filter(Boolean), ...(takeoutTrabajando() ? ['takeout'] : [])])],
-    pasajes: { piezas: n('SELECT COUNT(DISTINCT pieza_id) AS n FROM pasajes'), total: n('SELECT COUNT(*) AS n FROM corpus'), pasajes: n('SELECT COUNT(*) AS n FROM pasajes'), fallos: n(`SELECT COUNT(*) AS n FROM reproceso_fallos WHERE paso = 'pasajes' AND intentos >= 3`) },
-    items: {
-      hechos: n('SELECT COUNT(*) AS n FROM vec_items'),
-      faltan: n(`SELECT COUNT(*) AS n FROM memoria m WHERE m.estado = 'vigente' AND NOT EXISTS (SELECT 1 FROM vec_items v WHERE v.tipo = 'memoria' AND v.id = m.id)`)
-        + n(`SELECT COUNT(*) AS n FROM quantomos q WHERE q.etapa IN ('sellado', 'proto') AND NOT EXISTS (SELECT 1 FROM vec_items v WHERE v.tipo = 'quantomo' AND v.id = q.id)`),
-    },
+    pasajes: { piezas: k('pasajesPiezas'), total: k('corpus'), pasajes: k('pasajes'), fallos: n(`SELECT COUNT(*) AS n FROM reproceso_fallos WHERE paso = 'pasajes' AND intentos >= 3`) },
+    items: { hechos: k('itemsHechos'), faltan: k('itemsMemoria') + k('itemsQuantomos') },
     destilado: { hechos: destilado.hecho ?? 0, pendientes, fallos: destilado.fallo ?? 0, porHora: ultimaHora, horasQueFaltan: ultimaHora ? Math.ceil(pendientes / ultimaHora) : null },
-    eventos: n('SELECT COUNT(*) AS n FROM eventos'), relaciones: n(`SELECT COUNT(*) AS n FROM conexiones WHERE origen LIKE 'destilado:%'`),
-    cronicas: n(`SELECT COUNT(*) AS n FROM corpus WHERE origen_id LIKE 'linea:mes:%'`),
+    eventos: k('eventos'), relaciones: k('relaciones'),
+    cronicas: k('cronicas'),
     cronicasFallidas: n('SELECT COUNT(*) AS n FROM cronica_fallos WHERE intentos >= 3'),
     tokens: { hoy: t.hoy, total: t.total },
-    tarjetas: { piezas: n('SELECT COUNT(*) AS n FROM tarjetas_piezas'), faltan: cuantasFaltan(db), hechas: n(`SELECT COUNT(*) AS n FROM tarjetas WHERE mazo = 'consumido'`) },
+    tarjetas: { piezas: k('tarjetasPiezas'), faltan: k('tarjetasFaltan'), hechas: n(`SELECT COUNT(*) AS n FROM tarjetas WHERE mazo = 'consumido'`) },
     bucles: resumenBucles(db),
     importado: importadoPendiente(db, ahora),
     youtube: estadoYoutube(db, ahora),

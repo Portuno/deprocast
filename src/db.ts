@@ -996,6 +996,8 @@ CREATE TABLE IF NOT EXISTS bucles (
 );
 CREATE INDEX IF NOT EXISTS bucles_estado ON bucles(estado);
 CREATE INDEX IF NOT EXISTS bucles_clave ON bucles(clave);
+-- El peso de cada bucle sale de este índice solo (sin leer la fila con su vector): /api/hoy/hud lo pide seguido.
+CREATE INDEX IF NOT EXISTS bucles_peso ON bucles(estado, veces, primera);
 -- Arranque al 20 %: lo que ya hizo hacia algo nuevo (una primaria, un aprendizaje, una meta), encontrado en su corpus.
 CREATE TABLE IF NOT EXISTS previos (
   tipo TEXT NOT NULL,                 -- mision | aprendizaje | meta
@@ -2317,6 +2319,8 @@ END;
 /** Los índices de las consultas que se repiten (las que se piden cada pocos segundos, o en bucles). */
 const INDICES_RAPIDOS = `
 CREATE INDEX IF NOT EXISTS corpus_nivel ON corpus(nivel, fecha);
+-- Lo propio con su fecha, sin leer la fila (el contenido): Personas cuenta desde acá la última pieza propia de cada uno.
+CREATE INDEX IF NOT EXISTS corpus_propia ON corpus(nivel, id, fecha, creado_en);
 CREATE INDEX IF NOT EXISTS corpus_estado ON corpus(estado);
 -- El recuento por nivel del estado (cada 7 s): sin esto leía cada pieza entera (235 ms a la escala de la nube).
 CREATE INDEX IF NOT EXISTS corpus_nivel_estado ON corpus(nivel, estado);
@@ -2331,6 +2335,7 @@ CREATE INDEX IF NOT EXISTS preguntas_estado ON preguntas(estado, id);
 CREATE INDEX IF NOT EXISTS llamadas_cuando ON llamadas(en);
 CREATE INDEX IF NOT EXISTS cronica_tick ON cronica(tick);
 CREATE INDEX IF NOT EXISTS takeout_destilado_cola ON takeout_destilado(lote, estado, prioridad);
+CREATE INDEX IF NOT EXISTS takeout_destilado_hecho ON takeout_destilado(estado, hecho_en);
 CREATE INDEX IF NOT EXISTS directo_momentos_tipo ON directo_momentos(tipo, desde);
 CREATE INDEX IF NOT EXISTS encargo_logs_encargo ON encargo_logs(encargo_id);
 `

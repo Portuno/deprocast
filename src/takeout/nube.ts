@@ -736,7 +736,16 @@ type Mencion = { fecha: string | null; titulo: string; estado: string; ideas: st
  * el turno entre tandas (Fragua #201: de una sola pasada trababa el servidor hasta 7 s).
  */
 export async function proyectosConHistoria(db: Db, lote_: string) {
-  const filas = db.prepare(`SELECT pieza_id, salida FROM takeout_destilado WHERE (lote = ? OR ? = '${REPROCESO}') AND estado = 'hecho' AND salida IS NOT NULL`).all(lote_, lote_) as { pieza_id: number; salida: string }[]
+  // De a 500 (leer las salidas de todos de un tirón trababa casi medio segundo con miles de destilados).
+  const tanda = db.prepare(`SELECT pieza_id, salida FROM takeout_destilado WHERE (lote = ? OR ? = '${REPROCESO}') AND estado = 'hecho' AND salida IS NOT NULL AND pieza_id > ? ORDER BY pieza_id LIMIT 500`)
+  const filas: { pieza_id: number; salida: string }[] = []
+  for (let ultimo = 0; ;) {
+    const xs = tanda.all(lote_, lote_, ultimo) as { pieza_id: number; salida: string }[]
+    filas.push(...xs)
+    if (xs.length < 500) break
+    ultimo = xs.at(-1)!.pieza_id
+    await ceder()
+  }
   const cat = catalogo(db)
   const aceptados = db.prepare(`SELECT entidad_id FROM takeout_nombres WHERE clave = ? AND estado != 'descartada'`)
   const porProyecto = new Map<string, { nombre: string; entidad: number | null; menciones: Mencion[] }>()

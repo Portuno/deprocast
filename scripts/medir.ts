@@ -3,7 +3,9 @@
  * si algo traba el servidor más de 200 ms o si una ruta tarda más del doble que su línea de base (Fragua #213).
  * 1. Si no existe (o cambió su versión), arma data/medir.db: 30.000 piezas con entidades, 40.000 pasajes con vector,
  *    25.000 destilados, 15.000 quántomos con vector, 6.000 recuerdos con vector, 20.000 tareas de la liga, 1.800
- *    misiones, 20.000 mensajes en Hoy, 30.000 llamadas, 5.000 momentos del Directo y 3.000 líneas de crónica.
+ *    misiones, 20.000 mensajes en Hoy, 30.000 llamadas, 5.000 momentos del Directo y 3.000 líneas de crónica. Y lo del
+ *    reproceso a la escala de la nube: 150.000 pasajes, 3.000 piezas grandes (30 KB) sin pasajes, destilados con su JSON
+ *    entero (proyectos, ideas, lo abierto), 14.000 bucles con vector y lo ya visto marcado (el «no hay nada que hacer»).
  *    (--rehacer la vuelve a armar.)
  * 2. Los pasos de fondo que trabaron la nube, corridos acá sobre una copia con un vigía cada 10 ms: la deduplicación de
  *    recuerdos, el índice de pasajes (en frío, y después de borrar y reinsertar pasajes), el estado de la liga, lo lento,
@@ -28,7 +30,7 @@ const HISTORIAL = path.join(RAIZ, 'data', 'medir-historial.jsonl')
 const PUERTO = 7474
 const VECES = 7
 /** Cambia cuando la base sintética suma algo: se rearma sola. */
-const VERSION_BASE = '2'
+const VERSION_BASE = '3'
 /** Más que esto seguido sin ceder el event loop es una traba. */
 const TRABA_MS = 200
 
@@ -66,7 +68,7 @@ async function armarBase() {
     const p = db.prepare(`INSERT INTO pasajes (pieza_id, orden, desde, hasta, modelo, vec, en) VALUES (?, ?, 0, 1500, 'sint', ?, ?)`)
     for (let i = 0; i < 40000; i++) p.run(piezas[i % piezas.length], Math.floor(i / piezas.length), vec(), ahora)
     const d = db.prepare(`INSERT INTO takeout_destilado (pieza_id, lote, prioridad, estado, salida, hecho_en) VALUES (?, 'reproceso', 1, ?, ?, ?)`)
-    for (let i = 0; i < 25000; i++) d.run(piezas[i], i % 10 ? 'hecho' : 'pendiente', JSON.stringify({ valor: i % 4, resumen: texto(200), abierto: i % 7 ? [] : [texto(6)], temas: [texto(1)] }), ahora - i * 1000)
+    for (let i = 0; i < 25000; i++) d.run(piezas[i], i % 10 ? 'hecho' : 'pendiente', JSON.stringify({ valor: i % 4, resumen: texto(200), tesis: texto(30), abierto: i % 7 ? [] : [texto(6)], temas: [texto(1), texto(1)], ideas: [{ texto: texto(20) }, { texto: texto(20) }], decisiones: [texto(12)], personas: [{ nombre: `Entidad ${i % 2000}`, rol: 'amigo' }], proyectos: [{ nombre: `Entidad ${(i % 600) * 3}`, estado_entonces: texto(15), ideas: [texto(10)] }], fecha: fecha(i % 400), titulo: `Pieza ${i}` }), ahora - i * 1000)
   })
   lote(() => {
     const q = db.prepare(`INSERT INTO quantomos (texto, etapa, origen_id, novedad, creado_en, actualizado_en) VALUES (?, ?, ?, 'nueva', ?, ?)`)
@@ -74,6 +76,20 @@ async function armarBase() {
     for (let i = 0; i < 15000; i++) v.run('quantomo', Number(q.run(texto(12), i % 5 ? 'proto' : 'sellado', `q:${i}`, ahora, ahora).lastInsertRowid), vec(), ahora)
     const m = db.prepare(`INSERT INTO memoria (texto, tipo, fecha, estado, revisada, creada_por, creada_en) VALUES (?, 'hecho', ?, 'vigente', ?, 'escriba', ?)`)
     for (let i = 0; i < 6000; i++) v.run('memoria', Number(m.run(texto(10), fecha(azar(100)), i % 3 ? 1 : 0, ahora).lastInsertRowid), vec(), ahora)
+  })
+  lote(() => {
+    // Lo del reproceso, a la escala de la nube: los pasajes hasta 150.000, piezas grandes sin pasajes, los bucles con
+    // vector y lo ya visto marcado (lo que corre en cada vuelta aunque no haya nada nuevo).
+    const p = db.prepare(`INSERT INTO pasajes (pieza_id, orden, desde, hasta, modelo, vec, en) VALUES (?, ?, 0, 1500, 'sint', ?, ?)`)
+    for (let i = 0; i < 110000; i++) p.run(piezas[i % piezas.length], 2 + Math.floor(i / piezas.length), vec(), ahora)
+    const c = db.prepare(`INSERT INTO corpus (fuente, nivel, titulo, contenido, estado, fecha, origen_id, entidades, meta, creado_en) VALUES ('operador', 'primaria', ?, ?, 'disponible', ?, ?, '[]', '{}', ?)`)
+    for (let i = 0; i < 3000; i++) c.run(`Grande ${i}`, texto(4500), fecha(azar(400)), `grande:${i}`, ahora)
+    const b = db.prepare(`INSERT INTO bucles (texto, clave, veces, primera, ultima, fuentes, vec, creado_en) VALUES (?, ?, 1, ?, ?, '[]', ?, ?)`)
+    for (let i = 0; i < 14000; i++) b.run(texto(8), `bucle ${i}`, fecha(azar(300)), fecha(azar(30)), vec(), ahora)
+    db.exec(`INSERT OR IGNORE INTO bucles_vistos (origen, bucle_id, en) SELECT 'abierto:' || pieza_id || ':0', NULL, ${ahora} FROM takeout_destilado WHERE estado = 'hecho'`)
+    // Lo que miró (videos): con tarjetas ya hechas, como en la nube.
+    db.exec(`UPDATE corpus SET fuente = 'youtube' WHERE id IN (SELECT pieza_id FROM takeout_destilado WHERE pieza_id % 9 = 0)`)
+    db.exec(`INSERT OR IGNORE INTO tarjetas_piezas (pieza_id, tarjetas, en) SELECT pieza_id, 3, ${ahora} FROM takeout_destilado WHERE pieza_id % 9 = 0`)
   })
   lote(() => {
     // Las tareas de la liga (el bus): la mayoría hechas, algunas pendientes y fallidas, como en la nube.
@@ -114,6 +130,14 @@ async function versionDeBase(): Promise<string | null> {
 
 type Paso = { paso: string; ms: number; traba: number }
 
+/** Lee un archivo entero (a la memoria del sistema), para que la medición no sea la del disco frío de esta compu. */
+function leerEntera(archivo: string) {
+  const fd = fs.openSync(archivo, 'r')
+  const buf = Buffer.alloc(8 * 1024 * 1024)
+  while (fs.readSync(fd, buf, 0, buf.length, null) > 0) { /* leer */ }
+  fs.closeSync(fd)
+}
+
 /**
  * Los pasos de fondo, en este proceso y sobre una copia: un vigía cada 10 ms mide el tramo más largo sin ceder.
  */
@@ -122,6 +146,11 @@ async function medirPasos(): Promise<Paso[]> {
   fs.copyFileSync(BASE, COPIA)
   const { abrir } = await import('../src/db.ts')
   const db = abrir(COPIA)
+  // Después de copiar 1 GB, leerla una vez de punta a punta: así lo que se mide es el trabajo de cada paso y no la copia
+  // (el disco todavía escribiendo, el antivirus revisando el archivo nuevo). Leer 300 MB de vectores sigue costando lo
+  // mismo desde la memoria del sistema: lo que lee de más, se ve igual.
+  leerEntera(COPIA)
+  await new Promise((ok) => setTimeout(ok, 500))
   const sem = await import('../src/semantica.ts')
   // Sin NaN: un vector al azar por consulta (lo que se mide es el índice, no el modelo).
   sem._probarEmbed(async (_db, textos) => ({ vectores: textos.map(() => Array.from({ length: 1024 }, () => Math.random() - 0.5)), modelo: 'sint' }))
@@ -156,10 +185,37 @@ async function medirPasos(): Promise<Paso[]> {
   db.exec('COMMIT')
   await medir('pasajes: índice tras borrar y reinsertar 3000', () => sem.cercanas(db, 'otra consulta', 10))
   await medir('liga: estado (tareas, agentes, corpus)', () => estadoLiga(db))
+  const { personas } = await import('../src/personas.ts')
+  await medir('personas: la lista (la piden Personas y las preguntas)', () => personas(db, { limite: 40 }))
   await medir('autocrítica: lo lento', () => lento(db))
   await medir('créditos: por uso del mes', () => creditosPorUso(db, Date.now(), 1000))
   for (let i = 0; i < 6; i++) anotarBloqueo(db, 2500, ['paso sint'], Date.now() - i * 60_000)
   await medir('bloqueos → propuesta', () => propuestaPorBloqueos(db))
+
+  // El reproceso (lo que trababa la nube cada pocos segundos): cada paso de una vuelta, también cuando no hay nada.
+  const rep = await import('../src/reproceso.ts')
+  const nube = await import('../src/takeout/nube.ts')
+  const { juntarBucles } = await import('../src/bucles.ts')
+  const { tarjetasDeLoConsumido } = await import('../src/consumido.ts')
+  const { marcarNovedad } = await import('../src/quantomos.ts')
+  nube._probarTakeout({ destilar: async () => ({ valor: 2, resumen: 'Un resumen sintético.', tesis: 'Una tesis.', temas: ['proyecto', 'taller'], ideas: [{ texto: 'una idea sintética para probar' }], decisiones: ['seguir'], abierto: ['algo que quedó abierto para probar'], personas: [{ nombre: 'Entidad 1', rol: 'amigo' }], proyectos: [{ nombre: 'Entidad 3', estado_entonces: 'arrancando', ideas: ['probar'] }], lugares: [], eventos: [], relaciones: [], sobre_el: [] }) })
+  nube._probarHistoria(async () => ({ eras: [{ desde: '2026-01', hasta: '2026-06', nombre: 'Arranque', como_era: 'Sintético.' }], hoy: null, cambios: null, ideas_para_revisar: [], pregunta: '¿En qué está hoy?' }))
+  await medir('reproceso: al empezar (pasajes huérfanos)', () => rep.alEmpezarReproceso(db))
+  await medir('reproceso: encolar lo que falta destilar', () => rep.encolarDeAPoco(db))
+  await medir('reproceso: bucles (sin nada nuevo)', () => juntarBucles(db, { limite: 40 }))
+  await medir('reproceso: tarjetas (sin nada nuevo)', () => tarjetasDeLoConsumido(db))
+  await medir('reproceso: lo importado pendiente', () => nube.importadoPendiente(db))
+  await medir('reproceso: piezas sin pasajes', () => rep.sinPasajes(db, 8))
+  const ocho = await rep.sinPasajes(db, 8)
+  await medir('reproceso: pasajes de 8 piezas grandes', () => sem.pasajesDe(db, ocho))
+  await medir('reproceso: el próximo destilado', () => rep.siguienteDestilado(db))
+  const sig = rep.siguienteDestilado(db)
+  if (sig) await medir('reproceso: destilar una unidad (sin modelo)', () => nube.destilarUnidad(db, sig, Date.now()))
+  await medir('reproceso: recuerdos y quántomos (novedad)', () => marcarNovedad(db))
+  const proyectos = await nube.proyectosConHistoria(db, nube.REPROCESO)
+  await medir('reproceso: proyectos con historia', () => nube.proyectosConHistoria(db, nube.REPROCESO))
+  if (proyectos[0]) await medir('reproceso: historia de un proyecto (sin modelo)', () => nube.historiaDe(db, nube.REPROCESO, proyectos[0], false, Date.now()))
+  await medir('reproceso: estado (la pantalla)', async () => { await rep.contarDeAPoco(db, 0); rep.estadoReproceso(db) })
   db.close()
   for (const f of [COPIA, `${COPIA}-wal`, `${COPIA}-shm`]) fs.rmSync(f, { force: true })
   return pasos
@@ -195,8 +251,9 @@ async function main() {
     if (p.traba > TRABA_MS) fallas.push(`el paso «${p.paso}» trabó el event loop ${p.traba.toFixed(0)} ms seguidos (tope ${TRABA_MS})`)
   }
 
-  // 2. El servidor.
-  const srv = spawn(process.execPath, [...(process.env.MEDIR_GC ? ['--trace-gc'] : []), '--disable-warning=ExperimentalWarning', 'src/servidor.ts', '--db', BASE, '--puerto', String(PUERTO), '--sin-rutinas', '--sin-telegram'], { cwd: RAIZ, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, MASTRO_REPROCESO_LOCAL: '', NAN_API_KEY: '', GOOGLE_CUENTA_SERVICIO: '', GCAL_ICS_URLS: '', MASTRO_BLOQUEO_MS: String(TRABA_MS) } })
+  // 2. El servidor (sobre la base, leída entera antes por lo mismo: copiar 1 GB la sacó de la memoria del sistema).
+  leerEntera(BASE)
+  const srv = spawn(process.execPath, [...(process.env.MEDIR_GC ? ['--trace-gc'] : []), ...(process.env.MEDIR_PERFIL ? ['--cpu-prof', `--cpu-prof-dir=${process.env.MEDIR_PERFIL}`] : []), '--disable-warning=ExperimentalWarning', 'src/servidor.ts', '--db', BASE, '--puerto', String(PUERTO), '--sin-rutinas', '--sin-telegram'], { cwd: RAIZ, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, MASTRO_REPROCESO_LOCAL: '', NAN_API_KEY: '', GOOGLE_CUENTA_SERVICIO: '', GCAL_ICS_URLS: '', MASTRO_BLOQUEO_MS: String(TRABA_MS) } })
   let log = ''
   srv.stdout.on('data', (d) => (log += d))
   srv.stderr.on('data', (d) => (log += d))
@@ -272,16 +329,19 @@ async function main() {
   }
 
   // 3. Contra la línea de base: más del doble (y al menos 50 ms más: lo de pocos ms es ruido) es una falla.
-  const base: Record<string, number> = (() => { try { return JSON.parse(fs.readFileSync(LINEA_BASE, 'utf8')) } catch { return {} } })()
-  const fijar = process.argv.includes('--fijar-base')
+  // La línea de base es de una versión de la base sintética: si la base cambió (creció), se rehace.
+  const guardada: Record<string, number> & { _version?: string } = (() => { try { return JSON.parse(fs.readFileSync(LINEA_BASE, 'utf8')) } catch { return {} } })()
+  const otraBase = guardada._version !== VERSION_BASE
+  const { _version: _, ...base } = otraBase ? ({} as typeof guardada) : guardada
+  const fijar = process.argv.includes('--fijar-base') || otraBase
   for (const [r, ms] of Object.entries(rutasMed)) {
     const b = base[r]
     if (b != null && !fijar && ms > 2 * b && ms - b > 50) fallas.push(`${r} tardó ${ms.toFixed(0)} ms: más del doble de su línea de base (${b.toFixed(0)} ms)`)
   }
   if (fijar || !Object.keys(base).length || Object.keys(rutasMed).some((r) => base[r] == null)) {
     const nueva = fijar ? rutasMed : { ...rutasMed, ...base }
-    fs.writeFileSync(LINEA_BASE, JSON.stringify(nueva, null, 2))
-    console.log(fijar ? '\nLínea de base fijada con esta corrida.' : '\nLínea de base: sumé las rutas que no tenía.')
+    fs.writeFileSync(LINEA_BASE, JSON.stringify({ _version: VERSION_BASE, ...nueva }, null, 2))
+    console.log(otraBase ? '\nLínea de base nueva (cambió la base sintética).' : fijar ? '\nLínea de base fijada con esta corrida.' : '\nLínea de base: sumé las rutas que no tenía.')
   }
 
   // 4. El historial: con fecha y commit, y lo que cambió desde la corrida anterior.

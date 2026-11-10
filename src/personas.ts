@@ -71,10 +71,14 @@ function delCorpus(db: Db): Map<number, { menciones: number; propia: string | nu
   return m
 }
 function delCorpusSinCache(db: Db): Map<number, { menciones: number; propia: string | null }> {
-  const filas = db.prepare(`SELECT ce.entidad_id AS id, COUNT(*) AS n,
-      MAX(CASE WHEN c.nivel = 'propia' THEN COALESCE(substr(c.fecha, 1, 10), date(c.creado_en / 1000, 'unixepoch', 'localtime')) END) AS f
-    FROM corpus_entidades ce JOIN corpus c ON c.id = ce.pieza_id GROUP BY ce.entidad_id`).all() as any[]
-  return new Map(filas.map((r) => [r.id, { menciones: r.n, propia: r.f }]))
+  // Dos pasadas por índices, sin leer las filas del corpus (con su contenido): juntarlas leía todo el corpus del disco y,
+  // en frío, trababa el servidor más de un segundo (npm run medir).
+  const m = new Map<number, { menciones: number; propia: string | null }>()
+  for (const r of db.prepare('SELECT entidad_id AS id, COUNT(*) AS n FROM corpus_entidades GROUP BY entidad_id').all() as { id: number; n: number }[]) m.set(r.id, { menciones: r.n, propia: null })
+  const propias = db.prepare(`SELECT ce.entidad_id AS id, MAX(COALESCE(substr(c.fecha, 1, 10), date(c.creado_en / 1000, 'unixepoch', 'localtime'))) AS f
+    FROM corpus c INDEXED BY corpus_propia JOIN corpus_entidades ce ON ce.pieza_id = c.id WHERE c.nivel = 'propia' GROUP BY ce.entidad_id`).all() as { id: number; f: string | null }[]
+  for (const r of propias) { const x = m.get(r.id); if (x) x.propia = r.f }
+  return m
 }
 
 const palabras = (t: string) => t.toLowerCase().split(/[^\p{L}\p{N}]+/u)
@@ -83,30 +87,68 @@ const palabras = (t: string) => t.toLowerCase().split(/[^\p{L}\p{N}]+/u)
  * Lo que él escribió en el chat (últimos 180 días), como índice de palabras: cuántos mensajes la nombran y el último día.
  * Antes se buscaba el nombre de cada persona en cada mensaje (miles × miles): con el archivo grande tardaba más de un minuto.
  */
-const indiceChat = new WeakMap<Db, { clave: string; m: Map<string, { veces: number; ultima: string }> }>()
+const indiceChat = new WeakMap<Db, { dia: string; hasta: number; m: Map<string, { veces: number; ultima: string }> }>()
 function delChat(db: Db, ahora: number): Map<string, { veces: number; ultima: string }> {
-  // Se rearma solo si llegó un mensaje suyo nuevo (o cambió el día): Personas se pide seguido.
+  // Se rearma entero una vez por día (la ventana de 180 días corre); con cada mensaje suyo nuevo solo se suma ese
+  // (rearmarlo entero en cada mensaje leía meses de chat del disco: cientos de ms trabados, npm run medir).
   const ultimo = (db.prepare(`SELECT MAX(id) AS id FROM mensajes WHERE rol = 'operador'`).get() as { id: number | null }).id ?? 0
-  const clave = `${ultimo}|${fechaLocal(ahora)}`
+  const dia = fechaLocal(ahora)
   const ya = indiceChat.get(db)
-  if (ya?.clave === clave) return ya.m
-  const m = delChatSinCache(db, ahora)
-  indiceChat.set(db, { clave, m })
+  if (ya?.dia === dia && ya.hasta === ultimo) return ya.m
+  if (ya?.dia === dia && ultimo > ya.hasta) {
+    const nuevos = db.prepare(`SELECT date(en / 1000, 'unixepoch', 'localtime') AS fecha, texto FROM mensajes WHERE rol = 'operador' AND id > ? ORDER BY id`).all(ya.hasta) as { fecha: string; texto: string | null }[]
+    for (const f of nuevos) {
+      if (!f.texto) continue
+      for (const w of new Set(palabras(f.texto))) {
+        if (w.length < 4) continue
+        const x = ya.m.get(w)
+        if (x) { x.veces++; if (f.fecha > x.ultima) x.ultima = f.fecha } else ya.m.set(w, { veces: 1, ultima: f.fecha })
+      }
+    }
+    ya.hasta = ultimo
+    return ya.m
+  }
+  // Armarlo entero con meses de chat trababa el servidor más de medio segundo: si es poco, se arma en el momento; si es
+  // mucho, de fondo y de a tandas, y mientras tanto se usa el de ayer (o ninguno): es una pista, no un dato.
+  const cuantos = (db.prepare(`SELECT COUNT(*) AS n FROM mensajes WHERE rol = 'operador' AND en > ?`).get(ahora - 180 * 86_400_000) as { n: number }).n
+  if (cuantos <= 3000) {
+    const m = delChatSinCache(db, ahora)
+    indiceChat.set(db, { dia, hasta: ultimo, m })
+    return m
+  }
+  if (!armandoChat.has(db)) {
+    armandoChat.add(db)
+    void delChatDeAPoco(db, ahora).then((m) => indiceChat.set(db, { dia, hasta: ultimo, m })).catch(() => {}).finally(() => armandoChat.delete(db))
+  }
+  return ya?.m ?? new Map()
+}
+const armandoChat = new WeakSet<Db>()
+
+function sumarMensaje(m: Map<string, { veces: number; ultima: string }>, f: { fecha: string; texto: string | null }) {
+  if (!f.texto) return
+  for (const w of new Set(palabras(f.texto))) {
+    if (w.length < 4) continue
+    const x = m.get(w)
+    if (x) x.veces++
+    else m.set(w, { veces: 1, ultima: f.fecha }) // vienen del más nuevo al más viejo: la primera vez es la última fecha
+  }
+}
+const SQL_CHAT = `SELECT id, date(en / 1000, 'unixepoch', 'localtime') AS fecha, texto FROM mensajes WHERE rol = 'operador' AND en > ?`
+function delChatSinCache(db: Db, ahora: number): Map<string, { veces: number; ultima: string }> {
+  const m = new Map<string, { veces: number; ultima: string }>()
+  for (const f of db.prepare(`${SQL_CHAT} ORDER BY en DESC`).all(ahora - 180 * 86_400_000) as { fecha: string; texto: string | null }[]) sumarMensaje(m, f)
   return m
 }
-
-function delChatSinCache(db: Db, ahora: number): Map<string, { veces: number; ultima: string }> {
-  const filas = db.prepare(`SELECT date(en / 1000, 'unixepoch', 'localtime') AS fecha, texto FROM mensajes WHERE rol = 'operador' AND en > ? ORDER BY en DESC`)
-    .all(ahora - 180 * 86_400_000) as { fecha: string; texto: string | null }[]
+/** Lo mismo, de a 1000 mensajes (del más nuevo al más viejo) y cediendo el turno entre tandas. */
+async function delChatDeAPoco(db: Db, ahora: number): Promise<Map<string, { veces: number; ultima: string }>> {
   const m = new Map<string, { veces: number; ultima: string }>()
-  for (const f of filas) {
-    if (!f.texto) continue
-    for (const w of new Set(palabras(f.texto))) {
-      if (w.length < 4) continue
-      const x = m.get(w)
-      if (x) x.veces++
-      else m.set(w, { veces: 1, ultima: f.fecha }) // vienen del más nuevo al más viejo: la primera vez es la última fecha
-    }
+  const tanda = db.prepare(`${SQL_CHAT} AND id < ? ORDER BY id DESC LIMIT 1000`)
+  for (let antes = Number.MAX_SAFE_INTEGER; ;) {
+    const xs = tanda.all(ahora - 180 * 86_400_000, antes) as { id: number; fecha: string; texto: string | null }[]
+    for (const f of xs) sumarMensaje(m, f)
+    if (xs.length < 1000) break
+    antes = xs.at(-1)!.id
+    await new Promise<void>((ok) => setImmediate(ok))
   }
   return m
 }

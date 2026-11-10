@@ -120,24 +120,59 @@ export async function pasajesDe(db: Db, ids: number[], ahora = Date.now()): Prom
     const r = await embedder(db, tanda.map((t) => t.texto), 'reproceso-vec')
     tanda.forEach((t, k) => { if (r.vectores[k]?.length) filas.push({ t, v: r.vectores[k], modelo: r.modelo }) })
   }
-  // Se guarda todo junto al final: una pieza queda con todos sus pasajes o con ninguno.
-  const porPieza = new Set(filas.map((f) => f.t.pieza))
-  db.exec('BEGIN')
-  try {
-    for (const id of porPieza) db.prepare('DELETE FROM pasajes WHERE pieza_id = ?').run(id)
-    for (const f of filas) ins.run(f.t.pieza, f.t.orden, f.t.desde, f.t.hasta, f.modelo, aBlob(f.v, DIMS_P), ahora)
-    db.exec('COMMIT')
-  } catch (e) {
-    db.exec('ROLLBACK')
-    throw e
+  // Cada pieza en su transacción: queda con todos sus pasajes o con ninguno. Entre pieza y pieza se cede el turno (todo
+  // junto eran cientos de filas con piezas grandes: casi 300 ms trabado). El índice en memoria se pone al día solo (saca
+  // lo borrado y suma lo nuevo): ya no se tira entero.
+  const porPieza = new Map<number, typeof filas>()
+  for (const f of filas) porPieza.set(f.t.pieza, [...(porPieza.get(f.t.pieza) ?? []), f])
+  const borrar = db.prepare('DELETE FROM pasajes WHERE pieza_id = ?')
+  for (const [id, fs] of porPieza) {
+    const propia = !(db as { isTransaction?: boolean }).isTransaction
+    if (propia) db.exec('BEGIN')
+    try {
+      borrar.run(id)
+      for (const f of fs) ins.run(f.t.pieza, f.t.orden, f.t.desde, f.t.hasta, f.modelo, aBlob(f.v, DIMS_P), ahora)
+      if (propia) db.exec('COMMIT')
+    } catch (e) {
+      if (propia) db.exec('ROLLBACK')
+      throw e
+    }
+    await ceder()
   }
-  if (porPieza.size) indices.delete(db) // se recarga entero: los ids de los reemplazados cambiaron
   return filas.length
 }
 
-/** El índice en memoria: cada pasaje cuantizado a int8 con su escala (unos 520 bytes por pasaje). */
-type Fila = { id: number; pieza: number; desde: number; hasta: number; q: Int8Array; esc: number }
-const indices = new WeakMap<Db, { filas: Fila[]; ultimo: number }>()
+/**
+ * El índice en memoria: cada pasaje cuantizado a int8 con su escala (unos 520 bytes por pasaje), en arreglos planos —un
+ * solo Int8Array para todos los vectores—. Antes era un objeto con su Int8Array por pasaje: con 150 mil, el recolector de
+ * basura tenía que recorrerlos todos y trababa el servidor cada tanto. Quien busca toma una foto (el objeto y su n): sumar
+ * escribe más allá de n, y crecer o sacar lo borrado arma un objeto nuevo, así nada cambia bajo los pies de una búsqueda.
+ */
+type Indice = { n: number; ultimo: number; ids: Float64Array; pieza: Float64Array; desde: Int32Array; hasta: Int32Array; esc: Float32Array; q: Int8Array }
+const indices = new WeakMap<Db, Indice>()
+const vacio = (cap: number, ultimo = 0): Indice => ({ n: 0, ultimo, ids: new Float64Array(cap), pieza: new Float64Array(cap), desde: new Int32Array(cap), hasta: new Int32Array(cap), esc: new Float32Array(cap), q: new Int8Array(cap * DIMS_P) })
+function copiarFila(de: Indice, k: number, a: Indice) {
+  const j = a.n++
+  a.ids[j] = de.ids[k]; a.pieza[j] = de.pieza[k]; a.desde[j] = de.desde[k]; a.hasta[j] = de.hasta[k]; a.esc[j] = de.esc[k]
+  a.q.set(de.q.subarray(k * DIMS_P, (k + 1) * DIMS_P), j * DIMS_P)
+}
+function crecer(ix: Indice, cap: number): Indice {
+  const nuevo = vacio(cap, ix.ultimo)
+  nuevo.ids.set(ix.ids.subarray(0, ix.n)); nuevo.pieza.set(ix.pieza.subarray(0, ix.n)); nuevo.desde.set(ix.desde.subarray(0, ix.n)); nuevo.hasta.set(ix.hasta.subarray(0, ix.n))
+  nuevo.esc.set(ix.esc.subarray(0, ix.n)); nuevo.q.set(ix.q.subarray(0, ix.n * DIMS_P)); nuevo.n = ix.n
+  return nuevo
+}
+/** Cuantiza un vector (de cualquier largo) en la fila j del índice: int8 con su escala. */
+function meterVector(ix: Indice, j: number, v: Float32Array) {
+  let max = 0
+  const d = Math.min(v.length, DIMS_P)
+  for (let i = 0; i < d; i++) max = Math.max(max, Math.abs(v[i]))
+  const esc = max / 127 || 1
+  const off = j * DIMS_P
+  for (let i = 0; i < d; i++) ix.q[off + i] = Math.round(v[i] / esc)
+  for (let i = d; i < DIMS_P; i++) ix.q[off + i] = 0
+  ix.esc[j] = esc
+}
 
 export function cuantizar(v: Float32Array): { q: Int8Array; esc: number } {
   let max = 0
@@ -150,35 +185,53 @@ export function cuantizar(v: Float32Array): { q: Int8Array; esc: number } {
 
 /**
  * El índice de pasajes en memoria. Se pone al día de a poco y cediendo el turno (trababa la nube 3 a 6 s): lo nuevo se
- * suma de a 2000 filas, y si se borraron pasajes (una pieza que cambió) se sacan solo esos, sin recargar todo. Si dos
+ * suma de a tandas, y si se borraron pasajes (una pieza que cambió) se sacan solo esos, sin recargar todo. Si dos
  * búsquedas lo piden a la vez, comparten la misma puesta al día.
  */
-const poniendoAlDia = new WeakMap<Db, Promise<{ filas: Fila[]; ultimo: number }>>()
+const poniendoAlDia = new WeakMap<Db, Promise<Indice>>()
 const ceder = () => new Promise<void>((ok) => setImmediate(ok))
-function indice(db: Db): Promise<{ filas: Fila[]; ultimo: number }> {
+function indice(db: Db): Promise<Indice> {
   const ya = poniendoAlDia.get(db)
   if (ya) return ya
   const p = (async () => {
-    let ix = indices.get(db)
-    if (!ix) { ix = { filas: [], ultimo: 0 }; indices.set(db, ix) }
-    // Lo que se borró desde la última vez: se saca del índice (solo los ids, sin decodificar vectores).
-    if ((db.prepare('SELECT COUNT(*) AS n FROM pasajes WHERE id <= ?').get(ix.ultimo) as { n: number }).n !== ix.filas.length) {
-      const vivos = new Set((db.prepare('SELECT id FROM pasajes WHERE id <= ?').all(ix.ultimo) as { id: number }[]).map((r) => r.id))
-      ix.filas = ix.filas.filter((f) => vivos.has(f.id))
-      await ceder()
+    let ix = indices.get(db) ?? vacio(1024)
+    // Lo que se borró desde la última vez: se saca del índice (solo los ids, sin decodificar vectores), de a tramos y
+    // cediendo el turno. Contar y listar ids por el índice de pieza_id (solo números): por la tabla se leían los vectores
+    // de 2 KB de cada pasaje, 300 MB del disco, más de un segundo trabado en frío (npm run medir).
+    if ((db.prepare('SELECT COUNT(*) AS n FROM pasajes INDEXED BY pasajes_pieza WHERE id <= ?').get(ix.ultimo) as { n: number }).n !== ix.n) {
+      const vivos = new Set<number>()
+      const rango = db.prepare('SELECT id FROM pasajes INDEXED BY pasajes_pieza WHERE id > ? AND id <= ?')
+      for (let d = 0; d < ix.ultimo; d += 20_000) {
+        for (const r of rango.all(d, Math.min(d + 20_000, ix.ultimo)) as { id: number }[]) vivos.add(r.id)
+        await ceder()
+      }
+      const quedan = vacio(Math.max(1024, vivos.size + 1024), ix.ultimo)
+      for (let k = 0; k < ix.n; k++) {
+        if (vivos.has(ix.ids[k])) copiarFila(ix, k, quedan)
+        if (k % 50_000 === 49_999) await ceder()
+      }
+      ix = quedan
+      indices.set(db, ix)
     }
-    // Solo lo nuevo desde la última vez, de a tandas.
-    const tanda = db.prepare('SELECT id, pieza_id, desde, hasta, vec FROM pasajes WHERE id > ? ORDER BY id LIMIT 2000')
+    // Solo lo nuevo desde la última vez, de a 500: cada tanda lee 1 MB de vectores (de a 2000, en frío, eran 100 a 280 ms
+    // de disco sin ceder).
+    const tanda = db.prepare('SELECT id, pieza_id, desde, hasta, vec FROM pasajes WHERE id > ? ORDER BY id LIMIT 500')
     for (;;) {
       const nuevas = tanda.all(ix.ultimo) as any[]
       if (!nuevas.length) break
+      if (ix.n + nuevas.length > ix.ids.length) ix = crecer(ix, Math.max(ix.ids.length * 2, ix.n + nuevas.length + 1024))
       for (const r of nuevas) {
-        ix.filas.push({ id: r.id, pieza: r.pieza_id, desde: r.desde, hasta: r.hasta, ...cuantizar(deBlob(r.vec)) })
+        const j = ix.n
+        ix.ids[j] = r.id; ix.pieza[j] = r.pieza_id; ix.desde[j] = r.desde; ix.hasta[j] = r.hasta
+        meterVector(ix, j, deBlob(r.vec))
+        ix.n++
         ix.ultimo = r.id
       }
-      if (nuevas.length < 2000) break
+      indices.set(db, ix)
+      if (nuevas.length < 500) break
       await ceder()
     }
+    indices.set(db, ix)
     return ix
   })()
   poniendoAlDia.set(db, p)
@@ -189,21 +242,29 @@ function indice(db: Db): Promise<{ filas: Fila[]; ultimo: number }> {
 /** Los pasajes más cercanos, agrupados por pieza (cada una con su mejor pasaje). */
 async function cercanosPorPasaje(db: Db, q: Float32Array, limite: number, niveles?: Nivel[]): Promise<{ id: number; sim: number; desde: number; hasta: number }[]> {
   const ix = await indice(db)
-  if (!ix.filas.length) return []
+  const n = ix.n // la foto de este momento
+  if (!n) return []
   const qq = normalizado(q, DIMS_P)
-  const puntajes: { f: Fila; sim: number }[] = []
-  const filas = ix.filas // la de este momento (si el índice se pone al día mientras tanto, no cambia bajo los pies)
-  for (let k = 0; k < filas.length; k++) {
+  const d = Math.min(qq.length, DIMS_P)
+  const Q = ix.q
+  // Los puntajes en un arreglo plano y solo los mejores ordenados (ordenar 150 mil objetos trababa el servidor).
+  const sims = new Float32Array(n)
+  for (let k = 0; k < n; k++) {
     if (k && k % 20_000 === 0) await ceder()
-    const f = filas[k]
+    const off = k * DIMS_P
     let s = 0
-    for (let i = 0; i < f.q.length; i++) s += f.q[i] * qq[i]
-    puntajes.push({ f, sim: s * f.esc })
+    for (let i = 0; i < d; i++) s += Q[off + i] * qq[i]
+    sims[k] = s * ix.esc[k]
   }
+  const cuantos = Math.min(n, Math.max(200, limite * 20))
+  const corte = Float32Array.from(sims).sort()[n - cuantos]
+  const puntajes: { k: number; sim: number }[] = []
+  for (let k = 0; k < n; k++) if (sims[k] >= corte) puntajes.push({ k, sim: sims[k] })
   puntajes.sort((a, b) => b.sim - a.sim)
   const mejor = new Map<number, { id: number; sim: number; desde: number; hasta: number }>()
-  for (const x of puntajes.slice(0, Math.max(200, limite * 20))) {
-    if (!mejor.has(x.f.pieza)) mejor.set(x.f.pieza, { id: x.f.pieza, sim: x.sim, desde: x.f.desde, hasta: x.f.hasta })
+  for (const x of puntajes.slice(0, cuantos)) {
+    const pieza = ix.pieza[x.k]
+    if (!mejor.has(pieza)) mejor.set(pieza, { id: pieza, sim: x.sim, desde: ix.desde[x.k], hasta: ix.hasta[x.k] })
   }
   let out = [...mejor.values()]
   if (niveles?.length && out.length) {

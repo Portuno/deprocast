@@ -5,8 +5,8 @@
  * cuántas veces volvió y desde cuándo. Cada uno termina de una de tres formas: se cierra ya (es de dos minutos: side quest
  * para hoy), se agenda (al calendario) o se suelta (decidir no hacerlo también lo cierra; no vuelve a molestar).
  */
-import { fechaLocal, json, type Db } from './db.ts'
-import { blobAVec, parecidoA, vecABlob, vectoresDeTextos } from './semantica.ts'
+import { ajuste, fechaLocal, fijarAjuste, json, type Db } from './db.ts'
+import { blobAVec, cosenoNormalizados, vecABlob, vectoresDeTextos } from './semantica.ts'
 import { actualizarMision, anotarSideQuest } from './misiones.ts'
 
 export type Bucle = { id: number; texto: string; veces: number; primera: string | null; ultima: string | null; fuentes: { origen: string; fecha: string | null; texto: string }[]; estado: string; motivo: string | null; misionId: number | null; peso: number; dias: number }
@@ -36,20 +36,46 @@ type Mencion = { origen: string; texto: string; fecha: string | null; misionId?:
 function mencionesNuevas(db: Db, limite: number, ahora: number): Mencion[] {
   const out: Mencion[] = []
   const visto = db.prepare('SELECT 1 FROM bucles_vistos WHERE origen = ?')
-  const salidas = db.prepare(`SELECT d.pieza_id, d.salida, c.fecha FROM takeout_destilado d JOIN corpus c ON c.id = d.pieza_id
-    WHERE d.estado = 'hecho' AND json_array_length(COALESCE(json_extract(d.salida, '$.abierto'), '[]')) > 0
-    AND NOT EXISTS (SELECT 1 FROM bucles_vistos v WHERE v.origen = 'abierto:' || d.pieza_id || ':0')
-    ORDER BY c.fecha LIMIT ?`).all(limite) as { pieza_id: number; salida: string; fecha: string | null }[]
-  for (const s of salidas) {
+  // Solo los destilados nuevos desde la última vez (un cursor por hecho_en): leer el JSON de todos en cada vuelta del
+  // reproceso trababa el servidor casi dos segundos (npm run medir).
+  const desde = Number(ajuste(db, 'bucles_destilado_hasta') ?? 0)
+  const filas = db.prepare(`SELECT d.pieza_id, d.salida, c.fecha, d.hecho_en FROM takeout_destilado d JOIN corpus c ON c.id = d.pieza_id
+    WHERE d.estado = 'hecho' AND ${desde ? 'd.hecho_en >= ?' : '? = 0'} ORDER BY d.hecho_en, d.pieza_id LIMIT ?`).all(desde, limite * 3) as { pieza_id: number; salida: string; fecha: string | null; hecho_en: number | null }[]
+  // El cursor avanza solo hasta lo que se miró (si se llenó el cupo, lo que sigue queda para la próxima).
+  let mirado: number | null = null
+  for (const s of filas) {
+    if (out.length >= limite) break
+    if (s.hecho_en) mirado = s.hecho_en
+    if (visto.get(`abierto:${s.pieza_id}:0`)) continue
     const abiertos: string[] = (json<any>(s.salida, {})?.abierto ?? []).map((x: unknown) => String(x ?? '').trim())
+    if (!abiertos.length) continue
     abiertos.forEach((texto, i) => { if (texto.length >= 8) out.push({ origen: `abierto:${s.pieza_id}:${i}`, texto: texto.slice(0, 300), fecha: (json<any>(s.salida, {})?.fecha ?? s.fecha ?? '').slice(0, 10) || null }) })
     // Que la pieza quede vista aunque sus abiertos sean cortos (la marca es el :0).
     if (!abiertos[0] || abiertos[0].length < 8) out.push({ origen: `abierto:${s.pieza_id}:0`, texto: '', fecha: null })
   }
+  if (mirado) fijarAjuste(db, 'bucles_destilado_hasta', String(mirado))
   const quietas = db.prepare(`SELECT id, titulo, creada_en FROM misiones WHERE personaje = 'jugador' AND nivel = 'terciaria' AND estado = 'activa' AND creada_en < ? ORDER BY creada_en LIMIT ?`)
     .all(ahora - 14 * DIA, limite) as { id: number; titulo: string; creada_en: number }[]
   for (const m of quietas) if (!visto.get(`mision:${m.id}`)) out.push({ origen: `mision:${m.id}`, texto: m.titulo, fecha: fechaLocal(m.creada_en), misionId: m.id })
   return out
+}
+
+/**
+ * Los bucles con su vector, en memoria y al día de a tandas (cargar los 14 mil de un tirón en cada vuelta trababa el
+ * servidor). Los nuevos se suman al crearse; uno que ya no está se saltea al leerlo.
+ */
+const cacheBucles = new WeakMap<Db, { hasta: number; filas: { id: number; clave: string; vec: Float32Array | null }[] }>()
+async function bucleExistentes(db: Db) {
+  let c = cacheBucles.get(db)
+  if (!c) { c = { hasta: 0, filas: [] }; cacheBucles.set(db, c) }
+  const tanda = db.prepare('SELECT id, clave, vec FROM bucles WHERE id > ? ORDER BY id LIMIT 2000')
+  for (;;) {
+    const xs = tanda.all(c.hasta) as { id: number; clave: string; vec: Uint8Array | null }[]
+    for (const b of xs) { c.filas.push({ id: b.id, clave: b.clave, vec: b.vec ? blobAVec(b.vec) : null }); c.hasta = b.id }
+    if (xs.length < 2000) break
+    await new Promise<void>((ok) => setImmediate(ok))
+  }
+  return c.filas
 }
 
 /**
@@ -62,23 +88,23 @@ export async function juntarBucles(db: Db, o: { limite?: number; ahora?: number 
   if (!ms.length) return 0
   const conTexto = ms.filter((m) => m.texto)
   const vecs = conTexto.length ? await vectoresDeTextos(db, conTexto.map((m) => m.texto), 'bucles') : null
-  const existentes = (db.prepare(`SELECT id, clave, vec FROM bucles`).all() as { id: number; clave: string; vec: Uint8Array | null }[])
-    .map((b) => ({ id: b.id, clave: b.clave, vec: b.vec ? blobAVec(b.vec) : null }))
+  const existentes = await bucleExistentes(db)
   const marcar = db.prepare('INSERT OR IGNORE INTO bucles_vistos (origen, bucle_id, en) VALUES (?, ?, ?)')
   let n = 0
   for (const [i, m] of ms.entries()) {
-    if (i % 10 === 9) await new Promise<void>((ok) => setImmediate(ok)) // con miles de bucles, que no trabe el servidor
+    if (i % 3 === 2) await new Promise<void>((ok) => setImmediate(ok)) // con miles de bucles, que no trabe el servidor
     if (!m.texto) { marcar.run(m.origen, null, ahora); continue }
     const k = clave(m.texto)
     const v = vecs?.[conTexto.indexOf(m)] ?? null
     let mejor: { id: number; sim: number } | null = null
     for (const b of existentes) {
-      const sim = b.clave === k ? 1 : v && b.vec ? parecidoA(v, b.vec) : 0
+      // Los dos ya vienen normalizados: el coseno es un producto punto (sin volver a normalizar 14 mil veces por mención).
+      const sim = b.clave === k ? 1 : v && b.vec ? cosenoNormalizados(v, b.vec) : 0
       if (sim >= PARECIDO && (!mejor || sim > mejor.sim)) mejor = { id: b.id, sim }
     }
     const fuente = { origen: m.origen, fecha: m.fecha, texto: m.texto }
-    if (mejor) {
-      const b = db.prepare('SELECT * FROM bucles WHERE id = ?').get(mejor.id) as any
+    const b = mejor ? (db.prepare('SELECT * FROM bucles WHERE id = ?').get(mejor.id) as any) : null
+    if (mejor && b) {
       const fechas = [b.primera, b.ultima, m.fecha].filter(Boolean).sort()
       db.prepare('UPDATE bucles SET veces = veces + 1, primera = ?, ultima = ?, fuentes = ?, mision_id = COALESCE(mision_id, ?) WHERE id = ?')
         .run(fechas[0] ?? null, fechas.at(-1) ?? null, JSON.stringify([...(json<any[]>(b.fuentes, []) ?? []), fuente].slice(-12)), m.misionId ?? null, mejor.id)
@@ -87,6 +113,8 @@ export async function juntarBucles(db: Db, o: { limite?: number; ahora?: number 
       const id = Number(db.prepare('INSERT INTO bucles (texto, clave, veces, primera, ultima, fuentes, vec, mision_id, creado_en) VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)')
         .run(m.texto, k, m.fecha, m.fecha, JSON.stringify([fuente]), v ? vecABlob(v) : null, m.misionId ?? null, ahora).lastInsertRowid)
       existentes.push({ id, clave: k, vec: v })
+      const cache = cacheBucles.get(db)
+      if (cache && cache.filas === existentes) cache.hasta = Math.max(cache.hasta, id)
       marcar.run(m.origen, id, ahora)
     }
     n++
@@ -99,8 +127,23 @@ export async function juntarBucles(db: Db, o: { limite?: number; ahora?: number 
 /** Los abiertos que más pesan (veces × antigüedad). */
 export function listarBucles(db: Db, o: { limite?: number; estado?: string } = {}, ahora = Date.now()): Bucle[] {
   const hoy = fechaLocal(ahora)
-  return (db.prepare('SELECT * FROM bucles WHERE estado = ?').all(o.estado ?? 'abierto') as any[]).map((r) => deFila(r, hoy))
-    .sort((a, b) => b.peso - a.peso || (a.primera ?? '').localeCompare(b.primera ?? '')).slice(0, o.limite ?? 7)
+  // Primero el peso con lo justo (id, veces, desde cuándo) y después la fila entera solo de los que se muestran: leer los
+  // 14 mil abiertos con su vector y sus fuentes para mostrar 3 trababa /api/hoy/hud 200 a 400 ms (npm run medir).
+  // El peso se calcula en SQL sobre el índice y vuelven solo los que se muestran (con 14 mil, armarlos en JS eran 35 ms en
+  // cada /api/hoy/hud). Sin las funciones matemáticas de SQLite, lo mismo en JS.
+  let ids: number[]
+  try {
+    ids = (db.prepare(`SELECT id FROM bucles INDEXED BY bucles_peso WHERE estado = ?
+      ORDER BY ROUND(veces * (1 + log2(1 + MAX(0, COALESCE(ROUND(julianday(?) - julianday(primera)), 0)) / 7.0)) * 10) DESC, COALESCE(primera, '') LIMIT ?`)
+      .all(o.estado ?? 'abierto', hoy, o.limite ?? 7) as { id: number }[]).map((r) => r.id)
+  } catch {
+    const peso = (veces: number, primera: string | null) => veces * (1 + Math.log2(1 + (primera ? diasEntre(primera, hoy) : 0) / 7))
+    ids = (db.prepare('SELECT id, veces, primera FROM bucles INDEXED BY bucles_peso WHERE estado = ?').all(o.estado ?? 'abierto') as { id: number; veces: number; primera: string | null }[])
+      .map((r) => ({ id: r.id, p: Math.round(peso(r.veces, r.primera) * 10) / 10, primera: r.primera ?? '' }))
+      .sort((a, b) => b.p - a.p || a.primera.localeCompare(b.primera)).slice(0, o.limite ?? 7).map((r) => r.id)
+  }
+  const una = db.prepare('SELECT * FROM bucles WHERE id = ?')
+  return ids.map((id) => una.get(id)).filter(Boolean).map((r) => deFila(r, hoy))
 }
 
 export function resumenBucles(db: Db) {

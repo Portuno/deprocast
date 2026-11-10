@@ -8,7 +8,7 @@ import { pedirJson } from './modelo.ts'
 import { agregarItem, entidadDelJugador, personaje } from './personajes.ts'
 import { anotarSideQuest } from './misiones.ts'
 import { sugerirMovimiento } from './finanzas.ts'
-import { cosenoNormalizados, parecidoA, vectoresDe } from './semantica.ts'
+import { blobAVec, cosenoNormalizados, parecidoA, vectoresDe } from './semantica.ts'
 
 export const TIPOS_MEMORIA = ['hecho', 'meta', 'preferencia', 'sueño', 'vision', 'correccion'] as const
 export type TipoMemoria = (typeof TIPOS_MEMORIA)[number]
@@ -136,10 +136,20 @@ export async function deduplicarMemoria(db: Db, umbral = 0.75, umbralSentido = 0
   const hasta = Number(ajuste(db, 'memoria_dedup_hasta') ?? 0)
   if (!vs.some((r) => r.id > hasta)) return { grupos: 0, archivados: 0 }
   // Si ya tienen vector (el reproceso), también se juntan los que dicen lo mismo con otras palabras.
-  const vecs = vectoresDe(db, 'memoria')
-  await new Promise<void>((ok) => setImmediate(ok))
-  const datos = vs.map((r) => ({ r, n: normal(r.texto), p: palabras(r.texto), num: numeros(r.texto), v: vecs.get(r.id) }))
-  await new Promise<void>((ok) => setImmediate(ok))
+  // Los vectores de a mil, cediendo el turno: de un tirón, en frío, eran 12 MB del disco y medio segundo trabado.
+  const vecs = new Map<number, Float32Array>()
+  const tandaVec = db.prepare(`SELECT id, vec FROM vec_items WHERE tipo = 'memoria' AND id > ? ORDER BY id LIMIT 1000`)
+  for (let ultimo = 0; ;) {
+    const xs = tandaVec.all(ultimo) as { id: number; vec: Uint8Array }[]
+    for (const r of xs) { vecs.set(r.id, blobAVec(r.vec)); ultimo = r.id }
+    await new Promise<void>((ok) => setImmediate(ok))
+    if (xs.length < 1000) break
+  }
+  const datos: { r: Recuerdo; n: string; p: Set<string>; num: string; v: Float32Array | undefined }[] = []
+  for (const [i, r] of vs.entries()) {
+    datos.push({ r, n: normal(r.texto), p: palabras(r.texto), num: numeros(r.texto), v: vecs.get(r.id) })
+    if (i % 1000 === 999) await new Promise<void>((ok) => setImmediate(ok))
+  }
   const padre = vs.map((_, i) => i)
   const raiz = (i: number): number => (padre[i] === i ? i : (padre[i] = raiz(padre[i])))
   const porNumeros = new Map<string, number[]>()

@@ -10,7 +10,8 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { ajuste, fijarAjuste, type Db } from './db.ts'
 import { commitsDesde, githubDisponible, prsMergeadosDesde, type CommitRef } from './fragua-nube.ts'
 
@@ -84,10 +85,11 @@ export function aplicarCommits(db: Db, commits: CommitRef[]) {
   return r
 }
 
-/** Los commits de su compu (cuando no hay GitHub): git log de la rama actual. */
-function gitLog(desde: string, repo = process.cwd()): CommitRef[] {
+/** Los commits de su compu (cuando no hay GitHub): git log de la rama actual, sin esperar sentado (npm run medir vio que
+ * el git log sincrónico trababa el servidor medio segundo). */
+async function gitLog(desde: string, repo = process.cwd()): Promise<CommitRef[]> {
   if (!fs.existsSync(path.join(repo, '.git'))) return []
-  const salida = execFileSync('git', ['log', `--since=${desde}`, '--format=%H%x1f%an%x1f%cI%x1f%B%x1e', '-n', '500'], { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true })
+  const { stdout: salida } = await promisify(execFile)('git', ['log', `--since=${desde}`, '--format=%H%x1f%an%x1f%cI%x1f%B%x1e', '-n', '500'], { cwd: repo, encoding: 'utf8', windowsHide: true, maxBuffer: 16 * 1024 * 1024 })
   const repoGh = process.env.MASTRO_REPO?.trim()
   return salida.split('\x1e').map((b) => b.trim()).filter(Boolean).map((b) => {
     const [sha, autor, fecha, mensaje] = b.split('\x1f')
