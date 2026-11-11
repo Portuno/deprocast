@@ -224,7 +224,10 @@ async function videoPorGemini(db: Db, id: string): Promise<{ video: VideoLeido }
         if (nuevo) { modelo = nuevo; tramo--; continue }
       }
       // Sin cupo o clave mala: descansa unas horas (mientras, prueba el siguiente). Un video privado o raro: solo ese.
-      if ([401, 403, 429].includes(r.status) || /quota|exhausted|rate/i.test(motivo)) { fijarAjuste(db, 'youtube_gemini_hasta', String(Date.now() + 3 * 3_600_000)); fijarAjuste(db, 'youtube_gemini_motivo', motivo) }
+      // Un 403 «sin permiso» es de ese video (los «para niños», restringidos), no de la cuenta: no frena a los demás.
+      const deEseVideo = r.status === 403 && /caller does not have permission|permission denied/i.test(motivo) && !/api key|billing|project/i.test(motivo)
+      if (!deEseVideo && ([401, 403, 429].includes(r.status) || /quota|exhausted|rate/i.test(motivo))) { fijarAjuste(db, 'youtube_gemini_hasta', String(Date.now() + 3 * 3_600_000)); fijarAjuste(db, 'youtube_gemini_motivo', motivo) }
+      if (deEseVideo) return { motivo: `Google no deja leer este video (suele ser uno «para niños» o restringido): ${motivo}` }
       if (parrafos.length) break // lo que ya llegó sirve
       return { motivo }
     }
@@ -433,7 +436,11 @@ export async function trabajarYoutube(db: Db): Promise<void> {
         const porGemini = 'video' in g ? g.video : null
         // Lo que la nube sí pudo leer (título, canal, fecha, descripción) completa lo que trae Gemini.
         if (porGemini) {
-          const r = await completarVideo(db, item.id, { ...porGemini, titulo: directo?.titulo || porGemini.titulo, canal: directo?.canal || porGemini.canal, canalId: directo?.canalId ?? null, fecha: directo?.fecha ?? null, descripcion: directo?.descripcion ?? '' })
+          // El título manda el de YouTube (el que vino con el link); si el de Gemini no se le parece, queda la duda anotada.
+          const deYoutube = directo?.titulo || tituloDeLaPieza(db, item)
+          const otro = deYoutube && porGemini.titulo && !titulosParecidos(deYoutube, porGemini.titulo) ? porGemini.titulo : null
+          const r = await completarVideo(db, item.id, { ...porGemini, titulo: deYoutube || porGemini.titulo, canal: directo?.canal || porGemini.canal, canalId: directo?.canalId ?? null, fecha: directo?.fecha ?? null,
+            descripcion: [directo?.descripcion ?? '', otro ? `(Gemini lo tituló «${otro}»: revisá que la transcripción sea de este video.)` : ''].filter(Boolean).join('\n\n') })
           if (r.listo) void retomarPedido(db, item, r.piezaId).catch((e) => console.error('  youtube → retomar:', e instanceof Error ? e.message : e))
           continue
         }
@@ -533,6 +540,21 @@ export const INTENTOS_NUBE = 3
 export function reintentarConServicio(db: Db) {
   if (!servicioDisponible(db) && !geminiDisponible(db)) return 0
   return db.prepare(`UPDATE youtube_cola SET estado = 'pendiente' WHERE estado = 'compu' AND intentos < ?`).run(INTENTOS_NUBE).changes
+}
+
+/** El título que ya tenía la pieza (el de YouTube, por oEmbed), si no es el de relleno. */
+function tituloDeLaPieza(db: Db, item: ItemCola): string | null {
+  const t = item.pieza_id ? (db.prepare('SELECT titulo FROM corpus WHERE id = ?').get(item.pieza_id) as { titulo: string } | undefined)?.titulo : null
+  return t && !/^Video de YouTube /.test(t) ? t : null
+}
+/** ¿Hablan de lo mismo? Comparten al menos un tercio de las palabras con contenido. */
+export function titulosParecidos(a: string, b: string): boolean {
+  const ws = (s: string) => new Set(s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[^a-z0-9]+/).filter((w) => w.length >= 4))
+  const x = ws(a), y = ws(b)
+  if (!x.size || !y.size) return true
+  let comun = 0
+  for (const w of x) if (y.has(w)) comun++
+  return comun / Math.min(x.size, y.size) >= 1 / 3
 }
 
 /**

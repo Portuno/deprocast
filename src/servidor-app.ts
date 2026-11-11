@@ -1281,7 +1281,9 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/youtube\/leido$/, async (b) => (await import('./youtube.ts')).recibirDeLaCompu(db, b)],
   ['POST', /^\/api\/youtube\/reintentar$/, async () => {
     const y = await import('./youtube.ts')
-    // A mano, todo vuelve a empezar (también lo que esperaba a la compu después de sus tres intentos en la nube).
+    // A mano, todo vuelve a empezar (también lo que esperaba a la compu después de sus tres intentos en la nube), y Gemini
+    // deja de descansar: si de verdad no tiene cupo, lo vuelve a decir.
+    fijarAjuste(db, 'youtube_gemini_hasta', '0')
     const n = Number(db.prepare(`UPDATE youtube_cola SET estado = 'pendiente', intentos = 0, motivo = NULL WHERE estado IN ('fallo', 'sin_subtitulos', 'compu')`).run().changes)
     void y.trabajarYoutube(db).catch(() => {})
     return { reintentados: n }

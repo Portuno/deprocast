@@ -150,3 +150,31 @@ test('#239: si Google retiró el modelo de Gemini, se busca el flash más nuevo,
     if (antes == null) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = antes
   }
 })
+
+test('#239: un 403 «sin permiso» es de ese video (no frena a Gemini); el título de YouTube manda sobre el de Gemini', async () => {
+  const yt = await import('../src/youtube.ts')
+  assert.equal(yt.titulosParecidos('Política para la niñez | INTRODUCCIÓN', 'Política para la niñez - Introducción'), true)
+  assert.equal(yt.titulosParecidos('Insane Computer Science Concepts', 'Computer Science in Space Exploration'), true, 'comparten «computer» y «science»')
+  assert.equal(yt.titulosParecidos('Cómo dar formato circular a una foto con Canva', 'Receta de empanadas'), false)
+  const antes = process.env.GEMINI_API_KEY
+  process.env.GEMINI_API_KEY = 'clave-de-prueba'
+  try {
+    const db = abrir(':memory:')
+    yt._probarYoutube({
+      esperar: async () => {}, web: async (url) => /oembed/.test(String(url)) ? new Response(JSON.stringify({ title: 'Título de YouTube', author_name: 'Canal' })) : new Response('', { status: 429 }), servicio: async () => new Response('', { status: 404 }),
+      gemini: async (_url, init) => /ccccccccccc/.test(String(init?.body)) ? new Response(JSON.stringify({ error: { message: 'The caller does not have permission' } }), { status: 403 })
+        : new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'TITULO: Algo muy distinto\n[00:00] Hola.' }] } }] })),
+    })
+    await yt.encolarYoutube(db, 'https://www.youtube.com/watch?v=ccccccccccc')
+    const v = await yt.encolarYoutube(db, 'https://www.youtube.com/watch?v=ddddddddddd')
+    await yt.trabajarYoutube(db)
+    assert.match((db.prepare('SELECT motivo FROM youtube_cola WHERE id = ?').get('ccccccccccc') as any).motivo, /Google no deja leer este video/)
+    assert.equal(yt.geminiDisponible(db), true, 'el 403 de un video no frena a los demás')
+    assert.equal((db.prepare('SELECT estado FROM youtube_cola WHERE id = ?').get('ddddddddddd') as any).estado, 'listo')
+    const p = db.prepare('SELECT titulo, contenido FROM corpus WHERE id = ?').get(v!.piezaId) as any
+    assert.equal(p.titulo, 'Título de YouTube')
+    assert.match(p.contenido, /Gemini lo tituló «Algo muy distinto»: revisá/)
+  } finally {
+    if (antes == null) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = antes
+  }
+})
