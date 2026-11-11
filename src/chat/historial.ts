@@ -62,7 +62,10 @@ function aModelo(b: Bloque, o: { reciente: boolean; turnoEnCurso: boolean; verIm
       const content = o.verImagenes ? conImagenes(m.texto ?? '') : imagenComoTexto(m.texto ?? '')
       // Lo de un día anterior lleva su fecha y hora absolutas (Fragua #214): no se confunde con hoy.
       const dia = m.en > 1e12 ? fechaLocal(m.en) : null // sin hora real (pruebas, importados): sin fecha
-      if (dia && o.hoy && dia !== o.hoy && typeof content === 'string') return { role: 'user', content: `[${dia} ${new Date(m.en).toTimeString().slice(0, 5)} · día anterior] ${content}` }
+      // Cómo llegó (Fragua #218): una nota de voz se lee como dictado (la transcripción la parte y le saca la puntuación).
+      const como = m.via === 'voz' ? '🎙 dictado · ' : ''
+      if (dia && o.hoy && dia !== o.hoy && typeof content === 'string') return { role: 'user', content: `[${como}${dia} ${new Date(m.en).toTimeString().slice(0, 5)} · día anterior] ${content}` }
+      if (como && typeof content === 'string') return { role: 'user', content: `[${como}${new Date(m.en).toTimeString().slice(0, 5)}] ${content}` }
       return { role: 'user', content }
     }
     if (m.rol === 'herramienta') {

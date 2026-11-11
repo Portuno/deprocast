@@ -211,9 +211,13 @@ export async function textoDeArchivo(db: Db, id: string, mime?: string): Promise
 }
 
 /** El id de un archivo desde su link de Drive o Docs (o el id suelto). */
-export function idDeArchivo(x: string): string {
+export function idDeArchivo(entrada: unknown): string {
+  // Sin nada (el modelo mandó el link con otro nombre de parámetro) daba «Cannot read properties of undefined (reading
+  // 'trim')» y no decía qué faltaba (Fragua #216).
+  const x = String(entrada ?? '').trim()
+  if (!x) throw new Error('Falta el archivo: pasá el link de Drive o su id.')
   const m = /\/d\/([a-zA-Z0-9_-]{15,})/.exec(x) ?? /[?&]id=([a-zA-Z0-9_-]{15,})/.exec(x) ?? /\/folders\/([a-zA-Z0-9_-]{15,})/.exec(x)
-  const id = m?.[1] ?? x.trim()
+  const id = m?.[1] ?? x
   if (!/^[a-zA-Z0-9_-]{15,}$/.test(id)) throw new Error('No reconozco ese archivo: pasá el link de Drive o su id.')
   return id
 }

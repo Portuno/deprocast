@@ -555,7 +555,8 @@ async function conversar(db: Db, texto: string, o: { porVoz?: boolean } = {}) {
   }
   const c = conversacionHoy(db)
   const canal = canalActual.getStore()
-  const opc = { canal: canal?.estilo ?? null }
+  // Lo que llegó por voz queda marcado como dictado (Fragua #218): el chat lo lee como fragmentos, no como texto pulido.
+  const opc = { canal: canal?.estilo ?? null, via: o.porVoz ? ('voz' as const) : null }
   // Si ya está contestando, esto se suma a ese turno: la respuesta de todo junto la manda el mensaje que lo empezó. Lo
   // que resuelve el carril rápido («ya la hice») se contesta en el acto, sin esperar ese turno.
   const enviarAca = () => (otroCanal() ? enviar(db, c.id, texto, opc) : turnoTelegram.run(true, () => enviar(db, c.id, texto, opc)))
@@ -966,7 +967,11 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
     const link = /https?:\/\/\S+/.exec(texto)?.[0]
     if (!link) return conversar(db, texto)
     const g = await guardarLinkTelegram(db, link, texto.replace(link, '').trim())
-    return conversar(db, `Te comparto esto por ${nombreCanal()}:\n${texto}${g ? `\n(Ya quedó guardado en el corpus como pieza #${g.piezaId}: «${g.titulo}».)` : ''}`)
+    // Un link de Maps es un lugar (Fragua #219): el nombre, la dirección y las coordenadas van al chat, que lo toma como
+    // dónde estaba en lo que dictó en esos minutos (Fragua #218).
+    const { ES_MAPA } = await import('./lector/index.ts')
+    const lugar = g && ES_MAPA.test(link) ? String((db.prepare('SELECT contenido FROM corpus WHERE id = ?').get(g.piezaId) as { contenido?: string } | undefined)?.contenido ?? '').replace(/^# /, '').replace(/\[Abrir en Google Maps\]\([^)]*\)/, '').replace(/\s*\n+\s*/g, ' · ').trim() : ''
+    return conversar(db, `Te comparto esto por ${nombreCanal()}:\n${texto}${lugar ? `\n(📍 Es un lugar de Google Maps: ${lugar}. Si en estos minutos dictó algo, es de ahí.)` : g ? `\n(Ya quedó guardado en el corpus como pieza #${g.piezaId}: «${g.titulo}».)` : ''}`)
   }
 }
 

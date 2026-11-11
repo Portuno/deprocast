@@ -124,9 +124,15 @@ const quitar = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/
  */
 const STOP_FORMATO = `speaker speakers hablante hoja hojas pagina paginas titulo titulos subtitulo transcripcion transcripciones transcript operador adicional adicionales informacion nota notas fragmento fragmentos seccion secciones texto textos mensaje mensajes audio audios archivo archivos imagen imagenes foto fotos link links enlace video videos
   parte partes forma formas manera maneras tipo tipos caso casos ejemplo ejemplos punto puntos tema temas cuestion general generalmente especifico especifica posible posibles importante importantes necesario necesaria diferente diferentes nuevo nueva nuevos nuevas primer primero primera segundo segunda ultimo ultima siguiente anterior mayor menor bueno buena malo mala exclusivamente mediante respecto traves medida dentro fuera cerca lejos parece pareceria`
+/**
+ * Muletillas del habla (rioplatense y peninsular) que en las notas de voz transcriptas se repiten tanto que pasaban a
+ * ser los nodos más conectados: «vale» tres veces en una nota hacía un «puente» entre cualquier cosa (Fragua #227).
+ * Él puede protegerlas en el diccionario si alguna es concepto para él.
+ */
+const STOP_MULETILLAS = `vale claro gracias venga oye oiga mira mire miras mirá eh ehm em emm mm mmm hmm aja ajá uf uy bah vaya genial perfecto exacto exactamente efectivamente totalmente obviamente digo dijes osea okey okei vamos hola chau chao adios perdon disculpa disculpas porfa porfavor favor sisi nono jaja jajaja jeje tio tia hombre mujer vale vale bueno buenisimo dale dalee ojala`
 /** Raíces de verbos y nexos que se cuelan conjugados (parece, indica, tenemos, hacer, poder…). Se miran después de cortar. */
 export const STOP_RAICES = new Set('parec indic aparec sugier suger ten tien hac hic hech pod pued quier quer dec dic dij sab deb segu sig est esta estuv tuv pas pued pon pus dej llev llam resultr result permit permitir necesit sirv sirv ofrec mostr muestr incluy inclu cre cre consider observ ayud refuerz reforz bas trat ten'.split(' '))
-export const STOPWORDS = new Set([...STOP_ES.split(/\s+/), ...STOP_EN.split(/\s+/), ...STOP_FORMATO.split(/\s+/)].filter(Boolean).map(quitar))
+export const STOPWORDS = new Set([...STOP_ES.split(/\s+/), ...STOP_EN.split(/\s+/), ...STOP_FORMATO.split(/\s+/), ...STOP_MULETILLAS.split(/\s+/)].filter(Boolean).map(quitar))
 
 // ─── del texto a los lemas ──────────────────────────────────────────────
 
@@ -137,6 +143,11 @@ export const diccionarioVacio = (): Diccionario => ({ stop: new Set(), alias: ne
 /** Limpia lo que no es prosa: links, markdown, citas [#12], código, números y emojis. */
 export function limpiar(texto: string): string {
   return texto
+    // Las marcas de quién habla en una transcripción («Voz A:», «Hablante 2:», «[Speaker 1]») y las rutas de archivos
+    // («C:\Users\…», «/c/Users/…/dev») no son lo que dijo (Fragua #227).
+    .replace(/^\s*\[?\s*(voz|hablante|speaker|persona|interlocutor)\s*[a-z0-9]{1,2}\s*\]?\s*[:.-]?/gim, ' ')
+    .replace(/\[(voz|hablante|speaker)\s*[a-z0-9]{1,2}\]/gi, ' ')
+    .replace(/(?:[a-z]:\\|\/[a-z]\/|~\/)[^\s]*/gi, ' ')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/https?:\/\/\S+|www\.\S+/g, ' ')
     .replace(/\[#\d+\]/g, ' ')

@@ -154,7 +154,67 @@ async function oembed(url: string, endpoint: string, fuente: string): Promise<Le
   return lectura(url, fuente, titulo, md, { meta: { sitio: j.provider_name ?? fuente, autor: j.author_name } })
 }
 
+// ─── Google Maps (Fragua #219) ──────────────────────────────────────────
+
+export type Lugar = { nombre: string | null; direccion: string | null; lat: number | null; lon: number | null; url: string }
+export const ES_MAPA = /^https?:\/\/(?:maps\.app\.goo\.gl|goo\.gl\/maps|(?:www\.)?google\.[a-z.]+\/maps|maps\.google\.[a-z.]+)\b/i
+
+/** Lo que dice una URL larga de Maps: el nombre del lugar y el pin (!3d…!4d…), o el centro (@lat,lon), o la búsqueda (q=). */
+export function lugarDeUrl(url: string): Omit<Lugar, 'direccion'> {
+  let u = url
+  // Con el aviso de cookies de Google, la URL de verdad viene en «continue».
+  try { const c = new URL(u).searchParams.get('continue'); if (c && /google\.[a-z.]+\/maps/.test(c)) u = c } catch { /* no es URL */ }
+  const dec = (s: string) => decodeURIComponent(s.replace(/\+/g, ' '))
+  const nombre = /\/maps\/place\/([^/@?]+)/.exec(u)?.[1]
+  const pin = /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/.exec(u)
+  const centro = /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/.exec(u)
+  let q: string | null = null
+  try { const p = new URL(u).searchParams; q = p.get('q') ?? p.get('query') ?? p.get('ll') ?? null } catch { /* nada */ }
+  const qCoords = q ? /^(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)$/.exec(q.trim()) : null
+  const par = pin ?? centro ?? qCoords
+  return {
+    nombre: nombre ? dec(nombre) : q && !qCoords ? dec(q) : null,
+    lat: par ? Number(par[1]) : null, lon: par ? Number(par[2]) : null, url: u,
+  }
+}
+
+/**
+ * Un link de Maps (también el acortado maps.app.goo.gl) a lugar: nombre, dirección y coordenadas. El acortador se
+ * expande siguiendo la redirección; el nombre y el pin salen de la URL larga, y la dirección de la vista previa.
+ */
+export async function resolverMapa(url: string): Promise<Lugar> {
+  const r = await pedir(url.trim()).catch(() => null)
+  const final = r?.url || url
+  const desdeUrl = lugarDeUrl(final)
+  const html = r?.ok ? await r.text().catch(() => '') : ''
+  // Si la redirección no dejó rastro en r.url (pasa con algunos transportes), la URL larga suele estar en la página.
+  const enPagina = !desdeUrl.lat ? /https?:\/\/(?:www\.)?google\.[a-z.]+\/maps\/[^"'\s<>]+/.exec(html)?.[0]?.replace(/&amp;/g, '&') : null
+  const l = enPagina ? { ...lugarDeUrl(enPagina), url: final } : desdeUrl
+  const v = html ? vistaPrevia(html) : null
+  // La vista previa genérica de Google («Busca negocios locales… en Google Maps») no es una dirección.
+  const generico = (s: string | null | undefined) => !s || /google maps/i.test(s)
+  // og:title suele ser «Nombre · Dirección»; og:description, la dirección o el rubro.
+  const [tNombre, ...tResto] = generico(v?.titulo) ? [] : String(v!.titulo).split(' · ')
+  return {
+    nombre: l.nombre ?? (tNombre?.trim() || null),
+    direccion: tResto.join(' · ').trim() || (generico(v?.descripcion) ? null : v?.descripcion?.trim() ?? null),
+    lat: l.lat, lon: l.lon, url: l.url,
+  }
+}
+
+async function mapa(url: string): Promise<Lectura | null> {
+  const p = await resolverMapa(url)
+  if (!p.nombre && p.lat == null) return null
+  const titulo = p.nombre ?? `Punto ${p.lat}, ${p.lon}`
+  const md = [`# ${titulo}`, p.direccion ? `Dirección: ${p.direccion}` : '', p.lat != null ? `Coordenadas: ${p.lat}, ${p.lon}` : '', `[Abrir en Google Maps](${p.url})`].filter(Boolean).join('\n\n')
+  return lectura(url, 'mapa', titulo, md, {
+    meta: { sitio: 'Google Maps', descripcion: p.direccion ?? undefined },
+    ...(p.nombre ? {} : { aviso: 'El link es solo un punto (sin nombre de lugar): decime qué es y lo anoto.' }),
+  })
+}
+
 const ESPECIALES: [RegExp, (url: string, m: RegExpExecArray) => Promise<Lectura | null>][] = [
+  [ES_MAPA, (u) => mapa(u)],
   [/^https?:\/\/docs\.google\.com\/(document|spreadsheets|presentation)\/d\/([\w-]{20,})/i, google],
   [/^https?:\/\/(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+)(\/.*)?$/i, github],
   [/^https?:\/\/(\w+)\.(?:m\.)?wikipedia\.org\/wiki\/([^?#]+)/i, wikipedia],

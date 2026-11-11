@@ -65,7 +65,7 @@ async function traerGrafo() {
   let r
   try { r = await api(`/grafos/${gf.actual}`) } catch (e) { avisoEstado(''); return error(e) }
   if (pedido !== gf.pedido) return
-  gf.foto = r.foto; gf.mostrado = r.foto; gf.historia = r.historia; gf.calculando = r.calculando; gf.seguidos = r.huecos ?? []; gf.zonas = r.zonas ?? []; gf.hueco = null; gf.grafeador = r.grafeador ?? null
+  gf.foto = r.foto; gf.mostrado = r.foto; gf.historia = r.historia; gf.calculando = r.calculando; gf.seguidos = r.huecos ?? []; gf.zonas = r.zonas ?? []; gf.hueco = null; gf.grafeador = r.grafeador ?? null; gf.entidades = r.entidades ?? {}
   avisoEstado(r.foto ? '' : 'Todavía no hay texto para este grafo.')
   $('#gf-comparar').innerHTML = '<option value="">Comparar con…</option>' + r.historia.filter((h) => h.id !== r.foto?.id).map((h) => `<option value="${h.id}">${new Date(h.en).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${h.metricas?.n ?? '?'} conceptos</option>`).join('')
   encuadrar()
@@ -324,11 +324,14 @@ function nodoHTML(n) {
   const vec = g.aristas.filter(([a, b]) => a === n.i || b === n.i).map(([a, b, p]) => [a === n.i ? b : a, p]).filter(([j]) => !g.nodos[j].vos).sort((x, y) => y[1] - x[1]).slice(0, 14)
   const rango = [...g.nodos].filter((x) => !x.vos).sort((a, b) => b.btw - a.btw).findIndex((x) => x.i === n.i) + 1
   const com = g.comunidades.find((c) => c.id === n.com)
-  return `<section><h3><i class="gf-punto" data-color="${n.com % 12}"></i> ${esc(n.forma)}</h3>
+  // Una cosa de su archivo (Fragua #228): hereda el tipo y abre su ficha.
+  const ent = g === gf.foto ? gf.entidades?.[n.i] : null
+  return `<section><h3><i class="gf-punto" data-color="${n.com % 12}"></i> ${esc(n.forma)}${ent ? ` <span class="chip">${esc(ent.tipo)}</span>` : ''}</h3>
+    ${ent ? `<p class="chico"><a href="#" id="gf-entidad" data-id="${ent.id}">Abrir la ficha de ${esc(ent.nombre)} →</a></p>` : ''}
     <p class="chico">Aparece ${n.frec} ${n.frec === 1 ? 'vez' : 'veces'} en ${n.docs} texto${n.docs === 1 ? '' : 's'} · bisagra n.º ${rango}${n.entrada ? ' · punto de entrada' : ''}${n.periferia ? ' · periferia (toca otro grupo)' : ''}</p>
     ${com ? `<p class="chico tenue">Su grupo: ${com.top.slice(0, 6).map(esc).join(', ')}</p>` : ''}
     <h4>Va con</h4><p class="gf-lista">${vec.map(([j, p]) => `<a href="#" data-gf-nodo="${j}" title="peso ${p}">${esc(g.nodos[j].forma)}</a>`).join(' · ') || '—'}</p>
-    <div class="fila"><button class="btn btn-chico" id="gf-preguntar">💬 Preguntarle a Mastropiero</button></div>
+    <div class="fila"><button class="btn btn-chico" id="gf-preguntar">💬 Preguntarle a Mastropiero</button><button class="btn btn-chico" id="gf-ruido" title="Una muletilla, una marca de transcripción o algo que no es un concepto: deja de contar para grupos, puentes y huecos desde la próxima foto">Es ruido</button></div>
     <h4>Dónde aparece</h4><div id="gf-frags"><p class="tenue chico">Buscando en tus textos…</p></div></section>`
 }
 
@@ -336,6 +339,18 @@ function engancharNodo(n) {
   const p = $('#gf-panel')
   $$('[data-gf-nodo]', p).forEach((b) => (b.onclick = (e) => { e.preventDefault(); elegir(Number(b.dataset.gfNodo), e.shiftKey || e.ctrlKey || e.metaKey) }))
   const preg = $('#gf-preguntar')
+  const ent = $('#gf-entidad')
+  if (ent) ent.onclick = (e) => { e.preventDefault(); verEntidad(Number(ent.dataset.id)) }
+  const ruido = $('#gf-ruido')
+  if (ruido) ruido.onclick = async () => {
+    // Al diccionario como frenada, y se recalcula: las zonas y los huecos salen de nuevo sin ella (Fragua #227).
+    try {
+      await api('/grafos/diccionario', { forma: n.forma, tipo: 'stop' })
+      ruido.disabled = true
+      toast(`«${esc(n.forma)}» ya no cuenta<small>Recalculo el grafo sin esa palabra.</small>`, 'suave')
+      if (gf.actual) { await api(`/grafos/${gf.actual}/recalcular`, { forzar: true }); traerGrafo() }
+    } catch (e) { error(e) }
+  }
   if (preg) preg.onclick = () => preguntarAMastropiero(`En mi grafo, «${n.forma}» es una bisagra. ¿Qué dice mi archivo sobre «${n.forma}» y qué conecta con qué? (usá ver_grafo / conectar_conceptos si hace falta)`)
   if (!n.vos) traerFragmentos(n, null, $('#gf-frags'))
 }

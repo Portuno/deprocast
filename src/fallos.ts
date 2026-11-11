@@ -111,13 +111,64 @@ export function errorEnRespuesta(texto: string): { estado: number | null; codigo
 }
 
 /** Los fallos de las últimas horas, agrupados por huella: los tres más repetidos con su acción, y la lista. */
+/**
+ * Lo que pasó, en castellano llano (Fragua #216): qué es el código, qué se intentaba hacer (la herramienta o el motor, y
+ * con qué), y el detalle de los mensajes técnicos más comunes («Cannot read properties of undefined…»).
+ */
+export function enLlano(g: { codigo: string; origen: string; mensaje: string; donde?: string | null; entrada?: string | null }): string {
+  const que = CODIGOS[g.codigo as CodigoFallo]?.que ?? CODIGOS.desconocido.que
+  const quien = g.origen.startsWith('herramienta:') ? `la herramienta ${g.origen.slice(12)}` : g.origen === 'modelo' ? 'el modelo' : g.origen
+  const m = g.mensaje
+  const campo = /reading '([^']+)'/.exec(m)?.[1]
+  const detalle =
+    campo ? `esperaba un dato y llegó vacío (al usar «${campo}»): casi siempre falta un parámetro o un campo que se daba por hecho`
+    : /is not a function/.test(m) ? 'llamó a algo que no es una función: una versión del código que no coincide o un dato con otra forma'
+    : /UNIQUE constraint/i.test(m) ? 'la base rechazó guardar algo repetido (ya había uno igual)'
+    : /NOT NULL constraint/i.test(m) ? 'la base rechazó guardar algo incompleto (faltaba un campo obligatorio)'
+    : /no such (table|column)/i.test(m) ? 'falta una tabla o columna en la base: una migración que no corrió'
+    : null
+  const con = g.entrada ? ` Se intentaba con: ${g.entrada.slice(0, 200)}.` : g.donde ? ` Dónde: ${g.donde}.` : ''
+  return `${que} Pasó en ${quien}${detalle ? `: ${detalle}` : ''}.${con}`
+}
+
 export function erroresRecientes(db: Db, horas = 24, ahora = Date.now()) {
-  const filas = db.prepare(`SELECT origen, texto, veces, ultima, codigo, huella, donde, causa, accion, reintentable, recuperado, ajeno FROM errores
+  const filas = db.prepare(`SELECT origen, texto, veces, primera, ultima, codigo, huella, donde, entrada, causa, accion, reintentable, recuperado, ajeno FROM errores
     WHERE ultima >= ? AND origen != 'lento' ORDER BY veces DESC, ultima DESC LIMIT 200`).all(ahora - horas * 3_600_000) as any[]
-  const grupos = filas.map((f) => ({
-    huella: f.huella ?? null, codigo: f.codigo ?? clasificar(f.texto).codigo, origen: f.origen, donde: f.donde, veces: f.veces, ultima: f.ultima, mensaje: f.texto,
-    accion: f.accion ?? CODIGOS[(f.codigo ?? clasificar(f.texto).codigo) as CodigoFallo].accion, reintentable: !!f.reintentable, recuperado: !!f.recuperado, ajeno: !!f.ajeno,
-  }))
+  const grupos = filas.map((f) => {
+    const codigo = (f.codigo ?? clasificar(f.texto).codigo) as CodigoFallo
+    return {
+      huella: f.huella ?? null, codigo, origen: f.origen, donde: f.donde, entrada: f.entrada ?? null, veces: f.veces, primera: f.primera as number | null, ultima: f.ultima as number, mensaje: f.texto as string,
+      accion: f.accion ?? CODIGOS[codigo].accion, reintentable: !!f.reintentable, recuperado: !!f.recuperado, ajeno: !!f.ajeno,
+      bug: codigo === 'codigo' || codigo === 'base_de_datos',
+      llano: enLlano({ codigo, origen: f.origen, mensaje: f.texto, donde: f.donde, entrada: f.entrada }),
+    }
+  })
   const propios = grupos.filter((g) => !g.ajeno && !g.recuperado)
   return { horas, total: grupos.reduce((s, g) => s + g.veces, 0), top: (propios.length ? propios : grupos).slice(0, 3), grupos }
+}
+
+/** Los errores como Markdown, para pegar en un documento. */
+export function erroresEnMarkdown(db: Db, horas = 24, ahora = Date.now()): string {
+  const r = erroresRecientes(db, horas, ahora)
+  const f = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ')
+  return [`# Errores de las últimas ${horas} h`, '', `${r.grupos.length} distintos, ${r.total} en total.`, '',
+    ...r.grupos.map((g) => [`## ${g.bug ? '🐞 ' : ''}${g.origen} · ${g.codigo} ×${g.veces}`, '',
+      `- **Cuándo:** ${f(g.primera ?? g.ultima)} → ${f(g.ultima)}`, `- **Huella:** \`${g.huella ?? '—'}\``,
+      `- **Mensaje:** ${g.mensaje}`, g.entrada ? `- **Con qué:** \`${g.entrada.slice(0, 300)}\`` : '',
+      `- **En llano:** ${g.llano}`, `- **Qué hacer:** ${g.accion}`,
+      `- **${g.bug ? 'Es un bug' : g.reintentable ? 'Reintentable' : 'No reintentable'}**${g.ajeno ? ' · de otro servicio' : ''}${g.recuperado ? ' · se recuperó solo' : ''}`, ''].filter((x) => x !== '').join('\n')),
+  ].join('\n')
+}
+
+/** Un error de la lista, a La Fragua (con su evidencia; si ya hay una con la misma causa, se suma ahí). */
+export async function errorALaFragua(db: Db, huella: string, ahora = Date.now()): Promise<{ propuestaId: number; sumada: boolean }> {
+  const g = erroresRecientes(db, 24 * 30, ahora).grupos.find((x) => x.huella === huella)
+  if (!g) throw new Error('No encuentro ese error')
+  const titulo = `Arreglar: ${g.origen} — ${g.mensaje.slice(0, 90)}`
+  const detalle = `${g.llano}\nMENSAJE: ${g.mensaje}\nHUELLA: ${g.huella} · ${g.veces} vez/veces entre ${new Date(g.primera ?? g.ultima).toISOString().slice(0, 16)} y ${new Date(g.ultima).toISOString().slice(0, 16)}\n${g.entrada ? `CON: ${g.entrada}\n` : ''}QUÉ HACER: ${g.accion}`
+  const gr = await import('./fragua-grupos.ts')
+  const ya = gr.abiertaParecida(db, titulo, detalle, 'motores')
+  if (ya) { gr.sumarAPropuesta(db, ya.id, titulo, detalle, ahora); return { propuestaId: ya.id, sumada: true } }
+  const r = db.prepare(`INSERT INTO propuestas (titulo, detalle, area, prioridad, estado, origen, creada_en) VALUES (?, ?, 'motores', ?, 'abierta', 'errores', ?)`).run(titulo.slice(0, 160), detalle, g.bug ? 'alta' : 'media', ahora)
+  return { propuestaId: Number(r.lastInsertRowid), sumada: false }
 }

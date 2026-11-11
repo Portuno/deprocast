@@ -332,7 +332,7 @@ export const HERRAMIENTAS: Herramienta[] = [
     nombre: 'leer_de_drive', familia: 'lectura',
     descripcion: 'Lee un archivo de su Google Drive (link o id): un documento, una planilla (como CSV), una presentación, un PDF o un texto. Para buscarlo por nombre, buscar_en_drive.',
     parametros: S({ archivo: str('Link o id del archivo') }, ['archivo']),
-    ejecutar: async (a, { db }) => { const d = await import('../google/drive.ts'); const r = await d.textoDeArchivo(db, d.idDeArchivo(a.archivo)); return { ...r, texto: recorte(r.texto, 20_000) } },
+    ejecutar: async (a, { db }) => { const d = await import('../google/drive.ts'); const r = await d.textoDeArchivo(db, d.idDeArchivo(a.archivo ?? a.link ?? a.url ?? a.id)); return { ...r, texto: recorte(r.texto, 20_000) } },
     resumen: (_, r) => `leyó «${r?.nombre ?? ''}» de tu Drive`,
   },
   {

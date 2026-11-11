@@ -723,6 +723,8 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/ubicacion\/prender$/, async (b) => (await import('./ubicacion.ts')).prenderUbicacion(db, !!b.prendida)],
   // Lo lento y lo que se rompe (plan v38, fase 1): para decidir con datos.
   ['GET', /^\/api\/errores$/, async (_, __, q) => (await import('./fallos.ts')).erroresRecientes(db, Math.min(24 * 30, Number(q.get('horas')) || 24))],
+  ['GET', /^\/api\/errores\/md$/, async (_, __, q) => ({ markdown: (await import('./fallos.ts')).erroresEnMarkdown(db, Math.min(24 * 30, Number(q.get('horas')) || 24)) })],
+  ['POST', /^\/api\/errores\/([\w-]+)\/fragua$/, async (_, [h]) => (await import('./fallos.ts')).errorALaFragua(db, h)],
   ['GET', /^\/api\/lento$/, async (_, __, q) => (await import('./autocritica.ts')).lento(db, Date.now(), Math.min(30, Number(q.get('dias')) || 7))],
   // El censo de un canal de YouTube (Fragua #187): verlo y aprobarlo (con cambios al plan).
   ['GET', /^\/api\/youtube\/censo$/, async (_, __, q) => (await import('./youtube-canal.ts')).leerCenso(db, String(q.get('canal') ?? ''))],
@@ -1170,7 +1172,7 @@ const rutas: [string, RegExp, Ruta][] = [
     // Sin foto todavía: se calcula ahora (en el hilo aparte) y la pantalla espera; con foto, la última (o la pedida).
     const foto = q.get('foto') ? gr.leerFoto(db, Number(q.get('foto'))) : gr.ultimaFoto(db, x.id) ?? await gr.recalcular(db, x.id)
     const hu = await import('./grafo/huecos.ts')
-    return { grafo: x, foto, calculando: gr.estaCalculando(x.id), historia: gr.historia(db, x.id), huecos: hu.huecosDe(db, x.id).map((h) => ({ ...h, delta: hu.deltaDe(db, h) })), grafeador: hu.proximoTrabajo(db, x.id), zonas: foto ? (await import('./grafo/mapa.ts')).zonas(db, x, foto, 30) : [] }
+    return { grafo: x, foto, calculando: gr.estaCalculando(x.id), historia: gr.historia(db, x.id), huecos: hu.huecosDe(db, x.id).map((h) => ({ ...h, delta: hu.deltaDe(db, h) })), grafeador: hu.proximoTrabajo(db, x.id), zonas: foto ? (await import('./grafo/mapa.ts')).zonas(db, x, foto, 30) : [], entidades: foto ? gr.entidadesDeNodos(db, foto) : {} }
   }],
   // La salud: estado, historia semanal y su calibración, lo que cambió, posibles bucles y alias (sin modelo).
   ['GET', /^\/api\/grafos\/(\d+)\/salud$/, async (_, [g]) => (await import('./grafo/salud.ts')).saludDe(db, id(g))],

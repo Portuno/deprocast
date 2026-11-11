@@ -16,7 +16,8 @@ function montarFragua() {
       <textarea name="pedido" rows="2" placeholder="Qué querés que cambie, con el detalle que tengas («que en la Criba la tecla d también descarte»). O forjá una de las propuestas de abajo." class="w-full"></textarea>
       <div class="fila mt-2"><span class="tenue" style="flex:1;font-size:12.5px">Mejor si es algo concreto y chico: un cambio por forja.</span><button class="btn btn-primario">⚒ Forjar</button></div>
     </form>
-    <div id="fr-cuerpo"></div>`
+    <div id="fr-cuerpo"></div>
+    <div id="fr-errores"></div>`
   $('#fr-pedir').onsubmit = async (e) => {
     e.preventDefault()
     const p = e.target.pedido.value.trim()
@@ -24,6 +25,47 @@ function montarFragua() {
     try { await api('/fragua', { pedido: p }); e.target.reset(); toast('A la fragua<small>Tarda unos minutos; te aviso en Hoy.</small>'); refrescarFragua() } catch (err) { error(err) }
   }
   refrescarFragua()
+  pintarErrores()
+}
+
+// Los errores, legibles (Fragua #216): uno por huella, con cuántas veces, qué se intentaba, qué pasó en llano y qué hacer.
+let erroresHoras = 24
+async function pintarErrores() {
+  const cont = $('#fr-errores')
+  if (!cont) return
+  let r
+  try { r = await api(`/errores?horas=${erroresHoras}`) } catch (e) { return error(e) }
+  const fecha = (ms) => new Date(ms).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  cont.innerHTML = `<section class="seccion">
+    <div class="seccion-cab"><h3>Errores · ${r.grupos.length}</h3><span class="tenue">Uno por huella (el mismo fallo repetido va una vez, con su cuenta). Los 🐞 son bugs de Deprocast; los demás, cortes o de otros servicios.</span>
+      <span class="espacio"></span>
+      <select class="campo-suelto" id="fr-err-horas">${[[24, '24 h'], [168, '7 días'], [720, '30 días']].map(([h, t]) => `<option value="${h}" ${h === erroresHoras ? 'selected' : ''}>${t}</option>`).join('')}</select>
+      <button class="btn btn-chico" id="fr-err-md" title="Copia todo como Markdown y lo baja como archivo">Exportar a Markdown</button></div>
+    ${r.grupos.length ? `<div class="fr-errores">${r.grupos.map((g) => `<details class="fr-error ${g.bug ? 'bug' : ''}" data-huella="${esc(g.huella ?? '')}">
+      <summary><span class="chip">${g.bug ? '🐞 bug' : esc(g.codigo)}</span> <b>${esc(g.origen)}</b> <span class="tenue">×${g.veces} · ${fecha(g.ultima)}</span><br><span class="chico">${esc(g.mensaje.slice(0, 160))}</span></summary>
+      <p class="chico"><b>En llano:</b> ${esc(g.llano)}</p>
+      <p class="chico"><b>Qué hacer:</b> ${esc(g.accion)}</p>
+      <p class="chico tenue">Huella <code>${esc(g.huella ?? '—')}</code> · ${g.bug ? 'bug, no reintentable' : g.reintentable ? 'reintentable' : 'no reintentable'}${g.ajeno ? ' · de otro servicio' : ''}${g.recuperado ? ' · se recuperó solo' : ''}${g.primera ? ` · desde ${fecha(g.primera)}` : ''}</p>
+      ${g.entrada ? `<pre class="fr-diff">${esc(g.entrada)}</pre>` : ''}
+      ${g.huella && !g.ajeno ? '<div class="fila"><button class="btn btn-chico" data-err-fragua>⚒ A La Fragua</button></div>' : ''}
+    </details>`).join('')}</div>` : '<p class="vacio">Sin errores en este período.</p>'}
+  </section>`
+  $('#fr-err-horas').onchange = (e) => { erroresHoras = Number(e.target.value); pintarErrores() }
+  $('#fr-err-md').onclick = async () => {
+    try {
+      const { markdown } = await api(`/errores/md?horas=${erroresHoras}`)
+      try { await navigator.clipboard.writeText(markdown) } catch { /* sin portapapeles: igual se baja */ }
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(new Blob([markdown], { type: 'text/markdown' }))
+      a.download = `errores-${new Date().toISOString().slice(0, 10)}.md`
+      a.click()
+      toast('Errores exportados<small>Copiados y bajados como .md</small>', 'suave')
+    } catch (e) { error(e) }
+  }
+  $$('[data-err-fragua]', cont).forEach((b) => (b.onclick = async () => {
+    const h = b.closest('[data-huella]').dataset.huella
+    try { const x = await api(`/errores/${h}/fragua`, {}); toast(x.sumada ? `Sumado a la #${x.propuestaId}<small>Ya había una con la misma causa.</small>` : `Propuesta #${x.propuestaId}`, 'suave'); refrescarFragua() } catch (e) { error(e) }
+  }))
 }
 
 async function refrescarFragua() {

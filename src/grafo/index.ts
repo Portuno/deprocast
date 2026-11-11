@@ -9,7 +9,7 @@ import { json, type Db } from '../db.ts'
 import { calcularEnHilo } from './hilo.ts'
 import { documentosDe, type Definicion, type Fuente } from './fuentes.ts'
 import type { Resultado } from './calcular.ts'
-import type { Diccionario } from './texto.ts'
+import { raiz, type Diccionario } from './texto.ts'
 
 export type Grafo = { id: number; clave: string | null; nombre: string; tipo: 'voz' | 'todo' | 'propio'; fuentes: Fuente[]; desde: string | null; hasta: string | null; creadoEn: number; editadoEn: number }
 export type Foto = Resultado & { id: number; grafoId: number; firma: string; documentos: number; en: number }
@@ -83,7 +83,53 @@ export function diccionario(db: Db): Diccionario {
     else if (r.tipo === 'proteger') d.proteger.add(r.forma)
     else if (r.tipo === 'alias' && r.destino) d.alias.set(r.forma, r.destino)
   }
+  // Su propio nombre (y sus alias) no es un concepto de su grafo: aparece en todo lo suyo, así que unía cualquier cosa
+  // («deprocast → dev → sarni → lautaro → voz → camiones», Fragua #227). Salvo que lo haya protegido.
+  for (const n of nombresDelOperadorParaGrafo(db)) if (!d.proteger.has(n)) d.stop.add(n)
   return d
+}
+
+/** Las palabras de su nombre y sus alias (de la entidad marcada como él), en minúsculas y sin tildes. */
+function nombresDelOperadorParaGrafo(db: Db): string[] {
+  const yo = db.prepare(`SELECT nombre, alias FROM entidades WHERE json_extract(meta, '$.operador') = 1`).all() as { nombre: string; alias: string | null }[]
+  const out = new Set<string>()
+  for (const e of yo) for (const n of [e.nombre, ...(json<string[]>(e.alias, []) ?? [])]) for (const w of plano(String(n)).split(/[^a-z0-9ñ]+/)) if (w.length >= 3) out.add(w)
+  return [...out]
+}
+
+/**
+ * Los nodos que son cosas de su archivo (Fragua #228): si un concepto coincide con una entidad (su nombre o un alias,
+ * o la misma raíz para las de una palabra, o el nombre de pila de una persona cuando no hay otra con ese nombre),
+ * hereda su tipo y su ficha. Devuelve, por índice de nodo, la entidad.
+ */
+export function entidadesDeNodos(db: Db, foto: Pick<Resultado, 'nodos'>): Record<number, { id: number; tipo: string; nombre: string }> {
+  const ents = db.prepare(`SELECT id, tipo, nombre, alias FROM entidades WHERE COALESCE(json_extract(meta, '$.operador'), 0) != 1`).all() as { id: number; tipo: string; nombre: string; alias: string | null }[]
+  const porForma = new Map<string, { id: number; tipo: string; nombre: string } | null>()
+  const porRaiz = new Map<string, { id: number; tipo: string; nombre: string } | null>()
+  const poner = (m: Map<string, { id: number; tipo: string; nombre: string } | null>, k: string, e: { id: number; tipo: string; nombre: string }) => {
+    if (!k || k.length < 3) return
+    const ya = m.get(k)
+    m.set(k, ya === undefined || ya?.id === e.id ? e : null) // dos entidades con la misma clave: no se adivina
+  }
+  const pilas = new Map<string, { id: number; tipo: string; nombre: string } | null>()
+  for (const r of ents) {
+    const e = { id: r.id, tipo: r.tipo, nombre: r.nombre }
+    for (const n of [r.nombre, ...(json<string[]>(r.alias, []) ?? [])]) {
+      const p = plano(String(n))
+      poner(porForma, p, e)
+      if (!/\s/.test(p)) poner(porRaiz, raiz(p), e)
+    }
+    const pila = plano(r.nombre).split(/\s+/)[0]
+    if (r.tipo === 'persona' && /\s/.test(plano(r.nombre)) && pila.length >= 4) poner(pilas, pila, e)
+  }
+  const out: Record<number, { id: number; tipo: string; nombre: string }> = {}
+  for (const n of foto.nodos) {
+    if ((n as { vos?: boolean }).vos) continue
+    const f = plano(n.forma)
+    const e = porForma.get(f) ?? (porForma.has(f) ? null : porRaiz.get(n.lema) ?? (porRaiz.has(n.lema) ? null : pilas.get(f) ?? null))
+    if (e) out[n.i] = e
+  }
+  return out
 }
 export const entradasDiccionario = (db: Db) => db.prepare('SELECT forma, tipo, destino, en FROM grafo_diccionario ORDER BY tipo, forma').all() as { forma: string; tipo: string; destino: string | null; en: number }[]
 
