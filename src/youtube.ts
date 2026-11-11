@@ -158,12 +158,49 @@ export function leerRenglonesGemini(texto: string): { titulo: string | null; can
 }
 
 /**
+ * El modelo de Gemini: el que él fijó (GEMINI_MODELO), el último que anduvo, o uno por defecto. Google retira modelos
+ * («gemini-2.5-flash is no longer available to new users»: por eso se caía todo a la compu, Fragua #239): cuando el
+ * modelo ya no está, se busca en la lista de Google el flash más nuevo que genere contenido, se guarda y se sigue.
+ */
+const MODELO_POR_DEFECTO = 'gemini-2.5-flash'
+const modeloGemini = (db: Db) => process.env.GEMINI_MODELO?.trim() || ajuste(db, 'youtube_gemini_modelo') || MODELO_POR_DEFECTO
+export const modeloRetirado = (status: number, mensaje: string) => (status === 404 && /\bmodels?\b/i.test(mensaje)) || /no longer available|not found for API version|is not supported for generateContent|deprecated/i.test(mensaje)
+
+/** De la lista de modelos, el mejor flash: la versión más alta, estable antes que preview, y nunca lite/imagen/voz. */
+export function elegirFlash(nombres: string[], sin: string[] = []): string | null {
+  const candidatos = nombres.map((n) => n.replace(/^models\//, '')).filter((n) => !sin.includes(n))
+    .filter((n) => /^gemini-(\d+(?:\.\d+)?)-flash(-preview(-[\w.-]+)?|-\d{3})?$/.test(n))
+  const version = (n: string) => Number(/^gemini-(\d+(?:\.\d+)?)/.exec(n)![1])
+  candidatos.sort((a, b) => version(b) - version(a) || Number(/preview/.test(a)) - Number(/preview/.test(b)) || a.length - b.length)
+  return candidatos[0] ?? (nombres.map((n) => n.replace(/^models\//, '')).includes('gemini-flash-latest') && !sin.includes('gemini-flash-latest') ? 'gemini-flash-latest' : null)
+}
+
+async function buscarModeloNuevo(db: Db, retirado: string, aviso = ''): Promise<string | null> {
+  // Google suele decir cuál usar («Please update your code to use models/…»): si lo dice, ese.
+  const sugerido = /use\s+(?:models\/)?(gemini-[\w.-]+?)[.,;\s]*$/i.exec(aviso.trim())?.[1] ?? /use\s+models\/(gemini-[\w.-]+)/i.exec(aviso)?.[1]
+  if (sugerido && sugerido !== retirado) {
+    fijarAjuste(db, 'youtube_gemini_modelo', sugerido)
+    return sugerido
+  }
+  const r = await pedirGemini('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000', { method: 'GET', headers: { 'x-goog-api-key': claveGemini()! } }).catch(() => null)
+  const j = r?.ok ? await r.json().catch(() => null) as any : null
+  const nombres = (Array.isArray(j?.models) ? j.models : []).filter((m: any) => (m?.supportedGenerationMethods ?? []).includes('generateContent')).map((m: any) => String(m.name))
+  const nuevo = elegirFlash(nombres, [retirado])
+  if (nuevo) {
+    fijarAjuste(db, 'youtube_gemini_modelo', nuevo)
+    void import('./fallos.ts').then((f) => f.registrarFallo(db, { origen: 'youtube:gemini', mensaje: `El modelo ${retirado} ya no está: paso a ${nuevo}`, donde: retirado, recuperado: true })).catch(() => {})
+  }
+  return nuevo
+}
+
+/**
  * Un video por Gemini. Devuelve el video, o por qué no (para que la cola lo diga: antes se perdía y solo quedaba el
  * «Inicia sesión» de YouTube). Si la respuesta se cortó por largo, sigue desde el último minuto (hasta 6 tramos).
  */
 async function videoPorGemini(db: Db, id: string): Promise<{ video: VideoLeido } | { motivo: string }> {
   if (!geminiDisponible(db)) return { motivo: claveGemini() ? `sin cupo por ahora (${ajuste(db, 'youtube_gemini_motivo') ?? 'descansa unas horas'})` : 'no está configurado' }
-  const modelo = process.env.GEMINI_MODELO?.trim() || 'gemini-2.5-flash'
+  let modelo = modeloGemini(db)
+  let cambioDeModelo = false
   const parrafos: string[] = [], pantalla: string[] = []
   let cab: { titulo: string | null; canal: string | null; idioma: string | null } = { titulo: null, canal: null, idioma: null }
   let desde: string | null = null
@@ -180,6 +217,12 @@ async function videoPorGemini(db: Db, id: string): Promise<{ video: VideoLeido }
     const j = await r.json().catch(() => null) as any
     if (!r.ok) {
       const motivo = `${r.status || 'sin respuesta'}: ${j?.error?.message ?? 'falló'}`.slice(0, 200)
+      // El modelo ya no existe: se busca el nuevo una vez y se repite este tramo con él.
+      if (!cambioDeModelo && modeloRetirado(r.status, motivo) && !process.env.GEMINI_MODELO?.trim()) {
+        cambioDeModelo = true
+        const nuevo = await buscarModeloNuevo(db, modelo, String(j?.error?.message ?? ''))
+        if (nuevo) { modelo = nuevo; tramo--; continue }
+      }
       // Sin cupo o clave mala: descansa unas horas (mientras, prueba el siguiente). Un video privado o raro: solo ese.
       if ([401, 403, 429].includes(r.status) || /quota|exhausted|rate/i.test(motivo)) { fijarAjuste(db, 'youtube_gemini_hasta', String(Date.now() + 3 * 3_600_000)); fijarAjuste(db, 'youtube_gemini_motivo', motivo) }
       if (parrafos.length) break // lo que ya llegó sirve

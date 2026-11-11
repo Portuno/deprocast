@@ -121,3 +121,32 @@ test('#208: lo mismo pedido dos veces (el mismo nombre propio, o casi) queda en 
   const gs = gruposDePropuestas(db).map((g) => g.ids.sort((a, b) => a - b))
   assert.deepEqual(gs.sort((a, b) => a[0] - b[0]), [[bench, bench2], [logos, logos2], [raci, raci2]])
 })
+
+test('#239: si Google retiró el modelo de Gemini, se busca el flash más nuevo, se guarda y el video sale igual', async () => {
+  const yt = await import('../src/youtube.ts')
+  assert.equal(yt.elegirFlash(['models/gemini-2.5-flash', 'models/gemini-3-flash-preview-11', 'models/gemini-3-flash', 'models/gemini-3-flash-lite', 'models/gemini-3-pro', 'models/gemini-3.5-flash-image'], ['gemini-2.5-flash']), 'gemini-3-flash')
+  assert.equal(yt.modeloRetirado(404, 'This model models/gemini-2.5-flash is no longer available to new users.'), true)
+  assert.equal(yt.modeloRetirado(404, 'Video not found'), false, 'otro 404 no cambia el modelo')
+  const antes = process.env.GEMINI_API_KEY
+  process.env.GEMINI_API_KEY = 'clave-de-prueba'
+  try {
+    const db = abrir(':memory:')
+    const urls: string[] = []
+    yt._probarYoutube({
+      esperar: async () => {}, web: async () => new Response('', { status: 429 }), servicio: async () => new Response('', { status: 404 }),
+      gemini: async (url) => {
+        urls.push(String(url))
+        if (/gemini-2\.5-flash:generateContent/.test(String(url))) return new Response(JSON.stringify({ error: { message: 'This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use a newer model.' } }), { status: 404 })
+        if (/\/models\?/.test(String(url))) return new Response(JSON.stringify({ models: [{ name: 'models/gemini-3-flash', supportedGenerationMethods: ['generateContent'] }, { name: 'models/text-embedding-004', supportedGenerationMethods: ['embedContent'] }] }))
+        return new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'TITULO: Un video\nCANAL: Un canal\nIDIOMA: es\n[00:00] Hola.\n[00:40] Chau.' }] } }] }))
+      },
+    })
+    await yt.encolarYoutube(db, 'https://www.youtube.com/watch?v=bbbbbbbbbbb')
+    await yt.trabajarYoutube(db)
+    assert.equal((db.prepare('SELECT estado FROM youtube_cola WHERE id = ?').get('bbbbbbbbbbb') as any).estado, 'listo')
+    assert.ok(urls.some((u) => /gemini-3-flash:generateContent/.test(u)))
+    assert.equal((db.prepare(`SELECT valor FROM ajustes WHERE clave = 'youtube_gemini_modelo'`).get() as any).valor, 'gemini-3-flash', 'queda guardado para la próxima')
+  } finally {
+    if (antes == null) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = antes
+  }
+})
