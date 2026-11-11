@@ -112,42 +112,98 @@ export async function encolarYoutube(db: Db, url: string, o: { de?: string | nul
 
 const claveGemini = () => process.env.GEMINI_API_KEY?.trim() || null
 export const geminiDisponible = (db: Db, ahora = Date.now()) => !!claveGemini() && Number(ajuste(db, 'youtube_gemini_hasta') ?? 0) < ahora
-const PEDIDO_GEMINI = `Transcribí este video de YouTube COMPLETO y fiel, en su idioma original, sin resumir ni traducir.
-Partilo en párrafos de unos 30 a 60 segundos, cada uno con el minuto en que empieza. Si hay más de una persona, poné quién habla cuando cambia («Entrevistador:», o el nombre si se dice).
-Aparte, anotá el texto importante que aparece en pantalla (títulos, gráficos, datos, nombres), con su minuto.
-Respondé SOLO este JSON: {"titulo": "...", "canal": "...", "idioma": "es|en|…", "transcripcion": [{"t": "mm:ss", "texto": "..."}], "en_pantalla": [{"t": "mm:ss", "texto": "..."}]}`
+// En renglones y no en un JSON (Fragua #239): con un video largo la respuesta se cortaba, el JSON quedaba sin cerrar y se
+// perdía todo. Así, lo que llegó sirve, y si se cortó se sigue desde el último minuto.
+const PEDIDO_GEMINI = (desde: string | null) => `Transcribí este video de YouTube${desde ? ` DESDE EL MINUTO ${desde} hasta el final` : ' COMPLETO'}, fiel, en su idioma original, sin resumir ni traducir.
+Formato, en texto plano (sin JSON, sin markdown):
+${desde ? '' : `TITULO: el título del video
+CANAL: el canal
+IDIOMA: es|en|…
+`}Después, un párrafo por renglón, de unos 30 a 60 segundos cada uno, empezando con su minuto entre corchetes: [mm:ss] lo que se dice. Si cambia quien habla, poné su nombre o su rol al principio del párrafo.
+Al final, un renglón que diga solo «EN PANTALLA» y debajo, un renglón por texto importante que aparece en pantalla (títulos, gráficos, datos, nombres): [mm:ss] el texto.`
 
-/** Un video por Gemini. null: Gemini no está, no tiene cupo o no anduvo (que pruebe el siguiente). */
-async function videoPorGemini(db: Db, id: string): Promise<VideoLeido | null> {
-  if (!geminiDisponible(db)) return null
-  const modelo = process.env.GEMINI_MODELO?.trim() || 'gemini-2.5-flash'
-  const r = await pedirGemini(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-goog-api-key': claveGemini()! },
-    body: JSON.stringify({
-      contents: [{ parts: [{ file_data: { file_uri: urlDeVideo(id) } }, { text: PEDIDO_GEMINI }] }],
-      // Resolución baja: alcanza para leer la pantalla y entra en el cupo gratis aun con videos largos.
-      generationConfig: { temperature: 0.1, responseMimeType: 'application/json', mediaResolution: 'MEDIA_RESOLUTION_LOW', maxOutputTokens: 65536 },
-    }),
-  })
-  const j = await r.json().catch(() => null) as any
-  if (!r.ok) {
-    const motivo = `${r.status}: ${j?.error?.message ?? 'falló'}`.slice(0, 200)
-    // Sin cupo o clave mala: descansa unas horas (mientras, prueba el siguiente). Un video privado o raro: solo ese.
-    if ([401, 403, 429].includes(r.status) || /quota|exhausted|rate/i.test(motivo)) { fijarAjuste(db, 'youtube_gemini_hasta', String(Date.now() + 3 * 3_600_000)); fijarAjuste(db, 'youtube_gemini_motivo', motivo) }
-    return null
+const aSegundos = (t: string) => t.split(':').map(Number).reduce((s, x) => s * 60 + (Number.isFinite(x) ? x : 0), 0)
+
+/** Lee la respuesta en renglones: la cabecera, los párrafos con su minuto y lo que se ve en pantalla. */
+export function leerRenglonesGemini(texto: string): { titulo: string | null; canal: string | null; idioma: string | null; parrafos: string[]; pantalla: string[]; ultimo: string | null } {
+  let titulo: string | null = null, canal: string | null = null, idioma: string | null = null
+  const parrafos: string[] = []
+  const pantalla: string[] = []
+  let enPantalla = false
+  // Si igual contestó en JSON (entero, o cortado): se toman los párrafos completos que haya.
+  const limpio = texto.replace(/^```\w*\s*|```\s*$/g, '').trim()
+  if (limpio.startsWith('{')) {
+    const campo = (k: string) => { const m = new RegExp(`"${k}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`).exec(limpio); return m ? JSON.parse(`"${m[1]}"`) as string : null }
+    // Cada {"t": "...", "texto": "..."} completo: los de antes de "en_pantalla" son la transcripción; los de después, la pantalla.
+    const objetos = (s: string) => [...s.matchAll(/\{\s*"t"\s*:\s*"([^"]*)"\s*,\s*"texto"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}/g)]
+      .map((m) => ({ t: m[1].trim(), x: (JSON.parse(`"${m[2]}"`) as string).replace(/\s+/g, ' ').trim() })).filter((o) => o.x)
+    const corte = limpio.indexOf('"en_pantalla"')
+    for (const o of objetos(corte >= 0 ? limpio.slice(0, corte) : limpio)) parrafos.push(`[${o.t || '00:00'}] ${o.x}`)
+    if (corte >= 0) for (const o of objetos(limpio.slice(corte))) pantalla.push(`[${o.t}] ${o.x}`)
+    const ultimoJ = parrafos.length ? /^\[([^\]]+)\]/.exec(parrafos.at(-1)!)![1] : null
+    return { titulo: campo('titulo'), canal: campo('canal'), idioma: campo('idioma')?.slice(0, 10) ?? null, parrafos, pantalla, ultimo: ultimoJ }
   }
-  const texto = (j?.candidates?.[0]?.content?.parts ?? []).map((p: any) => p?.text ?? '').join('')
-  let d: any = null
-  try { d = JSON.parse(texto.replace(/^```(?:json)?\s*|\s*```$/g, '')) } catch { return null }
-  const parrafos = (Array.isArray(d?.transcripcion) ? d.transcripcion : []).map((p: any) => `[${String(p?.t ?? '').trim() || '00:00'}] ${String(p?.texto ?? '').replace(/\s+/g, ' ').trim()}`).filter((l: string) => !/\]\s*$/.test(l))
-  if (!parrafos.length) return null
-  const pantalla = (Array.isArray(d?.en_pantalla) ? d.en_pantalla : []).map((p: any) => `[${String(p?.t ?? '').trim()}] ${String(p?.texto ?? '').trim()}`).filter((l: string) => !/\]\s*$/.test(l))
+  for (const crudo of texto.replace(/^```\w*\s*|```\s*$/g, '').split('\n')) {
+    const l = crudo.trim()
+    if (!l) continue
+    const cab = /^(TITULO|TÍTULO|CANAL|IDIOMA)\s*:\s*(.+)$/i.exec(l)
+    if (cab) { const k = cab[1].toUpperCase(); if (k.startsWith('T')) titulo = cab[2].trim(); else if (k === 'CANAL') canal = cab[2].trim(); else idioma = cab[2].trim().slice(0, 10); continue }
+    if (/^[«"]?EN PANTALLA[»"]?:?$/i.test(l)) { enPantalla = true; continue }
+    const m = /^\[(\d{1,2}(?::\d{2}){1,2})\]\s*(.+)$/.exec(l)
+    if (!m) continue
+    ;(enPantalla ? pantalla : parrafos).push(`[${m[1]}] ${m[2].replace(/\s+/g, ' ').trim()}`)
+  }
+  const ultimo = parrafos.length ? /^\[([^\]]+)\]/.exec(parrafos.at(-1)!)![1] : null
+  return { titulo, canal, idioma, parrafos, pantalla, ultimo }
+}
+
+/**
+ * Un video por Gemini. Devuelve el video, o por qué no (para que la cola lo diga: antes se perdía y solo quedaba el
+ * «Inicia sesión» de YouTube). Si la respuesta se cortó por largo, sigue desde el último minuto (hasta 6 tramos).
+ */
+async function videoPorGemini(db: Db, id: string): Promise<{ video: VideoLeido } | { motivo: string }> {
+  if (!geminiDisponible(db)) return { motivo: claveGemini() ? `sin cupo por ahora (${ajuste(db, 'youtube_gemini_motivo') ?? 'descansa unas horas'})` : 'no está configurado' }
+  const modelo = process.env.GEMINI_MODELO?.trim() || 'gemini-2.5-flash'
+  const parrafos: string[] = [], pantalla: string[] = []
+  let cab: { titulo: string | null; canal: string | null; idioma: string | null } = { titulo: null, canal: null, idioma: null }
+  let desde: string | null = null
+  for (let tramo = 0; tramo < 6; tramo++) {
+    const r = await pedirGemini(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': claveGemini()! },
+      body: JSON.stringify({
+        contents: [{ parts: [{ file_data: { file_uri: urlDeVideo(id) }, ...(desde ? { video_metadata: { start_offset: `${aSegundos(desde)}s` } } : {}) }, { text: PEDIDO_GEMINI(desde) }] }],
+        // Resolución baja: alcanza para leer la pantalla y entra en el cupo gratis aun con videos largos.
+        generationConfig: { temperature: 0.1, mediaResolution: 'MEDIA_RESOLUTION_LOW', maxOutputTokens: 65536 },
+      }),
+    }).catch((e) => ({ ok: false, status: 0, json: async () => ({ error: { message: e instanceof Error ? e.message : String(e) } }) }) as unknown as Response)
+    const j = await r.json().catch(() => null) as any
+    if (!r.ok) {
+      const motivo = `${r.status || 'sin respuesta'}: ${j?.error?.message ?? 'falló'}`.slice(0, 200)
+      // Sin cupo o clave mala: descansa unas horas (mientras, prueba el siguiente). Un video privado o raro: solo ese.
+      if ([401, 403, 429].includes(r.status) || /quota|exhausted|rate/i.test(motivo)) { fijarAjuste(db, 'youtube_gemini_hasta', String(Date.now() + 3 * 3_600_000)); fijarAjuste(db, 'youtube_gemini_motivo', motivo) }
+      if (parrafos.length) break // lo que ya llegó sirve
+      return { motivo }
+    }
+    const c = j?.candidates?.[0]
+    const texto = (c?.content?.parts ?? []).map((p: any) => p?.text ?? '').join('')
+    const x = leerRenglonesGemini(texto)
+    if (!tramo) cab = { titulo: x.titulo, canal: x.canal, idioma: x.idioma }
+    // Al seguir desde un minuto, Gemini a veces repite el último párrafo: no se duplica.
+    for (const p of x.parrafos) if (p !== parrafos.at(-1)) parrafos.push(p)
+    pantalla.push(...x.pantalla)
+    const cortado = c?.finishReason === 'MAX_TOKENS'
+    if (!cortado || !x.ultimo || x.ultimo === desde) break
+    desde = x.ultimo
+  }
+  if (!parrafos.length) return { motivo: 'Gemini no devolvió transcripción (¿video sin habla, o que no puede ver?)' }
   return {
-    titulo: d?.titulo ? String(d.titulo).slice(0, 300) : null, canal: d?.canal ? String(d.canal).slice(0, 200) : null, canalId: null, fecha: null, descripcion: '',
-    transcripcion: `${parrafos.join('\n\n')}${pantalla.length ? `\n\n— Lo que se ve en pantalla —\n${pantalla.join('\n')}` : ''}`,
-    idioma: d?.idioma ? String(d.idioma).slice(0, 10) : null, automatica: true, rastro: ['gemini'],
-  } as VideoLeido
+    video: {
+      titulo: cab.titulo?.slice(0, 300) ?? null, canal: cab.canal?.slice(0, 200) ?? null, canalId: null, fecha: null, descripcion: '',
+      transcripcion: `${parrafos.join('\n\n')}${pantalla.length ? `\n\n— Lo que se ve en pantalla —\n${pantalla.join('\n')}` : ''}`,
+      idioma: cab.idioma, automatica: true, rastro: ['gemini'],
+    } as VideoLeido,
+  }
 }
 
 // ─── el servicio de transcripciones (Supadata) ──────────────────────────
@@ -324,7 +380,14 @@ export async function trabajarYoutube(db: Db): Promise<void> {
         }
         const directo = await leerVideo(item.url, pedirWeb).catch(() => null)
         if (directo?.transcripcion) { await completarVideo(db, item.id, directo); continue }
-        const porGemini = await videoPorGemini(db, item.id).catch(() => null)
+        // Privado o borrado: ni Gemini ni la compu lo pueden leer; no queda esperando (Fragua #239).
+        if (directo?.motivo && /privad|private|no (est[aá] )?disponible|unavailable|eliminad|removed/i.test(directo.motivo)) {
+          db.prepare(`UPDATE youtube_cola SET estado = 'fallo', motivo = ? WHERE id = ?`).run(`${directo.motivo}: nadie lo puede leer`, item.id)
+          sinTexto(db, item, directo.motivo)
+          continue
+        }
+        const g = await videoPorGemini(db, item.id).catch((e) => ({ motivo: e instanceof Error ? e.message : String(e) }))
+        const porGemini = 'video' in g ? g.video : null
         // Lo que la nube sí pudo leer (título, canal, fecha, descripción) completa lo que trae Gemini.
         if (porGemini) {
           const r = await completarVideo(db, item.id, { ...porGemini, titulo: directo?.titulo || porGemini.titulo, canal: directo?.canal || porGemini.canal, canalId: directo?.canalId ?? null, fecha: directo?.fecha ?? null, descripcion: directo?.descripcion ?? '' })
@@ -333,7 +396,13 @@ export async function trabajarYoutube(db: Db): Promise<void> {
         }
         const porServicio = await videoPorServicio(db, item.id).catch(() => null)
         if (porServicio) { const r = await completarVideo(db, item.id, porServicio); if (r.listo && porServicio.transcripcion) void retomarPedido(db, item, r.piezaId).catch(() => {}); continue }
-        db.prepare(`UPDATE youtube_cola SET estado = 'compu', motivo = ? WHERE id = ?`).run(directo?.motivo ? `desde la nube: ${directo.motivo}` : 'esperando a tu compu', item.id)
+        // Ni directo, ni Gemini, ni el servicio: queda para la compu, con todos los motivos (antes solo se veía el de YouTube).
+        const motivoGemini = 'motivo' in g ? g.motivo : null
+        const motivo = [directo?.motivo ? `desde la nube: ${directo.motivo}` : 'la nube no pudo leerlo', motivoGemini ? `Gemini: ${motivoGemini}` : '', servicioDisponible(db) ? '' : 'el servicio de transcripciones no está configurado'].filter(Boolean).join(' · ')
+        db.prepare(`UPDATE youtube_cola SET estado = 'compu', motivo = ? WHERE id = ?`).run(motivo.slice(0, 300), item.id)
+        if (motivoGemini) void import('./fallos.ts').then((f) => f.registrarFallo(db, { origen: 'youtube:gemini', mensaje: motivoGemini, donde: item.id })).catch(() => {})
+        // Al tercer intento (la cola reintenta sola cada 15 minutos), queda para la compu de verdad: la pieza lo dice y avisa.
+        if (item.intentos + 1 >= INTENTOS_NUBE) sinTexto(db, item, motivo, true)
       } catch (e) {
         db.prepare(`UPDATE youtube_cola SET estado = ?, motivo = ? WHERE id = ?`).run(item.intentos + 1 >= 3 ? 'fallo' : 'pendiente', (e instanceof Error ? e.message : String(e)).slice(0, 300), item.id)
       } finally {
@@ -412,10 +481,29 @@ async function retomarPedido(db: Db, item: ItemCola, piezaId: number, ahora = Da
   await retomar(db, `(Aviso del sistema, no lo escribió él: ya llegó la transcripción del video «${titulo}» [#${piezaId}]. Si en esta charla te había pedido algo sobre ese video, hacelo ahora con la transcripción completa (leela con leer_pieza) y respetá cómo lo pidió: si quería ver el reporte antes de que toques el corpus, solo proponé. Si no te había pedido nada, contale en dos o tres líneas de qué va.)`)
 }
 
-/** Lo que espera a la compu vuelve a probar con el servicio (por si se configuró o volvió el cupo). */
+/**
+ * Lo que espera a la compu vuelve a probar con el servicio o Gemini (por si se configuró o volvió el cupo), hasta
+ * INTENTOS_NUBE veces: antes reintentaba cada 15 minutos para siempre, gastando cupo en los mismos videos (Fragua #239).
+ * Pedirlo de nuevo (o «reintentar» en la pantalla) vuelve a empezar la cuenta.
+ */
+export const INTENTOS_NUBE = 3
 export function reintentarConServicio(db: Db) {
   if (!servicioDisponible(db) && !geminiDisponible(db)) return 0
-  return db.prepare(`UPDATE youtube_cola SET estado = 'pendiente' WHERE estado = 'compu'`).run().changes
+  return db.prepare(`UPDATE youtube_cola SET estado = 'pendiente' WHERE estado = 'compu' AND intentos < ?`).run(INTENTOS_NUBE).changes
+}
+
+/**
+ * La pieza no queda «en camino» con texto vacío (Fragua #239): dice por qué no tiene transcripción y qué hacer. Si quedó
+ * definitivamente para la compu, avisa una vez por los canales.
+ */
+function sinTexto(db: Db, item: ItemCola, motivo: string, avisar = false) {
+  if (!item.pieza_id) return
+  const p = db.prepare('SELECT titulo, contenido FROM corpus WHERE id = ?').get(item.pieza_id) as { titulo: string; contenido: string } | undefined
+  if (!p) return
+  const nota = `_(Sin transcripción todavía: ${motivo}.${avisar ? ' La puede leer tu compu: `npm run mastro -- youtube`.' : ''})_`
+  const contenido = /_\((La transcripción está en camino|Sin transcripción todavía)[^\n]*\)_/.test(p.contenido) ? p.contenido.replace(/_\((La transcripción está en camino|Sin transcripción todavía)[^\n]*\)_/, nota) : `${p.contenido}\n\n${nota}`
+  db.prepare('UPDATE corpus SET contenido = ? WHERE id = ?').run(contenido, item.pieza_id)
+  if (avisar) void import('./chat/index.ts').then((c) => c.mensajeDeMastropiero(db, c.conversacionHoy(db).id, `📺 No pude leer «${p.titulo}» en la nube (${motivo}). Quedó esperando a tu compu: \`npm run mastro -- youtube\`.`, { canales: true })).catch(() => {})
 }
 
 // ─── la compu ───────────────────────────────────────────────────────────

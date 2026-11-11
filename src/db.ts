@@ -2075,6 +2075,8 @@ CREATE INDEX IF NOT EXISTS quantomos_etapa ON quantomos(etapa);
 const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   // Los créditos de NaN (nov 2026): cuánto entró cacheado y cuánto costó cada llamada.
   // Los fallos estructurados (Fragua #191): código, huella, dónde, entrada/salida, causa, acción y banderas.
+  // Qué mensajes abarca cada turno (Fragua #238): con turnos encadenados las ventanas de tiempo se pisan.
+  chat_tiempos: [['desde_id', 'INTEGER'], ['hasta_id', 'INTEGER']],
   errores: [['codigo', 'TEXT'], ['huella', 'TEXT'], ['donde', 'TEXT'], ['entrada', 'TEXT'], ['salida', 'TEXT'], ['causa', 'TEXT'], ['accion', 'TEXT'], ['reintentable', 'INTEGER'], ['recuperado', 'INTEGER'], ['ajeno', 'INTEGER']],
   // Los dispositivos como lista (plan v38, fase 6): su tipo y su estado (rescate → activo).
   dispositivos: [['tipo', "TEXT NOT NULL DEFAULT 'telefono'"], ['estado', "TEXT NOT NULL DEFAULT 'activo'"], ['rescate_fin', 'INTEGER']],

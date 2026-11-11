@@ -88,10 +88,23 @@ export function alertaDeVencidos(db: Db, charla: string, ahora = Date.now()): Al
   return [{ clave: `vencidos:${hoy}`, texto: `Tenés ${items.length} cosas vencidas o por vencer que no venimos hablando:\n\n${lineas.join('\n\n')}\n\nDecime con cuáles seguimos, cuáles corremos de fecha y cuáles soltamos (sirve «soltá todo lo de X»).`, marcas }]
 }
 
-/** ¿Está charlando ahora? (Lo último que escribió, hace menos de 20 minutos.) Los avisos esperan a que termine. */
-function charlando(db: Db, ahora: number): boolean {
+/**
+ * ¿Está charlando ahora? Lo último que escribió es de hace menos de 20 minutos, o hay un pedido suyo esperando respuesta
+ * (sin contestar, o el turno se cortó con un error) de las últimas tres horas. Los avisos esperan a que termine: un
+ * aviso de primarias o de vencidas después de un pedido que no se contestó parecía la respuesta a otro tema (Fragua #237).
+ */
+export function charlando(db: Db, ahora: number): boolean {
   const u = db.prepare(`SELECT MAX(en) AS en FROM mensajes WHERE rol = 'operador'`).get() as { en: number | null }
-  return !!u.en && ahora - u.en < 20 * 60_000
+  if (u.en && ahora - u.en < 20 * 60_000) return true
+  return pedidoSinContestar(db, ahora, 3 * 3_600_000)
+}
+
+/** Un pedido suyo de hace menos de `ventana` que todavía no tuvo una respuesta de verdad (no un aviso de rutina, no un error). */
+export function pedidoSinContestar(db: Db, ahora: number, ventana: number): boolean {
+  const u = db.prepare(`SELECT MAX(en) AS en FROM mensajes WHERE rol = 'operador'`).get() as { en: number | null }
+  if (!u.en || ahora - u.en > ventana) return false
+  const respondida = db.prepare(`SELECT 1 FROM mensajes m WHERE m.rol = 'asistente' AND m.en >= ? AND TRIM(COALESCE(m.texto, '')) != '' AND COALESCE(m.modelo, '') != 'rutina' LIMIT 1`).get(u.en)
+  return !respondida
 }
 
 /** ¿Está en una reunión? Un evento del calendario (no de día entero) en curso. */
@@ -154,7 +167,8 @@ export async function pensar(db: Db, ahora = Date.now(), o: { conModelo?: boolea
   }
   const cada = Number(ajuste(db, 'pensar_cada_horas') ?? 3)
   const ultima = Number(ajuste(db, 'pensar_ultima') ?? 0)
-  if (o.conModelo !== false && cada > 0 && ahora - ultima >= cada * 3_600_000) {
+  // La reflexión tampoco interrumpe una charla ni un pedido sin contestar.
+  if (o.conModelo !== false && cada > 0 && ahora - ultima >= cada * 3_600_000 && !charlando(db, ahora)) {
     fijarAjuste(db, 'pensar_ultima', String(ahora))
     try {
       const r = await reflexionar(db, ahora)

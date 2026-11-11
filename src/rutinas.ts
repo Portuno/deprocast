@@ -3,6 +3,7 @@
  * si al arrancar ya pasó la hora de una rutina de hoy, se pone al día. Una rutina corre una vez por día.
  * Todo lo que gastan cuenta para el tope diario de lo que corre solo (ajuste tokens_dia_max).
  */
+import { pedidoSinContestar } from './alertas.ts'
 import fs from 'node:fs'
 import path from 'node:path'
 import { ajuste, fechaLocal, type Db } from './db.ts'
@@ -348,6 +349,9 @@ export const ACCIONES: Acciones = {
 /** Corre lo que toca. Cada rutina se marca antes de correr: si falla no se repite en loop, y el error queda dicho en «Hoy». */
 export async function correrRutinas(db: Db, ahora = Date.now(), acciones: Acciones = ACCIONES): Promise<{ id: string; ok: boolean; mensaje: string | null }[]> {
   const hoy = fechaLocal(ahora)
+  // Con un pedido suyo sin contestar (de los últimos 45 minutos), las rutinas esperan a la respuesta: un parte de la
+  // mañana o un aviso en el medio parecía la respuesta a otro tema (Fragua #237). Salen en la próxima vuelta.
+  if (pedidoSinContestar(db, ahora, 45 * 60_000)) return []
   const salida: { id: string; ok: boolean; mensaje: string | null }[] = []
   for (const r of pendientes(db, ahora)) {
     await new Promise((ok) => setImmediate(ok)) // entre rutina y rutina, el servidor atiende lo que esperaba (Fragua #151)

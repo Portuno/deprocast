@@ -10,6 +10,7 @@ import { yoParaPrompt } from '../yo.ts'
 import { anotarUso } from '../uso.ts'
 import { afirmaAccion, correccionesParaPrompt, pareceCorreccion, registrarCorreccion } from './correcciones.ts'
 import { armarHistorial } from './historial.ts'
+import { marcarErrorDesdeElChat } from '../registro-turnos.ts'
 import { comoTexto } from './adjuntos.ts'
 import { ajuste, fechaLocal, type Db } from '../db.ts'
 import { anotar } from '../decisiones.ts'
@@ -334,6 +335,7 @@ Cómo trabajás
 - Separá siempre el hecho (con su fuente: una pieza [#id], una tarea del plan, un evento de su agenda, algo que te dijo) de tu deducción («mi lectura es…», «supongo que…»). Si no tenés fuente, decí que no lo tenés anotado; no lo rellenes.
 - Las fechas relativas («el viernes», «mañana», «la semana que viene») de una tarea o de un mensaje se resuelven contra el día en que se escribieron, no contra hoy: si una tarea que vencía el 4/10 dice «el viernes», es el viernes 9/10. Usá el calendario de abajo; si no sabés cuándo es algo, preguntá.
 - Lo dictado llega partido por la transcripción (marcado «🎙 dictado», sin puntuación: «comida baño permitido gente maja pan casero»). Leé juntos los fragmentos de los últimos minutos como una sola idea, con lo que venía diciendo. Una lista suelta de rasgos de un sitio es una ficha de ese lugar, no un pedido; si en esos minutos mandó un link de Maps (📍), ese es el lugar. No inventes lo que no está en los fragmentos: si falta un dato, preguntalo.
+- Un pedido largo (varias tandas, un documento entero, muchas fichas) se hace por partes: una tanda por vuelta, guardando cada una con su herramienta antes de la próxima, y decís cuáles van y cuáles faltan. Si se corta, retomalo exactamente donde quedó. Tu respuesta contesta su último pedido, no abre otro tema.
 - Cada cosa tiene su día. Lo marcado como de un día anterior (en el historial, en una herramienta) es de ese día: nunca lo presentes como de hoy. Cuando nombres algo con fecha (un evento, una tarea, un mensaje, una pieza), decí su fecha absoluta (9/11, 15:00), no «ayer» ni «el lunes» solos. Si un dato no trae fecha de origen, decí que no consta en vez de suponer que es de hoy.
 - Nunca digas que hiciste algo (anoté, corregí, arreglé, guardé, cambié) si en este turno no usaste una herramienta que lo haga. Lo que se arregla con código no lo arreglás vos: lo registrás con proponer_mejora y decís que es una propuesta.
 - Antes de decir que Deprocast no puede algo o que algo no existe, consultá que_puede_deprocast.
@@ -526,6 +528,12 @@ const opcionesEnCola = new Map<number, OpcionesEnvio>()
 /** canal: cómo escribir según por dónde llega (WhatsApp: corto, sin tablas). No cambia el tipo de turno (extra sí). */
 type OpcionesEnvio = { hud?: string | null; via?: 'voz' | 'copiloto' | 'encargo' | null; extra?: string | null; canal?: string | null }
 
+/** Un fallo por tiempo o por largo (no un error de código): vale reintentarlo por partes. */
+export const esCortePorLargo = (t: string) => /tiempo agotado|timeout|timed out|se cort[oó] por largo|Ning[uú]n modelo pudo contestar/i.test(t)
+export const NOTA_POR_PARTES = `(Aviso del sistema: el intento anterior de este pedido se cortó por largo —los modelos no llegaron a tiempo—. Hacelo por partes: una tanda por vuelta, guardando cada una con su herramienta (el documento, la planilla) antes de seguir con la próxima; al final decí cuáles quedaron hechas y cuáles faltan. Contestá ESTE pedido, no otro tema.)`
+let esperaReintento = () => new Promise<void>((ok) => setTimeout(ok, 15_000))
+export function _probarReintento(f: typeof esperaReintento) { esperaReintento = f }
+
 /**
  * Manda un mensaje. Nunca se bloquea: lo suyo se guarda en el acto, y si Mastropiero ya está contestando, entra a ese
  * turno (lo lee en la próxima vuelta y ajusta lo que está haciendo) o, si ya estaba escribiendo la respuesta, al
@@ -542,7 +550,9 @@ export async function enviar(db: Db, cid: number, texto: string, o: OpcionesEnvi
   // turno largo en curso, y no entra a ese turno. Lo que no se sabe resolver sin modelo sigue el camino de siempre.
   if (c.con === MASTROPIERO && o.via !== 'encargo') {
     let rapida: string | null = null
-    try { rapida = resolverRapido(db, cid, texto) } catch { /* si falla, que lo vea el modelo */ }
+    // «error» marca la respuesta anterior como desvío, con su causa (Fragua #238).
+    try { rapida = marcarErrorDesdeElChat(db, cid, texto) } catch { /* que lo vea el modelo */ }
+    if (!rapida) try { rapida = resolverRapido(db, cid, texto) } catch { /* si falla, que lo vea el modelo */ }
     if (rapida) {
       guardar(db, cid, { rol: 'asistente', texto: rapida, via: 'rapida' as any })
       return { rapida }
@@ -555,10 +565,22 @@ export async function enviar(db: Db, cid: number, texto: string, o: OpcionesEnvi
   }
   pensando.add(cid)
   try {
-    let pedido: { texto: string; o: OpcionesEnvio; hasta: number } | null = { texto, o, hasta: id }
+    let pedido: { texto: string; o: OpcionesEnvio; hasta: number; reintento?: boolean } | null = { texto, o, hasta: id }
     while (pedido) {
       const antes = db.prepare('SELECT COALESCE(MAX(id), 0) AS n FROM mensajes WHERE conversacion_id = ?').get(cid) as { n: number }
       await turno(db, cid, c, pedido.texto, pedido.o, pedido.hasta)
+      // Un turno que se cortó por largo (los modelos no llegaron a tiempo) no queda sin respuesta: se reintenta una vez,
+      // por partes (Fragua #237: un pedido de 12 tandas murió por tiempo y lo que se vio después fueron avisos de fondo).
+      if (c.con === MASTROPIERO && !pedido.reintento) {
+        const fallo = db.prepare(`SELECT texto FROM mensajes WHERE conversacion_id = ? AND id > ? AND rol = 'error' ORDER BY id DESC LIMIT 1`).get(cid, antes.n) as { texto: string } | undefined
+        const contesto = db.prepare(`SELECT 1 FROM mensajes WHERE conversacion_id = ? AND id > ? AND rol = 'asistente' AND TRIM(COALESCE(texto, '')) != ''`).get(cid, antes.n)
+        if (fallo && !contesto && esCortePorLargo(fallo.texto)) {
+          registrarEvento(db, cid, '↻ Se cortó por largo: lo reintento por partes.')
+          await esperaReintento()
+          pedido = { ...pedido, reintento: true, o: { ...pedido.o, extra: [pedido.o.extra, NOTA_POR_PARTES].filter(Boolean).join('\n\n') } }
+          continue
+        }
+      }
       // Lo que le sugirió en esta respuesta queda anotado: si después dice «ya la hice», se sabe qué.
       if (c.con === MASTROPIERO) {
         try {
@@ -729,7 +751,12 @@ ${vozPara('ceremonia')}` : ''}`, hs, previos, clase: 'mastropiero', agenteId: o.
     enVivo.delete(cid)
     // Cuánto tardó y en qué (para ver dónde se va el tiempo): solo los turnos con Mastropiero.
     if (c.con === MASTROPIERO) {
-      try { db.prepare('INSERT INTO chat_tiempos (conversacion_id, tipo, total_ms, etapas, vueltas, en) VALUES (?, ?, ?, ?, ?, ?)').run(cid, c.modo === 'diario' ? 'diario' : tipo, Date.now() - inicio, JSON.stringify(etapas), vueltas, inicio) } catch { /* medir no frena */ }
+      try {
+        const ultimo = (db.prepare('SELECT COALESCE(MAX(id), 0) AS n FROM mensajes WHERE conversacion_id = ?').get(cid) as { n: number }).n
+        // Desde donde terminó el turno anterior (un reintento comparte el mensaje de origen con el que se cortó).
+        const previo = (db.prepare('SELECT MAX(hasta_id) AS n FROM chat_tiempos WHERE conversacion_id = ?').get(cid) as { n: number | null }).n ?? 0
+        db.prepare('INSERT INTO chat_tiempos (conversacion_id, tipo, total_ms, etapas, vueltas, en, desde_id, hasta_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(cid, c.modo === 'diario' ? 'diario' : tipo, Date.now() - inicio, JSON.stringify(etapas), vueltas, inicio, Math.max(hasta, previo), ultimo)
+      } catch { /* medir no frena */ }
     }
   }
   // Si habló por voz, lo que contestó Mastropiero en ese turno también queda marcado (se escuchó).

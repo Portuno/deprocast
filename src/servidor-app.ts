@@ -722,6 +722,7 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/ubicacion$/, async (b) => (await import('./ubicacion.ts')).recibirUbicacion(db, { lat: Number(b.lat), lon: Number(b.lon), precision: b.precision == null ? null : Number(b.precision), fuente: 'compu' })],
   ['POST', /^\/api\/ubicacion\/prender$/, async (b) => (await import('./ubicacion.ts')).prenderUbicacion(db, !!b.prendida)],
   // Lo lento y lo que se rompe (plan v38, fase 1): para decidir con datos.
+  ['GET', /^\/api\/revision\/turnos$/, async (_, __, q) => (await import('./registro-turnos.ts')).registroTurnos(db, Math.min(90, Number(q.get('dias')) || 14))],
   ['GET', /^\/api\/errores$/, async (_, __, q) => (await import('./fallos.ts')).erroresRecientes(db, Math.min(24 * 30, Number(q.get('horas')) || 24))],
   ['GET', /^\/api\/errores\/md$/, async (_, __, q) => ({ markdown: (await import('./fallos.ts')).erroresEnMarkdown(db, Math.min(24 * 30, Number(q.get('horas')) || 24)) })],
   ['POST', /^\/api\/errores\/([\w-]+)\/fragua$/, async (_, [h]) => (await import('./fallos.ts')).errorALaFragua(db, h)],
@@ -1280,7 +1281,8 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/youtube\/leido$/, async (b) => (await import('./youtube.ts')).recibirDeLaCompu(db, b)],
   ['POST', /^\/api\/youtube\/reintentar$/, async () => {
     const y = await import('./youtube.ts')
-    const n = Number(db.prepare(`UPDATE youtube_cola SET estado = 'pendiente', intentos = 0, motivo = NULL WHERE estado IN ('fallo', 'sin_subtitulos')`).run().changes) + Number(y.reintentarConServicio(db))
+    // A mano, todo vuelve a empezar (también lo que esperaba a la compu después de sus tres intentos en la nube).
+    const n = Number(db.prepare(`UPDATE youtube_cola SET estado = 'pendiente', intentos = 0, motivo = NULL WHERE estado IN ('fallo', 'sin_subtitulos', 'compu')`).run().changes)
     void y.trabajarYoutube(db).catch(() => {})
     return { reintentados: n }
   }],

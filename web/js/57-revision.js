@@ -6,8 +6,29 @@
 async function montarRevision() {
   $('#principal').innerHTML = `
     <div class="titulo"><h1>Revisión</h1><p>Lo que te sirve y lo que no, medido con tu feedback (👍/👎, estrellas, «no entendí», lo que aceptás y descartás). Los domingos se vuelve lecciones que entran a los prompts.</p></div>
-    <div id="rev-cuerpo"><p class="tenue">Juntando…</p></div>`
+    <div id="rev-cuerpo"><p class="tenue">Juntando…</p></div>
+    <div id="rev-turnos"></div>`
   pintarRevision()
+  pintarTurnos()
+}
+
+// Los turnos del chat como métrica (Fragua #238): por día, por tipo, las causas que se repiten y cada turno con su resultado.
+const RESULTADO = { acierto: ['👍 acierto', 'ok'], desvio: ['👎 desvío', 'mal'], error: ['⚠ error', 'mal'] }
+async function pintarTurnos() {
+  const cont = $('#rev-turnos')
+  if (!cont) return
+  let r
+  try { r = await api('/revision/turnos?dias=14') } catch (e) { return error(e) }
+  const seg = (ms) => (ms == null ? '—' : ms < 10_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms / 1000)} s`)
+  const hora = (ms) => new Date(ms).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  cont.innerHTML = `<section class="seccion"><div class="aca-sec-cab"><h3>Turnos del chat · 14 días</h3><span class="tenue chico">${r.total} turnos${r.tasa != null ? ` · acierta ${pct(r.tasa)} de los que marcaste` : ''}. Escribí «error» (o «error: no era eso») en el chat y la respuesta anterior queda marcada con su causa.</span></div>
+    ${r.porDia.length ? `<table class="rev-tabla"><thead><tr><th>Día</th><th>Turnos</th><th>👍</th><th>👎</th><th>⚠</th><th>Acierta</th><th>Tarda (mediana)</th></tr></thead><tbody>
+      ${r.porDia.map((d) => `<tr><td>${esc(d.fecha)}</td><td>${d.turnos}</td><td>${d.aciertos}</td><td>${d.desvios}</td><td>${d.errores}</td><td>${pct(d.tasa)}</td><td>${seg(d.msMediana)}</td></tr>`).join('')}</tbody></table>` : '<p class="tenue">Todavía no hay turnos medidos.</p>'}
+    ${r.porTipo.length ? `<p class="chico tenue">Por tipo: ${r.porTipo.map((t) => `${esc(t.tipo)} ${t.n} (${seg(t.msMediana)})`).join(' · ')}</p>` : ''}
+    ${r.causas.length ? `<h4>Lo que más se repite</h4><ul class="rev-notas">${r.causas.map((c) => `<li>${c.tipo === 'error' ? '⚠' : '👎'} ×${c.veces} · ${esc(c.causa)}</li>`).join('')}</ul><p class="chico tenue">Los errores, con su huella y el botón a La Fragua, están en La Fragua → Errores.</p>` : ''}
+    ${r.ultimos.length ? `<details><summary class="tenue">Cada turno</summary><table class="rev-tabla"><thead><tr><th>Cuándo</th><th>Tipo</th><th>Tardó</th><th>Herramientas</th><th>Resultado</th></tr></thead><tbody>
+      ${r.ultimos.map((t) => `<tr><td>${hora(t.en)}</td><td>${esc(t.tipo)}</td><td>${seg(t.ms)}</td><td class="chico">${t.herramientas.map(esc).join(', ') || '—'}</td><td>${t.resultado ? `<span class="estado-chip ${RESULTADO[t.resultado][1]}">${RESULTADO[t.resultado][0]}</span>` : '<span class="tenue">—</span>'}${t.causa ? `<br><small class="tenue">${esc(t.causa)}</small>` : ''}</td></tr>`).join('')}</tbody></table></details>` : ''}
+  </section>`
 }
 
 const pct = (x) => (x == null ? '—' : `${Math.round(x * 100)} %`)

@@ -24,6 +24,7 @@ test('alertas: vencimientos de lo que no viene hablando y lo que otros le deben;
   // Del reglamento viene hablando: esa no se alerta.
   const c = crearConversacion(db, 'mastropiero', 'chat', T)
   db.prepare(`INSERT INTO mensajes (conversacion_id, rol, texto, en) VALUES (?, 'operador', 'hoy cierro el reglamento del juego', ?)`).run(c.id, T - 3_600_000)
+  db.prepare(`INSERT INTO mensajes (conversacion_id, rol, texto, en) VALUES (?, 'asistente', 'Dale.', ?)`).run(c.id, T - 3_590_000) // contestado: no es un pedido esperando
 
   const as = alertasPendientes(db, T)
   assert.equal(as.length, 2)
@@ -77,6 +78,7 @@ test('vencidos: un solo bloque por proyecto; sin los de un proyecto en pausa; tr
   // Charlando (escribió hace 5 minutos): espera.
   const c = crearConversacion(db, 'mastropiero', 'chat', T)
   db.prepare(`INSERT INTO mensajes (conversacion_id, rol, texto, en) VALUES (?, 'operador', 'otra cosa', ?)`).run(c.id, T - 5 * 60_000)
+  db.prepare(`INSERT INTO mensajes (conversacion_id, rol, texto, en) VALUES (?, 'asistente', 'Anotado.', ?)`).run(c.id, T - 4 * 60_000)
   assert.deepEqual(await pensar(db, T), [])
   // Un rato después, el bloque, una sola vez ese día.
   assert.equal((await pensar(db, T + 30 * 60_000)).length, 1)
@@ -85,4 +87,19 @@ test('vencidos: un solo bloque por proyecto; sin los de un proyecto en pausa; tr
   assert.equal((await pensar(db, T + 86_400_000)).length, 1)
   assert.equal((await pensar(db, T + 2 * 86_400_000)).length, 1)
   assert.deepEqual(await pensar(db, T + 3 * 86_400_000), [])
+})
+
+test('#237: un pedido sin contestar (o que se cortó con un error) hace esperar a los avisos y a las rutinas; contestado, salen', async () => {
+  const { charlando, pedidoSinContestar } = await import('../src/alertas.ts')
+  const db = abrir(':memory:')
+  const c = crearConversacion(db, 'mastropiero', 'chat', T)
+  const msj = (rol: string, texto: string, en: number, modelo: string | null = null) => db.prepare(`INSERT INTO mensajes (conversacion_id, rol, texto, modelo, en) VALUES (?, ?, ?, ?, ?)`).run(c.id, rol, texto, modelo, en)
+  msj('operador', 'Armame los 72 en tandas de 6', T - 30 * 60_000)
+  msj('error', 'Ningún modelo pudo contestar. deepseek: 504 tiempo agotado', T - 15 * 60_000)
+  msj('asistente', 'Tenés 10 cosas vencidas…', T - 10 * 60_000, 'rutina')
+  assert.equal(charlando(db, T), true, 'el pedido sigue sin respuesta: un aviso de rutina no cuenta')
+  assert.equal(pedidoSinContestar(db, T, 45 * 60_000), true)
+  assert.equal(pedidoSinContestar(db, T + 20 * 60_000, 45 * 60_000), false, 'las rutinas esperan como mucho 45 minutos')
+  msj('asistente', 'Listo, las 12 tandas en el documento.', T - 5 * 60_000)
+  assert.equal(pedidoSinContestar(db, T, 45 * 60_000), false)
 })
