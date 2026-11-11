@@ -59,6 +59,12 @@ export const NIVEL_DE_CERCANIA: Record<number, number> = { 1: 2, 2: 5, 3: 7, 4: 
 const corpusPorEntidad = new WeakMap<Db, { clave: string; m: Map<number, { menciones: number; propia: string | null }> }>()
 /** La huella de corpus_entidades (no tiene rowid): la última pieza, cuántas filas y la suma de entidades (cambia con una fusión); y el día. */
 function huellaCorpusEntidades(db: Db): string {
+  // El contador que suben los triggers de corpus_entidades (recorrer la tabla en cada llamada eran 20 a 70 ms); sin él
+  // (una base que todavía no lo tiene), la huella de siempre.
+  const c = db.prepare(`SELECT v FROM contadores WHERE clave = 'corpus_entidades'`).get() as { v: number } | undefined
+  return c ? `v${c.v}|${fechaLocal()}` : huellaSinCache(db)
+}
+function huellaSinCache(db: Db): string {
   const f = db.prepare('SELECT MAX(pieza_id) AS m, COUNT(*) AS n, SUM(entidad_id) AS s FROM corpus_entidades').get() as { m: number | null; n: number; s: number | null }
   return `${f.m ?? 0}|${f.n}|${f.s ?? 0}|${fechaLocal()}`
 }
@@ -82,6 +88,8 @@ function delCorpusSinCache(db: Db): Map<number, { menciones: number; propia: str
 }
 
 const palabras = (t: string) => t.toLowerCase().split(/[^\p{L}\p{N}]+/u)
+/** Un solo comparador (localeCompare sin uno armado cuesta: ordenar 1300 personas eran 100 ms, npm run medir). */
+const porNombre = new Intl.Collator('es').compare
 
 /**
  * Lo que él escribió en el chat (últimos 180 días), como índice de palabras: cuántos mensajes la nombran y el último día.
@@ -110,7 +118,8 @@ function delChat(db: Db, ahora: number): Map<string, { veces: number; ultima: st
   }
   // Armarlo entero con meses de chat trababa el servidor más de medio segundo: si es poco, se arma en el momento; si es
   // mucho, de fondo y de a tandas, y mientras tanto se usa el de ayer (o ninguno): es una pista, no un dato.
-  const cuantos = (db.prepare(`SELECT COUNT(*) AS n FROM mensajes WHERE rol = 'operador' AND en > ?`).get(ahora - 180 * 86_400_000) as { n: number }).n
+  // Contar hasta 3001 alcanza para decidir (contarlos todos recorría el chat entero).
+  const cuantos = (db.prepare(`SELECT COUNT(*) AS n FROM (SELECT 1 FROM mensajes WHERE rol = 'operador' AND en > ? LIMIT 3001)`).get(ahora - 180 * 86_400_000) as { n: number }).n
   if (cuantos <= 3000) {
     const m = delChatSinCache(db, ahora)
     indiceChat.set(db, { dia, hasta: ultimo, m })
@@ -198,7 +207,7 @@ export function personas(db: Db, f: FiltroPersonas = {}, ahora = Date.now()): Pe
   if (f.clase) ps = ps.filter((p) => p.clase === f.clase)
   if (f.estado) ps = ps.filter((p) => p.estado === f.estado)
   if (f.proyecto) ps = ps.filter((p) => p.proyectos.some((x) => x.id === f.proyecto))
-  const porDefecto = (a: Persona, b: Persona) => Number(b.definida) - Number(a.definida) || (b.nivel ?? 0) - (a.nivel ?? 0) || (b.importancia ?? 0) - (a.importancia ?? 0) || b.menciones - a.menciones || a.nombre.localeCompare(b.nombre)
+  const porDefecto = (a: Persona, b: Persona) => Number(b.definida) - Number(a.definida) || (b.nivel ?? 0) - (a.nivel ?? 0) || (b.importancia ?? 0) - (a.importancia ?? 0) || b.menciones - a.menciones || porNombre(a.nombre, b.nombre)
   const orden: Record<string, (a: Persona, b: Persona) => number> = {
     nivel: (a, b) => (b.nivel ?? 0) - (a.nivel ?? 0) || porDefecto(a, b),
     importancia: (a, b) => (b.importancia ?? 0) - (a.importancia ?? 0) || porDefecto(a, b),

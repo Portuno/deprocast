@@ -6,7 +6,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { spawnSync } from 'node:child_process'
+import { execFile, spawnSync } from 'node:child_process'
 import { correr } from './proceso.ts'
 import { json, resolverRuta, type Db } from './db.ts'
 import { insertar } from './corpus.ts'
@@ -375,15 +375,25 @@ export async function crearPersonaje(db: Db, pedido: string, o: { entidadId?: nu
 // ─── video ──────────────────────────────────────────────────────────────
 
 /** ¿Hay ffmpeg? Se pregunta una vez cada diez minutos: antes lanzaba un proceso (≈200 ms, trabando el servidor) en cada pedido. */
+// Y la pregunta va de fondo (execFile): spawnSync trababa el servidor 200 a 350 ms aunque fuera una vez cada diez minutos.
+// Solo la primera vez, si todavía no hay respuesta, se pregunta en el momento.
 let ffmpeg: { hay: boolean; en: number } | null = null
+let preguntandoFfmpeg = false
+function preguntarFfmpeg() {
+  if (preguntandoFfmpeg) return
+  preguntandoFfmpeg = true
+  execFile('ffmpeg', ['-version'], { windowsHide: true }, (e) => { ffmpeg = { hay: !e, en: Date.now() }; preguntandoFfmpeg = false })
+}
 export function hayFfmpeg(): boolean {
   if (process.env.MASTRO_SIN_FFMPEG) return false
-  if (ffmpeg && Date.now() - ffmpeg.en < 10 * 60_000) return ffmpeg.hay
-  let hay = false
-  try { hay = spawnSync('ffmpeg', ['-version'], { encoding: 'utf8' }).status === 0 } catch { /* no está */ }
-  ffmpeg = { hay, en: Date.now() }
-  return hay
+  if (!ffmpeg) {
+    let hay = false
+    try { hay = spawnSync('ffmpeg', ['-version'], { encoding: 'utf8', windowsHide: true }).status === 0 } catch { /* no está */ }
+    ffmpeg = { hay, en: Date.now() }
+  } else if (Date.now() - ffmpeg.en > 10 * 60_000) preguntarFfmpeg()
+  return ffmpeg.hay
 }
+if (!process.env.MASTRO_SIN_FFMPEG) try { preguntarFfmpeg() } catch { /* sin ffmpeg */ }
 
 const SISTEMA_GUION = `Sos el guionista del Taller de Mastropiero. Escribís el guion de un video corto, en escenas.
 - Entre 3 y 8 escenas. Cada escena: «narracion» (lo que dice la voz, 1-3 oraciones, castellano rioplatense) e «imagen» (prompt en inglés para un generador de imágenes: composición clara, estilo coherente en todas las escenas, formato apaisado).

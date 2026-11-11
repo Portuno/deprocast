@@ -252,6 +252,7 @@ CREATE TABLE IF NOT EXISTS memoria (
   creada_en INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS memoria_estado ON memoria(estado, tipo);
+CREATE INDEX IF NOT EXISTS memoria_vigente_fecha ON memoria(estado, fecha DESC, id DESC);
 
 CREATE TABLE IF NOT EXISTS jornadas (
   fecha TEXT PRIMARY KEY,             -- YYYY-MM-DD
@@ -2313,6 +2314,16 @@ CREATE TRIGGER IF NOT EXISTS corpus_ent_au AFTER UPDATE OF entidades ON corpus B
 END;
 CREATE TRIGGER IF NOT EXISTS corpus_ent_ad AFTER DELETE ON corpus BEGIN
   DELETE FROM corpus_entidades WHERE pieza_id = old.id;
+END;
+-- Un contador que sube con cada cambio de corpus_entidades: quien cachea cuentas por entidad (Personas) sabe si cambió
+-- algo sin recorrer la tabla (eran 20 a 70 ms por pedido).
+CREATE TABLE IF NOT EXISTS contadores (clave TEXT PRIMARY KEY, v INTEGER NOT NULL);
+INSERT OR IGNORE INTO contadores (clave, v) VALUES ('corpus_entidades', 0);
+CREATE TRIGGER IF NOT EXISTS corpus_ent_cuenta_ai AFTER INSERT ON corpus_entidades BEGIN
+  UPDATE contadores SET v = v + 1 WHERE clave = 'corpus_entidades';
+END;
+CREATE TRIGGER IF NOT EXISTS corpus_ent_cuenta_ad AFTER DELETE ON corpus_entidades BEGIN
+  UPDATE contadores SET v = v + 1 WHERE clave = 'corpus_entidades';
 END;
 `
 

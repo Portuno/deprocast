@@ -21,6 +21,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import { execFileSync, spawn } from 'node:child_process'
+import { PerformanceObserver } from 'node:perf_hooks'
 
 const RAIZ = path.resolve(import.meta.dirname, '..')
 const BASE = path.join(RAIZ, 'data', 'medir.db')
@@ -128,7 +129,7 @@ async function versionDeBase(): Promise<string | null> {
   try { return (db.prepare(`SELECT valor FROM ajustes WHERE clave = 'medir_base_version'`).get() as { valor: string } | undefined)?.valor ?? null } catch { return null } finally { db.close() }
 }
 
-type Paso = { paso: string; ms: number; traba: number }
+type Paso = { paso: string; ms: number; traba: number; gc?: number }
 
 /** Lee un archivo entero (a la memoria del sistema), para que la medición no sea la del disco frío de esta compu. */
 function leerEntera(archivo: string) {
@@ -160,18 +161,37 @@ async function medirPasos(): Promise<Paso[]> {
   const { creditosPorUso } = await import('../src/nan.ts')
   const traba = process.env.MEDIR_TRABA?.trim().toLowerCase()
   const pasos: Paso[] = []
+  // El recolector de basura también frena, pero depende de cómo quedó la memoria (de lo que corrió antes), no del paso:
+  // se descuenta de cada traba y se informa aparte.
+  const gcs: { desde: number; hasta: number }[] = []
+  const obs = new PerformanceObserver((l) => { for (const e of l.getEntries()) gcs.push({ desde: e.startTime, hasta: e.startTime + e.duration }) })
+  obs.observe({ entryTypes: ['gc'] })
+  const enGc = (a: number, b: number) => gcs.reduce((s, g) => s + Math.max(0, Math.min(b, g.hasta) - Math.max(a, g.desde)), 0)
+  // Y una pausa del sistema (la compu ocupada con otros programas) no es una traba: en el hueco, el proceso casi no usó
+  // CPU. La traba que cuenta es la menor entre el hueco (sin el recolector) y la CPU que se usó en él.
   const medir = async (paso: string, f: () => unknown) => {
     let ultimo = performance.now()
+    let cpu = process.cpuUsage()
     let peor = 0
-    const vigia = setInterval(() => { const t = performance.now(); peor = Math.max(peor, t - ultimo - 10); ultimo = t }, 10)
+    let peorGc = 0
+    const vigia = setInterval(() => {
+      const t = performance.now()
+      const gap = t - ultimo - 10
+      const c = process.cpuUsage(cpu)
+      cpu = process.cpuUsage()
+      const usada = (c.user + c.system) / 1000
+      if (gap > 50) { const g = enGc(ultimo, t); peorGc = Math.max(peorGc, g); peor = Math.max(peor, Math.min(gap - g, usada)) } else peor = Math.max(peor, gap)
+      ultimo = t
+    }, 10)
     await new Promise((ok) => setTimeout(ok, 20))
     ultimo = performance.now()
+    cpu = process.cpuUsage()
     const t0 = performance.now()
     await f()
     if (traba && paso.toLowerCase().includes(traba)) { const fin = performance.now() + 1000; while (performance.now() < fin) { /* a propósito */ } }
     await new Promise((ok) => setTimeout(ok, 20)) // que el vigía vea lo último
     clearInterval(vigia)
-    pasos.push({ paso, ms: performance.now() - t0, traba: Math.max(0, peor) })
+    pasos.push({ paso, ms: performance.now() - t0, traba: Math.max(0, peor), gc: peorGc })
   }
   const recuerdos = (db.prepare(`SELECT COUNT(*) AS n FROM memoria WHERE estado = 'vigente'`).get() as { n: number }).n
   await medir(`memoria: deduplicar (${recuerdos} recuerdos)`, () => deduplicarMemoria(db, 0.75, 0.93, { forzar: true }))
@@ -247,12 +267,13 @@ async function main() {
   console.log('\nPasos de fondo (vigía cada 10 ms)')
   const pasos = await medirPasos()
   for (const p of pasos) {
-    console.log(`  ${p.paso.padEnd(48)} ${p.ms.toFixed(0).padStart(7)} ms   traba máx ${p.traba.toFixed(0).padStart(5)} ms${p.traba > TRABA_MS ? '  ✖' : ''}`)
+    console.log(`  ${p.paso.padEnd(48)} ${p.ms.toFixed(0).padStart(7)} ms   traba máx ${p.traba.toFixed(0).padStart(5)} ms${p.gc && p.gc > 20 ? ` (+${p.gc.toFixed(0)} de recolector)` : ''}${p.traba > TRABA_MS ? '  ✖' : ''}`)
     if (p.traba > TRABA_MS) fallas.push(`el paso «${p.paso}» trabó el event loop ${p.traba.toFixed(0)} ms seguidos (tope ${TRABA_MS})`)
   }
 
   // 2. El servidor (sobre la base, leída entera antes por lo mismo: copiar 1 GB la sacó de la memoria del sistema).
   leerEntera(BASE)
+  const arranque = Date.now()
   const srv = spawn(process.execPath, [...(process.env.MEDIR_GC ? ['--trace-gc'] : []), ...(process.env.MEDIR_PERFIL ? ['--cpu-prof', `--cpu-prof-dir=${process.env.MEDIR_PERFIL}`] : []), '--disable-warning=ExperimentalWarning', 'src/servidor.ts', '--db', BASE, '--puerto', String(PUERTO), '--sin-rutinas', '--sin-telegram'], { cwd: RAIZ, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, MASTRO_REPROCESO_LOCAL: '', NAN_API_KEY: '', GOOGLE_CUENTA_SERVICIO: '', GCAL_ICS_URLS: '', MASTRO_BLOQUEO_MS: String(TRABA_MS) } })
   let log = ''
   srv.stdout.on('data', (d) => (log += d))
@@ -319,10 +340,12 @@ async function main() {
     console.log(`\nPrimera carga: ${assets.length + 1} archivos, ${(total / 1024).toFixed(0)} KB · segunda: ${(segunda / 1024).toFixed(0)} KB`)
     console.log(`Event loop: p99 ${v.bucle?.p99} ms · bloqueo más largo ${v.bucle?.max} ms`)
     await new Promise((r) => setTimeout(r, 700))
-    const bloqueos = (((await leerJson('/version?todos')).bloqueos ?? []) as { en: string; ms: number; durante: string[] }[]).filter((b) => Date.parse(b.en) >= desde)
+    // Cuenta lo que el servidor trabajó en el hueco (su CPU), no lo que el sistema lo tuvo parado.
+    const bloqueos = (((await leerJson('/version?todos')).bloqueos ?? []) as { en: string; ms: number; cpu?: number; durante: string[] }[])
+      .filter((b) => Date.parse(b.en) >= desde && Math.min(b.ms, b.cpu ?? b.ms) > TRABA_MS)
     const frios = enFrio.filter((b) => Date.parse(b.en) < desde)
     if (frios.length) console.log(`En frío (no cuenta): ${frios.map((b) => `${b.ms} ms durante ${b.durante.join(', ') || '?'}`).join(' · ')}`)
-    for (const b of bloqueos) fallas.push(`el servidor se trabó ${b.ms} ms durante ${b.durante.join(', ') || 'algo sin nombre'}`)
+    for (const b of bloqueos) fallas.push(`el servidor se trabó ${Math.min(b.ms, b.cpu ?? b.ms)} ms (de CPU) a los ${((Date.parse(b.en) - arranque) / 1000).toFixed(0)} s de arrancar, durante ${b.durante.join(', ') || 'algo sin nombre'}`)
   } finally {
     srv.kill()
     if (process.env.MEDIR_GC) console.log(log.split('\n').filter((l) => /Mark-Compact|Scavenge/.test(l) && Number(/([\d.]+) \/ [\d.]+ ms/.exec(l)?.[1] ?? 0) > 50).join('\n'))

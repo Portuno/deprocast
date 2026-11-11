@@ -19,7 +19,7 @@ import { correr } from '../proceso.ts'
 import { fechaLocal, json, resolverRuta, type Db } from '../db.ts'
 import { anotar } from '../decisiones.ts'
 import { asegurarFuente, insertar, retirarPieza, slug } from '../corpus.ts'
-import { asegurarEntidad, buscadorDeEntidades, editarEntidad } from '../entidades.ts'
+import { asegurarEntidad, buscadorCacheado, buscadorDeEntidades, editarEntidad } from '../entidades.ts'
 import { crearQuantomo } from '../quantomos.ts'
 import { memoriaParaPrompt, recordar } from '../memoria.ts'
 import { encolarPregunta } from '../preguntas.ts'
@@ -982,7 +982,7 @@ export function estadoTakeout(db: Db) {
   const medios = db.prepare(`SELECT clase, estado, COUNT(*) AS n FROM takeout_medios GROUP BY clase, estado`).all()
   const destilado = db.prepare(`SELECT estado, COUNT(*) AS n FROM takeout_destilado GROUP BY estado`).all()
   const errores = db.prepare(`SELECT 'medio' AS que, nombre AS titulo, error FROM takeout_medios WHERE estado = 'fallo' UNION ALL SELECT 'destilado', CAST(pieza_id AS TEXT), error FROM takeout_destilado WHERE estado = 'fallo' LIMIT 20`).all()
-  const buscador = buscadorDeEntidades(db)
+  const buscador = buscadorCacheado(db)
   // Las propuestas que en realidad ya existen (mal escritas, con apodo, incompletas) llegan con su candidata.
   const nombres = (db.prepare(`SELECT clave, nombre, tipo, veces, primera, ultima, nota FROM takeout_nombres WHERE estado = 'propuesta' ORDER BY veces DESC, nombre LIMIT 60`).all() as any[])
     .map((n) => ({ ...n, parecida: buscador.parecida(n.nombre) }))

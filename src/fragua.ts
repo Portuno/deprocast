@@ -237,7 +237,8 @@ function archivosDe(dir: string): string[] {
  */
 /** ¿Hay git en esta máquina? Se pregunta una vez por proceso (lanzarlo traba el servidor un rato). */
 let hayGit: boolean | null = null
-const gitInstalado = () => {
+const gitInstalado = (repo = process.cwd()) => {
+  if (hayGit === null && fs.existsSync(path.join(repo, '.git'))) hayGit = true // hay repo: hay git (sin lanzarlo, medio segundo en Windows)
   if (hayGit === null) { const g = spawnSync('git', ['--version'], { encoding: 'utf8', windowsHide: true }); hayGit = !g.error && g.status === 0 }
   return hayGit
 }

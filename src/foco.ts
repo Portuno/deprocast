@@ -14,9 +14,26 @@ export type FocoDia = { fecha: string; minutos: number; bloqueMax: number; cambi
 
 export const appsEstimulo = (db: Db): string[] => String(ajuste(db, 'apps_estimulo') ?? '').split(',').map((x) => norm(x)).filter((x) => x.length >= 1)
 
-/** Las métricas de un día con lo que se vio en pantalla. */
+/**
+ * Las métricas de un día con lo que se vio en pantalla. Se guardan mientras ese día no tenga momentos nuevos (contarlos
+ * sale del índice): /api/hoy/hud recalculaba siete días de Directo en cada pedido, cientos de ms (npm run medir).
+ */
+const focos = new WeakMap<Db, Map<string, { huella: string; f: FocoDia }>>()
 export function focoDelDia(db: Db, fecha: string, estimulo = appsEstimulo(db)): FocoDia {
   const t0 = new Date(`${fecha}T00:00:00`).getTime()
+  const h = db.prepare(`SELECT COUNT(*) AS n, MAX(desde) AS m, MAX(hasta) AS u FROM directo_momentos WHERE tipo = 'pantalla' AND desde >= ? AND desde < ?`).get(t0, t0 + DIA) as { n: number; m: number | null; u: number | null }
+  const huella = `${h.n}|${h.m}|${h.u}|${estimulo.join(',')}`
+  let porDia = focos.get(db)
+  if (!porDia) { porDia = new Map(); focos.set(db, porDia) }
+  const ya = porDia.get(fecha)
+  if (ya?.huella === huella) return ya.f
+  const f = focoDelDiaSinCache(db, fecha, estimulo, t0)
+  porDia.set(fecha, { huella, f })
+  if (porDia.size > 60) porDia.delete(porDia.keys().next().value!)
+  return f
+}
+
+function focoDelDiaSinCache(db: Db, fecha: string, estimulo: string[], t0: number): FocoDia {
   const ms = db.prepare(`SELECT desde, hasta, app, tema, detalle FROM directo_momentos WHERE tipo = 'pantalla' AND desde >= ? AND desde < ? ORDER BY desde`)
     .all(t0, t0 + DIA) as { desde: number; hasta: number; app: string | null; tema: string | null; detalle: string | null }[]
   if (!ms.length) return { fecha, minutos: 0, bloqueMax: 0, cambiosPorHora: null, estimulo: 0, bloqueQue: null }

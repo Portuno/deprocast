@@ -328,6 +328,21 @@ export function distancia(a: string, b: string): number {
  * (mal escrito o mal transcripto) o contenido («Rafa el chino» y «Rafa»; «Ruzafa» y «Barrio de Ruzafa»). Si hay más
  * de una que encaja igual de bien, no adivina.
  */
+/**
+ * El mismo buscador, reusado mientras no cambien las entidades (cuántas, la última y el largo de nombres y alias):
+ * armarlo con miles de entidades son cientos de ms, y la pantalla del Takeout lo pedía en cada vuelta (npm run medir).
+ */
+const buscadores = new WeakMap<Db, { huella: string; b: ReturnType<typeof buscadorDeEntidades> }>()
+export function buscadorCacheado(db: Db) {
+  const f = db.prepare(`SELECT COUNT(*) AS n, MAX(id) AS m, SUM(length(nombre) + length(COALESCE(alias, ''))) AS s FROM entidades`).get() as { n: number; m: number | null; s: number | null }
+  const huella = `${f.n}|${f.m}|${f.s}`
+  const ya = buscadores.get(db)
+  if (ya?.huella === huella) return ya.b
+  const b = buscadorDeEntidades(db)
+  buscadores.set(db, { huella, b })
+  return b
+}
+
 export function buscadorDeEntidades(db: Db) {
   const todas = (db.prepare('SELECT id, nombre, tipo, alias FROM entidades').all() as { id: number; nombre: string; tipo: TipoEntidad; alias: string | null }[])
     .map((e) => ({ ...e, nombres: [e.nombre, ...(json<string[]>(e.alias, []) ?? [])].map((n) => ({ n, k: clave(n), f: fichas(n) })).filter((x) => x.k) }))

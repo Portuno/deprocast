@@ -172,20 +172,25 @@ function marcar(nombre: string): () => void {
   enMarcha.push(m)
   return () => { m.hasta = Date.now() }
 }
-const bloqueos: { en: string; ms: number; durante: string[] }[] = []
+const bloqueos: { en: string; ms: number; cpu: number; durante: string[] }[] = []
 // npm run medir (Fragua #213) lo baja a 200 ms para fallar con lo que en la nube ya molesta.
 const UMBRAL_BLOQUEO = Number(process.env.MASTRO_BLOQUEO_MS) || 1000
 // El tic, a un cuarto del umbral (como mucho medio segundo): con un tic más largo que la traba, la traba no se ve.
 const TIC_VIGIA = Math.min(500, Math.max(20, Math.round(UMBRAL_BLOQUEO / 4)))
 let tic = performance.now()
+// Cuánta CPU usó el proceso en el hueco: una traba nuestra la consume; si casi no usó, al proceso lo frenaron de afuera
+// (el contenedor sin CPU, la compu ocupada con otra cosa). Va con cada bloqueo para no confundir una cosa con la otra.
+let cpuTic = process.cpuUsage()
 setInterval(() => {
   const ahora = performance.now()
   const atraso = ahora - tic - TIC_VIGIA
   tic = ahora
+  const c = process.cpuUsage(cpuTic)
+  cpuTic = process.cpuUsage()
   const t = Date.now()
   if (atraso > UMBRAL_BLOQUEO) {
     const durante = [...new Set([...enMarcha.filter((m) => m.desde <= t && (m.hasta === null || m.hasta >= t - atraso - TIC_VIGIA - 100)).map((m) => m.nombre), ...pasosEnMarcha.keys()])]
-    bloqueos.push({ en: new Date(t).toISOString(), ms: Math.round(atraso), durante })
+    bloqueos.push({ en: new Date(t).toISOString(), ms: Math.round(atraso), cpu: Math.round((c.user + c.system) / 1000), durante })
     if (bloqueos.length > 15) bloqueos.shift()
     try { registrarError(db, 'lento', `bloqueo de ${Math.round(atraso)} ms (${durante.join(', ') || 'nada anotado'})`) } catch { /* medir no rompe nada */ }
     anotarBloqueo(db, atraso, durante, t) // Fragua #212: la autocrítica los junta por hora
