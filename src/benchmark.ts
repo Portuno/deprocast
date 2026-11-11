@@ -155,7 +155,7 @@ export function motoresDe(p: Prueba): { porDefecto: string; motores: string[] } 
   return { porDefecto, motores: [porDefecto, ...ALTERNATIVAS.filter((m) => m !== porDefecto).slice(0, 2)] }
 }
 
-export type Medicion = { prueba: string; modelo: string; porDefecto: boolean; ms: number; tokensIn: number | null; tokensOut: number | null; creditos: number | null; puntaje: number; detalle: string; error: string | null }
+export type Medicion = { prueba: string; modelo: string; porDefecto: boolean; ms: number; tokensIn: number | null; tokensOut: number | null; creditos: number | null; puntaje: number; detalle: string; error: string | null; salida?: string }
 
 /** Una prueba contra un motor (solo ese: la cadena se fija a él). */
 async function medir(db: Db, corrida: string, p: Prueba, modelo: string, porDefecto: boolean): Promise<Medicion> {
@@ -222,7 +222,7 @@ export function verBanco(db: Db) {
   if (!ultima) return { corrida: null, en: null, pruebas: [], historia: [] }
   const filas = db.prepare('SELECT * FROM bench_corridas WHERE corrida = ? ORDER BY prueba, por_defecto DESC, modelo').all(ultima.corrida) as any[]
   const pruebas = BANCO.map((p) => {
-    const ms: Medicion[] = filas.filter((f) => f.prueba === p.id).map((f) => ({ prueba: f.prueba, modelo: f.modelo, porDefecto: !!f.por_defecto, ms: f.ms, tokensIn: f.tokens_in, tokensOut: f.tokens_out, creditos: f.creditos, puntaje: f.puntaje, detalle: f.detalle, error: f.error }))
+    const ms: Medicion[] = filas.filter((f) => f.prueba === p.id).map((f) => ({ prueba: f.prueba, modelo: f.modelo, porDefecto: !!f.por_defecto, ms: f.ms, tokensIn: f.tokens_in, tokensOut: f.tokens_out, creditos: f.creditos, puntaje: f.puntaje, detalle: f.detalle, error: f.error, salida: String(f.salida ?? '').slice(0, 600) }))
     return ms.length ? { id: p.id, nombre: p.nombre, criterio: p.criterio, mediciones: ms, veredicto: veredictoDe(p, ms) } : null
   }).filter(Boolean)
   // Cómo le fue a cada motor en las últimas corridas (acierto medio): para ver la tendencia, no una foto.
