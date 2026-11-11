@@ -58,6 +58,7 @@ test('el ruteo por uso (nov 2026): el chat y lo que él ve, a DeepSeek Flash; lo
   assert.deepEqual(cadenaPara({ clase: 'mastropiero', agenteId: 'takeout' }), [M.mimo, M.deepseek])
   assert.deepEqual(cadenaPara({ clase: 'mastropiero', agenteId: 'escriba' }), [M.mimo, M.deepseek])
   assert.deepEqual(cadenaPara({ clase: 'mastropiero', agenteId: 'autocritica' }), [M.pro, M.deepseek])
+  assert.deepEqual(cadenaPara({ clase: 'mastropiero', agenteId: 'fragua' }), [M.deepseek, M.mimo], 'el código, a Flash (rotado por el banco de pruebas)')
   assert.deepEqual(cadenaPara({ clase: 'extractor', agenteId: 'EXT-0001' }), [M.mimo, M.deepseek], 'los agentes de la liga, por su clase')
   assert.deepEqual(cadenaPara({ clase: 'mastropiero', agenteId: 'takeout', modelos: [M.qwen] }), [M.qwen], 'la cadena propia de una llamada manda')
   // Créditos: 10.000 de entrada (8.000 cacheados) y 500 de salida en DeepSeek Flash = (2.000 × 10,5 + 8.000 × 0,21 + 500 × 42) / 1M.

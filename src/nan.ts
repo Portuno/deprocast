@@ -63,10 +63,13 @@ export function creditosDe(modelo: string, entrada: number, cacheados: number, s
  * - Ejecutivo y crawler no usan modelo; el vectorizador, sus embeddings.
  * Se pisa con NAN_CADENA_<CLASE>=modelo1,modelo2 (también NAN_CADENA_MASTROPIERO, _FONDO y _PROFUNDO).
  */
-const CADENAS: Record<ClaseId | 'mastropiero' | 'fondo' | 'profundo', string[]> = {
+const CADENAS: Record<ClaseId | 'mastropiero' | 'fondo' | 'profundo' | 'codigo', string[]> = {
   mastropiero: [M.deepseek, M.mimo, M.qwen],
   fondo: [M.mimo, M.deepseek],
   profundo: [M.pro, M.deepseek],
+  // El código (la Fragua), a DeepSeek Flash: en el banco de pruebas (nov 2026) Pro se cortó por largo tres veces seguidas
+  // (2 cr. cada una, sin entregar nada) y Flash pasó los 10 casos por 0,3; MiMo, que también los pasó, de respaldo.
+  codigo: [M.deepseek, M.mimo],
   generativo: [M.mimo, M.deepseek],
   gerente: [M.deepseek, M.glm],
   auditor: [M.deepseek, M.glm],
@@ -80,7 +83,9 @@ const CADENAS: Record<ClaseId | 'mastropiero' | 'fondo' | 'profundo', string[]> 
 /** Lo que él ve en el momento: calidad y velocidad primero (la cadena de Mastropiero). */
 const INTERACTIVOS = new Set(['mastropiero', 'chat', 'telegram', 'directo', 'matinal', 'brujula', 'mapamundi', 'academia', 'pensar', 'captura', 'correcciones'])
 /** Lo poco y que importa: el razonador. */
-const PROFUNDOS = new Set(['autocritica', 'fragua', 'primarias', 'run', 'run-pedido', 'lecciones', 'reporte', 'evolucion', 'procesos'])
+/** Los que escriben código. */
+const CODIGO = new Set(['fragua'])
+const PROFUNDOS = new Set(['autocritica', 'primarias', 'run', 'run-pedido', 'lecciones', 'reporte', 'evolucion', 'procesos'])
 /**
  * La cadena de una llamada: la que trae (un turno breve elige la suya), la de su uso (profundo, interactivo o de
  * fondo) para lo que corre como Mastropiero, o la de su clase (los agentes de la liga).
@@ -88,6 +93,7 @@ const PROFUNDOS = new Set(['autocritica', 'fragua', 'primarias', 'run', 'run-ped
 export function cadenaPara(l: { clase: ClaseId | 'mastropiero'; agenteId?: string | null; modelos?: string[] }): string[] {
   if (l.modelos?.length) return l.modelos
   if (l.clase === 'mastropiero' && l.agenteId) {
+    if (CODIGO.has(l.agenteId)) return cadena('codigo')
     if (PROFUNDOS.has(l.agenteId)) return cadena('profundo')
     if (!INTERACTIVOS.has(l.agenteId)) return cadena('fondo')
   }
@@ -111,7 +117,7 @@ export function assertPermitido(id: string) {
 }
 
 /** NAN_MIMO_ID (de antes, cuando MiMo no estaba en el catálogo) se suma al final si no está ya. */
-export function cadena(clase: ClaseId | 'mastropiero' | 'fondo' | 'profundo'): string[] {
+export function cadena(clase: ClaseId | 'mastropiero' | 'fondo' | 'profundo' | 'codigo'): string[] {
   const propia = env(`NAN_CADENA_${clase.toUpperCase()}`)
   const base = propia ? propia.split(',').map((s) => s.trim()).filter(Boolean) : [...(CADENAS[clase] ?? CADENAS.mastropiero)]
   const mimo = env('NAN_MIMO_ID')
