@@ -49,6 +49,9 @@ test('#236: cada prueba tiene su criterio y su puntaje; el banco corre contra el
 test('#236 (banco v2): las trampas restan — el dato viejo, inventar quién paga, saltearse una regla, pasarse de palabras', () => {
   const p = (id: string) => BANCO.find((x) => x.id === id)!
   assert.ok(p('corpus').puntuar('El presupuesto definitivo es 12.400 euros [#201]. La pintura la paga Ramón.').puntaje <= 0)
+  assert.ok(p('corpus').puntuar('El definitivo es de 13.500 euros [#205], desde el 3/11. No consta quién paga la pintura.').detalle.includes('dio uno viejo'))
+  // Nombrar el 12.400 para hacer la cuenta (o los 13.500 de Ramón como algo de antes) no es dar el viejo.
+  assert.equal(p('corpus').puntuar('1) El definitivo quedó en 13.150 euros el 3/11 [#202]; el 1/11 Ramón dijo 13.500 [#205]. 2) No consta quién paga la pintura. 3) Subió 750 euros: 13.150 − 12.400 [#201], un 6,0 %.').puntaje, 1)
   assert.match(p('clasificacion').puntuar('{"etiquetas": ["salud", "salud", "idea", "ingreso", "salud", "tarea", "otro", "gasto", "idea", "salud"]}').detalle, /la 1 como salud[\s\S]*la 2 como salud/)
   assert.ok(p('redaccion').puntuar('¡Hola! El informe sale el lunes 17 con los costos y la factura de 1.200 euros. ' + 'muy '.repeat(40) + 'bien.').puntaje < 0.6)
   assert.match(p('redaccion').puntuar('Hola, el informe se entrega el lunes 17 con el análisis de costos y la factura es de 1.200 euros. ¿Me confirmas si te viene bien?').detalle, /voseo ✗/)

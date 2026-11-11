@@ -75,7 +75,8 @@ export const BANCO: Prueba[] = [
     puntuar: (t) => {
       const monto = /13[.,\s]?150/.test(t), cita = /\[#202\]/.test(t), fecha = /3\/11|3 de noviembre/i.test(t)
       const noConsta = /no (consta|lo dice|se dice|aparece|figura|est[aá] (en|claro)|se sabe|se menciona|hay (datos|informaci[oó]n))|ning[uú]n fragmento/i.test(t)
-      const trampa = (/12[.,\s]?400/.test(t) && !/inicial|antes|primer/i.test(t)) || (/13[.,\s]?500/.test(t) && !monto)
+      // Dar uno viejo = no dar el vigente y sí otro (el 12.400 se nombra igual para la cuenta de la pregunta 3).
+      const trampa = !monto && /12[.,\s]?400|13[.,\s]?500/.test(t)
       const inventa = /paga(r[aá])? (Ram[oó]n|la comunidad|el arquitecto|los vecinos)/i.test(t)
       const suba = /\b750\b/.test(t), pct = /\b6[.,]0\s?%|\b6[.,]0 por ciento/.test(t)
       return { puntaje: (monto ? 0.2 : 0) + (cita ? 0.15 : 0) + (fecha ? 0.1 : 0) + (noConsta ? 0.25 : 0) + (suba ? 0.15 : 0) + (pct ? 0.15 : 0) - (trampa ? 0.3 : 0) - (inventa ? 0.35 : 0), detalle: `${monto ? 'vigente ✓' : 'vigente ✗'} · ${cita ? 'cita ✓' : 'cita ✗'} · ${fecha ? 'fecha ✓' : 'fecha ✗'} · ${noConsta ? '«no consta» ✓' : '«no consta» ✗'} · ${suba ? 'suba ✓' : 'suba ✗'} · ${pct ? '% ✓' : '% ✗'}${trampa ? ' · dio uno viejo' : ''}${inventa ? ' · inventó quién paga' : ''}` }
