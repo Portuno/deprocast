@@ -63,7 +63,9 @@ export function probarFuncion(codigo: string, nombre: string, casos: [unknown[],
  * tiene ahora una trampa que separa a un motor bueno de uno flojo: un dato viejo y uno corregido, algo que no consta,
  * reglas de desempate, varias restricciones a la vez, dos montos y dos fechas, y bordes en el código.
  */
-export const VERSION_BANCO = 3
+export const VERSION_BANCO = 4
+const VOSEO = /(?<!\p{L})(ten[eé]s|pod[eé]s|quer[eé]s|sab[eé]s|and[aá]s|necesit[aá]s|confirm[aá]s|confirm[aá]|confirmame|confirmanos|avis[aá]|avisame|decime|dec[ií]|fijate|contame|cont[aá]|mir[aá]|pas[aá]s)(?!\p{L})/iu
+const TUTEO = /(?<!\p{L})(tienes|puedes|quieres|sabes|andas|necesitas|confirmas|confírmame|confírmanos|avísame|dime|fíjate|cuéntame)(?!\p{L})/iu
 export const BANCO: Prueba[] = [
   {
     id: 'corpus', nombre: 'Corpus: el dato vigente, la fuente y lo que no consta', clase: { clase: 'mastropiero', agenteId: 'mastropiero' }, interactiva: true,
@@ -107,17 +109,18 @@ Forma: {"etiquetas": ["...", ...]} en el mismo orden.`,
     },
   },
   {
-    id: 'redaccion', nombre: 'Redacción: un WhatsApp con seis condiciones', clase: { clase: 'generativo' },
+    id: 'redaccion', nombre: 'Redacción: un WhatsApp con siete condiciones', clase: { clase: 'generativo' },
     sistema: 'Escribís mensajes en castellano rioplatense (voseo), directos y cálidos.',
-    usuario: 'Escribí un WhatsApp para un cliente. Tiene que: decir que el informe se entrega el lunes 17; que incluye el análisis de costos; que la factura es de 1.200 euros; terminar con una pregunta; tener como máximo 40 palabras; y no usar emojis ni signos de exclamación. Devolvé solo el mensaje.',
-    criterio: 'Hasta 40 palabras; «lunes 17»; costos; 1.200 euros; termina en pregunta; sin emojis ni «!»; con voseo.',
+    usuario: 'Escribí un WhatsApp para un cliente. Tiene que: decir que el informe se entrega el lunes 17; que incluye el análisis de costos; que la factura es de 1.200 euros; terminar con una pregunta que le pida que te confirme si le viene bien; tener como máximo 40 palabras; y no usar emojis ni signos de exclamación. Devolvé solo el mensaje.',
+    criterio: 'Hasta 40 palabras; «lunes 17»; costos; 1.200 euros; termina pidiendo que confirme; sin emojis ni «!»; con voseo y sin tuteo («¿me confirmás?», no «¿me confirmas?»).',
     puntuar: (t) => {
       const x = t.trim().replace(/^["«]|["»]$/g, '')
       const n = palabras(x)
       const ok = {
         corto: n <= 40, lunes: /lunes 17/i.test(x), costos: /costo/i.test(x), monto: /1[.,\s]?200/.test(x),
-        pregunta: /\?\s*$/.test(x), sinGritos: !/[!¡]/.test(x) && !/\p{Extended_Pictographic}/u.test(x),
-        voseo: /\b(ten[eé]s|pod[eé]s|quer[eé]s|avisame|mir[aá]|decime|fijate|contame|te parece|necesit[aá]s|quer[eé]s)\b/i.test(x),
+        pregunta: /\?\s*$/.test(x) && /confirm/i.test(x), sinGritos: !/[!¡]/.test(x) && !/\p{Extended_Pictographic}/u.test(x),
+        // (Con lookarounds de letra: «\b» no corta después de una «á», y «mirá» o «confirmá» no contaban.)
+        voseo: VOSEO.test(x) && !TUTEO.test(x),
       }
       const p = (ok.corto ? 0.2 : 0) + (ok.lunes ? 0.15 : 0) + (ok.costos ? 0.1 : 0) + (ok.monto ? 0.15 : 0) + (ok.pregunta ? 0.15 : 0) + (ok.sinGritos ? 0.15 : 0) + (ok.voseo ? 0.1 : 0)
       return { puntaje: p, detalle: `${n} palabras · ${Object.entries(ok).filter(([, v]) => !v).map(([k]) => `${k} ✗`).join(' · ') || 'cumple todo'}` }

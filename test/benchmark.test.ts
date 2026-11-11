@@ -20,7 +20,7 @@ test('#236: cada prueba tiene su criterio y su puntaje; el banco corre contra el
   const respuestas: Record<string, string> = {
     corpus: '1) El presupuesto definitivo es de 13.150 euros, desde el 3/11 [#202]; los 13.500 que menciona Ramón son de antes [#205]. 2) Quién paga la pintura no consta en los fragmentos: solo dicen que Ramón la cobra [#203]. 3) Subió 750 euros respecto del inicial de 12.400 [#201], un 6,0 %.',
     clasificacion: '{"etiquetas": ["gasto", "tarea", "idea", "ingreso", "salud", "tarea", "otro", "gasto", "idea", "salud"]}',
-    redaccion: 'Hola, ¿cómo andás? El informe te lo entrego el lunes 17 e incluye el análisis de costos. La factura es de 1.200 euros. ¿Te parece bien así?',
+    redaccion: 'Hola, ¿cómo andás? El informe te lo entrego el lunes 17 e incluye el análisis de costos. La factura es de 1.200 euros. ¿Me confirmás si te viene bien?',
     extraccion: '{"nombre": "Lucía Ferrer", "fecha": "2026-03-03", "monto": 1250.5, "comision": 1.75, "devuelto": 200, "fecha_devolucion": "2026-03-12", "neto": 1048.75}',
     codigo: '```js\nfunction parsearMonto(texto) {\n  const s = String(texto ?? "").replace(/[^\\d.,-]/g, "")\n  if (!/\\d/.test(s)) return null\n  const neg = s.startsWith("-")\n  let t = s.replace(/-/g, "")\n  const c = t.lastIndexOf(","), p = t.lastIndexOf(".")\n  if (c >= 0 && p >= 0) t = c > p ? t.replace(/\\./g, "").replace(",", ".") : t.replace(/,/g, "")\n  else if (c >= 0) t = /,\\d{3}$/.test(t) ? t.replace(/,/g, "") : t.replace(",", ".")\n  else if (p >= 0 && /\\.\\d{3}$/.test(t)) t = t.replace(/\\./g, "")\n  const n = Number(t)\n  return Number.isFinite(n) ? (neg ? -n : n) : null\n}\n```',
   }
@@ -40,7 +40,7 @@ test('#236: cada prueba tiene su criterio y su puntaje; el banco corre contra el
   const q = db.prepare('SELECT etapa, titulo, texto FROM quantomos WHERE id = ?').get(r.quantomo) as any
   assert.equal(q.etapa, 'sellado')
   assert.match(q.titulo, /Banco de pruebas · 2026-11-16/)
-  assert.match(q.texto, /Banco de pruebas v3[\s\S]*Clasificación: diez mensajes con reglas de desempate: gana/)
+  assert.match(q.texto, /Banco de pruebas v4[\s\S]*Clasificación: diez mensajes con reglas de desempate: gana/)
   const v = verBanco(db)
   assert.equal(v.pruebas.length, 5)
   assert.ok(v.historia.length >= 3)
@@ -51,6 +51,8 @@ test('#236 (banco v2): las trampas restan — el dato viejo, inventar quién pag
   assert.ok(p('corpus').puntuar('El presupuesto definitivo es 12.400 euros [#201]. La pintura la paga Ramón.').puntaje <= 0)
   assert.match(p('clasificacion').puntuar('{"etiquetas": ["salud", "salud", "idea", "ingreso", "salud", "tarea", "otro", "gasto", "idea", "salud"]}').detalle, /la 1 como salud[\s\S]*la 2 como salud/)
   assert.ok(p('redaccion').puntuar('¡Hola! El informe sale el lunes 17 con los costos y la factura de 1.200 euros. ' + 'muy '.repeat(40) + 'bien.').puntaje < 0.6)
+  assert.match(p('redaccion').puntuar('Hola, el informe se entrega el lunes 17 con el análisis de costos y la factura es de 1.200 euros. ¿Me confirmas si te viene bien?').detalle, /voseo ✗/)
+  assert.match(p('redaccion').puntuar('Hola, el informe se entrega el lunes 17 con el análisis de costos y la factura es de 1.200 euros. ¿Te queda alguna duda?').detalle, /pregunta ✗ · voseo ✗/)
   assert.equal(p('codigo').puntuar('function parsearMonto(t) { return Number(t) }').puntaje < 0.5, true)
 })
 
