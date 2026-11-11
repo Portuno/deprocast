@@ -9,7 +9,9 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+# Sin scripts: «prepare» instala los hooks de git (scripts/hooks.ts), que acá todavía no está copiado y no hace falta.
+# Ninguna dependencia de producción tiene scripts de instalación.
+RUN npm ci --omit=dev --ignore-scripts
 COPY . .
 
 # Expuesto en la red, siempre con clave (MASTRO_CLAVE va en las variables del servicio, no acá).
