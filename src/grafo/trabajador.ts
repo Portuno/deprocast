@@ -27,7 +27,7 @@ parentPort!.on('message', (p: Pedido) => {
   }
 })
 
-const LIMPIEZA = 2
+const LIMPIEZA = 3
 /** Una huella barata de lo que entró (los textos y su diccionario): si no cambió, no hace falta recalcular. */
 export function firmaDe(docs: Documento[], dic?: unknown): string {
   let h = 2166136261

@@ -156,15 +156,40 @@ export function esRenglonTecnico(l: string): boolean {
   if (/(^|[\s\[(|])(TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL|ERR!)(\]|:|\s\||\))/.test(t)) return true // nivel de log
   if (/^[\s{}\[\],]*"[^"]+"\s*:/.test(t) || /^[{}\[\]],?$/.test(t)) return true // JSON
   if (/^[A-Z][A-Z0-9_]{2,}\s*=/.test(t) || /^[\w.-]+\s*=\s*\S+$/.test(t)) return true // CLAVE=valor
-  if (/^(\$|#|PS [A-Z]:\\[^>]*>|[\w.-]+@[\w.-]+:[~\/][^$#]*[$#])\s*\S/.test(t) && !/^#{1,6}\s+\p{L}/u.test(t)) return true // consola (no un título markdown)
+  if (/^\[[\w./-]*\b(trace|debug|info|warn|warning|error|fatal)\b[\w./-]*\]/i.test(t)) return true // [modulo/info] …
+  if (/^(\$\s*|#\s+|PS [A-Z]:\\[^>]*>\s*|[\w.-]+@[\w.-]+:[~\/][^$#]*[$#]\s*)\S/.test(t) && !/^#{1,6}\s+\p{L}/u.test(t)) return true // consola (no un título markdown, ni «#229»)
   if (/^(npm|npx|node|git|cd|ls|cat|grep|curl|sudo|apt|pip|python|docker|kubectl|wine|proton)\s+[-\w./]/.test(t)) return true // un comando suelto
   // Mucho símbolo para tan pocas palabras: código.
   // (Sin contar los links, las citas [#12] ni el Markdown: eso es prosa con formato.)
   const base = t.replace(/https?:\/\/\S+|www\.\S+/g, ' ').replace(/\[#\d+\]/g, ' ').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`~]{1,3}/g, '').trim()
+  if ((base.match(/(?<![\p{L}\d])[\w.-]+=[^\s=]+/gu) ?? []).length >= 2) return true // «slot=0 pos=Tapa status=…»
+  if (esInglesTecnico(base)) return true
   const simbolos = (base.match(/[{}()\[\];=<>|\\/_:$@&*+^%`]/g) ?? []).length
   const palabras = (base.match(/\p{L}{3,}/gu) ?? []).length
   return base.length >= 12 && simbolos / base.length > 0.12 && simbolos >= palabras
 }
+
+const EN = new Set('the and of to is are was were with for not this that it be will on or such you your if by from an cannot could should would can has have into when which there'.split(' '))
+const ES = new Set('de la que el en y los se del las por un una para con es lo al su como más pero me mi yo ya muy esto eso está son hay le'.split(' '))
+/**
+ * ¿Un tramo en inglés? El grafo es de su voz (en castellano, con raíces en castellano): lo pegado en inglés son mensajes
+ * de error («cannot open shared object file: No such file or directory») o documentación copiada, y sus palabras
+ * armaban conceptos de máquina («failed ≈ open ≈ file ≈ shared»). Una cita corta dentro de una frase en castellano queda.
+ */
+export function esInglesTecnico(t: string): boolean {
+  const ps = t.toLowerCase().match(/\p{L}+/gu) ?? []
+  if (ps.length < 4) return false
+  let en = 0, es = 0
+  for (const p of ps) { if (EN.has(p)) en++; if (ES.has(p)) es++ }
+  return en >= 2 && en > 2 * es
+}
+
+/**
+ * Lo pegado de máquina a veces llega en un solo renglón (los saltos se perdieron al guardarlo): se corta en tramos —por
+ * oración, antes de una marca de log («INFO:», «[notebook/info]») y en «---»— y se mira cada tramo.
+ */
+const TRAMO = /(?<=[.!?…])\s+(?=\S)|\s+(?=(?:\[[^\]\s]{1,40}\]|(?:TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL)[:\]]|[A-Z][A-Z_]{2,}:)\s)|\s+-{3,}\s+/
+const sinTramosTecnicos = (l: string) => (l.length < 60 ? (esRenglonTecnico(l) ? '' : l) : l.split(TRAMO).filter((x) => !esRenglonTecnico(x)).join(' '))
 
 /** Un identificador de código (camelCase, snake_case, CLAVE_DE_ENTORNO, a.b.c, vec2/x64), no una palabra. */
 export const esIdentificador = (w: string) => /[a-z][A-Z]/.test(w) || /_/.test(w) || /^[A-Z0-9]{2,}(?:_[A-Z0-9]+)+$/.test(w) || /\w\.\w/.test(w) || /\d/.test(w)
@@ -172,7 +197,10 @@ export const esIdentificador = (w: string) => /[a-z][A-Z]/.test(w) || /_/.test(w
 export function limpiar(texto: string): string {
   return texto
     // Lo pegado de máquina (logs, trazas, JSON, configuración, consola), renglón por renglón.
-    .split('\n').map((l) => (esRenglonTecnico(l) ? '' : l)).join('\n')
+    .split('\n').map(sinTramosTecnicos).join('\n')
+    // Los rótulos de un volcado o una planilla («TITLE:», «LABEL:», «TYPE,CONTENT,PRIORITY») no son palabras suyas.
+    .replace(/(?<![\p{L}])[A-Z][A-Z_]{2,}:(?=\s|$)/gu, ' ')
+    .replace(/(?<![\p{L}])[A-Z_]{2,}(?:,[A-Z_]{2,}){2,}(?![\p{L}])/gu, ' ')
     // Las marcas de quién habla en una transcripción («Voz A:», «Hablante 2:», «[Speaker 1]») y las rutas de archivos
     // («C:\Users\…», «/c/Users/…/dev») no son lo que dijo (Fragua #227).
     .replace(/^\s*\[?\s*(voz|hablante|speaker|persona|interlocutor)\s*[a-z0-9]{1,2}\s*\]?\s*[:.-]?/gim, ' ')

@@ -46,3 +46,16 @@ test('los logs, trazas, JSON, configuración, comandos y código pegados no entr
   assert.ok(!ls.some((l) => /proton|khr|fixme|getus|user/.test(l)), ls.join(' '))
   assert.ok(ls.some((l) => l.startsWith('audit')) && ls.some((l) => l.startsWith('iguald')))
 })
+
+test('lo de máquina pegado en un solo renglón (logs, errores en inglés, volcados clave=valor, rótulos) tampoco entra; la prosa del mismo renglón sí', async () => {
+  const { lemas, limpiar, diccionarioVacio, esInglesTecnico } = await import('../src/grafo/texto.ts')
+  const pegado = '¿Cómo puedo entrenar una inteligencia propia? Te paso lo que me tira la consola INFO: Running proton using runtime steamrt INFO: steamrt is up to date gamemodeauto: dlopen failed - cannot open shared object file: No such file or directory. ' +
+    'Después probé con el cuaderno [notebook/info] dd4bf0df slot 0 Enviando hoja a visión. PAGE slot=0 n=0 pos=Tapa status=Procesada --- TITLE: Cuaderno Rojo LABEL: Tapa. Lutris cannot ship with every component in its runtime, so you should install Wine.'
+  const ls = lemas(limpiar(pegado), diccionarioVacio())
+  assert.ok(!ls.some((l) => /^(runn|steamrt|gamemod|dlopen|fail|cannot|shar|direct|slot|envi|statu|titl|label|lutr|component|runtim|ship)/.test(l)), ls.join(' '))
+  assert.ok(['entren', 'intelig', 'consol', 'cuadern', 'roj', 'tap'].every((x) => ls.some((l) => l.startsWith(x))), ls.join(' '))
+  // Una frase en castellano con una palabra técnica en inglés no es «inglés».
+  assert.equal(esInglesTecnico('El toolchain de Rust ya trae el linker y lo estaba tapando en el PATH.'), false)
+  assert.equal(esInglesTecnico('No es lo que dije: la reunión es el jueves.'), false)
+  assert.equal(esInglesTecnico('ld: cannot find crtend.o: No such file or directory error: could not compile'), true)
+})
