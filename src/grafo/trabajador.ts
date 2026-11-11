@@ -27,6 +27,7 @@ parentPort!.on('message', (p: Pedido) => {
   }
 })
 
+const LIMPIEZA = 2
 /** Una huella barata de lo que entró (los textos y su diccionario): si no cambió, no hace falta recalcular. */
 export function firmaDe(docs: Documento[], dic?: unknown): string {
   let h = 2166136261
@@ -34,5 +35,6 @@ export function firmaDe(docs: Documento[], dic?: unknown): string {
   const t = dic && Object.values(dic as Record<string, unknown[]>).some((x) => x?.length) ? JSON.stringify(dic) : '' // sin diccionario, la huella de siempre
   let hd = 2166136261
   for (let i = 0; i < t.length; i++) { hd ^= t.charCodeAt(i); hd = Math.imul(hd, 16777619) }
-  return `${docs.length}:${(h >>> 0).toString(36)}${t ? `:${(hd >>> 0).toString(36)}` : ''}`
+  // La versión de la limpieza del texto: si cambia (lo técnico fuera, Fragua #227), la foto se rehace aunque el texto sea el mismo.
+  return `${docs.length}:${(h >>> 0).toString(36)}${t ? `:${(hd >>> 0).toString(36)}` : ''}:l${LIMPIEZA}`
 }

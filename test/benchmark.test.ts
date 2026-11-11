@@ -18,11 +18,11 @@ test('#236: cada prueba tiene su criterio y su puntaje; el banco corre contra el
   // Un motor que acierta todo (el «bueno») y los demás que fallan a medias.
   const bueno = M.qwen
   const respuestas: Record<string, string> = {
-    corpus: 'Quedó en 12.400 euros con IVA [#102].',
-    clasificacion: '{"etiquetas": ["gasto", "idea", "tarea", "salud", "gasto", "tarea"]}',
-    redaccion: 'Hola, ¿cómo andás? Te aviso que el informe te lo entrego el lunes y trae el análisis de costos. Cualquier cosa me avisás.',
-    extraccion: '{"nombre": "Lucía Ferrer", "fecha": "2026-03-03", "monto": 1250.5}',
-    codigo: '```js\nfunction sumaPares(xs) { return xs.filter((x) => typeof x === "number" && x % 2 === 0).reduce((s, x) => s + x, 0) }\n```',
+    corpus: '1) El presupuesto definitivo es de 13.150 euros, desde el 3/11 [#202]. 2) Quién paga la pintura no consta en los fragmentos: solo dicen que Ramón la cobra [#203].',
+    clasificacion: '{"etiquetas": ["gasto", "tarea", "idea", "ingreso", "salud", "tarea", "otro", "gasto", "idea", "salud"]}',
+    redaccion: 'Hola, ¿cómo andás? El informe te lo entrego el lunes 17 e incluye el análisis de costos. La factura es de 1.200 euros. ¿Te parece bien así?',
+    extraccion: '{"nombre": "Lucía Ferrer", "fecha": "2026-03-03", "monto": 1250.5, "devuelto": 200, "fecha_devolucion": "2026-03-05", "neto": 1050.5}',
+    codigo: '```js\nfunction parsearMonto(texto) {\n  const s = String(texto ?? "").replace(/[^\\d.,-]/g, "")\n  if (!/\\d/.test(s)) return null\n  const neg = s.startsWith("-")\n  let t = s.replace(/-/g, "")\n  const c = t.lastIndexOf(","), p = t.lastIndexOf(".")\n  if (c >= 0 && p >= 0) t = c > p ? t.replace(/\\./g, "").replace(",", ".") : t.replace(/,/g, "")\n  else if (c >= 0) t = /,\\d{3}$/.test(t) ? t.replace(/,/g, "") : t.replace(",", ".")\n  else if (p >= 0 && /\\.\\d{3}$/.test(t)) t = t.replace(/\\./g, "")\n  const n = Number(t)\n  return Number.isFinite(n) ? (neg ? -n : n) : null\n}\n```',
   }
   _probarModelo(async (l: any) => {
     const prueba = String(l.agenteId).split(':')[1]
@@ -40,10 +40,18 @@ test('#236: cada prueba tiene su criterio y su puntaje; el banco corre contra el
   const q = db.prepare('SELECT etapa, titulo, texto FROM quantomos WHERE id = ?').get(r.quantomo) as any
   assert.equal(q.etapa, 'sellado')
   assert.match(q.titulo, /Banco de pruebas · 2026-11-16/)
-  assert.match(q.texto, /Clasificación: seis mensajes en cuatro etiquetas: gana/)
+  assert.match(q.texto, /Banco de pruebas v2[\s\S]*Clasificación: diez mensajes con reglas de desempate: gana/)
   const v = verBanco(db)
   assert.equal(v.pruebas.length, 5)
   assert.ok(v.historia.length >= 3)
+})
+
+test('#236 (banco v2): las trampas restan — el dato viejo, inventar quién paga, saltearse una regla, pasarse de palabras', () => {
+  const p = (id: string) => BANCO.find((x) => x.id === id)!
+  assert.ok(p('corpus').puntuar('El presupuesto definitivo es 12.400 euros [#201]. La pintura la paga Ramón.').puntaje <= 0)
+  assert.match(p('clasificacion').puntuar('{"etiquetas": ["salud", "salud", "idea", "ingreso", "salud", "tarea", "otro", "gasto", "idea", "salud"]}').detalle, /la 1 como salud[\s\S]*la 2 como salud/)
+  assert.ok(p('redaccion').puntuar('¡Hola! El informe sale el lunes 17 con los costos y la factura de 1.200 euros. ' + 'muy '.repeat(40) + 'bien.').puntaje < 0.6)
+  assert.equal(p('codigo').puntuar('function parsearMonto(t) { return Number(t) }').puntaje < 0.5, true)
 })
 
 test('#236: si todos aciertan, la prueba «no distingue» (no se rota por precio); en lo interactivo, el más lento no conviene', async () => {

@@ -56,58 +56,90 @@ export function probarFuncion(codigo: string, nombre: string, casos: [unknown[],
   }
 }
 
+/**
+ * El banco, versión 2 (más difícil): con la versión 1 todos los motores sacaban 100 % y no distinguía nada. Cada prueba
+ * tiene ahora una trampa que separa a un motor bueno de uno flojo: un dato viejo y uno corregido, algo que no consta,
+ * reglas de desempate, varias restricciones a la vez, dos montos y dos fechas, y bordes en el código.
+ */
+export const VERSION_BANCO = 2
 export const BANCO: Prueba[] = [
   {
-    id: 'corpus', nombre: 'Corpus: contestar desde fragmentos y citar', clase: { clase: 'mastropiero', agenteId: 'mastropiero' }, interactiva: true,
-    sistema: 'Contestá la pregunta usando SOLO los fragmentos. Citá el fragmento de donde sale el dato con su marca [#id]. Una o dos oraciones.',
-    usuario: '[#101] La reunión del comité de obra se pasó al jueves 14 a las 18 h, en el local de la calle Mayor.\n[#102] El presupuesto de la reforma quedó en 12.400 euros con el IVA incluido.\n[#103] La pintura la hace la cuadrilla de Ramón la semana que viene.\n\nPregunta: ¿cuánto quedó el presupuesto de la reforma y de dónde lo sacás?',
-    criterio: 'Dice 12.400 euros y cita [#102] (y no otro fragmento como fuente).',
+    id: 'corpus', nombre: 'Corpus: el dato vigente, la fuente y lo que no consta', clase: { clase: 'mastropiero', agenteId: 'mastropiero' }, interactiva: true,
+    sistema: 'Contestá SOLO con lo que dicen los fragmentos. Citá cada dato con su marca [#id]. Si algo no está en los fragmentos, decí que no consta; no lo deduzcas.',
+    usuario: '[#201] El presupuesto inicial de la reforma fue de 12.400 euros.\n[#202] Actualización del 3/11: después de la revisión del arquitecto, el presupuesto definitivo quedó en 13.150 euros.\n[#203] Ramón cobra 1.800 euros por la pintura, que empieza el lunes.\n[#204] La reunión con la comunidad de vecinos se pasó al jueves.\n\nPreguntas: 1) ¿Cuál es el presupuesto definitivo y desde cuándo? 2) ¿Quién paga la pintura?',
+    criterio: '1) 13.150 euros, desde el 3/11, citando [#202] (no 12.400 como definitivo). 2) Quién paga la pintura no consta (que Ramón la cobra no dice quién paga).',
     puntuar: (t) => {
-      const monto = /12[.,\s]?400/.test(t), cita = /\[#102\]/.test(t), otra = /\[#10[13]\]/.test(t)
-      return { puntaje: (monto ? 0.6 : 0) + (cita ? 0.4 : 0) - (otra ? 0.2 : 0), detalle: `${monto ? 'monto ✓' : 'monto ✗'} · ${cita ? 'cita ✓' : 'cita ✗'}${otra ? ' · citó otro' : ''}` }
+      const monto = /13[.,\s]?150/.test(t), cita = /\[#202\]/.test(t), fecha = /3\/11|3 de noviembre/i.test(t)
+      const noConsta = /no (consta|lo dice|se dice|aparece|figura|est[aá] (en|claro)|se sabe|se menciona|hay (datos|informaci[oó]n))|ning[uú]n fragmento/i.test(t)
+      const trampa = /12[.,\s]?400/.test(t) && !/inicial|antes|primer/i.test(t)
+      const inventa = /paga(r[aá])? (Ram[oó]n|la comunidad|el arquitecto|los vecinos)/i.test(t)
+      return { puntaje: (monto ? 0.3 : 0) + (cita ? 0.2 : 0) + (fecha ? 0.15 : 0) + (noConsta ? 0.35 : 0) - (trampa ? 0.3 : 0) - (inventa ? 0.35 : 0), detalle: `${monto ? 'vigente ✓' : 'vigente ✗'} · ${cita ? 'cita ✓' : 'cita ✗'} · ${fecha ? 'fecha ✓' : 'fecha ✗'} · ${noConsta ? '«no consta» ✓' : '«no consta» ✗'}${trampa ? ' · dio el viejo' : ''}${inventa ? ' · inventó quién paga' : ''}` }
     },
   },
   {
-    id: 'clasificacion', nombre: 'Clasificación: seis mensajes en cuatro etiquetas', clase: { clase: 'clasificador' }, json: true,
-    sistema: 'Clasificá cada mensaje en UNA etiqueta: gasto, idea, tarea o salud. Forma: {"etiquetas": ["...", ...]} en el mismo orden.',
-    usuario: '1. Pagué 40 euros de gasolina.\n2. Se me ocurrió un juego de mesa sobre la historia del barrio.\n3. Mañana tengo que llamar al gestor.\n4. Dormí cinco horas y me duele la cabeza.\n5. Compré el regalo de cumpleaños: 25 euros.\n6. Mandar el presupuesto al cliente antes del viernes.',
-    criterio: 'gasto, idea, tarea, salud, gasto, tarea.',
+    id: 'clasificacion', nombre: 'Clasificación: diez mensajes con reglas de desempate', clase: { clase: 'clasificador' }, json: true,
+    sistema: `Clasificá cada mensaje en UNA etiqueta: gasto, ingreso, idea, tarea, salud u otro. Reglas de desempate, en este orden:
+1) Si hay plata que salió, es gasto (aunque sea de salud o de una tarea). Si hay plata que entró, es ingreso.
+2) Si es algo para hacer con una fecha, un día o una hora, es tarea.
+3) Si habla del cuerpo, el sueño o el ánimo, es salud.
+4) Una propuesta o algo que se le ocurrió, es idea.
+5) Lo demás, otro.
+Forma: {"etiquetas": ["...", ...]} en el mismo orden.`,
+    usuario: `1. Pagué el gimnasio del mes, 35 euros.
+2. Me acordé de tomar la pastilla a las 22.
+3. ¿Y si cobramos por suscripción en vez de por proyecto?
+4. Me pagaron los 800 del freelance.
+5. Dormí mal, otra vez cuatro horas.
+6. El lunes llevo el auto al taller.
+7. Qué lindo día hace.
+8. Compré el libro que me recomendó Ana: 18 euros.
+9. Se me ocurre hacer el podcast con invitados del barrio.
+10. Estoy medio bajón desde ayer.`,
+    criterio: 'gasto, tarea, idea, ingreso, salud, tarea, otro, gasto, idea, salud (la 1 es gasto aunque sea del gimnasio; la 2 es tarea por la hora).',
     puntuar: (t) => {
-      const esperado = ['gasto', 'idea', 'tarea', 'salud', 'gasto', 'tarea']
+      const esperado = ['gasto', 'tarea', 'idea', 'ingreso', 'salud', 'tarea', 'otro', 'gasto', 'idea', 'salud']
       const xs: string[] = (leerJson(t)?.etiquetas ?? []).map((x: unknown) => String(x).toLowerCase().trim())
       const bien = esperado.filter((e, i) => xs[i] === e).length
-      return { puntaje: bien / esperado.length, detalle: `${bien} de ${esperado.length}` }
+      return { puntaje: bien / esperado.length, detalle: `${bien} de ${esperado.length}${xs[0] === 'salud' ? ' · la 1 como salud (no siguió la regla 1)' : ''}${xs[1] === 'salud' ? ' · la 2 como salud (no siguió la regla 2)' : ''}` }
     },
   },
   {
-    id: 'redaccion', nombre: 'Redacción: un WhatsApp corto, con voseo', clase: { clase: 'generativo' },
+    id: 'redaccion', nombre: 'Redacción: un WhatsApp con seis condiciones', clase: { clase: 'generativo' },
     sistema: 'Escribís mensajes en castellano rioplatense (voseo), directos y cálidos.',
-    usuario: 'Escribí un mensaje de WhatsApp para un cliente avisando que el informe se entrega el lunes y que incluye el análisis de costos. Máximo 50 palabras, sin emojis. Devolvé solo el mensaje.',
-    criterio: 'Hasta 50 palabras, nombra el lunes y los costos, sin emojis, con voseo.',
+    usuario: 'Escribí un WhatsApp para un cliente. Tiene que: decir que el informe se entrega el lunes 17; que incluye el análisis de costos; que la factura es de 1.200 euros; terminar con una pregunta; tener como máximo 40 palabras; y no usar emojis ni signos de exclamación. Devolvé solo el mensaje.',
+    criterio: 'Hasta 40 palabras; «lunes 17»; costos; 1.200 euros; termina en pregunta; sin emojis ni «!»; con voseo.',
     puntuar: (t) => {
-      const n = palabras(t), corto = n <= 50, lunes = /lunes/i.test(t), costos = /costo/i.test(t)
-      const sinEmoji = !/\p{Extended_Pictographic}/u.test(t), voseo = /\b(ten[eé]s|pod[eé]s|quer[eé]s|avisame|mir[aá]|decime|fijate|contame|cualquier cosa me avis[aá]s)\b/i.test(t)
-      return { puntaje: (corto ? 0.4 : 0) + (lunes ? 0.2 : 0) + (costos ? 0.2 : 0) + (sinEmoji ? 0.1 : 0) + (voseo ? 0.1 : 0), detalle: `${n} palabras · ${lunes ? 'lunes ✓' : 'lunes ✗'} · ${costos ? 'costos ✓' : 'costos ✗'}${sinEmoji ? '' : ' · con emoji'}${voseo ? ' · voseo ✓' : ''}` }
+      const x = t.trim().replace(/^["«]|["»]$/g, '')
+      const n = palabras(x)
+      const ok = {
+        corto: n <= 40, lunes: /lunes 17/i.test(x), costos: /costo/i.test(x), monto: /1[.,\s]?200/.test(x),
+        pregunta: /\?\s*$/.test(x), sinGritos: !/[!¡]/.test(x) && !/\p{Extended_Pictographic}/u.test(x),
+        voseo: /\b(ten[eé]s|pod[eé]s|quer[eé]s|avisame|mir[aá]|decime|fijate|contame|te parece|necesit[aá]s|quer[eé]s)\b/i.test(x),
+      }
+      const p = (ok.corto ? 0.2 : 0) + (ok.lunes ? 0.15 : 0) + (ok.costos ? 0.1 : 0) + (ok.monto ? 0.15 : 0) + (ok.pregunta ? 0.15 : 0) + (ok.sinGritos ? 0.15 : 0) + (ok.voseo ? 0.1 : 0)
+      return { puntaje: p, detalle: `${n} palabras · ${Object.entries(ok).filter(([, v]) => !v).map(([k]) => `${k} ✗`).join(' · ') || 'cumple todo'}` }
     },
   },
   {
-    id: 'extraccion', nombre: 'Extracción: nombre, fecha y monto exactos', clase: { clase: 'extractor' }, json: true,
-    sistema: 'Sacá los datos del texto. Forma: {"nombre": string, "fecha": "AAAA-MM-DD", "monto": number}.',
-    usuario: 'El 3 de marzo de 2026 Lucía Ferrer transfirió 1.250,50 euros a la cuenta de la asociación.',
-    criterio: '{"nombre": "Lucía Ferrer", "fecha": "2026-03-03", "monto": 1250.5}',
+    id: 'extraccion', nombre: 'Extracción: dos montos, dos fechas y el neto', clase: { clase: 'extractor' }, json: true,
+    sistema: 'Sacá los datos de la transferencia principal. Forma: {"nombre": string, "fecha": "AAAA-MM-DD", "monto": number, "devuelto": number, "fecha_devolucion": "AAAA-MM-DD", "neto": number}. Los números, sin símbolos ni separadores de miles.',
+    usuario: 'El 3 de marzo de 2026, Lucía Ferrer transfirió 1.250,50 € a la cuenta de la asociación. Dos días después, su hermano Pablo devolvió 200 € de esa transferencia porque se había cobrado de más la inscripción.',
+    criterio: '{"nombre": "Lucía Ferrer", "fecha": "2026-03-03", "monto": 1250.5, "devuelto": 200, "fecha_devolucion": "2026-03-05", "neto": 1050.5}',
     puntuar: (t) => {
       const d = leerJson(t) ?? {}
-      const ok = [String(d.nombre ?? '').trim() === 'Lucía Ferrer', d.fecha === '2026-03-03', Number(d.monto) === 1250.5]
-      return { puntaje: ok.filter(Boolean).length / 3, detalle: `nombre ${ok[0] ? '✓' : '✗'} · fecha ${ok[1] ? '✓' : '✗'} · monto ${ok[2] ? '✓' : '✗'}` }
+      const ok = [String(d.nombre ?? '').trim() === 'Lucía Ferrer', d.fecha === '2026-03-03', Number(d.monto) === 1250.5, Number(d.devuelto) === 200, d.fecha_devolucion === '2026-03-05', Math.abs(Number(d.neto) - 1050.5) < 0.001]
+      const campos = ['nombre', 'fecha', 'monto', 'devuelto', 'fecha_devolucion', 'neto']
+      return { puntaje: ok.filter(Boolean).length / ok.length, detalle: campos.map((c, i) => `${c} ${ok[i] ? '✓' : '✗'}`).join(' · ') }
     },
   },
   {
-    id: 'codigo', nombre: 'Código: una función que pasa sus pruebas', clase: { clase: 'mastropiero', agenteId: 'fragua' },
+    id: 'codigo', nombre: 'Código: leer montos en cualquier formato', clase: { clase: 'mastropiero', agenteId: 'fragua' },
     sistema: 'Escribís JavaScript correcto y corto.',
-    usuario: 'Escribí una función JavaScript llamada sumaPares(xs) que devuelva la suma de los números pares de un arreglo, ignorando todo lo que no sea de tipo number. Devolvé solo el código.',
-    criterio: 'sumaPares([1,2,3,4]) = 6 · sumaPares([]) = 0 · sumaPares([2,"4",null,6]) = 8 · sumaPares([-2,3]) = -2',
+    usuario: `Escribí una función JavaScript llamada parsearMonto(texto) que devuelva el número de un monto escrito como lo escribe la gente, o null si no hay un monto. Formatos: español («1.250,50 €», «2.000», «-200,00», «1,5»), inglés («1,250.50», «$ 3,000»), sin miles («1250.5»), y con el símbolo antes o después. Un punto seguido de exactamente tres dígitos al final es separador de miles («2.000» → 2000). Devolvé solo el código.`,
+    criterio: '«1.250,50 €»→1250.5 · «2.000»→2000 · «-200,00»→-200 · «1,5»→1.5 · «1,250.50»→1250.5 · «$ 3,000»→3000 · «1250.5»→1250.5 · «€ 1.234.567,89»→1234567.89 · «abc»→null · «»→null',
     puntuar: (t) => {
-      const r = probarFuncion(codigoDe(t), 'sumaPares', [[[[1, 2, 3, 4]], 6], [[[]], 0], [[[2, '4', null, 6]], 8], [[[-2, 3]], -2]])
+      const casos: [unknown[], unknown][] = [[['1.250,50 €'], 1250.5], [['2.000'], 2000], [['-200,00'], -200], [['1,5'], 1.5], [['1,250.50'], 1250.5], [['$ 3,000'], 3000], [['1250.5'], 1250.5], [['€ 1.234.567,89'], 1234567.89], [['abc'], null], [[''], null]]
+      const r = probarFuncion(codigoDe(t), 'parsearMonto', casos)
       return { puntaje: r.pasan / r.total, detalle: r.error ? `no corrió: ${r.error}` : `${r.pasan} de ${r.total} casos` }
     },
   },
@@ -140,8 +172,8 @@ async function medir(db: Db, corrida: string, p: Prueba, modelo: string, porDefe
   const creditos = u.i != null ? creditosDe(modelo, u.i, u.c ?? 0, u.o ?? 0) : null
   const { puntaje, detalle } = error ? { puntaje: 0, detalle: `falló: ${error}` } : p.puntuar(salida)
   const m: Medicion = { prueba: p.id, modelo, porDefecto, ms, tokensIn: u.i, tokensOut: u.o, creditos: creditos != null ? +creditos.toFixed(4) : null, puntaje: +Math.max(0, Math.min(1, puntaje)).toFixed(2), detalle, error }
-  db.prepare(`INSERT INTO bench_corridas (corrida, prueba, modelo, por_defecto, ms, tokens_in, tokens_out, creditos, puntaje, detalle, salida, error, en) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(corrida, p.id, modelo, porDefecto ? 1 : 0, ms, u.i, u.o, m.creditos, m.puntaje, detalle, salida.slice(0, 2000), error, Date.now())
+  db.prepare(`INSERT INTO bench_corridas (corrida, prueba, modelo, por_defecto, ms, tokens_in, tokens_out, creditos, puntaje, detalle, salida, error, en, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(corrida, p.id, modelo, porDefecto ? 1 : 0, ms, u.i, u.o, m.creditos, m.puntaje, detalle, salida.slice(0, 2000), error, Date.now(), VERSION_BANCO)
   return m
 }
 
@@ -175,7 +207,7 @@ export async function correrBanco(db: Db, o: { pruebas?: string[]; ahora?: numbe
     veredictos.push(veredictoDe(p, ms))
   }
   const rotar = veredictos.filter((v) => v.rotar)
-  const texto = [`Banco de pruebas del ${fechaLocal(ahora)} (cada encargo contra el motor de siempre y dos alternativas):`, ...veredictos.map((v) => `- ${v.texto}`),
+  const texto = [`Banco de pruebas v${VERSION_BANCO} del ${fechaLocal(ahora)} (cada encargo contra el motor de siempre y dos alternativas):`, ...veredictos.map((v) => `- ${v.texto}`),
     rotar.length ? `Conviene rotar en ${rotar.map((v) => v.nombre.split(':')[0].toLowerCase()).join(', ')}: decidilo vos (no toco el ruteo solo).` : 'Ningún motor le gana al de siempre por suficiente: el ruteo queda como está.'].join('\n')
   const quantomo = crearQuantomo(db, { texto, titulo: `Banco de pruebas · ${fechaLocal(ahora)}`, etapa: 'sellado', universo: 'liga', procedencia: 'El Benchmarkeador (auditor de contraste)', origenId: `bench:${corrida}` }, ahora)
   return { corrida, veredictos, quantomo, texto }
@@ -183,7 +215,7 @@ export async function correrBanco(db: Db, o: { pruebas?: string[]; ahora?: numbe
 
 /** Lo último que se corrió, por prueba: cada motor con su número (para la pantalla y el chat). */
 export function verBanco(db: Db) {
-  const ultima = (db.prepare('SELECT corrida, MAX(en) AS en FROM bench_corridas GROUP BY corrida ORDER BY en DESC LIMIT 1').get() as { corrida: string; en: number } | undefined)
+  const ultima = (db.prepare(`SELECT corrida, MAX(en) AS en FROM bench_corridas WHERE version = ? AND corrida NOT LIKE 'pedido-%' GROUP BY corrida ORDER BY en DESC LIMIT 1`).get(VERSION_BANCO) as { corrida: string; en: number } | undefined)
   if (!ultima) return { corrida: null, en: null, pruebas: [], historia: [] }
   const filas = db.prepare('SELECT * FROM bench_corridas WHERE corrida = ? ORDER BY prueba, por_defecto DESC, modelo').all(ultima.corrida) as any[]
   const pruebas = BANCO.map((p) => {
@@ -191,8 +223,8 @@ export function verBanco(db: Db) {
     return ms.length ? { id: p.id, nombre: p.nombre, criterio: p.criterio, mediciones: ms, veredicto: veredictoDe(p, ms) } : null
   }).filter(Boolean)
   // Cómo le fue a cada motor en las últimas corridas (acierto medio): para ver la tendencia, no una foto.
-  const historia = db.prepare(`SELECT modelo, COUNT(*) AS n, ROUND(AVG(puntaje), 2) AS acierto, ROUND(AVG(ms)) AS ms, ROUND(SUM(COALESCE(creditos, 0)), 3) AS creditos FROM bench_corridas WHERE en >= ? GROUP BY modelo ORDER BY acierto DESC`).all(ultima.en - 60 * 86_400_000)
-  return { corrida: ultima.corrida, en: ultima.en, pruebas, historia }
+  const historia = db.prepare(`SELECT modelo, COUNT(*) AS n, ROUND(AVG(puntaje), 2) AS acierto, ROUND(AVG(ms)) AS ms, ROUND(SUM(COALESCE(creditos, 0)), 3) AS creditos FROM bench_corridas WHERE en >= ? AND version = ? AND corrida NOT LIKE 'pedido-%' GROUP BY modelo ORDER BY acierto DESC`).all(ultima.en - 60 * 86_400_000, VERSION_BANCO)
+  return { version: VERSION_BANCO, corrida: ultima.corrida, en: ultima.en, pruebas, historia }
 }
 
 // ─── comparar a pedido ──────────────────────────────────────────────────

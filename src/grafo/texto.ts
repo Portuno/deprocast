@@ -141,8 +141,38 @@ export type Diccionario = { stop: Set<string>; alias: Map<string, string>; prote
 export const diccionarioVacio = (): Diccionario => ({ stop: new Set(), alias: new Map(), proteger: new Set() })
 
 /** Limpia lo que no es prosa: links, markdown, citas [#12], código, números y emojis. */
+/**
+ * ¿Es un renglón de máquina y no de persona? Lo pegado de logs, trazas de error, JSON, configuración o la consola entraba
+ * al grafo como si fuera lo que piensa («request ≈ source», «node ≈ entry», «fixme ≈ protonfixes»). Se reconoce por la
+ * forma: una traza («at x (archivo:12:3)»), una línea de log (fecha y hora, o un nivel INFO/WARN/ERROR), una clave =
+ * valor o «clave: valor» de configuración, una línea de JSON, un comando de consola, o mucho símbolo para tan pocas
+ * palabras.
+ */
+export function esRenglonTecnico(l: string): boolean {
+  const t = l.trim()
+  if (t.length < 3) return false
+  if (/^at\s+[\w.<>$\[\] ]+\s*\(|^at\s+(?:file|node):|\(\w[^()]*:\d+:\d+\)$/.test(t)) return true // traza
+  if (/^\[?\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(t) || /^\[?\d{2}:\d{2}:\d{2}(?:[.,]\d+)?\]?\s/.test(t)) return true // log con hora
+  if (/(^|[\s\[(|])(TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL|ERR!)(\]|:|\s\||\))/.test(t)) return true // nivel de log
+  if (/^[\s{}\[\],]*"[^"]+"\s*:/.test(t) || /^[{}\[\]],?$/.test(t)) return true // JSON
+  if (/^[A-Z][A-Z0-9_]{2,}\s*=/.test(t) || /^[\w.-]+\s*=\s*\S+$/.test(t)) return true // CLAVE=valor
+  if (/^(\$|#|PS [A-Z]:\\[^>]*>|[\w.-]+@[\w.-]+:[~\/][^$#]*[$#])\s*\S/.test(t) && !/^#{1,6}\s+\p{L}/u.test(t)) return true // consola (no un título markdown)
+  if (/^(npm|npx|node|git|cd|ls|cat|grep|curl|sudo|apt|pip|python|docker|kubectl|wine|proton)\s+[-\w./]/.test(t)) return true // un comando suelto
+  // Mucho símbolo para tan pocas palabras: código.
+  // (Sin contar los links, las citas [#12] ni el Markdown: eso es prosa con formato.)
+  const base = t.replace(/https?:\/\/\S+|www\.\S+/g, ' ').replace(/\[#\d+\]/g, ' ').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`~]{1,3}/g, '').trim()
+  const simbolos = (base.match(/[{}()\[\];=<>|\\/_:$@&*+^%`]/g) ?? []).length
+  const palabras = (base.match(/\p{L}{3,}/gu) ?? []).length
+  return base.length >= 12 && simbolos / base.length > 0.12 && simbolos >= palabras
+}
+
+/** Un identificador de código (camelCase, snake_case, CLAVE_DE_ENTORNO, a.b.c, vec2/x64), no una palabra. */
+export const esIdentificador = (w: string) => /[a-z][A-Z]/.test(w) || /_/.test(w) || /^[A-Z0-9]{2,}(?:_[A-Z0-9]+)+$/.test(w) || /\w\.\w/.test(w) || /\d/.test(w)
+
 export function limpiar(texto: string): string {
   return texto
+    // Lo pegado de máquina (logs, trazas, JSON, configuración, consola), renglón por renglón.
+    .split('\n').map((l) => (esRenglonTecnico(l) ? '' : l)).join('\n')
     // Las marcas de quién habla en una transcripción («Voz A:», «Hablante 2:», «[Speaker 1]») y las rutas de archivos
     // («C:\Users\…», «/c/Users/…/dev») no son lo que dijo (Fragua #227).
     .replace(/^\s*\[?\s*(voz|hablante|speaker|persona|interlocutor)\s*[a-z0-9]{1,2}\s*\]?\s*[:.-]?/gim, ' ')
@@ -150,6 +180,9 @@ export function limpiar(texto: string): string {
     .replace(/(?:[a-z]:\\|\/[a-z]\/|~\/)[^\s]*/gi, ' ')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/https?:\/\/\S+|www\.\S+/g, ' ')
+    // Los identificadores de código sueltos en la prosa («getUserName», «user_name», «PROTON_LOG», «a.b.c»), enteros y
+    // antes de que el «_» se vuelva espacio (si no, quedaban «user» y «name» como conceptos). Después de los links.
+    .replace(/(?<![\p{L}])[A-Za-z][\w.$-]*[\w$]/gu, (t) => (esIdentificador(t) && !/^\d+([.,]\d+)?$/.test(t) ? ' ' : t))
     .replace(/\[#\d+\]/g, ' ')
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/[#*_`>|~]+/g, ' ')

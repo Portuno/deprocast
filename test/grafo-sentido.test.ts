@@ -37,3 +37,12 @@ test('#229: dos conceptos que dicen lo mismo sin aparecer juntos quedan unidos p
   const viejo = await calcularSentido(db, { ...foto, ejemplos: undefined } as any)
   assert.match(viejo.aviso!, /recalculá el grafo/)
 })
+
+test('los logs, trazas, JSON, configuración, comandos y código pegados no entran al grafo; la prosa (y las citas) sí', async () => {
+  const { esRenglonTecnico, lemas, limpiar, diccionarioVacio } = await import('../src/grafo/texto.ts')
+  for (const l of ['2026-11-10 14:32:11 INFO [server] request source=node', '    at Object.<anonymous> (file:///C:/x/y.js:12:3)', '[ERROR] protonfixes: khr fixme invalid', '{"request": "source", "node": 3}', 'PROTON_LOG=1', '$ npm run dev', 'const getUserName = (x) => x.user_name ?? null;']) assert.equal(esRenglonTecnico(l), true, l)
+  for (const l of ['Hoy estuve pensando en el plan de igualdad.', '> Una cita mía sobre el barrio.', '## Un título', 'Hablé con Camila (la de la obra) sobre los 2.400 euros.']) assert.equal(esRenglonTecnico(l), false, l)
+  const ls = lemas(limpiar('El plan de igualdad.\n[ERROR] protonfixes: khr fixme\nUsé getUserName y user_name en la auditoría.'), diccionarioVacio())
+  assert.ok(!ls.some((l) => /proton|khr|fixme|getus|user/.test(l)), ls.join(' '))
+  assert.ok(ls.some((l) => l.startsWith('audit')) && ls.some((l) => l.startsWith('iguald')))
+})
