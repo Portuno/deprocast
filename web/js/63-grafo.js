@@ -22,6 +22,7 @@ async function montarGrafo() {
       <input class="campo-suelto" id="gf-buscar" placeholder="Buscar un concepto…" data-sin-menciones>
       <select class="campo-suelto" id="gf-obvio" title="Sacar las bisagras para ver lo de segundo nivel"><option value="0">Todo a la vista</option><option value="3">Sin las 3 bisagras</option><option value="5">Sin las 5 bisagras</option><option value="10">Sin las 10 bisagras</option></select>
       <select class="campo-suelto" id="gf-comparar" title="Qué cambió entre esta foto y una anterior"><option value="">Comparar con…</option></select>
+      <button class="btn btn-chico" id="gf-sentido" aria-pressed="false" title="Sumar la capa de sentido: conceptos que dicen lo mismo con otras palabras y todavía no conectaste (punteadas)">≈ Sentido</button>
       <button class="btn btn-chico" id="gf-png" title="Descargar la imagen">⤓ PNG</button>
     </div>
     <div class="gf-cuerpo"><div class="gf-lienzo" id="gf-lienzo"><canvas></canvas><div class="gf-estado" id="gf-estado"></div></div><aside class="gf-panel" id="gf-panel"></aside></div>
@@ -30,6 +31,7 @@ async function montarGrafo() {
   gf.ctx = gf.lienzo.getContext('2d')
   engancharLienzo()
   $('#gf-capa').onchange = (e) => { gf.actual = Number(e.target.value); gf.sel = []; gf.ocultas.clear(); traerGrafo() }
+  $('#gf-sentido').onclick = (e) => { gf.verSentido = !gf.verSentido; e.currentTarget.setAttribute('aria-pressed', String(gf.verSentido)); e.currentTarget.classList.toggle('on', gf.verSentido); pintarPanel(); dibujar() }
   $('#gf-recalcular').onclick = async () => { const b = $('#gf-recalcular'); b.disabled = true; avisoEstado('Recalculando en segundo plano…'); try { await api(`/grafos/${gf.actual}/recalcular`, { forzar: true }); await traerGrafo() } catch (e) { error(e) } finally { b.disabled = false } }
   $('#gf-buscar').oninput = (e) => {
     const q = sinTildesG(e.target.value.trim())
@@ -65,7 +67,13 @@ async function traerGrafo() {
   let r
   try { r = await api(`/grafos/${gf.actual}`) } catch (e) { avisoEstado(''); return error(e) }
   if (pedido !== gf.pedido) return
-  gf.foto = r.foto; gf.mostrado = r.foto; gf.historia = r.historia; gf.calculando = r.calculando; gf.seguidos = r.huecos ?? []; gf.zonas = r.zonas ?? []; gf.hueco = null; gf.grafeador = r.grafeador ?? null; gf.entidades = r.entidades ?? {}
+  gf.foto = r.foto; gf.mostrado = r.foto; gf.historia = r.historia; gf.calculando = r.calculando; gf.seguidos = r.huecos ?? []; gf.zonas = r.zonas ?? []; gf.hueco = null; gf.grafeador = r.grafeador ?? null; gf.entidades = r.entidades ?? {}; gf.sentido = r.sentido ?? null; gf.calculandoSentido = !!r.calculandoSentido
+  // La capa de sentido se calcula de fondo la primera vez: se vuelve a pedir hasta que esté.
+  clearTimeout(gf.esperaSentido)
+  if (!gf.sentido && gf.calculandoSentido) gf.esperaSentido = setTimeout(() => cuandoSeVea(() => { if (vista === 'grafo') traerGrafo() }), 6000)
+  // Recién pedida (el cálculo pudo terminar entre medio): una vuelta más.
+  else if (!gf.sentido && !gf.reintentoSentido) { gf.reintentoSentido = true; gf.esperaSentido = setTimeout(() => cuandoSeVea(() => { if (vista === 'grafo') traerGrafo() }), 2500) }
+  if (gf.sentido) gf.reintentoSentido = false
   avisoEstado(r.foto ? '' : 'Todavía no hay texto para este grafo.')
   $('#gf-comparar').innerHTML = '<option value="">Comparar con…</option>' + r.historia.filter((h) => h.id !== r.foto?.id).map((h) => `<option value="${h.id}">${new Date(h.en).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${h.metricas?.n ?? '?'} conceptos</option>`).join('')
   encuadrar()
@@ -130,6 +138,18 @@ function pintarLienzo() {
     ctx.strokeStyle = camino ? gf.colorAcento : nodos[a].com === nodos[b].com ? colorGrafo(nodos[a].com) : gf.colorBorde
     ctx.lineWidth = camino ? 3 : 0.6 + 1.6 * (p / maxP)
     ctx.beginPath(); ctx.moveTo(pos[a][0], pos[a][1]); ctx.lineTo(pos[b][0], pos[b][1]); ctx.stroke()
+  }
+  // La capa de sentido (Fragua #229): punteadas, del color de acento; solo sobre la foto actual (no en «sin lo obvio»).
+  if (gf.verSentido && gf.sentido?.aristas?.length && g === gf.foto) {
+    ctx.setLineDash([4, 4])
+    ctx.strokeStyle = gf.colorAcento
+    for (const [a, b, s] of gf.sentido.aristas) {
+      if (!nodos[a] || !nodos[b] || !visible[a] || !visible[b]) continue
+      ctx.globalAlpha = enFoco(a) && enFoco(b) ? 0.25 + 0.6 * s : 0.05
+      ctx.lineWidth = 1 + 1.5 * s
+      ctx.beginPath(); ctx.moveTo(pos[a][0], pos[a][1]); ctx.lineTo(pos[b][0], pos[b][1]); ctx.stroke()
+    }
+    ctx.setLineDash([])
   }
   // Los nodos: tamaño por intermediación.
   const maxB = Math.max(1e-9, ...nodos.map((n) => n.btw))
@@ -292,6 +312,7 @@ function pintarPanel() {
   $$('[data-gf-solo]', p).forEach((b) => (b.onclick = () => { const c = Number(b.dataset.gfSolo); const todas = g.comunidades.map((x) => x.id); const ya = gf.ocultas.size === todas.length - 1 && !gf.ocultas.has(c); gf.ocultas = new Set(ya ? [] : todas.filter((x) => x !== c)); pintarPanel(); dibujar() }))
   $$('[data-gf-nodo]', p).forEach((b) => (b.onclick = (e) => { e.preventDefault(); const n = g.nodos[Number(b.dataset.gfNodo)]; elegir(n.i, false); centrarEn(n) }))
   $$('[data-gf-hueco]', p).forEach((b) => (b.onclick = () => { const h = g.huecos[Number(b.dataset.gfHueco)]; gf.sel = []; gf.camino = null; gf.resaltar = new Set([h.a, h.b]); dibujar() }))
+  $$('[data-gf-hsentido]', p).forEach((b) => (b.onclick = () => { const h = gf.sentido.huecos[Number(b.dataset.gfHsentido)]; gf.sel = []; gf.camino = null; gf.resaltar = new Set([h.a, h.b]); dibujar() }))
   $$('[data-gf-seguido]', p).forEach((b) => (b.onclick = () => abrirHueco(gf.seguidos.find((h) => h.id === Number(b.dataset.gfSeguido)))))
   const zs = $('#gf-zonas', p)
   if (zs) zs.onclick = async () => {
@@ -311,11 +332,22 @@ function estructuraHTML(g) {
     ${sinResumen ? '<button class="btn btn-chico" id="gf-zonas" title="Mastropiero lee cada grupo y escribe de qué va (en la nube: gasta tokens)">✦ De qué va cada grupo</button>' : ''}</section>
     <section><h4>Bisagras <small class="tenue">(unen tus áreas)</small></h4><p class="gf-lista">${bisagras.map((n) => `<a href="#" data-gf-nodo="${n.i}">${esc(n.forma)}</a>`).join(' · ')}</p></section>
     ${entradas.length ? `<section><h4>Puntos de entrada <small class="tenue">(aparecen poco, conectan mucho)</small></h4><p class="gf-lista">${entradas.map((n) => `<a href="#" data-gf-nodo="${n.i}">${esc(n.forma)}</a>`).join(' · ')}</p></section>` : ''}
+    ${gf.verSentido ? sentidoHTML() : ''}
     ${gf.grafeador && gf.mostrado === gf.foto ? `<section class="gf-grafeador"><h4>El Grafeador propone</h4><p class="chico">${esc(gf.grafeador.que)}</p><p class="chico tenue">${esc(gf.grafeador.por_que)}</p>${gf.grafeador.hueco ? `<button class="btn btn-chico" data-gf-seguido="${gf.grafeador.hueco}">Abrir ese hueco</button>` : ''}</section>` : ''}
     ${gf.seguidos.length && !gf.quitados && gf.mostrado === gf.foto ? `<section><h4>Huecos <small class="tenue">(grupos que casi no se tocan: ahí viven ideas nuevas)</small></h4><ul class="gf-huecos">${gf.seguidos.slice(0, 6).map((h) => `<li><button class="gf-hueco" data-gf-seguido="${h.id}"><span>${h.terminosA.slice(0, 3).map(esc).join(', ')}</span><b>↔</b><span>${h.terminosB.slice(0, 3).map(esc).join(', ')}</span><i class="chip gf-h-${h.estado}">${ESTADO_HUECO[h.estado] ?? h.estado}</i></button>${h.pregunta ? `<small>${esc(h.pregunta)}</small>` : h.bisagras.length ? `<small class="tenue">hoy los une apenas: ${h.bisagras.slice(0, 3).map(esc).join(', ')}</small>` : '<small class="tenue">nada los une todavía</small>'}</li>`).join('')}</ul></section>`
       : g.huecos?.length ? `<section><h4>Huecos <small class="tenue">(grupos que casi no se tocan)</small></h4><ul class="gf-huecos">${g.huecos.slice(0, 5).map((h, k) => `<li><button class="gf-hueco" data-gf-hueco="${k}"><span>${h.terminosA.slice(0, 3).map(esc).join(', ')}</span><b>↔</b><span>${h.terminosB.slice(0, 3).map(esc).join(', ')}</span></button></li>`).join('')}</ul></section>` : ''}
     ${g.automaticas?.length ? `<section><h4>Aparecen en casi todo</h4><p class="chico tenue">Si no son concepto para vos, frenalas en Mis grafos → Diccionario: ${g.automaticas.slice(0, 8).map(esc).join(', ')}</p></section>` : ''}
     <p class="chico tenue">Arrastrá para moverte, rueda o pellizco para acercar, doble toque para ver todo. Tocá un concepto; con Shift (o Ctrl) tocá otro para ver el camino entre los dos.</p>`
+}
+
+/** Los huecos de sentido: grupos que hablan de lo mismo y casi no se tocan en el texto (Fragua #229). */
+function sentidoHTML() {
+  const s = gf.sentido
+  if (!s) return `<section><h4>Capa de sentido</h4><p class="tenue chico">${gf.calculandoSentido ? 'Calculándola con los pasajes de tus piezas (si la foto era vieja, primero se rehace)…' : 'Todavía no está: se calcula sola en la próxima foto.'}</p></section>`
+  if (s.aviso) return `<section><h4>Capa de sentido</h4><p class="tenue chico">${esc(s.aviso)}</p></section>`
+  return `<section><h4>Capa de sentido <small class="tenue">(${s.aristas.length} conexiones entre ${s.conceptos} conceptos)</small></h4>
+    ${s.huecos.length ? `<p class="chico tenue">Grupos que dicen cosas parecidas y casi no se tocan: ahí suelen estar las ideas nuevas.</p><ul class="gf-huecos">${s.huecos.map((h, k) => `<li><button class="gf-hueco" data-gf-hsentido="${k}"><span>${h.terminosA.slice(0, 3).map(esc).join(', ')}</span><b>≈</b><span>${h.terminosB.slice(0, 3).map(esc).join(', ')}</span></button><small class="tenue">sentido ${Math.round(h.sentido * 100)} % · en el texto ${h.literal < 0.005 ? 'nada' : `${(h.literal * 100).toFixed(1)} %`}</small></li>`).join('')}</ul>` : '<p class="tenue chico">Sin huecos de sentido en esta foto.</p>'}
+  </section>`
 }
 
 function nodoHTML(n) {
@@ -331,6 +363,7 @@ function nodoHTML(n) {
     <p class="chico">Aparece ${n.frec} ${n.frec === 1 ? 'vez' : 'veces'} en ${n.docs} texto${n.docs === 1 ? '' : 's'} · bisagra n.º ${rango}${n.entrada ? ' · punto de entrada' : ''}${n.periferia ? ' · periferia (toca otro grupo)' : ''}</p>
     ${com ? `<p class="chico tenue">Su grupo: ${com.top.slice(0, 6).map(esc).join(', ')}</p>` : ''}
     <h4>Va con</h4><p class="gf-lista">${vec.map(([j, p]) => `<a href="#" data-gf-nodo="${j}" title="peso ${p}">${esc(g.nodos[j].forma)}</a>`).join(' · ') || '—'}</p>
+    ${(() => { const ss = g === gf.foto ? (gf.sentido?.aristas ?? []).filter(([a, b]) => a === n.i || b === n.i).map(([a, b, s]) => [a === n.i ? b : a, s]) : []; return ss.length ? `<h4>Dice lo mismo que <small class="tenue">(por sentido, sin aparecer juntos)</small></h4><p class="gf-lista">${ss.map(([j, s]) => `<a href="#" data-gf-nodo="${j}" title="sentido ${s}">${esc(g.nodos[j].forma)}</a>`).join(' · ')}</p>` : '' })()}
     <div class="fila"><button class="btn btn-chico" id="gf-preguntar">💬 Preguntarle a Mastropiero</button><button class="btn btn-chico" id="gf-ruido" title="Una muletilla, una marca de transcripción o algo que no es un concepto: deja de contar para grupos, puentes y huecos desde la próxima foto">Es ruido</button></div>
     <h4>Dónde aparece</h4><div id="gf-frags"><p class="tenue chico">Buscando en tus textos…</p></div></section>`
 }

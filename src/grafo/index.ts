@@ -178,7 +178,8 @@ export function recalcular(db: Db, id: number, o: { forzar?: boolean; ahora?: nu
     const ruta = (db as any).location?.() as string | null
     // Con una base en archivo, el hilo lee él mismo; en memoria (tests), se le pasan los documentos.
     const r = await calcularEnHilo(ruta ? { ruta, definicion, opciones: { dic: diccionario(db), previas, vos: g.tipo === 'voz' } } : { docs: documentosDe(db as any, definicion), opciones: { dic: diccionario(db), previas, vos: g.tipo === 'voz' } })
-    if (anterior && anterior.firma === r.firma && !o.forzar) return anterior
+    // Misma entrada: la foto de antes sirve (salvo que sea de antes de la capa de sentido, que necesita sus ejemplos).
+    if (anterior && anterior.firma === r.firma && !o.forzar && anterior.ejemplos) return anterior
     const ahora = o.ahora ?? Date.now()
     const fid = Number(db.prepare('INSERT INTO grafo_fotos (grafo_id, firma, documentos, datos, en) VALUES (?, ?, ?, ?, ?)').run(id, r.firma, r.documentos, JSON.stringify(r.resultado), ahora).lastInsertRowid)
     db.prepare(`DELETE FROM grafo_fotos WHERE grafo_id = ? AND id NOT IN (SELECT id FROM grafo_fotos WHERE grafo_id = ? ORDER BY id DESC LIMIT ${FOTOS_POR_GRAFO})`).run(id, id)

@@ -1681,6 +1681,26 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `sumó «${recorte(a.titulo, 40)}» a la Librería`,
   },
   {
+    nombre: 'ver_banco_de_pruebas', familia: 'lectura',
+    descripcion: 'El Benchmarkeador: la última corrida del banco de pruebas (cinco encargos fijos —corpus, clasificación, redacción, extracción, código— contra el motor de siempre y dos alternativas), con acierto, tiempo y créditos de cada uno, el veredicto y la tendencia de cada motor.',
+    parametros: S({}),
+    ejecutar: async (_, { db }) => (await import('../benchmark.ts')).verBanco(db),
+  },
+  {
+    nombre: 'correr_banco_de_pruebas', familia: 'accion',
+    descripcion: 'Corre ahora el banco de pruebas (o algunas pruebas: corpus, clasificacion, redaccion, extraccion, codigo) y deja el veredicto como quántomo sellado. No cambia el ruteo: si conviene rotar, lo decide él.',
+    parametros: S({ pruebas: { type: 'array', items: { type: 'string' }, description: 'Cuáles (vacío: todas)' } }),
+    ejecutar: async (a, { db }) => { const r = await (await import('../benchmark.ts')).correrBanco(db, { pruebas: Array.isArray(a.pruebas) ? a.pruebas : [] }); return { texto: r.texto, quantomo: r.quantomo } },
+    resumen: () => 'corrió el banco de pruebas de los motores',
+  },
+  {
+    nombre: 'comparar_motores', familia: 'accion',
+    descripcion: 'Manda un mismo encargo a varios motores y devuelve el número de cada uno (acierto según un criterio fijado ANTES, tiempo, tokens, créditos) con un juez que no sabe quién es quién. Para decidir qué motor conviene para algo.',
+    parametros: S({ pedido: str('El encargo, tal cual'), criterio: str('Qué es una buena respuesta (se fija antes de correr)'), motores: { type: 'array', items: { type: 'string' }, description: 'ids de modelos de NaN (opcional: el de siempre y dos alternativas)' } }, ['pedido', 'criterio']),
+    ejecutar: async (a, { db }) => ({ resultados: await (await import('../benchmark.ts')).compararMotores(db, { pedido: String(a.pedido ?? ''), criterio: String(a.criterio ?? ''), motores: Array.isArray(a.motores) ? a.motores.map(String) : undefined }) }),
+    resumen: () => 'comparó motores con un encargo',
+  },
+  {
     nombre: 'ver_economia', familia: 'lectura',
     descripcion: 'La economía de la liga: cuánto ganó y gastó cada agente esta temporada (semana) y su saldo. Al cierre (lunes), los que pierden van a la banca y el mejor de una clase con trabajo acumulado se clona.',
     parametros: S({}),
@@ -2236,7 +2256,7 @@ export const NUCLEO = [
   'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'proponer_mejora', 'deshacer_ultima_accion', 'ver_para_validar', 'validar', 'arrancar_bloque', 'terminar_bloque',
 ]
 export const GRUPOS: Record<string, string[]> = {
-  liga: ['crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
+  liga: ['crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'ver_banco_de_pruebas', 'correr_banco_de_pruebas', 'comparar_motores', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['al_diario', 'ver_diario', 'retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_criterios', 'fijar_criterio', 'ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   vida: ['ficha_empresa', 'responder_pregunta', 'votar_criba', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas'],
@@ -2254,7 +2274,7 @@ export const GRUPOS: Record<string, string[]> = {
 export function gruposDelMensaje(mensaje: string): string[] {
   const t = mensaje.toLowerCase()
   const g: string[] = []
-  if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox|misi[oó]n|pista|me respondi|reuni[oó]n con|claude code|bit[aá]cora de desarrollo/.test(t)) g.push('liga')
+  if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox|misi[oó]n|pista|me respondi|reuni[oó]n con|claude code|bit[aá]cora de desarrollo|benchmark|banco de pruebas|comparar motores|qu[eé] motor|qu[eé] modelo conviene/.test(t)) g.push('liga')
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|retir[aá]|pieza|historia de|mal generad|est[aá] mal|correg[ií] (la|esa|esta) (pieza|historia)|\[confirmado\]|\[inferido\]|prensa|peri[oó]dico|noticias? de|el diario de hoy/.test(t)) g.push('corpus')
   if (/primaria|reporte|informe|ayudante|principal|north star|inventario|personaje|run |criterio|la urgente|el ambicioso|la medidora|el entusiasta|la curiosa|el deudor/.test(t)) g.push('misiones')
   if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend|criba|empresa|compa[ñn][ií]a|cif\b|raz[oó]n social/.test(t)) g.push('vida')

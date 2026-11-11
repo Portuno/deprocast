@@ -1904,6 +1904,30 @@ CREATE TABLE IF NOT EXISTS grafo_fotos (
   en INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS grafo_fotos_grafo ON grafo_fotos(grafo_id, id);
+-- El banco de pruebas de los motores (Fragua #236): cada prueba contra cada motor, con su número.
+CREATE TABLE IF NOT EXISTS bench_corridas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  corrida TEXT NOT NULL,
+  prueba TEXT NOT NULL,
+  modelo TEXT NOT NULL,
+  por_defecto INTEGER NOT NULL DEFAULT 0,
+  ms INTEGER NOT NULL,
+  tokens_in INTEGER,
+  tokens_out INTEGER,
+  creditos REAL,
+  puntaje REAL NOT NULL,
+  detalle TEXT,
+  salida TEXT,
+  error TEXT,
+  en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS bench_corridas_corrida ON bench_corridas (corrida);
+-- La capa de sentido de cada foto (Fragua #229): aristas entre conceptos cercanos por lo que dicen y los huecos de sentido.
+CREATE TABLE IF NOT EXISTS grafo_sentido (
+  foto_id INTEGER PRIMARY KEY,
+  datos TEXT NOT NULL,
+  en INTEGER NOT NULL
+);
 -- Los huecos estructurales que se siguen (plan v25): un par de grupos de ideas que casi no se tocan, con su pregunta,
 -- su respuesta, lo que trajo el agente y la historia de su puente (¿se achicó?).
 CREATE TABLE IF NOT EXISTS grafo_huecos (
@@ -2242,6 +2266,7 @@ const RUTINAS_SISTEMA = [
   { id: 'matinal', nombre: 'El audio de la mañana', hora: '07:50', dias: '0123456', accion: 'matinal' },
   { id: 'cronica', nombre: 'La crónica del día entra al corpus', hora: '23:55', dias: '0123456', accion: 'cronica' },
   { id: 'gnosis', nombre: 'Síntesis de la semana: patrones como quántomos', hora: '21:30', dias: '0', accion: 'gnosis' },
+  { id: 'benchmark', nombre: 'El Benchmarkeador: el banco de pruebas contra los motores', hora: '04:30', dias: '1', accion: 'benchmark' },
 ]
 /** La única plantilla de run de fábrica: genérica, sin nada del operador. */
 const PLANTILLAS_SISTEMA = [

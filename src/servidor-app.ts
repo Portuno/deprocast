@@ -722,6 +722,8 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/ubicacion$/, async (b) => (await import('./ubicacion.ts')).recibirUbicacion(db, { lat: Number(b.lat), lon: Number(b.lon), precision: b.precision == null ? null : Number(b.precision), fuente: 'compu' })],
   ['POST', /^\/api\/ubicacion\/prender$/, async (b) => (await import('./ubicacion.ts')).prenderUbicacion(db, !!b.prendida)],
   // Lo lento y lo que se rompe (plan v38, fase 1): para decidir con datos.
+  ['GET', /^\/api\/benchmark$/, async () => (await import('./benchmark.ts')).verBanco(db)],
+  ['POST', /^\/api\/benchmark$/, async (b) => { soloNube('El banco de pruebas'); const r = await (await import('./benchmark.ts')).correrBanco(db, { pruebas: Array.isArray(b.pruebas) ? b.pruebas : [] }); return { texto: r.texto } }],
   ['GET', /^\/api\/revision\/turnos$/, async (_, __, q) => (await import('./registro-turnos.ts')).registroTurnos(db, Math.min(90, Number(q.get('dias')) || 14))],
   ['GET', /^\/api\/errores$/, async (_, __, q) => (await import('./fallos.ts')).erroresRecientes(db, Math.min(24 * 30, Number(q.get('horas')) || 24))],
   ['GET', /^\/api\/errores\/md$/, async (_, __, q) => ({ markdown: (await import('./fallos.ts')).erroresEnMarkdown(db, Math.min(24 * 30, Number(q.get('horas')) || 24)) })],
@@ -1173,7 +1175,15 @@ const rutas: [string, RegExp, Ruta][] = [
     // Sin foto todavía: se calcula ahora (en el hilo aparte) y la pantalla espera; con foto, la última (o la pedida).
     const foto = q.get('foto') ? gr.leerFoto(db, Number(q.get('foto'))) : gr.ultimaFoto(db, x.id) ?? await gr.recalcular(db, x.id)
     const hu = await import('./grafo/huecos.ts')
-    return { grafo: x, foto, calculando: gr.estaCalculando(x.id), historia: gr.historia(db, x.id), huecos: hu.huecosDe(db, x.id).map((h) => ({ ...h, delta: hu.deltaDe(db, h) })), grafeador: hu.proximoTrabajo(db, x.id), zonas: foto ? (await import('./grafo/mapa.ts')).zonas(db, x, foto, 30) : [], entidades: foto ? gr.entidadesDeNodos(db, foto) : {} }
+    // La capa de sentido (Fragua #229): la guardada, o se empieza a calcular de fondo y la pantalla vuelve a pedirla.
+    const se = await import('./grafo/sentido.ts')
+    // Una foto de antes de la capa de sentido (sin sus ejemplos) se rehace sola, de fondo.
+    if (foto && !foto.ejemplos && !gr.estaCalculando(x.id)) void gr.recalcular(db, x.id).catch(() => {})
+    const sentido = foto?.ejemplos ? se.sentidoDe(db, foto) : null
+    const calculandoSentido = foto ? se.calculandoSentido(foto.id) || (!foto.ejemplos && gr.estaCalculando(x.id)) : false
+    // Los ejemplos (qué piezas tiene cada concepto) son para el servidor: no viajan a la pantalla.
+    const { ejemplos: _e, ...fotoPantalla } = foto ?? ({} as any)
+    return { grafo: x, foto: foto ? fotoPantalla : null, calculando: gr.estaCalculando(x.id), historia: gr.historia(db, x.id), huecos: hu.huecosDe(db, x.id).map((h) => ({ ...h, delta: hu.deltaDe(db, h) })), grafeador: hu.proximoTrabajo(db, x.id), zonas: foto ? (await import('./grafo/mapa.ts')).zonas(db, x, foto, 30) : [], entidades: foto ? gr.entidadesDeNodos(db, foto) : {}, sentido, calculandoSentido }
   }],
   // La salud: estado, historia semanal y su calibración, lo que cambió, posibles bucles y alias (sin modelo).
   ['GET', /^\/api\/grafos\/(\d+)\/salud$/, async (_, [g]) => (await import('./grafo/salud.ts')).saludDe(db, id(g))],

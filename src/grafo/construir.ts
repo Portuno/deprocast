@@ -16,6 +16,8 @@ export type Red = {
   aristas: [number, number, number][]
   /** Cuántos documentos y lemas entraron; y las palabras que aparecen en casi todo (sugeridas como palabra-puente). */
   documentos: number; lemas: number; automaticas: string[]
+  /** Por nodo, hasta 12 piezas del corpus donde aparece (para su vector de sentido, Fragua #229). */
+  ejemplos?: number[][]
 }
 
 export const PESOS = [3, 2, 1] // distancia 1, 2, 3
@@ -27,16 +29,17 @@ export function construirRed(docs: Documento[], o: { dic?: Diccionario; maxNodos
   const lista: string[] = []
   const frec: number[] = []
   const enDocs: number[] = []
+  const ejemplos: number[][] = []
   const pares = new Map<number, number>()
   const K = 1 << 21
-  const idDe = (l: string) => { let i = id.get(l); if (i == null) { i = lista.length; id.set(l, i); lista.push(l); frec.push(0); enDocs.push(0) } return i }
+  const idDe = (l: string) => { let i = id.get(l); if (i == null) { i = lista.length; id.set(l, i); lista.push(l); frec.push(0); enDocs.push(0); ejemplos.push([]) } return i }
   let total = 0
   // Primero, cada documento por separado: los lemas y en qué documentos aparece cada uno.
   const secuencias: number[][][] = []
   for (const d of docs) {
     const vistos = new Set<number>()
     const ps = parrafos(d.texto).map((p) => lemas(p, dic, formas).map((l) => { const i = idDe(l); frec[i]++; vistos.add(i); return i })).filter((s) => s.length)
-    for (const i of vistos) enDocs[i]++
+    for (const i of vistos) { enDocs[i]++; if (d.id > 0 && (d.tipo ?? 'pieza') === 'pieza' && ejemplos[i].length < 12) ejemplos[i].push(d.id) }
     total += ps.reduce((s, x) => s + x.length, 0)
     secuencias.push(ps)
   }
@@ -76,5 +79,6 @@ export function construirRed(docs: Documento[], o: { dic?: Diccionario; maxNodos
   return {
     nodos: elegidos.map((i) => ({ lema: lista[i], forma: formaDe(formas, lista[i]), frec: frec[i], docs: enDocs[i] })),
     aristas, documentos: docs.length, lemas: total, automaticas: omnipresentes.map((i) => formaDe(formas, lista[i])).slice(0, 40),
+    ejemplos: elegidos.map((i) => ejemplos[i]),
   }
 }

@@ -290,6 +290,12 @@ export const ACCIONES: Acciones = {
     return null
   },
   /** El domingo: la semana destilada; los patrones quedan como quántomos para pesar y como recuerdos. */
+  /** Los lunes (en la nube): el banco de pruebas contra el motor de siempre y dos alternativas (Fragua #236). Solo avisa si conviene rotar. */
+  async benchmark(db, _fecha, ahora) {
+    if (!(await import('./nan.ts')).nanConfigurado()) return null
+    const r = await (await import('./benchmark.ts')).correrBanco(db, { ahora })
+    return r.veredictos.some((v) => v.rotar) ? `📏 **El banco de pruebas de la semana**\n\n${r.texto}` : null
+  },
   async gnosis(db, fecha, ahora) {
     if (topeAlcanzado(db, ahora)) return null
     const r = await sintesisSemanal(db, fecha, ahora)

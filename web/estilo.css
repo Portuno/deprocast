@@ -3410,3 +3410,6 @@ span.ej-chip { cursor: default; }
 /* El Grafeador: su próximo trabajo, arriba de los huecos (Fragua, propuesta 197) */
 .gf-grafeador { border-left: 3px solid var(--acento); padding-left: var(--e-3); }
 .gf-grafeador p { margin: 2px 0; }
+
+/* El grafo: la capa de sentido prendida (la propuesta 229 de La Fragua) */
+#gf-sentido.on { border-color: var(--acento); color: var(--acento); }

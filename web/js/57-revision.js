@@ -7,9 +7,34 @@ async function montarRevision() {
   $('#principal').innerHTML = `
     <div class="titulo"><h1>Revisión</h1><p>Lo que te sirve y lo que no, medido con tu feedback (👍/👎, estrellas, «no entendí», lo que aceptás y descartás). Los domingos se vuelve lecciones que entran a los prompts.</p></div>
     <div id="rev-cuerpo"><p class="tenue">Juntando…</p></div>
-    <div id="rev-turnos"></div>`
+    <div id="rev-turnos"></div>
+    <div id="rev-banco"></div>`
   pintarRevision()
   pintarTurnos()
+  pintarBanco()
+}
+
+// El Benchmarkeador (Fragua #236): cada prueba contra el motor de siempre y dos alternativas, con su número.
+async function pintarBanco() {
+  const cont = $('#rev-banco')
+  if (!cont) return
+  let r
+  try { r = await api('/benchmark') } catch (e) { return error(e) }
+  const seg = (ms) => `${(ms / 1000).toFixed(1)} s`
+  cont.innerHTML = `<section class="seccion"><div class="aca-sec-cab"><h3>Banco de pruebas de los motores</h3><span class="tenue chico">${r.en ? `Última corrida: ${new Date(r.en).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}. Corre solo los lunes; el veredicto queda como quántomo sellado.` : 'Todavía no corrió: lo hace los lunes a la madrugada (en la nube).'}</span>
+      <button class="btn btn-chico" id="rev-banco-correr" title="Correr las cinco pruebas ahora (en la nube; unos minutos)">▶ Correr ahora</button></div>
+    ${r.pruebas.map((p) => `<h4>${esc(p.nombre)}${p.veredicto.rotar ? ' <span class="estado-chip vivo">conviene rotar</span>' : ''}</h4>
+      <p class="chico tenue">Criterio: ${esc(p.criterio)}</p>
+      <table class="rev-tabla"><thead><tr><th>Motor</th><th>Acierto</th><th>Créditos</th><th>Tiempo</th><th>Detalle</th></tr></thead><tbody>
+        ${p.mediciones.map((m) => `<tr><td>${esc(m.modelo)}${m.porDefecto ? ' <small class="tenue">(el de siempre)</small>' : ''}${m.modelo === p.veredicto.ganador.modelo ? ' 🏆' : ''}</td><td>${Math.round(m.puntaje * 100)} %</td><td>${m.creditos ?? '—'}</td><td>${seg(m.ms)}</td><td class="chico">${esc(m.detalle ?? '')}</td></tr>`).join('')}</tbody></table>`).join('')}
+    ${r.historia.length ? `<p class="chico tenue">Últimos 60 días: ${r.historia.map((h) => `${esc(h.modelo)} ${Math.round(h.acierto * 100)} % (${h.n} pruebas, ${h.creditos} cr.)`).join(' · ')}</p>` : ''}
+  </section>`
+  $('#rev-banco-correr').onclick = async (e) => {
+    const b = e.currentTarget
+    b.disabled = true
+    toast('Corriendo el banco<small>Unos minutos: cinco pruebas contra tres motores.</small>', 'suave')
+    try { await api('/benchmark', {}); pintarBanco() } catch (err) { error(err) } finally { b.disabled = false }
+  }
 }
 
 // Los turnos del chat como métrica (Fragua #238): por día, por tipo, las causas que se repiten y cada turno con su resultado.

@@ -11,7 +11,7 @@ export type Nodo = { i: number; lema: string; forma: string; frec: number; docs:
 export type Comunidad = { id: number; tam: number; top: string[]; peso: number }
 export type Hueco = { a: number; b: number; puntaje: number; puente: number; terminosA: string[]; terminosB: string[]; bisagras: string[] }
 export type Metricas = { n: number; m: number; M: number; C1: number; C2: number; E: number; estado: Estado; documentos: number; lemas: number; comunidades: number }
-export type Resultado = { nodos: Nodo[]; aristas: [number, number, number][]; comunidades: Comunidad[]; huecos: Hueco[]; metricas: Metricas; automaticas: string[]; ms: number }
+export type Resultado = { nodos: Nodo[]; aristas: [number, number, number][]; comunidades: Comunidad[]; huecos: Hueco[]; metricas: Metricas; automaticas: string[]; ms: number; ejemplos?: number[][] }
 
 export type Opciones = { dic?: Diccionario; maxNodos?: number; puenteParrafos?: boolean; previas?: Record<string, [number, number]>; vos?: boolean; semilla?: number }
 
@@ -22,7 +22,7 @@ export function calcular(docs: Documento[], o: Opciones = {}): Resultado {
 }
 
 /** Las medidas y el dibujo sobre una red ya armada (también sirve para «quitar lo obvio»: la misma red sin sus bisagras). */
-export function medirRed(red: Pick<Red, 'nodos' | 'aristas' | 'documentos' | 'lemas' | 'automaticas'>, o: Opciones = {}): Resultado {
+export function medirRed(red: Pick<Red, 'nodos' | 'aristas' | 'documentos' | 'lemas' | 'automaticas' | 'ejemplos'>, o: Opciones = {}): Resultado {
   const t0 = Date.now()
   const n = red.nodos.length
   const g = adyacencia(n, red.aristas)
@@ -61,7 +61,7 @@ export function medirRed(red: Pick<Red, 'nodos' | 'aristas' | 'documentos' | 'le
     ...(entradas.has(i) ? { entrada: true } : {}), ...(periferia.has(i) ? { periferia: true } : {}),
   }))
   if (conVos) nodos.push({ i: n, lema: '__vos', forma: 'Vos', frec: 0, docs: 0, btw: 0, com: -1, grado: 10, x: pos[n][0], y: pos[n][1], vos: true })
-  return { nodos, aristas: ladosDibujo, comunidades: coms, huecos, metricas, automaticas: red.automaticas, ms: Date.now() - t0 }
+  return { nodos, aristas: ladosDibujo, comunidades: coms, huecos, metricas, automaticas: red.automaticas, ms: Date.now() - t0, ...(red.ejemplos ? { ejemplos: red.ejemplos } : {}) }
 }
 
 /**
