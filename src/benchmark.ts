@@ -19,6 +19,8 @@ export type Prueba = {
   id: string; nombre: string; clase: ClaseLlamada
   /** Se usa mientras él espera (el chat): un motor bastante más lento no conviene aunque sea más barato. */
   interactiva?: boolean
+  /** Tope de salida (los que razonan necesitan lugar para pensar antes de escribir código). */
+  maxTokens?: number
   sistema: string; usuario: string; json?: boolean
   /** Lo que se espera, en palabras (queda en el informe). */
   criterio: string
@@ -61,19 +63,20 @@ export function probarFuncion(codigo: string, nombre: string, casos: [unknown[],
  * tiene ahora una trampa que separa a un motor bueno de uno flojo: un dato viejo y uno corregido, algo que no consta,
  * reglas de desempate, varias restricciones a la vez, dos montos y dos fechas, y bordes en el código.
  */
-export const VERSION_BANCO = 2
+export const VERSION_BANCO = 3
 export const BANCO: Prueba[] = [
   {
     id: 'corpus', nombre: 'Corpus: el dato vigente, la fuente y lo que no consta', clase: { clase: 'mastropiero', agenteId: 'mastropiero' }, interactiva: true,
     sistema: 'Contestá SOLO con lo que dicen los fragmentos. Citá cada dato con su marca [#id]. Si algo no está en los fragmentos, decí que no consta; no lo deduzcas.',
-    usuario: '[#201] El presupuesto inicial de la reforma fue de 12.400 euros.\n[#202] Actualización del 3/11: después de la revisión del arquitecto, el presupuesto definitivo quedó en 13.150 euros.\n[#203] Ramón cobra 1.800 euros por la pintura, que empieza el lunes.\n[#204] La reunión con la comunidad de vecinos se pasó al jueves.\n\nPreguntas: 1) ¿Cuál es el presupuesto definitivo y desde cuándo? 2) ¿Quién paga la pintura?',
-    criterio: '1) 13.150 euros, desde el 3/11, citando [#202] (no 12.400 como definitivo). 2) Quién paga la pintura no consta (que Ramón la cobra no dice quién paga).',
+    usuario: '[#201] El presupuesto inicial de la reforma fue de 12.400 euros.\n[#202] Actualización del 3/11: después de la revisión del arquitecto, el presupuesto definitivo quedó en 13.150 euros.\n[#203] Ramón cobra 1.800 euros por la pintura, que empieza el lunes.\n[#204] La reunión con la comunidad de vecinos se pasó al jueves.\n[#205] Mensaje de Ramón del 1/11: «me dijeron que el presupuesto final iba a ser de 13.500».\n\nPreguntas: 1) ¿Cuál es el presupuesto definitivo y desde cuándo? 2) ¿Quién paga la pintura? 3) ¿Cuánto subió el definitivo respecto del inicial, en euros y en porcentaje con un decimal?',
+    criterio: '1) 13.150 euros, desde el 3/11, citando [#202] (no 12.400 ni los 13.500 de Ramón, que son de antes). 2) Quién paga la pintura no consta. 3) 750 euros, un 6,0 %.',
     puntuar: (t) => {
       const monto = /13[.,\s]?150/.test(t), cita = /\[#202\]/.test(t), fecha = /3\/11|3 de noviembre/i.test(t)
       const noConsta = /no (consta|lo dice|se dice|aparece|figura|est[aá] (en|claro)|se sabe|se menciona|hay (datos|informaci[oó]n))|ning[uú]n fragmento/i.test(t)
-      const trampa = /12[.,\s]?400/.test(t) && !/inicial|antes|primer/i.test(t)
+      const trampa = (/12[.,\s]?400/.test(t) && !/inicial|antes|primer/i.test(t)) || (/13[.,\s]?500/.test(t) && !monto)
       const inventa = /paga(r[aá])? (Ram[oó]n|la comunidad|el arquitecto|los vecinos)/i.test(t)
-      return { puntaje: (monto ? 0.3 : 0) + (cita ? 0.2 : 0) + (fecha ? 0.15 : 0) + (noConsta ? 0.35 : 0) - (trampa ? 0.3 : 0) - (inventa ? 0.35 : 0), detalle: `${monto ? 'vigente ✓' : 'vigente ✗'} · ${cita ? 'cita ✓' : 'cita ✗'} · ${fecha ? 'fecha ✓' : 'fecha ✗'} · ${noConsta ? '«no consta» ✓' : '«no consta» ✗'}${trampa ? ' · dio el viejo' : ''}${inventa ? ' · inventó quién paga' : ''}` }
+      const suba = /\b750\b/.test(t), pct = /\b6[.,]0\s?%|\b6[.,]0 por ciento/.test(t)
+      return { puntaje: (monto ? 0.2 : 0) + (cita ? 0.15 : 0) + (fecha ? 0.1 : 0) + (noConsta ? 0.25 : 0) + (suba ? 0.15 : 0) + (pct ? 0.15 : 0) - (trampa ? 0.3 : 0) - (inventa ? 0.35 : 0), detalle: `${monto ? 'vigente ✓' : 'vigente ✗'} · ${cita ? 'cita ✓' : 'cita ✗'} · ${fecha ? 'fecha ✓' : 'fecha ✗'} · ${noConsta ? '«no consta» ✓' : '«no consta» ✗'} · ${suba ? 'suba ✓' : 'suba ✗'} · ${pct ? '% ✓' : '% ✗'}${trampa ? ' · dio uno viejo' : ''}${inventa ? ' · inventó quién paga' : ''}` }
     },
   },
   {
@@ -121,19 +124,19 @@ Forma: {"etiquetas": ["...", ...]} en el mismo orden.`,
     },
   },
   {
-    id: 'extraccion', nombre: 'Extracción: dos montos, dos fechas y el neto', clase: { clase: 'extractor' }, json: true,
-    sistema: 'Sacá los datos de la transferencia principal. Forma: {"nombre": string, "fecha": "AAAA-MM-DD", "monto": number, "devuelto": number, "fecha_devolucion": "AAAA-MM-DD", "neto": number}. Los números, sin símbolos ni separadores de miles.',
-    usuario: 'El 3 de marzo de 2026, Lucía Ferrer transfirió 1.250,50 € a la cuenta de la asociación. Dos días después, su hermano Pablo devolvió 200 € de esa transferencia porque se había cobrado de más la inscripción.',
-    criterio: '{"nombre": "Lucía Ferrer", "fecha": "2026-03-03", "monto": 1250.5, "devuelto": 200, "fecha_devolucion": "2026-03-05", "neto": 1050.5}',
+    id: 'extraccion', nombre: 'Extracción: tres montos, una fecha relativa y el neto', clase: { clase: 'extractor' }, json: true,
+    sistema: 'Sacá los datos de la transferencia principal. Forma: {"nombre": string, "fecha": "AAAA-MM-DD", "monto": number, "comision": number, "devuelto": number, "fecha_devolucion": "AAAA-MM-DD", "neto": number}. El neto es lo que le quedó a la asociación. Los números, sin símbolos ni separadores de miles.',
+    usuario: 'El martes 3 de marzo de 2026, Lucía Ferrer transfirió 1.250,50 € a la cuenta de la asociación; el banco le descontó a la asociación una comisión de 1,75 € al recibirla. El jueves de la semana siguiente, su hermano Pablo devolvió 200 € de esa transferencia porque se había cobrado de más la inscripción.',
+    criterio: '{"nombre": "Lucía Ferrer", "fecha": "2026-03-03", "monto": 1250.5, "comision": 1.75, "devuelto": 200, "fecha_devolucion": "2026-03-12", "neto": 1048.75}',
     puntuar: (t) => {
       const d = leerJson(t) ?? {}
-      const ok = [String(d.nombre ?? '').trim() === 'Lucía Ferrer', d.fecha === '2026-03-03', Number(d.monto) === 1250.5, Number(d.devuelto) === 200, d.fecha_devolucion === '2026-03-05', Math.abs(Number(d.neto) - 1050.5) < 0.001]
-      const campos = ['nombre', 'fecha', 'monto', 'devuelto', 'fecha_devolucion', 'neto']
+      const ok = [String(d.nombre ?? '').trim() === 'Lucía Ferrer', d.fecha === '2026-03-03', Number(d.monto) === 1250.5, Number(d.comision) === 1.75, Number(d.devuelto) === 200, d.fecha_devolucion === '2026-03-12', Math.abs(Number(d.neto) - 1048.75) < 0.001]
+      const campos = ['nombre', 'fecha', 'monto', 'comision', 'devuelto', 'fecha_devolucion', 'neto']
       return { puntaje: ok.filter(Boolean).length / ok.length, detalle: campos.map((c, i) => `${c} ${ok[i] ? '✓' : '✗'}`).join(' · ') }
     },
   },
   {
-    id: 'codigo', nombre: 'Código: leer montos en cualquier formato', clase: { clase: 'mastropiero', agenteId: 'fragua' },
+    id: 'codigo', nombre: 'Código: leer montos en cualquier formato', clase: { clase: 'mastropiero', agenteId: 'fragua' }, maxTokens: 6000,
     sistema: 'Escribís JavaScript correcto y corto.',
     usuario: `Escribí una función JavaScript llamada parsearMonto(texto) que devuelva el número de un monto escrito como lo escribe la gente, o null si no hay un monto. Formatos: español («1.250,50 €», «2.000», «-200,00», «1,5»), inglés («1,250.50», «$ 3,000»), sin miles («1250.5»), y con el símbolo antes o después. Un punto seguido de exactamente tres dígitos al final es separador de miles («2.000» → 2000). Devolvé solo el código.`,
     criterio: '«1.250,50 €»→1250.5 · «2.000»→2000 · «-200,00»→-200 · «1,5»→1.5 · «1,250.50»→1250.5 · «$ 3,000»→3000 · «1250.5»→1250.5 · «€ 1.234.567,89»→1234567.89 · «abc»→null · «»→null',
@@ -162,7 +165,7 @@ async function medir(db: Db, corrida: string, p: Prueba, modelo: string, porDefe
   let salida = '', error: string | null = null
   try {
     const r = await llamarModelo({ db, clase: p.clase.clase, agenteId, modelos: [modelo] }, {
-      mensajes: [{ role: 'system', content: p.sistema }, { role: 'user', content: p.usuario }], herramientas: [], json: p.json, temperatura: 0.2, maxTokens: 1500,
+      mensajes: [{ role: 'system', content: p.sistema }, { role: 'user', content: p.usuario }], herramientas: [], json: p.json, temperatura: 0.2, maxTokens: p.maxTokens ?? 1500,
     })
     salida = r.texto ?? ''
   } catch (e) { error = (e instanceof Error ? e.message : String(e)).slice(0, 300) }
