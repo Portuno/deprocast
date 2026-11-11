@@ -70,12 +70,14 @@ const CADENAS: Record<ClaseId | 'mastropiero' | 'fondo' | 'profundo' | 'codigo',
   // El código (la Fragua), a DeepSeek Flash: en el banco de pruebas (nov 2026) Pro se cortó por largo tres veces seguidas
   // (2 cr. cada una, sin entregar nada) y Flash pasó los 10 casos por 0,3; MiMo, que también los pasó, de respaldo.
   codigo: [M.deepseek, M.mimo],
-  generativo: [M.mimo, M.deepseek],
+  // Redacción y clasificación, a DeepSeek Flash (banco de pruebas, nov 2026): MiMo se salteaba reglas de desempate (90 %)
+  // y escribía sin voseo ni lo pedido (75 %); Flash, 100 % en las dos. Cuesta unas cinco veces más por pedido.
+  generativo: [M.deepseek, M.mimo],
   gerente: [M.deepseek, M.glm],
   auditor: [M.deepseek, M.glm],
   extractor: [M.mimo, M.deepseek],
   buscador: [M.mimo, M.deepseek],
-  clasificador: [M.mimo, M.deepseek],
+  clasificador: [M.deepseek, M.mimo],
   crawler: [],
   vectorizador: [M.embed],
   ejecutivo: [],

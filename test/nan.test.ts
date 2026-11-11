@@ -28,12 +28,12 @@ const ok = (contenido: unknown) => () => ({
 
 test('cadenas por clase, overrides y NAN_MIMO_ID (sin duplicar)', () => {
   assert.deepEqual(cadena('auditor'), [M.deepseek, M.glm])
-  assert.deepEqual(cadena('clasificador'), [M.mimo, M.deepseek])
+  assert.deepEqual(cadena('clasificador'), [M.deepseek, M.mimo], 'rotado por el banco de pruebas')
   assert.deepEqual(cadena('ejecutivo'), [])
   process.env.NAN_MIMO_ID = 'mimo-x'
   assert.equal(cadena('generativo').at(-1), 'mimo-x')
   process.env.NAN_MIMO_ID = M.mimo
-  assert.deepEqual(cadena('generativo'), [M.mimo, M.deepseek], 'el que ya está no se repite')
+  assert.deepEqual(cadena('generativo'), [M.deepseek, M.mimo], 'el que ya está no se repite')
   assert.deepEqual(cadena('vectorizador'), [M.embed])
   process.env.NAN_CADENA_GENERATIVO = 'qwen3.8-flash'
   assert.deepEqual(cadena('generativo'), ['qwen3.8-flash'])
