@@ -23,7 +23,7 @@ async function pintarBanco() {
   const seg = (ms) => `${(ms / 1000).toFixed(1)} s`
   cont.innerHTML = `<section class="seccion"><div class="aca-sec-cab"><h3>Banco de pruebas de los motores</h3><span class="tenue chico">${r.en ? `Última corrida: ${new Date(r.en).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}. Corre solo los lunes; el veredicto queda como quántomo sellado.` : 'Todavía no corrió: lo hace los lunes a la madrugada (en la nube).'}</span>
       <button class="btn btn-chico" id="rev-banco-correr" title="Correr las cinco pruebas ahora (en la nube; unos minutos)">▶ Correr ahora</button></div>
-    ${r.pruebas.map((p) => `<h4>${esc(p.nombre)}${p.veredicto.rotar ? ' <span class="estado-chip vivo">conviene rotar</span>' : ''}</h4>
+    ${r.pruebas.map((p) => `<h4>${esc(p.nombre)}${p.veredicto.rotar ? ' <span class="estado-chip vivo">conviene rotar</span>' : p.veredicto.noDistingue ? ' <span class="chip" title="Todos los motores aciertan: hay que endurecer la prueba">no distingue</span>' : ''}</h4>
       <p class="chico tenue">Criterio: ${esc(p.criterio)}</p>
       <table class="rev-tabla"><thead><tr><th>Motor</th><th>Acierto</th><th>Créditos</th><th>Tiempo</th><th>Detalle</th></tr></thead><tbody>
         ${p.mediciones.map((m) => `<tr><td>${esc(m.modelo)}${m.porDefecto ? ' <small class="tenue">(el de siempre)</small>' : ''}${m.modelo === p.veredicto.ganador.modelo ? ' 🏆' : ''}</td><td>${Math.round(m.puntaje * 100)} %</td><td>${m.creditos ?? '—'}</td><td>${seg(m.ms)}</td><td class="chico">${esc(m.detalle ?? '')}</td></tr>`).join('')}</tbody></table>`).join('')}

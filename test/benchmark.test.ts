@@ -45,3 +45,16 @@ test('#236: cada prueba tiene su criterio y su puntaje; el banco corre contra el
   assert.equal(v.pruebas.length, 5)
   assert.ok(v.historia.length >= 3)
 })
+
+test('#236: si todos aciertan, la prueba «no distingue» (no se rota por precio); en lo interactivo, el más lento no conviene', async () => {
+  const { veredictoDe } = await import('../src/benchmark.ts')
+  const m = (modelo: string, porDefecto: boolean, puntaje: number, creditos: number, ms: number) => ({ prueba: 'x', modelo, porDefecto, ms, tokensIn: 1, tokensOut: 1, creditos, puntaje, detalle: '', error: null })
+  const facil = veredictoDe(BANCO.find((p) => p.id === 'extraccion')!, [m('a', true, 1, 0.007, 2000), m('b', false, 1, 0.001, 2500)])
+  assert.equal(facil.noDistingue, true)
+  assert.equal(facil.rotar, false)
+  assert.match(facil.texto, /la prueba no distingue/)
+  const chat = veredictoDe(BANCO.find((p) => p.id === 'corpus')!, [m('rapido', true, 0.8, 0.006, 2800), m('barato', false, 0.9, 0.0017, 4700)])
+  assert.equal(chat.rotar, false, '4,7 s contra 2,8 s en el chat: no')
+  const fondo = veredictoDe(BANCO.find((p) => p.id === 'extraccion')!, [m('caro', true, 0.6, 0.007, 2000), m('mejor', false, 0.9, 0.002, 5000)])
+  assert.equal(fondo.rotar, true, 'de fondo, acierta más y cuesta menos: conviene')
+})

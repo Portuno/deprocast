@@ -17,6 +17,8 @@ import { crearQuantomo } from './quantomos.ts'
 type ClaseLlamada = Parameters<typeof cadenaPara>[0]
 export type Prueba = {
   id: string; nombre: string; clase: ClaseLlamada
+  /** Se usa mientras él espera (el chat): un motor bastante más lento no conviene aunque sea más barato. */
+  interactiva?: boolean
   sistema: string; usuario: string; json?: boolean
   /** Lo que se espera, en palabras (queda en el informe). */
   criterio: string
@@ -56,7 +58,7 @@ export function probarFuncion(codigo: string, nombre: string, casos: [unknown[],
 
 export const BANCO: Prueba[] = [
   {
-    id: 'corpus', nombre: 'Corpus: contestar desde fragmentos y citar', clase: { clase: 'mastropiero', agenteId: 'mastropiero' },
+    id: 'corpus', nombre: 'Corpus: contestar desde fragmentos y citar', clase: { clase: 'mastropiero', agenteId: 'mastropiero' }, interactiva: true,
     sistema: 'Contestá la pregunta usando SOLO los fragmentos. Citá el fragmento de donde sale el dato con su marca [#id]. Una o dos oraciones.',
     usuario: '[#101] La reunión del comité de obra se pasó al jueves 14 a las 18 h, en el local de la calle Mayor.\n[#102] El presupuesto de la reforma quedó en 12.400 euros con el IVA incluido.\n[#103] La pintura la hace la cuadrilla de Ramón la semana que viene.\n\nPregunta: ¿cuánto quedó el presupuesto de la reforma y de dónde lo sacás?',
     criterio: 'Dice 12.400 euros y cita [#102] (y no otro fragmento como fuente).',
@@ -143,18 +145,22 @@ async function medir(db: Db, corrida: string, p: Prueba, modelo: string, porDefe
   return m
 }
 
-export type Veredicto = { prueba: string; nombre: string; ganador: Medicion; porDefecto: Medicion; rotar: boolean; texto: string }
+export type Veredicto = { prueba: string; nombre: string; ganador: Medicion; porDefecto: Medicion; rotar: boolean; noDistingue: boolean; texto: string }
 
 /** Gana el que más acierta; a igual acierto (±5 %), el que cuesta menos; después, el más rápido. Rotar: gana otro y no empeora. */
 export function veredictoDe(p: Prueba, ms: Medicion[]): Veredicto {
   const costo = (m: Medicion) => m.creditos ?? Number.POSITIVE_INFINITY
   const orden = [...ms].sort((a, b) => (Math.abs(b.puntaje - a.puntaje) > 0.05 ? b.puntaje - a.puntaje : costo(a) - costo(b) || a.ms - b.ms))
   const ganador = orden[0], porDefecto = ms.find((m) => m.porDefecto) ?? ms[0]
-  const rotar = ganador.modelo !== porDefecto.modelo && ganador.puntaje >= porDefecto.puntaje && (ganador.puntaje - porDefecto.puntaje >= 0.1 || costo(ganador) < costo(porDefecto) * 0.7)
+  // Si todos aciertan (95 % o más), la prueba no distingue motores: se dice, y no se propone rotar solo por precio.
+  const noDistingue = ms.length > 1 && ms.every((m) => m.puntaje >= 0.95)
+  // En lo que él espera (el chat), un motor más de 1,4 veces más lento no conviene aunque sea más barato.
+  const lento = !!p.interactiva && ganador.ms > porDefecto.ms * 1.4
+  const rotar = !noDistingue && !lento && ganador.modelo !== porDefecto.modelo && ganador.puntaje >= porDefecto.puntaje && (ganador.puntaje - porDefecto.puntaje >= 0.1 || costo(ganador) < costo(porDefecto) * 0.7)
   const cr = (m: Medicion) => (m.creditos != null ? `${m.creditos} cr.` : '— cr.')
   const linea = (m: Medicion) => `${m.modelo} ${Math.round(m.puntaje * 100)} % · ${cr(m)} · ${(m.ms / 1000).toFixed(1)} s`
-  const texto = `${p.nombre}: gana ${linea(ganador)}${ganador.modelo === porDefecto.modelo ? ' (el de siempre)' : ` · el de siempre: ${linea(porDefecto)}`}${rotar ? ' → conviene rotar' : ''}`
-  return { prueba: p.id, nombre: p.nombre, ganador, porDefecto, rotar, texto }
+  const texto = `${p.nombre}: gana ${linea(ganador)}${ganador.modelo === porDefecto.modelo ? ' (el de siempre)' : ` · el de siempre: ${linea(porDefecto)}`}${rotar ? ' → conviene rotar' : noDistingue ? ' · todos aciertan: la prueba no distingue (hay que endurecerla)' : lento ? ' · más barato pero más lento para algo que se espera: no conviene' : ''}`
+  return { prueba: p.id, nombre: p.nombre, ganador, porDefecto, rotar, noDistingue, texto }
 }
 
 /** La corrida semanal del banco entero. Deja el veredicto como quántomo sellado (el rastro de qué se probó y qué ganó). */

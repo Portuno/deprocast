@@ -17,7 +17,9 @@ import type { Foto } from './index.ts'
 
 export type AristaSentido = [number, number, number] // a, b, similitud (0–1)
 export type HuecoSentido = { a: number; b: number; sentido: number; literal: number; terminosA: string[]; terminosB: string[] }
-export type Sentido = { fotoId: number; conceptos: number; aristas: AristaSentido[]; huecos: HuecoSentido[]; en: number; aviso?: string }
+export type Sentido = { fotoId: number; conceptos: number; aristas: AristaSentido[]; huecos: HuecoSentido[]; en: number; aviso?: string; version?: number }
+/** Sube cuando cambia cómo se calcula: lo guardado con otra versión se rehace. */
+export const VERSION_SENTIDO = 2
 
 const ceder = () => new Promise<void>((ok) => setImmediate(ok))
 const MAX_CONCEPTOS = 500
@@ -53,10 +55,11 @@ async function vectoresDePiezas(db: Db, ids: number[]): Promise<Map<number, Floa
 
 /** Calcula la capa de sentido de una foto (sin guardarla). */
 export async function calcularSentido(db: Db, foto: Pick<Foto, 'id' | 'nodos' | 'aristas' | 'comunidades' | 'ejemplos'>, ahora = Date.now()): Promise<Sentido> {
-  const vacio = (aviso: string): Sentido => ({ fotoId: foto.id, conceptos: 0, aristas: [], huecos: [], en: ahora, aviso })
+  const vacio = (aviso: string): Sentido => ({ fotoId: foto.id, conceptos: 0, aristas: [], huecos: [], en: ahora, aviso, version: VERSION_SENTIDO })
   if (!foto.ejemplos?.length) return vacio('Esta foto es anterior a la capa de sentido: recalculá el grafo.')
   // Los conceptos con más peso (bisagras primero), los que tienen piezas con pasajes.
-  const candidatos = foto.nodos.filter((n) => !n.vos && (foto.ejemplos![n.i]?.length ?? 0) > 0).sort((a, b) => b.btw - a.btw || b.frec - a.frec).slice(0, MAX_CONCEPTOS)
+  // Con al menos dos piezas: el vector de una sola pieza es el de esa pieza, no el del concepto.
+  const candidatos = foto.nodos.filter((n) => !n.vos && (foto.ejemplos![n.i]?.length ?? 0) >= 2).sort((a, b) => b.btw - a.btw || b.frec - a.frec).slice(0, MAX_CONCEPTOS)
   const piezas = await vectoresDePiezas(db, [...new Set(candidatos.flatMap((n) => foto.ejemplos![n.i]))])
   if (!piezas.size) return vacio('Las piezas de este grafo todavía no tienen pasajes (los hace el reproceso).')
   const conceptos: { i: number; v: Float32Array }[] = []
@@ -80,7 +83,11 @@ export async function calcularSentido(db: Db, foto: Pick<Foto, 'id' | 'nodos' | 
     if (x % 50 === 49) await ceder()
   }
   // El umbral: lo más parecido entre lo que NO está unido en el texto (el 2 % de arriba), nunca por debajo de 0,35.
-  const sinLiteral = sims.filter((p) => !literal.has(p.a < p.b ? `${p.a}|${p.b}` : `${p.b}|${p.a}`))
+  // Lo que importa es lo que NUNCA se nombra junto: ni arista literal ni una sola pieza en común (si comparten piezas, se
+  // parecen porque salen del mismo texto —un log pegado, una charla—, no porque digan lo mismo con otras palabras).
+  const piezasDe = new Map(candidatos.map((n) => [n.i, new Set(foto.ejemplos![n.i])]))
+  const comparten = (a: number, b: number) => { const x = piezasDe.get(a)!, y = piezasDe.get(b)!; for (const id of x) if (y.has(id)) return true; return false }
+  const sinLiteral = sims.filter((p) => !literal.has(p.a < p.b ? `${p.a}|${p.b}` : `${p.b}|${p.a}`) && !comparten(p.a, p.b))
   const orden = sinLiteral.map((p) => p.s).sort((a, b) => b - a)
   const umbral = Math.max(0.35, orden[Math.floor(orden.length * 0.02)] ?? 1)
   const porNodo = new Map<number, number>()
@@ -121,14 +128,15 @@ export async function calcularSentido(db: Db, foto: Pick<Foto, 'id' | 'nodos' | 
     if (s >= 0.3 && l < 0.05) huecos.push({ a, b, sentido: +s.toFixed(3), literal: +l.toFixed(4), terminosA: grupos.find((g) => g.id === a)!.top.slice(0, 5), terminosB: grupos.find((g) => g.id === b)!.top.slice(0, 5) })
   }
   huecos.sort((p, q) => q.sentido - q.literal * 5 - (p.sentido - p.literal * 5))
-  return { fotoId: foto.id, conceptos: conceptos.length, aristas, huecos: huecos.slice(0, 6), en: ahora }
+  return { fotoId: foto.id, conceptos: conceptos.length, aristas, huecos: huecos.slice(0, 6), en: ahora, version: VERSION_SENTIDO }
 }
 
 // ─── guardado y cálculo de fondo ────────────────────────────────────────
 
 export function sentidoGuardado(db: Db, fotoId: number): Sentido | null {
   const r = db.prepare('SELECT datos FROM grafo_sentido WHERE foto_id = ?').get(fotoId) as { datos: string } | undefined
-  return r ? json<Sentido>(r.datos, null as any) : null
+  const s = r ? json<Sentido>(r.datos, null as any) : null
+  return s && s.version === VERSION_SENTIDO ? s : null
 }
 const enCurso = new Set<number>()
 export const calculandoSentido = (fotoId: number) => enCurso.has(fotoId)
