@@ -67,4 +67,7 @@ test('#236: si todos aciertan, la prueba «no distingue» (no se rota por precio
   assert.equal(chat.rotar, false, '4,7 s contra 2,8 s en el chat: no')
   const fondo = veredictoDe(BANCO.find((p) => p.id === 'extraccion')!, [m('caro', true, 0.6, 0.007, 2000), m('mejor', false, 0.9, 0.002, 5000)])
   assert.equal(fondo.rotar, true, 'de fondo, acierta más y cuesta menos: conviene')
+  // 1 − 0,9 da 0,0999… en coma flotante: diez puntos más de acierto igual cuentan (aunque cueste más).
+  const diez = veredictoDe(BANCO.find((p) => p.id === 'clasificacion')!, [m('flojo', true, 0.9, 0.005, 3600), m('certero', false, 1, 0.02, 4200)])
+  assert.equal(diez.rotar, true)
 })

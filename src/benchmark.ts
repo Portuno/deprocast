@@ -194,7 +194,7 @@ export function veredictoDe(p: Prueba, ms: Medicion[]): Veredicto {
   const noDistingue = ms.length > 1 && ms.every((m) => m.puntaje >= 0.95)
   // En lo que él espera (el chat), un motor más de 1,4 veces más lento no conviene aunque sea más barato.
   const lento = !!p.interactiva && ganador.ms > porDefecto.ms * 1.4
-  const rotar = !noDistingue && !lento && ganador.modelo !== porDefecto.modelo && ganador.puntaje >= porDefecto.puntaje && (ganador.puntaje - porDefecto.puntaje >= 0.1 || costo(ganador) < costo(porDefecto) * 0.7)
+  const rotar = !noDistingue && !lento && ganador.modelo !== porDefecto.modelo && ganador.puntaje >= porDefecto.puntaje && (ganador.puntaje - porDefecto.puntaje >= 0.1 - 1e-9 || costo(ganador) < costo(porDefecto) * 0.7)
   const cr = (m: Medicion) => (m.creditos != null ? `${m.creditos} cr.` : '— cr.')
   const linea = (m: Medicion) => `${m.modelo} ${Math.round(m.puntaje * 100)} % · ${cr(m)} · ${(m.ms / 1000).toFixed(1)} s`
   const texto = `${p.nombre}: gana ${linea(ganador)}${ganador.modelo === porDefecto.modelo ? ' (el de siempre)' : ` · el de siempre: ${linea(porDefecto)}`}${rotar ? ' → conviene rotar' : noDistingue ? ' · todos aciertan: la prueba no distingue (hay que endurecerla)' : lento ? ' · más barato pero más lento para algo que se espera: no conviene' : ''}`
