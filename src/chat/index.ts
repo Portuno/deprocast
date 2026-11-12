@@ -771,6 +771,14 @@ ${vozPara('ceremonia')}` : ''}`, hs, previos, clase: 'mastropiero', agenteId: o.
     const escribio = corregido.length > 0 || usadas.some((n) => HERRAMIENTAS.find((h) => h.nombre === n)?.familia !== 'lectura') || (Array.isArray(guardados) && guardados.length > 0)
     if (!escribio) registrarEvento(db, cid, 'Ojo: dijo que lo anotó o lo arregló, pero en este turno no se guardó nada. Si querés que quede, decile «anotalo».')
   }
+  // Una reunión nombrada con hora y sin fecha se cruza con la agenda de verdad (Fragua #248): si hoy no está, se avisa.
+  if (c.con === MASTROPIERO && c.modo !== 'diario' && final) {
+    const g = await (await import('./guardia-horas.ts')).verificarHoras(db, final).catch(() => null)
+    if (g) {
+      registrarEvento(db, cid, g.aviso)
+      void import('../fallos.ts').then((f) => f.registrarFallo(db, { origen: 'chat:guardia-horas', mensaje: `Nombró una reunión a las ${g.horas.map((h) => `${h.hora}:${String(h.minuto).padStart(2, '0')}`).join(', ')} sin fecha ni agenda que la respalde`, salida: g.horas[0].frase, recuperado: true })).catch(() => {})
+    }
+  }
 }
 
 /** Inyectable: en la app corre en segundo plano; en tests, se puede esperar o apagar. */

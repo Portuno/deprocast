@@ -89,3 +89,14 @@ test('#245: antes de nombrar una reunión o una hora, el chat la verifica en la 
   assert.match(p, /Antes de nombrar una reunión, una cita o una hora[^\n]*verificala en ESTE turno con ver_dia/)
   assert.match(p, /de dónde sale y su fecha absoluta/)
 })
+
+test('#248: el chat nombra «la reunión de las 15» con la agenda de hoy vacía: queda el aviso en la charla, con la reunión de verdad', async () => {
+  const { _probarGuardia } = await import('../src/chat/guardia-horas.ts')
+  const db = abrir(':memory:')
+  _probarCorrecciones(async () => ({ correcciones: [] }))
+  _probarGuardia(async () => [{ fecha: '2026-11-09', dia: 'lun 9/11', resumen: '1 evento', eventos: [{ fecha: '2026-11-09', hora: '15:00–16:00', titulo: 'Plan de Igualdad', lugar: null }], fijo: [] }])
+  const c = crearConversacion(db)
+  _probarModelo(async () => responde('Para hoy, la reunión de las 15 es el único ítem al 100%.'))
+  await enviar(db, c.id, '¿Qué tengo hoy?')
+  assert.ok(mensajes(db, c.id).some((m) => m.rol === 'evento' && /Ojo con la hora[\s\S]*«Plan de Igualdad» del lun 9\/11/.test(m.texto ?? '')))
+})

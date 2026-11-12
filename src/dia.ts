@@ -14,7 +14,12 @@ export async function verDia(db: Db, fecha = fechaLocal()) {
   const { eventos, avisos } = await agendaDelDia(fecha).catch(() => ({ eventos: [], avisos: ['No pude leer el calendario'] }))
   const runs = listarRuns(db, { fecha }).filter((r) => r.estado !== 'descartada')
   const semana = semanaDe(new Date(`${fecha}T12:00:00`).getTime())
+  const hoy = fechaLocal()
+  const agendaHoy = eventos.length ? `${eventos.length} evento${eventos.length === 1 ? '' : 's'} en la agenda` : 'sin eventos en la agenda'
+  const fijoHoy = bloquesDelDia(db, fecha).length ? 'con horario fijo' : 'sin horario fijo'
   return {
+    // Arriba y en palabras (Fragua #248): de qué día es todo esto y si la agenda está vacía (un [] se leía como «falta el dato»).
+    resumen: `${diaSemana(fecha)}${fecha === hoy ? ' (hoy)' : ''}: ${agendaHoy}; ${fijoHoy}; ${runs.length ? 'con run' : 'sin run'}. Nada de acá es de otro día.`,
     fecha, dia: diaSemana(fecha),
     // Cada evento con su fecha absoluta (Fragua #214): leído otro día, no se confunde con la agenda de hoy.
     agenda: eventos.map((e) => ({ fecha, hora: e.todoElDia ? 'todo el día' : `${hora(e.inicio)}–${hora(e.fin)}`, titulo: e.titulo, lugar: e.lugar, fuente: 'su calendario' })),
@@ -30,10 +35,10 @@ export async function verDia(db: Db, fecha = fechaLocal()) {
 /** La agenda de varios días (como máximo 14). */
 export async function verAgenda(db: Db, desde = fechaLocal(), hasta?: string) {
   const fin = hasta && hasta >= desde ? hasta : desde
-  const dias: { fecha: string; dia: string; eventos: { fecha: string; hora: string; titulo: string; lugar: string | null }[]; fijo: { desde: string; hasta: string; que: string }[] }[] = []
+  const dias: { fecha: string; dia: string; resumen: string; eventos: { fecha: string; hora: string; titulo: string; lugar: string | null }[]; fijo: { desde: string; hasta: string; que: string }[] }[] = []
   for (let f = desde, i = 0; f <= fin && i < 14; i++) {
     const { eventos } = await agendaDelDia(f).catch(() => ({ eventos: [] as Awaited<ReturnType<typeof agendaDelDia>>['eventos'] }))
-    dias.push({ fecha: f, dia: diaSemana(f), eventos: eventos.map((e) => ({ fecha: f, hora: e.todoElDia ? 'todo el día' : `${hora(e.inicio)}–${hora(e.fin)}`, titulo: e.titulo, lugar: e.lugar })), fijo: bloquesDelDia(db, f) })
+    dias.push({ fecha: f, dia: diaSemana(f), resumen: eventos.length ? `${eventos.length} evento${eventos.length === 1 ? '' : 's'}` : 'sin eventos en la agenda', eventos: eventos.map((e) => ({ fecha: f, hora: e.todoElDia ? 'todo el día' : `${hora(e.inicio)}–${hora(e.fin)}`, titulo: e.titulo, lugar: e.lugar })), fijo: bloquesDelDia(db, f) })
     f = fechaLocal(new Date(`${f}T12:00:00`).getTime() + 86_400_000)
   }
   return dias
