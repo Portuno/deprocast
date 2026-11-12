@@ -844,6 +844,59 @@ async function boton(db: Db, q: any) {
 
 // ─── archivos ───────────────────────────────────────────────────────────
 
+// ─── hojas de cuaderno ──────────────────────────────────────────────────
+
+/** «hoja», «cuaderno», «huion», «apuntes» en el texto de una foto: va al cuaderno (Tandas), no al clasificador. */
+export const MARCA_CUADERNO = /(?<!\p{L})(hojas?|cuadernos?|huion|apuntes)(?!\p{L})/iu
+/** La tanda de hojas en curso: hasta cuándo las fotos sin texto siguen yendo al cuaderno, su álbum, y lo que llegó. */
+const hojas = { hasta: 0, grupo: null as string | null, ids: [] as number[], timer: null as ReturnType<typeof setTimeout> | null }
+const nombreCuaderno = (db: Db) => ajuste(db, 'cuaderno_canal') || 'Cuaderno'
+let esperarHojas = (ms: number) => new Promise<void>((ok) => setTimeout(ok, ms))
+export function _probarHojas(o: { esperar?: typeof esperarHojas }) { if (o.esperar) esperarHojas = o.esperar; hojas.hasta = 0; hojas.grupo = null; hojas.ids = [] }
+
+/**
+ * Una hoja de cuaderno (exportada del Huion, o la foto de una página a mano): a Tandas, que la lee con visión y la deja
+ * en el corpus como página de cuaderno. Las que llegan juntas (un álbum, o seguidas) son una tanda: un aviso al
+ * principio y otro cuando están leídas, no uno por hoja.
+ */
+async function hojaDeCuaderno(db: Db, datos: Buffer, nombre: string, grupo: string | null) {
+  const t = await import('./tandas.ts')
+  const primera = !hojas.ids.length && !hojas.timer
+  const r = t.encolar(db, { tipo: 'pagina', nombre, datos, cuaderno: nombreCuaderno(db), fecha: fechaLocal() })
+  void t.procesarTandas(db).catch((e) => console.error('  tandas:', e instanceof Error ? e.message : e))
+  hojas.hasta = Date.now() + 3 * 60_000
+  if (grupo) hojas.grupo = grupo
+  if (!r.repetida) hojas.ids.push(r.tanda.id)
+  const canal = canalActual.getStore()
+  if (hojas.timer) clearTimeout(hojas.timer)
+  hojas.timer = setTimeout(() => {
+    hojas.timer = null
+    const ids = hojas.ids.splice(0)
+    const avisar = (texto: string) => (canal ? conCanal(canal, () => decir(texto)) : decir(texto))
+    void avisarHojas(db, ids, avisar).catch((e) => console.error('  hojas:', e instanceof Error ? e.message : e))
+  }, 20_000)
+  hojas.timer.unref?.()
+  if (r.repetida) return decir(`📓 Esa hoja ya la tenía (hoja ${r.tanda.hoja} de «${r.tanda.cuaderno}»).`)
+  if (primera) return decir(`📓 Hoja ${r.tanda.hoja} al cuaderno «${r.tanda.cuaderno}». Si mandás más en estos minutos van juntas; te aviso cuando estén leídas.`)
+}
+
+/** Cuando la tanda terminó de leerse (o a los 15 minutos), un solo aviso con lo que entró al corpus. */
+export async function avisarHojas(db: Db, ids: number[], avisar: (texto: string) => Promise<unknown>) {
+  if (!ids.length) return
+  const t = await import('./tandas.ts')
+  const leer = () => ids.map((id) => t.leerTanda(db, id)).filter((x) => !!x)
+  for (let i = 0; i < 90 && leer().some((x) => x!.estado === 'pendiente' || x!.estado === 'procesando'); i++) await esperarHojas(10_000)
+  const xs = leer()
+  const hechas = xs.filter((x) => x!.estado === 'hecha'), fallas = xs.filter((x) => x!.estado === 'fallo'), faltan = xs.length - hechas.length - fallas.length
+  const titulo = (id: number | null) => (id ? (db.prepare('SELECT titulo FROM corpus WHERE id = ?').get(id) as { titulo: string } | undefined)?.titulo : null)
+  const lineas = [
+    ...hechas.map((x) => `• ${titulo(x!.piezaId) ?? `hoja ${x!.hoja}`} [#${x!.piezaId}]`),
+    ...fallas.map((x) => `✗ hoja ${x!.hoja}: ${x!.error ?? 'no se pudo leer'}`),
+    faltan ? `⏳ ${faltan} siguen en la cola: entran solas.` : '',
+  ].filter(Boolean)
+  return avisar(`📓 ${hechas.length ? `Leí ${hechas.length} hoja${hechas.length === 1 ? '' : 's'}; ya están en tu corpus` : 'No pude leer las hojas'}:\n${lineas.join('\n')}`)
+}
+
 async function archivo(db: Db, doc: any) {
   if ((doc.file_size ?? 0) > 20 * 1024 * 1024) return decir('Es más grande que lo que Telegram me deja bajar (20 MB). Subilo desde Corpus → Ingerir.')
   const { datos } = await bajarDe(doc.file_id)
@@ -910,6 +963,21 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
     return guardarSuenoTelegram(db, { texto })
   }
   if (texto && !texto.startsWith('/') && PARECE_SUENO.test(texto)) return guardarSuenoTelegram(db, { texto })
+  // Hojas de cuaderno (Huion u otro): «/cuaderno [nombre]» (o «cuaderno», «hojas» solo) abre la tanda; las fotos van a Tandas.
+  const abre = !msg.photo?.length && !msg.document && texto ? /^\/?(cuaderno|hojas)(?:@\w+)?(?:\s+(.+))?$/i.exec(texto.trim()) : null
+  if (abre && (abre[2] || texto!.trim().startsWith('/') || /^(cuaderno|hojas)$/i.test(texto!.trim()))) {
+    if (abre[2]) fijarAjuste(db, 'cuaderno_canal', abre[2].trim().slice(0, 60))
+    hojas.hasta = Date.now() + 10 * 60_000
+    return decir(`📓 Mandá las hojas (fotos o JPG, de a una o todas juntas): van al cuaderno «${nombreCuaderno(db)}» durante 10 minutos. Para otro cuaderno: /cuaderno y el nombre.`)
+  }
+  const imagenSuelta = msg.document && /^image\/(jpe?g|png|webp)$/i.test(String(msg.document.mime_type ?? '')) ? msg.document : null
+  if (msg.photo?.length || imagenSuelta) {
+    const enTanda = (msg.media_group_id && msg.media_group_id === hojas.grupo) || (Date.now() < hojas.hasta && !(texto ?? '').trim())
+    if (enTanda || (texto && MARCA_CUADERNO.test(texto))) {
+      const { datos, nombre } = await bajarDe((imagenSuelta ?? msg.photo.at(-1)).file_id)
+      return hojaDeCuaderno(db, datos, imagenSuelta?.file_name ?? nombre, msg.media_group_id ?? null)
+    }
+  }
   if (texto?.startsWith('/')) {
     const [cmd] = texto.split(/\s+/)
     return comando(db, cmd.toLowerCase().replace(/@\w+$/, ''), texto.slice(cmd.length).trim())
@@ -954,6 +1022,8 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
     let foto: ReturnType<typeof guardarFoto> | null = null
     try { foto = guardarFoto(nombre, datos) } catch { /* sin ffmpeg ni nada raro: se sigue con la original */ }
     const c = await clasificar(db, { imagen: foto ? { datos: foto.datos, mime: foto.mime } : { datos, mime: 'image/jpeg' }, texto }).catch(() => null)
+    // Una página escrita a mano (sin decir nada): es una hoja de cuaderno, va a Tandas aunque no diga «hoja».
+    if (c?.tipo === 'manuscrito' && c.confianza >= 0.6) return hojaDeCuaderno(db, datos, nombre, msg.media_group_id ?? null)
     if (await registrarYContar(db, c, { foto: foto?.url ?? null, texto: texto ?? '' })) { void import('./google/drive.ts').then((d) => d.alDrive(db, { datos, nombre, tipo: 'imagen', origen: nombreCanal(), descripcion: [texto, c?.descripcion].filter(Boolean).join('\n\n') })).catch(() => {}); return }
     const descripcion = c?.descripcion || await ver(db, datos)
     void import('./google/drive.ts').then((d) => d.alDrive(db, { datos, nombre, tipo: 'imagen', origen: nombreCanal(), descripcion: [texto, descripcion].filter(Boolean).join('\n\n') })).catch(() => {})

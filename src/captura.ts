@@ -12,7 +12,7 @@ import { borrarSalud, metasSalud, registrarSalud, resumenDia } from './salud.ts'
 import { registrarMovimiento, CATEGORIAS } from './finanzas.ts'
 import { prepararRepaso, registrarPractica } from './aprender.ts'
 
-export const TIPOS_CAPTURA = ['comida', 'ejercicio', 'sueno', 'medida', 'gasto', 'ingreso', 'aprendizaje', 'otro'] as const
+export const TIPOS_CAPTURA = ['comida', 'ejercicio', 'sueno', 'medida', 'gasto', 'ingreso', 'aprendizaje', 'manuscrito', 'otro'] as const
 export type Captura = {
   tipo: (typeof TIPOS_CAPTURA)[number]
   confianza: number
@@ -31,7 +31,8 @@ const SISTEMA = `Clasificás lo que el jugador le manda a su asistente (una foto
   sueno (cuánto o cómo durmió),
   medida (su peso, una balanza, medidas del cuerpo),
   gasto (un ticket, una factura, «gasté», «pagué»), ingreso («cobré», «me pagaron», una transferencia recibida),
-  aprendizaje (lo que estudió o practicó: «estudié 30 min de X», apuntes de una clase),
+  aprendizaje (lo que estudió o practicó: «estudié 30 min de X»; si es la foto de apuntes a mano, es manuscrito),
+  manuscrito (una página escrita a mano: de un cuaderno, apuntes, una hoja exportada de un cuaderno digital; no un ticket ni un impreso),
   otro (cualquier otra cosa: una charla, una pregunta, un pedido, una foto que no es un registro).
 - confianza: 0 a 1. Si dudás entre registro y charla, «otro».
 - fecha: YYYY-MM-DD solo si la dice o se lee («ayer», la fecha del ticket); si no, null. hora: HH:MM si la dice o se lee; si no, null.
@@ -43,6 +44,7 @@ const SISTEMA = `Clasificás lo que el jugador le manda a su asistente (una foto
   sueno: {"horas": number, "calidad": 1|2|3 (mal, bien, muy bien) | null}
   medida: {"peso": number|null, "grasa_corporal": number|null, "cintura": number|null}
   gasto o ingreso: {"monto": number (positivo), "moneda": "EUR"|"USD"|"ARS"|…, "comercio": string, "categoria": una de ${CATEGORIAS.join(', ')}, "proyecto": string|null (si dice para qué proyecto o persona)}
+  manuscrito: {}
   aprendizaje: {"tema": string (el tema o habilidad, corto: «Francés», «Teórico de conducir»), "minutos": number|null, "que": string (qué practicó, concreto)}
   otro: {}
 Forma: {"tipo": string, "confianza": number, "fecha": string|null, "hora": string|null, "titulo": string, "descripcion": string, "datos": object}`
