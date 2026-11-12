@@ -1294,7 +1294,7 @@ const rutas: [string, RegExp, Ruta][] = [
     // A mano, todo vuelve a empezar (también lo que esperaba a la compu después de sus tres intentos en la nube), y Gemini
     // deja de descansar: si de verdad no tiene cupo, lo vuelve a decir.
     fijarAjuste(db, 'youtube_gemini_hasta', '0')
-    const n = Number(db.prepare(`UPDATE youtube_cola SET estado = 'pendiente', intentos = 0, motivo = NULL WHERE estado IN ('fallo', 'sin_subtitulos', 'compu')`).run().changes)
+    const n = Number(db.prepare(`UPDATE youtube_cola SET estado = 'pendiente', intentos = 0, motivo = NULL WHERE estado IN ('fallo', 'sin_subtitulos', 'compu', 'gemini')`).run().changes)
     void y.trabajarYoutube(db).catch(() => {})
     return { reintentados: n }
   }],

@@ -67,7 +67,7 @@ async function pintarCola() {
 const ESTADO_LOTE = { subiendo: 'subiendo desde la compu', ingiriendo: 'leyendo el paquete', procesando: 'escuchando, mirando y destilando', historia: 'armando la historia de cada proyecto', terminado: 'terminado', error: 'con error' }
 
 /** YouTube: pegar videos o canales; la cola dice qué se leyó y qué espera (al servicio o a la compu). */
-const ICONO_YT = { pendiente: '⏳', compu: '🖥', listo: '✓', sin_subtitulos: '∅', fallo: '✗' }
+const ICONO_YT = { pendiente: '⏳', gemini: '⏸', compu: '🖥', listo: '✓', sin_subtitulos: '∅', fallo: '✗' }
 async function pintarYoutube() {
   const cont = $('#yt-estado')
   if (!cont) return
@@ -76,7 +76,7 @@ async function pintarYoutube() {
   const c = d.cuenta
   const hace = (ms) => { const m = Math.round((Date.now() - ms) / 60_000); return m < 2 ? 'recién' : m < 120 ? `hace ${m} min` : `hace ${Math.round(m / 60)} h` }
   cont.innerHTML = `
-    <p>${[c.listo ? `✓ ${c.listo} leídos` : '', c.pendiente ? `⏳ ${c.pendiente} en cola` : '', c.compu ? `🖥 ${c.compu} esperan tu compu` : '', c.sin_subtitulos ? `∅ ${c.sin_subtitulos} sin subtítulos` : '', c.fallo ? `✗ ${c.fallo} fallaron` : '', d.canales ? `📺 ${d.canales} canales por listar` : ''].filter(Boolean).join(' · ') || 'Todavía no importaste videos.'}</p>
+    <p>${[c.listo ? `✓ ${c.listo} leídos` : '', c.pendiente ? `⏳ ${c.pendiente} en cola` : '', c.gemini ? `⏸ ${c.gemini} esperan cupo de Gemini${d.gemini?.hasta ? ` (vuelve ${new Date(d.gemini.hasta).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })})` : ''}` : '', c.compu ? `🖥 ${c.compu} esperan tu compu` : '', c.sin_subtitulos ? `∅ ${c.sin_subtitulos} sin subtítulos` : '', c.fallo ? `✗ ${c.fallo} fallaron` : '', d.canales ? `📺 ${d.canales} canales por listar` : ''].filter(Boolean).join(' · ') || 'Todavía no importaste videos.'}</p>
     <p class="tenue chico">Servicio de transcripciones: ${d.servicio.configurado ? (d.servicio.disponible ? 'activo' : `en pausa (${esc(d.servicio.motivo ?? 'sin cupo')})`) : 'no configurado (SUPADATA_API_KEY)'} · Tu compu: ${d.compu.activa ? 'leyendo ahora' : d.compu.vista ? `la última vez ${hace(d.compu.vista)}` : 'nunca se conectó'}</p>
     ${c.compu && !d.compu.activa ? `<p class="chico">Para que tu compu los lea, dejá corriendo en la carpeta de Deprocast:</p><pre>npm run mastro -- youtube ${esc(location.origin)}</pre>` : ''}
     ${d.listaCanales?.length ? `<h4 class="yt-sub">Canales</h4><div class="cu-fuentes">${d.listaCanales.map((x) => `<div class="cu-fuente"><span>📺 ${esc(x.titulo ?? x.id.replace(/^canal:/, ''))}${x.dominio ? ` <span class="chip">${esc(x.dominio)}</span>` : ''} <small class="tenue">${estadoCanalYt(x)}</small></span>${x.piezaId ? `<a href="#" data-pieza="${x.piezaId}">${x.censo ? 'ver el censo' : 'ver'}</a>` : ''}${x.censo?.estado === 'listo' ? `<button class="btn btn-chico btn-primario" data-censo-ok="${esc(x.id)}">Aprobar el plan</button>` : ''}</div>`).join('')}</div>` : ''}

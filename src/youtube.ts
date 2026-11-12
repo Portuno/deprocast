@@ -18,6 +18,7 @@ import { ajuste, fechaLocal, fijarAjuste, type Db } from './db.ts'
 import { asegurarFuente, insertar, slug } from './corpus.ts'
 import { abrirLote, encolarDestilado, trabajarTakeout } from './takeout/nube.ts'
 import { clasificarYoutube, leerVideo, transcripcionDeJson3, urlDeCanal, videosDelCanal, type VideoYoutube } from './lector/youtube.ts'
+import { zonaActual } from './zona.ts'
 
 export type ItemCola = { id: string; tipo: 'video' | 'canal'; url: string; estado: string; motivo: string | null; intentos: number; pieza_id: number | null; de: string | null; max_videos: number | null; creado_en: number; leido_en: number | null }
 export type VideoLeido = Pick<VideoYoutube, 'titulo' | 'canal' | 'canalId' | 'fecha' | 'descripcion' | 'transcripcion' | 'idioma' | 'automatica' | 'motivo' | 'rastro'>
@@ -114,15 +115,46 @@ const claveGemini = () => process.env.GEMINI_API_KEY?.trim() || null
 export const geminiDisponible = (db: Db, ahora = Date.now()) => !!claveGemini() && Number(ajuste(db, 'youtube_gemini_hasta') ?? 0) < ahora
 // En renglones y no en un JSON (Fragua #239): con un video largo la respuesta se cortaba, el JSON quedaba sin cerrar y se
 // perdía todo. Así, lo que llegó sirve, y si se cortó se sigue desde el último minuto.
-const PEDIDO_GEMINI = (desde: string | null) => `Transcribí este video de YouTube${desde ? ` DESDE EL MINUTO ${desde} hasta el final` : ' COMPLETO'}, fiel, en su idioma original, sin resumir ni traducir.
+// Por tramos de VENTANA (Fragua: el webinar de 56 min): el cupo gratis de Gemini es de ~250 mil tokens por minuto y un
+// video de una hora pide ~350 mil de una vez, así que daba 429 siempre. De a 20 minutos (~120 mil) entra.
+const PEDIDO_GEMINI = (desde: string | null, hasta: string) => `Transcribí este video de YouTube${desde ? ` desde el minuto ${desde}` : ' desde el principio'} hasta el minuto ${hasta} (o hasta el final, si termina antes), fiel, en su idioma original, sin resumir ni traducir.
 Formato, en texto plano (sin JSON, sin markdown):
 ${desde ? '' : `TITULO: el título del video
 CANAL: el canal
 IDIOMA: es|en|…
-`}Después, un párrafo por renglón, de unos 30 a 60 segundos cada uno, empezando con su minuto entre corchetes: [mm:ss] lo que se dice. Si cambia quien habla, poné su nombre o su rol al principio del párrafo.
+`}Después, un párrafo por renglón, de unos 30 a 60 segundos cada uno, empezando con su minuto entre corchetes, contado desde el principio del video: [mm:ss] lo que se dice. Si cambia quien habla, poné su nombre o su rol al principio del párrafo.
 Al final, un renglón que diga solo «EN PANTALLA» y debajo, un renglón por texto importante que aparece en pantalla (títulos, gráficos, datos, nombres): [mm:ss] el texto.`
 
 const aSegundos = (t: string) => t.split(':').map(Number).reduce((s, x) => s * 60 + (Number.isFinite(x) ? x : 0), 0)
+const aMinuto = (seg: number) => { const h = Math.floor(seg / 3600), m = Math.floor((seg % 3600) / 60), s = Math.floor(seg % 60), d = (n: number) => String(n).padStart(2, '0'); return h ? `${h}:${d(m)}:${d(s)}` : `${d(m)}:${d(s)}` }
+export const VENTANA_GEMINI = 20 * 60
+/** Si Gemini contó los minutos desde el principio del tramo (y no del video), se corren al minuto del video. */
+export function correrMinutos(renglones: string[], inicio: number): string[] {
+  if (!inicio || !renglones.length) return renglones
+  const primero = aSegundos(/^\[([^\]]+)\]/.exec(renglones[0])?.[1] ?? '0')
+  if (primero >= inicio - 60) return renglones
+  return renglones.map((r) => r.replace(/^\[([^\]]+)\]/, (_, t: string) => `[${aMinuto(aSegundos(t) + inicio)}]`))
+}
+
+/**
+ * Qué dice Google cuando no hay cupo: cuánto esperar (RetryInfo) y si el que se pasó es el del día (QuotaFailure). Un
+ * 429 «por minuto» se espera y se repite; el del día prueba otro modelo (cada uno tiene su cupo) o espera al reinicio.
+ */
+export function cupoGemini(j: any): { esperaMs: number | null; porDia: boolean } {
+  const det: any[] = Array.isArray(j?.error?.details) ? j.error.details : []
+  const retry = det.find((d) => /RetryInfo/.test(String(d?.['@type'] ?? '')))?.retryDelay
+  const esperaMs = typeof retry === 'string' && /^\d+(\.\d+)?s$/.test(retry) ? Math.ceil(parseFloat(retry) * 1000) : null
+  const ids = det.flatMap((d) => (Array.isArray(d?.violations) ? d.violations : []).map((v: any) => String(v?.quotaId ?? '')))
+  return { esperaMs, porDia: ids.some((x) => /PerDay/i.test(x)) }
+}
+/** El cupo diario de Gemini se reinicia a la medianoche de California (~08:00 UTC). */
+export function reinicioDiario(ahora = Date.now()): number {
+  const d = new Date(ahora)
+  const hoy = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 8, 5)
+  return hoy > ahora ? hoy : hoy + 86_400_000
+}
+const saturado = (status: number, motivo: string) => [500, 502, 503, 504].includes(status) || /high demand|overloaded|unavailable|try again later/i.test(motivo)
+const MODELO_ALTERNO = () => process.env.GEMINI_MODELO_ALTERNO?.trim() || 'gemini-2.5-flash-lite'
 
 /** Lee la respuesta en renglones: la cabecera, los párrafos con su minuto y lo que se ve en pantalla. */
 export function leerRenglonesGemini(texto: string): { titulo: string | null; canal: string | null; idioma: string | null; parrafos: string[]; pantalla: string[]; ultimo: string | null } {
@@ -195,52 +227,80 @@ async function buscarModeloNuevo(db: Db, retirado: string, aviso = ''): Promise<
 
 /**
  * Un video por Gemini. Devuelve el video, o por qué no (para que la cola lo diga: antes se perdía y solo quedaba el
- * «Inicia sesión» de YouTube). Si la respuesta se cortó por largo, sigue desde el último minuto (hasta 6 tramos).
+ * «Inicia sesión» de YouTube). Va de a tramos de VENTANA_GEMINI (así un video largo entra en el cupo por minuto); si la
+ * respuesta de un tramo se cortó por largo, sigue desde el último minuto. Google saturado (503) se reintenta y prueba
+ * otro modelo; sin cupo por minuto, espera lo que dice Google; sin cupo del día, otro modelo o espera al reinicio.
+ * «transitorio»: no es del video, es de Google ahora; el video espera en la nube (estado «gemini») y vuelve solo.
  */
-async function videoPorGemini(db: Db, id: string): Promise<{ video: VideoLeido } | { motivo: string }> {
-  if (!geminiDisponible(db)) return { motivo: claveGemini() ? `sin cupo por ahora (${ajuste(db, 'youtube_gemini_motivo') ?? 'descansa unas horas'})` : 'no está configurado' }
+async function videoPorGemini(db: Db, id: string): Promise<{ video: VideoLeido } | { motivo: string; transitorio?: boolean }> {
+  if (!geminiDisponible(db)) return claveGemini() ? { motivo: `sin cupo por ahora (${ajuste(db, 'youtube_gemini_motivo') ?? 'descansa un rato'})`, transitorio: true } : { motivo: 'no está configurado' }
   let modelo = modeloGemini(db)
-  let cambioDeModelo = false
+  let cambioDeModelo = false, usoAlterno = false
+  const pausar = (hasta: number, motivo: string) => { fijarAjuste(db, 'youtube_gemini_hasta', String(hasta)); fijarAjuste(db, 'youtube_gemini_motivo', motivo) }
   const parrafos: string[] = [], pantalla: string[] = []
   let cab: { titulo: string | null; canal: string | null; idioma: string | null } = { titulo: null, canal: null, idioma: null }
-  let desde: string | null = null
-  for (let tramo = 0; tramo < 6; tramo++) {
-    const r = await pedirGemini(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-goog-api-key': claveGemini()! },
-      body: JSON.stringify({
-        contents: [{ parts: [{ file_data: { file_uri: urlDeVideo(id) }, ...(desde ? { video_metadata: { start_offset: `${aSegundos(desde)}s` } } : {}) }, { text: PEDIDO_GEMINI(desde) }] }],
-        // Resolución baja: alcanza para leer la pantalla y entra en el cupo gratis aun con videos largos.
-        generationConfig: { temperature: 0.1, mediaResolution: 'MEDIA_RESOLUTION_LOW', maxOutputTokens: 65536 },
-      }),
-    }).catch((e) => ({ ok: false, status: 0, json: async () => ({ error: { message: e instanceof Error ? e.message : String(e) } }) }) as unknown as Response)
-    const j = await r.json().catch(() => null) as any
-    if (!r.ok) {
+  let inicio = 0
+  tramos: for (let tramo = 0; tramo < 16; tramo++) {
+    const fin = inicio + VENTANA_GEMINI
+    if (tramo) await esperar(30_000) // que el tramo anterior salga de la cuenta por minuto
+    let r!: Response, j: any
+    for (let intento = 0; ; intento++) {
+      r = await pedirGemini(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': claveGemini()! },
+        body: JSON.stringify({
+          contents: [{ parts: [{ file_data: { file_uri: urlDeVideo(id) }, video_metadata: { ...(inicio ? { start_offset: `${inicio}s` } : {}), end_offset: `${fin}s` } }, { text: PEDIDO_GEMINI(inicio ? aMinuto(inicio) : null, aMinuto(fin)) }] }],
+          // Resolución baja: alcanza para leer la pantalla y entra en el cupo gratis.
+          generationConfig: { temperature: 0.1, mediaResolution: 'MEDIA_RESOLUTION_LOW', maxOutputTokens: 65536 },
+        }),
+      }).catch((e) => ({ ok: false, status: 0, json: async () => ({ error: { message: e instanceof Error ? e.message : String(e) } }) }) as unknown as Response)
+      j = await r.json().catch(() => null)
+      if (r.ok) break
       const motivo = `${r.status || 'sin respuesta'}: ${j?.error?.message ?? 'falló'}`.slice(0, 200)
-      // El modelo ya no existe: se busca el nuevo una vez y se repite este tramo con él.
+      // El modelo ya no existe: se busca el nuevo una vez y se repite con él.
       if (!cambioDeModelo && modeloRetirado(r.status, motivo) && !process.env.GEMINI_MODELO?.trim()) {
         cambioDeModelo = true
         const nuevo = await buscarModeloNuevo(db, modelo, String(j?.error?.message ?? ''))
-        if (nuevo) { modelo = nuevo; tramo--; continue }
+        if (nuevo) { modelo = nuevo; continue }
       }
-      // Sin cupo o clave mala: descansa unas horas (mientras, prueba el siguiente). Un video privado o raro: solo ese.
       // Un 403 «sin permiso» es de ese video (los «para niños», restringidos), no de la cuenta: no frena a los demás.
       const deEseVideo = r.status === 403 && /caller does not have permission|permission denied/i.test(motivo) && !/api key|billing|project/i.test(motivo)
-      if (!deEseVideo && ([401, 403, 429].includes(r.status) || /quota|exhausted|rate/i.test(motivo))) { fijarAjuste(db, 'youtube_gemini_hasta', String(Date.now() + 3 * 3_600_000)); fijarAjuste(db, 'youtube_gemini_motivo', motivo) }
       if (deEseVideo) return { motivo: `Google no deja leer este video (suele ser uno «para niños» o restringido): ${motivo}` }
-      if (parrafos.length) break // lo que ya llegó sirve
+      const otroModelo = () => { if (usoAlterno || MODELO_ALTERNO() === modelo) return false; usoAlterno = true; modelo = MODELO_ALTERNO(); return true }
+      // Google saturado: es de ahora. Dos reintentos, otro modelo, y si no, el video espera media hora en la nube.
+      if (saturado(r.status, motivo)) {
+        if (intento < 2) { await esperar(intento ? 60_000 : 20_000); continue }
+        if (otroModelo()) continue
+        pausar(Date.now() + 30 * 60_000, motivo)
+        return { motivo: `Google está saturado (${motivo})`, transitorio: true }
+      }
+      if (r.status === 429 || /quota|exhausted|rate/i.test(motivo)) {
+        const c = cupoGemini(j)
+        if (!c.porDia && intento < 3) { await esperar(Math.min((c.esperaMs ?? 60_000) + 2000, 120_000)); continue }
+        if (otroModelo()) continue
+        pausar(c.porDia ? reinicioDiario() : Date.now() + Math.max(c.esperaMs ?? 0, 15 * 60_000), motivo)
+        return { motivo, transitorio: true }
+      }
+      // Clave mala o sin permiso de la cuenta: descansa unas horas (y lo dice), el video espera.
+      if ([401, 403].includes(r.status)) { pausar(Date.now() + 3 * 3_600_000, motivo); return { motivo, transitorio: true } }
+      // Otra cosa (un tramo más allá del final, un pedido que no le gusta): lo que ya llegó sirve.
+      if (parrafos.length) break tramos
       return { motivo }
     }
     const c = j?.candidates?.[0]
     const texto = (c?.content?.parts ?? []).map((p: any) => p?.text ?? '').join('')
     const x = leerRenglonesGemini(texto)
     if (!tramo) cab = { titulo: x.titulo, canal: x.canal, idioma: x.idioma }
-    // Al seguir desde un minuto, Gemini a veces repite el último párrafo: no se duplica.
-    for (const p of x.parrafos) if (p !== parrafos.at(-1)) parrafos.push(p)
-    pantalla.push(...x.pantalla)
-    const cortado = c?.finishReason === 'MAX_TOKENS'
-    if (!cortado || !x.ultimo || x.ultimo === desde) break
-    desde = x.ultimo
+    const nuevos = correrMinutos(x.parrafos, inicio)
+    if (!nuevos.length) break // el video terminó antes de este tramo
+    // Al seguir desde un minuto, Gemini a veces repite el último párrafo (o uno anterior): no se duplica.
+    const hastaAhora = parrafos.length ? aSegundos(/^\[([^\]]+)\]/.exec(parrafos.at(-1)!)![1]) : -1
+    for (const p of nuevos) if (p !== parrafos.at(-1) && aSegundos(/^\[([^\]]+)\]/.exec(p)![1]) >= hastaAhora) parrafos.push(p)
+    pantalla.push(...correrMinutos(x.pantalla, inicio))
+    const ultimo = aSegundos(/^\[([^\]]+)\]/.exec(nuevos.at(-1)!)![1])
+    if (c?.finishReason === 'MAX_TOKENS' && ultimo > inicio + 30) { inicio = ultimo; continue } // se cortó por largo: desde ahí
+    if (ultimo < fin - 180) break // el último párrafo quedó lejos del final del tramo: el video terminó
+    inicio = fin
   }
   if (!parrafos.length) return { motivo: 'Gemini no devolvió transcripción (¿video sin habla, o que no puede ver?)' }
   return {
@@ -446,8 +506,17 @@ export async function trabajarYoutube(db: Db): Promise<void> {
         }
         const porServicio = await videoPorServicio(db, item.id).catch(() => null)
         if (porServicio) { const r = await completarVideo(db, item.id, porServicio); if (r.listo && porServicio.transcripcion) void retomarPedido(db, item, r.piezaId).catch(() => {}); continue }
-        // Ni directo, ni Gemini, ni el servicio: queda para la compu, con todos los motivos (antes solo se veía el de YouTube).
         const motivoGemini = 'motivo' in g ? g.motivo : null
+        // Google saturado o sin cupo por ahora: no es del video. Espera en la nube (estado «gemini») y vuelve solo cuando
+        // Gemini tenga cupo, sin gastar sus intentos ni mandarlo a la compu (todo se resuelve en el servidor).
+        if ('transitorio' in g && g.transitorio) {
+          const hasta = Number(ajuste(db, 'youtube_gemini_hasta') ?? 0)
+          const cuando = hasta > Date.now() ? ` (vuelvo a probar a las ${new Date(hasta).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: zonaActual() })})` : ''
+          db.prepare(`UPDATE youtube_cola SET estado = 'gemini', intentos = MAX(intentos - 1, 0), motivo = ? WHERE id = ?`).run(`espera cupo de Gemini${cuando}: ${motivoGemini}`.slice(0, 300), item.id)
+          sinTexto(db, item, `espera cupo de Gemini${cuando}; se lee solo en la nube`)
+          continue
+        }
+        // Ni directo, ni Gemini, ni el servicio: queda para la compu, con todos los motivos (antes solo se veía el de YouTube).
         const motivo = [directo?.motivo ? `desde la nube: ${directo.motivo}` : 'la nube no pudo leerlo', motivoGemini ? `Gemini: ${motivoGemini}` : '', servicioDisponible(db) ? '' : 'el servicio de transcripciones no está configurado'].filter(Boolean).join(' · ')
         db.prepare(`UPDATE youtube_cola SET estado = 'compu', motivo = ? WHERE id = ?`).run(motivo.slice(0, 300), item.id)
         if (motivoGemini) void import('./fallos.ts').then((f) => f.registrarFallo(db, { origen: 'youtube:gemini', mensaje: motivoGemini, donde: item.id })).catch(() => {})
@@ -539,7 +608,9 @@ async function retomarPedido(db: Db, item: ItemCola, piezaId: number, ahora = Da
 export const INTENTOS_NUBE = 3
 export function reintentarConServicio(db: Db) {
   if (!servicioDisponible(db) && !geminiDisponible(db)) return 0
-  return db.prepare(`UPDATE youtube_cola SET estado = 'pendiente' WHERE estado = 'compu' AND intentos < ?`).run(INTENTOS_NUBE).changes
+  // Lo que esperaba cupo de Gemini vuelve siempre (no gastó intentos); lo de la compu, hasta INTENTOS_NUBE.
+  const n = geminiDisponible(db) ? db.prepare(`UPDATE youtube_cola SET estado = 'pendiente' WHERE estado = 'gemini'`).run().changes : 0
+  return Number(n) + Number(db.prepare(`UPDATE youtube_cola SET estado = 'pendiente' WHERE estado = 'compu' AND intentos < ?`).run(INTENTOS_NUBE).changes)
 }
 
 /** El título que ya tenía la pieza (el de YouTube, por oEmbed), si no es el de relleno. */
@@ -565,10 +636,10 @@ function sinTexto(db: Db, item: ItemCola, motivo: string, avisar = false) {
   if (!item.pieza_id) return
   const p = db.prepare('SELECT titulo, contenido FROM corpus WHERE id = ?').get(item.pieza_id) as { titulo: string; contenido: string } | undefined
   if (!p) return
-  const nota = `_(Sin transcripción todavía: ${motivo}.${avisar ? ' La puede leer tu compu: `npm run mastro -- youtube`.' : ''})_`
+  const nota = `_(Sin transcripción todavía: ${motivo}.)_`
   const contenido = /_\((La transcripción está en camino|Sin transcripción todavía)[^\n]*\)_/.test(p.contenido) ? p.contenido.replace(/_\((La transcripción está en camino|Sin transcripción todavía)[^\n]*\)_/, nota) : `${p.contenido}\n\n${nota}`
   db.prepare('UPDATE corpus SET contenido = ? WHERE id = ?').run(contenido, item.pieza_id)
-  if (avisar) void import('./chat/index.ts').then((c) => c.mensajeDeMastropiero(db, c.conversacionHoy(db).id, `📺 No pude leer «${p.titulo}» en la nube (${motivo}). Quedó esperando a tu compu: \`npm run mastro -- youtube\`.`, { canales: true })).catch(() => {})
+  if (avisar) void import('./chat/index.ts').then((c) => c.mensajeDeMastropiero(db, c.conversacionHoy(db).id, `📺 No pude leer «${p.titulo}» en la nube (${motivo}). Si lo querés igual, pedímelo de nuevo o pasame otro link del mismo tema.`, { canales: true })).catch(() => {})
 }
 
 // ─── la compu ───────────────────────────────────────────────────────────
@@ -606,7 +677,7 @@ export function estadoYoutube(db: Db, ahora = Date.now()) {
   const ultimos = (db.prepare(`SELECT y.id, y.tipo, y.estado, y.motivo, y.pieza_id, y.de, c.titulo FROM youtube_cola y LEFT JOIN corpus c ON c.id = y.pieza_id ORDER BY y.creado_en DESC LIMIT 40`).all() as any[])
   const visto = Number(ajuste(db, 'youtube_compu_visto') ?? 0)
   return {
-    cuenta: { pendiente: cuenta.pendiente ?? 0, compu: cuenta.compu ?? 0, listo: cuenta.listo ?? 0, sin_subtitulos: cuenta.sin_subtitulos ?? 0, fallo: cuenta.fallo ?? 0 },
+    cuenta: { pendiente: cuenta.pendiente ?? 0, gemini: cuenta.gemini ?? 0, compu: cuenta.compu ?? 0, listo: cuenta.listo ?? 0, sin_subtitulos: cuenta.sin_subtitulos ?? 0, fallo: cuenta.fallo ?? 0 },
     canales: (db.prepare(`SELECT COUNT(*) AS n FROM youtube_cola WHERE tipo = 'canal' AND estado != 'listo'`).get() as { n: number }).n,
     // Cada canal: si todavía espera su lista (la nube no lista canales), cuántos videos trajo y cuántos ya se leyeron.
     listaCanales: (db.prepare(`SELECT y.id, y.estado, y.motivo, y.dominio, y.max_videos, y.pieza_id, c.titulo,
@@ -621,7 +692,7 @@ export function estadoYoutube(db: Db, ahora = Date.now()) {
       }),
     dominios: (db.prepare(`SELECT DISTINCT dominio FROM youtube_cola WHERE dominio IS NOT NULL ORDER BY dominio`).all() as { dominio: string }[]).map((x) => x.dominio),
     servicio: { configurado: !!claveServicio(), disponible: servicioDisponible(db, ahora), motivo: servicioDisponible(db, ahora) ? null : ajuste(db, 'youtube_servicio_motivo') },
-    gemini: { configurado: !!claveGemini(), disponible: geminiDisponible(db, ahora), motivo: geminiDisponible(db, ahora) ? null : ajuste(db, 'youtube_gemini_motivo') },
+    gemini: { configurado: !!claveGemini(), disponible: geminiDisponible(db, ahora), motivo: geminiDisponible(db, ahora) ? null : ajuste(db, 'youtube_gemini_motivo'), hasta: geminiDisponible(db, ahora) ? null : Number(ajuste(db, 'youtube_gemini_hasta') ?? 0) || null },
     compu: { vista: visto || null, activa: visto > ahora - 5 * 60_000 },
     ultimos: ultimos.map((u) => ({ id: u.id, tipo: u.tipo, estado: u.estado, motivo: u.motivo, piezaId: u.pieza_id, titulo: u.titulo, recomendado: !!u.de?.startsWith('video:') })),
     trabajando: trabajando.has(db),

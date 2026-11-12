@@ -1649,7 +1649,7 @@ CREATE TABLE IF NOT EXISTS geocache (
   buscado_en INTEGER NOT NULL
 );
 -- YouTube: videos y canales por leer. La nube no puede (YouTube la marca como bot): los lee el servicio de
--- transcripciones o la compu. estado: pendiente | compu (espera a la compu) | listo | sin_subtitulos | fallo.
+-- transcripciones o la compu. estado: pendiente | gemini (espera cupo de Gemini, en la nube) | compu (espera a la compu) | listo | sin_subtitulos | fallo.
 CREATE TABLE IF NOT EXISTS youtube_cola (
   id TEXT PRIMARY KEY,
   tipo TEXT NOT NULL,

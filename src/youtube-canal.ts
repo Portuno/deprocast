@@ -259,7 +259,7 @@ export function dentroDelRitmo(db: Db, ahora = Date.now()) {
 export function quizasTermino(db: Db, canal: string, ahora = Date.now()): boolean {
   const c = leerCenso(db, canal)
   if (!c || c.estado !== 'corriendo') return false
-  const quedan = (db.prepare(`SELECT COUNT(*) AS n FROM youtube_cola WHERE de = ? AND estado IN ('pendiente', 'compu')`).get(canal) as { n: number }).n
+  const quedan = (db.prepare(`SELECT COUNT(*) AS n FROM youtube_cola WHERE de = ? AND estado IN ('pendiente', 'compu', 'gemini')`).get(canal) as { n: number }).n
   if (quedan) return false
   c.estado = 'terminado'
   guardar(db, c, ahora)
