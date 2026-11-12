@@ -52,6 +52,7 @@ test('fragua: forja en su rama sin tocar main; aplica solo si pasó y con su ok;
   assert.match(vioCambios, /Cambio: Saluda con más onda/)
   assert.match(vioCambios, /Verificación: typecheck/)
   assert.match(f.resumen!, /Cambio: Saluda con más onda/)
+  assert.match(f.resumen!, /Motor: falso$/, 'queda qué motor la escribió (#242)')
   assert.deepEqual(f.archivos, ['src/saludo.ts', 'test/saludo.test.ts'])
   assert.match(f.diff!, /-export const saludo = \(\) => 'hola'\n\+export const saludo = \(\) => 'buenas'/)
   assert.equal(fs.readFileSync(path.join(repo, 'src', 'saludo.ts'), 'utf8'), "export const saludo = () => 'hola'\n", 'main intacto')

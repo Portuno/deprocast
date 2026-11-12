@@ -272,8 +272,14 @@ export async function forjarMejora(db: Db, p: { propuestaId?: number | null; ped
   const paso = (t: string) => pasoDeForja.set(id, t)
   const refs = prop ? ` (Fragua #${[prop.id, ...otras.map((x) => x.id)].join(', #')})` : ''
   let pr: { numero: number; url: string } | null = null
+  // Qué motor contestó cada paso (Fragua #242): queda en el resumen de la forja.
+  const motores = new Set<string>()
+  const conMotor: typeof pedirJson = async (...a) => { const r = await pedirJson(...a); motores.add(r.modelo); return r }
   const fin = (c: Partial<Forja> & { estado: Forja['estado'] }) => {
     pasoDeForja.delete(id)
+    if (motores.size) c = { ...c, resumen: `${c.resumen ? `${c.resumen}
+
+` : ''}Motor: ${[...motores].join(', ')}` }
     db.prepare('UPDATE fragua SET rama = ?, estado = ?, resumen = ?, archivos = ?, diff = ?, salida = ?, modo = ?, pr_numero = ?, pr_url = ? WHERE id = ?')
       .run(rama, c.estado, c.resumen ?? null, JSON.stringify(c.archivos ?? []), c.diff ?? null, c.salida ?? null, modo, pr?.numero ?? null, pr?.url ?? null, id)
     if (modo === 'pr') borrarCopia(dir) // la copia de la nube no se guarda: lo que queda es el PR
@@ -289,11 +295,11 @@ export async function forjarMejora(db: Db, p: { propuestaId?: number | null; ped
     } else prepararCopia(repo, dir)
     const lista = (modo === 'git' ? git(dir, 'ls-files').split('\n') : archivosDe(dir)).filter((f) => /^(src|web|test|scripts)\//.test(f) || /^(README\.md|package\.json)$/.test(f))
     paso('eligiendo qué archivos tocar')
-    const { datos: elegidos } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'fragua' }, SISTEMA_ARCHIVOS, `PROPUESTA:\n${pedido}\n\nARCHIVOS:\n${lista.join('\n')}`, { temperatura: 0.1, maxTokens: 800 })
+    const { datos: elegidos } = await conMotor({ db, clase: 'mastropiero', agenteId: 'fragua' }, SISTEMA_ARCHIVOS, `PROPUESTA:\n${pedido}\n\nARCHIVOS:\n${lista.join('\n')}`, { temperatura: 0.1, maxTokens: 800 })
     const archivos = (Array.isArray(elegidos.archivos) ? elegidos.archivos : []).map(String).filter((f: string) => lista.includes(f)).slice(0, 6)
     if (!archivos.length) return fin({ estado: 'fallo', salida: 'No supe qué archivos tocar para esta propuesta.' })
     paso('armando el plan')
-    const { datos: tres } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'fragua' }, SISTEMA_PLAN, `PROPUESTA:\n${pedido}\n\nARCHIVOS ELEGIDOS:\n${archivos.join('\n')}`, { temperatura: 0.1, maxTokens: 400 })
+    const { datos: tres } = await conMotor({ db, clase: 'mastropiero', agenteId: 'fragua' }, SISTEMA_PLAN, `PROPUESTA:\n${pedido}\n\nARCHIVOS ELEGIDOS:\n${archivos.join('\n')}`, { temperatura: 0.1, maxTokens: 400 })
     const lineas = [
       `Archivos: ${(Array.isArray(tres.archivos) ? tres.archivos : archivos).map(String).join(', ')}`,
       `Cambio: ${String(tres.cambio ?? '').trim()}`,
@@ -301,7 +307,7 @@ export async function forjarMejora(db: Db, p: { propuestaId?: number | null; ped
     ].join('\n')
     const contenido = archivos.map((f: string) => `=== ${f} ===\n${fs.readFileSync(path.join(dir, f), 'utf8')}`).join('\n\n')
     paso('escribiendo los cambios')
-    const { datos: plan } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'fragua' }, SISTEMA_CAMBIOS, `PROPUESTA:\n${pedido}\n\nPLAN:\n${lineas}\n\n${contenido}`, { temperatura: 0.2, maxTokens: 12000, largo: true })
+    const { datos: plan } = await conMotor({ db, clase: 'mastropiero', agenteId: 'fragua' }, SISTEMA_CAMBIOS, `PROPUESTA:\n${pedido}\n\nPLAN:\n${lineas}\n\n${contenido}`, { temperatura: 0.2, maxTokens: 12000, largo: true })
     let cambios = Array.isArray(plan.cambios) ? plan.cambios : []
     const resumen = [lineas, plan.resumen].filter(Boolean).join('\n\n')
     if (!cambios.length) return fin({ estado: 'fallo', resumen, salida: 'El modelo no propuso cambios.' })
@@ -332,7 +338,7 @@ export async function forjarMejora(db: Db, p: { propuestaId?: number | null; ped
       if (vuelta >= CORRECCIONES) break
       paso(`corrigiendo su error (vuelta ${vuelta + 1} de ${CORRECCIONES})`)
       const actuales = [...new Set([...archivos, ...tocados])].filter((f) => fs.existsSync(path.join(dir, f)))
-      const { datos: arreglo } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'fragua' }, SISTEMA_CORRECCION,
+      const { datos: arreglo } = await conMotor({ db, clase: 'mastropiero', agenteId: 'fragua' }, SISTEMA_CORRECCION,
         `PROPUESTA:\n${pedido}\n\nPLAN:\n${lineas}\n\nLO QUE FALLÓ:\n${problema}\n\nASÍ ESTÁN LOS ARCHIVOS AHORA:\n${actuales.map((f) => `=== ${f} ===\n${fs.readFileSync(path.join(dir, f), 'utf8')}`).join('\n\n')}`,
         { temperatura: 0.2, maxTokens: 12000, largo: true })
       cambios = Array.isArray(arreglo.cambios) ? arreglo.cambios : []
