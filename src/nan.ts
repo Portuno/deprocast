@@ -69,7 +69,8 @@ const CADENAS: Record<ClaseId | 'mastropiero' | 'fondo' | 'profundo' | 'codigo',
   profundo: [M.pro, M.deepseek],
   // El código (la Fragua), a DeepSeek Flash: en el banco de pruebas (nov 2026) Pro se cortó por largo tres veces seguidas
   // (2 cr. cada una, sin entregar nada) y Flash pasó los 10 casos por 0,3; MiMo, que también los pasó, de respaldo.
-  codigo: [M.deepseek, M.mimo],
+  // Si los dos fallan (un 504, un corte por largo: forjas #11–#13), Pro y Qwen antes de dar la forja por perdida (Fragua #242).
+  codigo: [M.deepseek, M.mimo, M.pro, M.qwen],
   // Redacción y clasificación, a DeepSeek Flash (banco de pruebas, nov 2026): MiMo se salteaba reglas de desempate (90 %)
   // y escribía sin voseo ni lo pedido (75 %); Flash, 100 % en las dos. Cuesta unas cinco veces más por pedido.
   generativo: [M.deepseek, M.mimo],
@@ -245,13 +246,19 @@ function truncada(r: Respuesta): boolean {
   return r.json?.choices?.[0]?.finish_reason === 'length'
 }
 
-type Decision = { accion: 'reintentar'; esperaMs: number; razonarPoco?: boolean } | { accion: 'siguiente' } | { accion: 'cortar'; motivo: string }
+type Decision = { accion: 'reintentar'; esperaMs: number; razonarPoco?: boolean; masLargo?: boolean } | { accion: 'siguiente' } | { accion: 'cortar'; motivo: string }
+/** Tope de salida al reintentar algo que se cortó por largo (Fragua #243): el doble, hasta acá. */
+export const TOPE_SALIDA = 65_536
 
-export function decidir(r: Respuesta, modelo: string, n: { server: number; rate: number; trunc: number }): Decision {
+export function decidir(r: Respuesta, modelo: string, n: { server: number; rate: number; trunc: number; largo?: number }): Decision {
   if (truncada(r)) {
-    return n.trunc < 1 && OBEDECEN_ESFUERZO.has(modelo) ? { accion: 'reintentar', esperaMs: 0, razonarPoco: true } : { accion: 'siguiente' }
+    if (n.trunc < 1 && OBEDECEN_ESFUERZO.has(modelo)) return { accion: 'reintentar', esperaMs: 0, razonarPoco: true }
+    // Cortado por largo no es un error del pedido (Fragua #243): una vez más con el doble de lugar; después, el siguiente.
+    return (n.largo ?? 0) < 1 ? { accion: 'reintentar', esperaMs: 0, masLargo: true } : { accion: 'siguiente' }
   }
   if (r.status === 400 && /json_schema|response_format/i.test(r.body)) return { accion: 'siguiente' }
+  // Un tope de salida que el modelo no acepta (el del reintento largo) no es motivo para cortar la cadena entera.
+  if (r.status === 400 && /max_tokens|max_completion_tokens|maximum.*tokens|too (many|large).*tokens/i.test(r.body)) return { accion: 'siguiente' }
   if (r.status === 401) return { accion: 'cortar', motivo: 'NaN 401: revisá NAN_API_KEY' }
   if (r.status === 402) return { accion: 'siguiente' }
   if (r.status === 429) return n.rate >= 4 ? { accion: 'siguiente' } : { accion: 'reintentar', esperaMs: Math.min(30_000, 400 * 2 ** n.rate) }
@@ -264,7 +271,7 @@ export function decidir(r: Respuesta, modelo: string, n: { server: number; rate:
   return { accion: 'siguiente' }
 }
 
-export function cuerpoChat(modelo: string, o: { mensajes: Record<string, unknown>[]; temperatura: number; maxTokens: number; json: boolean; razonarPoco?: boolean; herramientas?: unknown[] }) {
+export function cuerpoChat(modelo: string, o: { mensajes: Record<string, unknown>[]; temperatura: number; maxTokens: number; json: boolean; razonarPoco?: boolean; herramientas?: unknown[]; masLargo?: boolean }) {
   const mensajes = [...o.mensajes]
   if (o.json && modelo === M.deepseek && !/\bJSON\b/.test(JSON.stringify(mensajes))) {
     mensajes.push({ role: 'system', content: 'Respond with JSON only.' })
@@ -275,6 +282,7 @@ export function cuerpoChat(modelo: string, o: { mensajes: Record<string, unknown
     temperature: o.temperatura,
     max_tokens: modelo === M.deepseek ? Math.max(o.maxTokens, 16384) : o.maxTokens + (piensa(modelo) ? PRESUPUESTO_RAZONAMIENTO : 0),
   }
+  if (o.masLargo) body.max_tokens = Math.min(TOPE_SALIDA, Number(body.max_tokens) * 2)
   if (o.json) body.response_format = { type: 'json_object' }
   if (o.razonarPoco) body.reasoning_effort = 'low'
   if (o.herramientas?.length) (body.tools = o.herramientas), (body.tool_choice = 'auto')
@@ -295,15 +303,15 @@ function anotar(l: Llamada, modelo: string, r: Respuesta, ms: number) {
   ).run(modelo, l.clase, l.agenteId, entrada, salida, ms, r.status, Date.now(), fondo(), cache, entrada != null ? creditosDe(modelo, entrada, cache ?? 0, salida ?? 0) : null)
 }
 
-async function recorrer(l: Llamada, modelos: string[], llamar: (modelo: string, razonarPoco: boolean) => Promise<Respuesta>) {
+async function recorrer(l: Llamada, modelos: string[], llamar: (modelo: string, razonarPoco: boolean, masLargo: boolean) => Promise<Respuesta>) {
   if (!modelos.length) throw new Error(`La clase ${l.clase} no tiene cadena NaN`)
   const motivos: string[] = []
   for (const modelo of modelos) {
-    const n = { server: 0, rate: 0, trunc: 0 }
-    let razonarPoco = false
+    const n = { server: 0, rate: 0, trunc: 0, largo: 0 }
+    let razonarPoco = false, masLargo = false
     for (;;) {
       const t0 = Date.now()
-      const r = await llamar(modelo, razonarPoco)
+      const r = await llamar(modelo, razonarPoco, masLargo)
       anotar(l, modelo, r, Date.now() - t0)
       if (r.status >= 200 && r.status < 300 && !truncada(r)) return { modelo, r }
       const d = decidir(r, modelo, n)
@@ -313,7 +321,8 @@ async function recorrer(l: Llamada, modelos: string[], llamar: (modelo: string, 
         void import('./fallos.ts').then((f) => f.registrarFallo(l.db, { origen: 'modelo', mensaje: `${modelo}: ${motivoDe(r)}`, donde: modelo, salida: r.body.slice(0, 300), recuperado: true }, Date.now())).catch(() => {})
         break
       }
-      if (d.razonarPoco) (n.trunc++, (razonarPoco = true))
+      if (d.masLargo) (n.largo++, (masLargo = true))
+      else if (d.razonarPoco) (n.trunc++, (razonarPoco = true))
       else if (r.status === 429) n.rate++
       else n.server++
       if (d.esperaMs) await dormir(d.esperaMs)
@@ -334,7 +343,7 @@ export async function nanChat(
   l: Llamada,
   o: { mensajes: { role: string; content: string }[]; temperatura: number; maxTokens: number; json: boolean },
 ): Promise<{ texto: string; modelo: string }> {
-  const { modelo, r } = await recorrer(l, cadenaPara(l), (m, razonarPoco) => pedir('POST', '/chat/completions', cuerpoChat(m, { ...o, razonarPoco })))
+  const { modelo, r } = await recorrer(l, cadenaPara(l), (m, razonarPoco, masLargo) => pedir('POST', '/chat/completions', cuerpoChat(m, { ...o, razonarPoco, masLargo })))
   const contenido = r.json?.choices?.[0]?.message?.content
   return { texto: typeof contenido === 'string' ? contenido.trim() : '', modelo }
 }
@@ -346,8 +355,8 @@ export async function nanChatHerramientas(
   l: Llamada,
   o: { mensajes: Record<string, unknown>[]; herramientas: unknown[]; temperatura: number; maxTokens: number; razonarPoco?: boolean; json?: boolean },
 ): Promise<{ texto: string; llamadas: LlamadaHerramienta[]; razonamiento: string | null; modelo: string; tokens: number }> {
-  const { modelo, r } = await recorrer(l, cadenaPara(l), (m, razonarPoco) =>
-    pedir('POST', '/chat/completions', cuerpoChat(m, { ...o, json: !!o.json && !o.herramientas.length, razonarPoco: o.razonarPoco || razonarPoco })))
+  const { modelo, r } = await recorrer(l, cadenaPara(l), (m, razonarPoco, masLargo) =>
+    pedir('POST', '/chat/completions', cuerpoChat(m, { ...o, json: !!o.json && !o.herramientas.length, razonarPoco: o.razonarPoco || razonarPoco, masLargo })))
   const msg = r.json?.choices?.[0]?.message ?? {}
   return {
     texto: typeof msg.content === 'string' ? msg.content.trim() : '',
@@ -518,8 +527,8 @@ export async function nanVision(
   l: { db: Db; clase: ClaseId | 'mastropiero'; agenteId: string },
   o: { sistema: string; texto: string; imagen: string; maxTokens?: number },
 ): Promise<{ texto: string; modelo: string; tokens: number }> {
-  const { modelo, r } = await recorrer(l, [M.deepseek, M.qwen], (m) => pedir('POST', '/chat/completions', {
-    model: m, temperature: 0.2, max_tokens: m === M.deepseek ? Math.max(o.maxTokens ?? 800, 4096) : (o.maxTokens ?? 800) + PRESUPUESTO_RAZONAMIENTO,
+  const { modelo, r } = await recorrer(l, [M.deepseek, M.qwen], (m, _poco, masLargo) => pedir('POST', '/chat/completions', {
+    model: m, temperature: 0.2, max_tokens: Math.min(TOPE_SALIDA, (masLargo ? 2 : 1) * (m === M.deepseek ? Math.max(o.maxTokens ?? 800, 4096) : (o.maxTokens ?? 800) + PRESUPUESTO_RAZONAMIENTO)),
     messages: [
       { role: 'system', content: o.sistema },
       { role: 'user', content: [{ type: 'text', text: o.texto }, { type: 'image_url', image_url: { url: o.imagen } }] },

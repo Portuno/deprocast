@@ -58,7 +58,7 @@ test('el ruteo por uso (nov 2026): el chat y lo que él ve, a DeepSeek Flash; lo
   assert.deepEqual(cadenaPara({ clase: 'mastropiero', agenteId: 'takeout' }), [M.mimo, M.deepseek])
   assert.deepEqual(cadenaPara({ clase: 'mastropiero', agenteId: 'escriba' }), [M.mimo, M.deepseek])
   assert.deepEqual(cadenaPara({ clase: 'mastropiero', agenteId: 'autocritica' }), [M.pro, M.deepseek])
-  assert.deepEqual(cadenaPara({ clase: 'mastropiero', agenteId: 'fragua' }), [M.deepseek, M.mimo], 'el código, a Flash (rotado por el banco de pruebas)')
+  assert.deepEqual(cadenaPara({ clase: 'mastropiero', agenteId: 'fragua' }), [M.deepseek, M.mimo, M.pro, M.qwen], 'el código, a Flash (rotado por el banco de pruebas), con dos respaldos más (#242)')
   assert.deepEqual(cadenaPara({ clase: 'extractor', agenteId: 'EXT-0001' }), [M.mimo, M.deepseek], 'los agentes de la liga, por su clase')
   assert.deepEqual(cadenaPara({ clase: 'mastropiero', agenteId: 'takeout', modelos: [M.qwen] }), [M.qwen], 'la cadena propia de una llamada manda')
   // Créditos: 10.000 de entrada (8.000 cacheados) y 500 de salida en DeepSeek Flash = (2.000 × 10,5 + 8.000 × 0,21 + 500 × 42) / 1M.
@@ -120,15 +120,17 @@ test('GLM cortado sin texto: reintenta con poco razonamiento y con presupuesto e
   delete process.env.NAN_CADENA_AUDITOR
 })
 
-test('respuesta cortada con JSON a medias: también es truncado y pasa al siguiente modelo', async () => {
+test('respuesta cortada con JSON a medias: también es truncado; razona menos, después pide el doble y recién ahí pasa al siguiente modelo', async () => {
   const db = abrir(':memory:')
   const cortada = () => ({ status: 200, json: { choices: [{ finish_reason: 'length', message: { content: '{"veredicto": "ok", "hallaz' } }] } })
-  const pedidos = falso([cortada, cortada, ok({ veredicto: 'alerta', hallazgos: ['x'] })])
+  const pedidos = falso([cortada, cortada, cortada, ok({ veredicto: 'alerta', hallazgos: ['x'] })])
   process.env.NAN_CADENA_AUDITOR = `${M.glm},${M.deepseek}`
   forjar(db, { clase: 'auditor', motor: 'nan' })
   publicar(db, { clase: 'auditor', payload: { texto: 'revisá' }, publicadaPor: 'operador' })
   await tick(db, { reclutar: false })
-  assert.deepEqual(pedidos.map((p) => p.body.model), [M.glm, M.glm, M.deepseek])
+  assert.deepEqual(pedidos.map((p) => p.body.model), [M.glm, M.glm, M.glm, M.deepseek])
+  assert.equal(pedidos[1].body.reasoning_effort, 'low')
+  assert.equal(pedidos[2].body.max_tokens, 2 * pedidos[0].body.max_tokens, 'el tercero, con el doble de lugar')
   assert.equal(tareas(db, 'hecha')[0].resultado?.veredicto, 'alerta')
   delete process.env.NAN_CADENA_AUDITOR
 })
@@ -211,4 +213,25 @@ test('lo que lee cada clase tiene tope: un clasificador ya no recibe la pieza en
   assert.ok(String(usuario.content).length < LECTURA_MAX.clasificador! + 2_000, `mandó ${String(usuario.content).length} caracteres`)
   const sinTope = mensajesDe({ ficha: { ...ficha, clase: 'ejecutivo' }, contexto, lector: { buscar: () => [] }, efectos: { iniciativa: 0 } } as any)[1]
   assert.ok(String(sinTope.content).length > 600_000, 'las clases sin tope siguen igual')
+})
+
+test('#243: una respuesta cortada por largo se reintenta una vez con el doble de lugar antes de pasar al siguiente modelo; un tope que el modelo no acepta no corta la cadena', async () => {
+  const { decidir, cuerpoChat, TOPE_SALIDA } = await import('../src/nan.ts')
+  const cortada = { status: 200, body: '{}', json: { choices: [{ finish_reason: 'length', message: { content: 'a medias' } }] } } as any
+  assert.deepEqual(decidir(cortada, M.mimo, { server: 0, rate: 0, trunc: 0, largo: 0 }), { accion: 'reintentar', esperaMs: 0, masLargo: true })
+  assert.deepEqual(decidir(cortada, M.mimo, { server: 0, rate: 0, trunc: 0, largo: 1 }), { accion: 'siguiente' }, 'la segunda vez, al siguiente')
+  assert.equal(cuerpoChat(M.deepseek, { mensajes: [], temperatura: 0, maxTokens: 512, json: false, masLargo: true }).max_tokens, 32768)
+  assert.equal(cuerpoChat(M.mimo, { mensajes: [], temperatura: 0, maxTokens: 60_000, json: false, masLargo: true }).max_tokens, TOPE_SALIDA)
+  assert.deepEqual(decidir({ status: 400, body: 'max_tokens is too large: 65536' } as any, M.mimo, { server: 0, rate: 0, trunc: 0 }), { accion: 'siguiente' })
+})
+
+test('#242: la Fragua no se pierde porque fallen sus dos motores: Flash sin respuesta y MiMo cortado por largo pasan a Pro, que contesta', async () => {
+  const { nanChat } = await import('../src/nan.ts')
+  const db = abrir(':memory:')
+  const caido = () => ({ status: 504 })
+  const cortada = () => ({ status: 200, json: { choices: [{ finish_reason: 'length', message: { content: '{"cambios": [' } }] } })
+  const pedidos = falso([caido, caido, caido, cortada, cortada, ok({ cambios: [] })])
+  const r = await nanChat({ db, clase: 'mastropiero', agenteId: 'fragua' }, { mensajes: [{ role: 'user', content: 'forjá' }], temperatura: 0.2, maxTokens: 12000, json: true })
+  assert.equal(r.modelo, M.pro, 'queda registrado quién contestó')
+  assert.deepEqual(pedidos.map((p) => p.body.model), [M.deepseek, M.deepseek, M.deepseek, M.mimo, M.mimo, M.pro])
 })
