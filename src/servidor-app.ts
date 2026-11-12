@@ -389,6 +389,8 @@ const rutas: [string, RegExp, Ruta][] = [
   // Lo que quedó corriendo de fondo (un pedido largo): cómo va y, al terminar, su resultado.
   ['GET', /^\/api\/trabajos\/([\w]+)$/, async (_, [x]) => (await import('./trabajos.ts')).estadoTrabajo(x)],
   ['GET', /^\/api\/meta$/, () => meta()],
+  // El esqueleto: la Matriz 72 con los órganos del sistema, los propuestos y su actividad (las cartas vienen del roster).
+  ['GET', /^\/api\/esqueleto$/, async () => (await import('./esqueleto.ts')).verEsqueleto(db)],
   ['GET', /^\/api\/estado$/, () => estado()],
 
   // Liga

@@ -51,7 +51,7 @@ const VISTAS = {
   grafos: { montar: montarGrafos, refrescar: () => {} },
   grafosalud: { montar: montarGrafoSalud, refrescar: () => {} },
   quantomos: { montar: montarQuantomos, refrescar: refrescarQuantomos },
-  matriz: { montar: montarMatriz, refrescar: montarMatriz },
+  matriz: { montar: montarEsqueleto, refrescar: () => pintarEsqueleto() },
   cementerio: { montar: montarCementerio, refrescar: montarCementerio },
 }
 
@@ -92,11 +92,11 @@ const ESPACIOS = [
   { id: 'vida', nombre: 'Vida', ico: 'heart-pulse', tecla: 'v', vistas: [['salud', 'Salud'], ['tudia', 'Tu día'], ['personas', 'Personas'], ['capsulas', 'Cápsulas'], ['jugador', 'Jugador'], ['suenos', 'Sueños']] },
   { id: 'aprender', nombre: 'Aprender', ico: 'graduation-cap', tecla: 'a', vistas: [['aprender', 'Academia'], ['idiomas', 'Idiomas'], ['criba72', 'Criba del 72'], ['criba', 'Criba lúdica']] },
   { id: 'grafo', nombre: 'Grafo', ico: 'waypoints', tecla: 'r', vistas: [['grafo', 'Grafo'], ['grafos', 'Mis grafos'], ['grafosalud', 'Salud']] },
-  { id: 'agentes', nombre: 'Agentes', ico: 'bot', tecla: 'e', vistas: [['agsala', 'Sala'], ['agmisiones', 'Misiones'], ['programados', 'Programados'], ['agpistas', 'Pistas'], ['agtemporada', 'Temporada'], ['liga', 'Roster'], ['forja', 'Forja'], ['encargos', 'Encargos'], ['matriz', 'Matriz 72'], ['cementerio', 'Cementerio']] },
+  { id: 'agentes', nombre: 'Agentes', ico: 'bot', tecla: 'e', vistas: [['agsala', 'Sala'], ['agmisiones', 'Misiones'], ['programados', 'Programados'], ['agpistas', 'Pistas'], ['agtemporada', 'Temporada'], ['liga', 'Roster'], ['forja', 'Forja'], ['encargos', 'Encargos'], ['cementerio', 'Cementerio']] },
   { id: 'mapamundi', nombre: 'Mapamundi', ico: 'hexagon', tecla: 'w', vistas: [['mapamundi', 'Mapamundi']] },
   { id: 'saber', nombre: 'Saber', ico: 'library', tecla: 's', vistas: [['corpus', 'Corpus'], ['prensa', 'Diario'], ['cuadernos', 'Cuadernos'], ['libreria', 'Librería'], ['entidades', 'Entidades']] },
   { id: 'afuera', nombre: 'Afuera', ico: 'globe', tecla: 'f', vistas: [['feed', 'Feed'], ['taller', 'Taller'], ['radar', 'Radar'], ['observatorio', 'Observatorio'], ['campanas', 'Campañas'], ['cuentas', 'Cuentas'], ['discovery', 'Discovery']] },
-  { id: 'maquina', nombre: 'La máquina', ico: 'cog', tecla: 'm', vistas: [['fragua', 'La Fragua'], ['revision', 'Revisión']] },
+  { id: 'maquina', nombre: 'La máquina', ico: 'cog', tecla: 'm', vistas: [['matriz', 'Matriz 72'], ['fragua', 'La Fragua'], ['revision', 'Revisión']] },
   { id: 'perfil', nombre: 'Perfil', ico: 'user', tecla: 'y', vistas: [['perfil', 'Perfil']] },
 ]
 /** Las vistas que viven adentro de otra (se marcan como esa pestaña). */

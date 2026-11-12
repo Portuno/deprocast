@@ -28,8 +28,10 @@ test('Voz: lo dicho entra al chat como suyo (marcado voz), Mastropiero contesta 
   await esperar(cid)
   const ms = db.prepare('SELECT rol, texto, via, lugar, numero FROM mensajes WHERE conversacion_id = ? ORDER BY id').all(cid) as any[]
   assert.deepEqual({ ...ms[0] }, { rol: 'operador', texto: 'qué hora es', via: 'voz', lugar: 'hoy', numero: 1 })
-  assert.equal(ms.at(-1).rol, 'asistente')
-  assert.equal(ms.at(-1).via, 'voz', 'la respuesta se escuchó')
+  // «La reunión de las 11» sin fecha y con la agenda vacía: la guardia de las horas (#248) deja su aviso después.
+  assert.equal(ms.filter((m) => m.rol !== 'evento').at(-1).rol, 'asistente')
+  assert.match(ms.at(-1).texto, /Ojo con la hora/)
+  assert.equal(ms.filter((m) => m.rol === 'asistente').at(-1).via, 'voz', 'la respuesta se escuchó')
 
   oido = '¡Gracias por ver el video!'
   assert.deepEqual(await v.escucharTurno(db, cid, Buffer.alloc(4000)), { texto: null }, 'las alucinaciones de Whisper no entran')

@@ -383,22 +383,6 @@ function matrizHTML(mini, seleccion) {
   return `<div class="matriz ${mini ? 'mini' : ''}">${html}</div>`
 }
 
-function montarMatriz() {
-  $('#principal').innerHTML = `
-    <div class="titulo"><h1>Matriz 72</h1><p>8 dominios × 9 oficios (Input · Procesamiento · Output, por Cuerpo · Mente · Alma). La geometría de la 0.7.1. Varias cartas pueden compartir celda.</p></div>
-    ${matrizHTML(false, null)}`
-  $$('[data-celda]').forEach((c) => (c.onclick = () => {
-    const n = Number(c.dataset.celda)
-    const ocupan = E.roster.filter((f) => f.celda === n)
-    if (ocupan.length === 1) return modalAgente(ocupan[0].id)
-    abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Celda ${String(n).padStart(2, '0')}</h2>
-      <p class="tenue">${esc(c.title)}</p>
-      ${ocupan.length ? `<div class="mazo">${ocupan.map(cartaHTML).join('')}</div>` : '<p>Celda vacía: hay geometría, no hay acto.</p>'}
-      <div class="fila mt-4"><button class="btn btn-primario" id="forjar-aqui">⚒ Forjar en esta celda</button></div>`)
-    $('#forjar-aqui').onclick = () => { forja.celda = n; cerrarModal(); irA('forja') }
-  }))
-}
-
 function modalMatriz(alElegir) {
   abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Elegí la celda</h2><p class="tenue">Es geometría de presentación: no cambia el contrato de la clase.</p>${matrizHTML(true, forja.celda)}`)
   $$('#modal [data-celda]').forEach((c) => (c.onclick = () => { alElegir(Number(c.dataset.celda)); cerrarModal() }))

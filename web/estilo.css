@@ -3421,3 +3421,48 @@ span.ej-chip { cursor: default; }
 .cv-pasos { margin: 8px 0 4px; padding-left: 20px; line-height: 1.5; }
 .cv-fila { margin-top: 12px; align-items: center; gap: 10px; flex-wrap: wrap; }
 .cv-pendiente { margin-top: 10px; color: var(--tenue); font-style: italic; }
+
+/* La Matriz 72 · el esqueleto (La máquina): grilla con órganos, cartas y propuestos; debajo, sus fichas. */
+.esq-resumen { display: flex; flex-wrap: wrap; gap: 18px; align-items: baseline; margin: 4px 0 12px; }
+.esq-num { display: flex; align-items: baseline; gap: 6px; color: var(--tenue); font-size: var(--t-2); }
+.esq-num b { font-size: var(--t-6); color: var(--texto); font-weight: 600; }
+.esq-leyenda { margin-left: auto; display: flex; gap: 6px; align-items: center; font-size: var(--t-1); color: var(--tenue); }
+.esq-pin { display: inline-flex; align-items: center; justify-content: center; min-width: 1.15em; line-height: 1.1; }
+i.esq-pin { width: 10px; height: 10px; min-width: 0; border-radius: 3px; margin-left: 8px; }
+i.esq-pin.organo { background: var(--acento); }
+i.esq-pin.liga { background: var(--tenue); border-radius: 50%; }
+i.esq-pin.propuesto { border: 1px dashed var(--acento); }
+.esq-celda .esq-pin.propuesto { opacity: .55; border-bottom: 1px dashed var(--acento); }
+.esq-grilla-caja { overflow-x: auto; margin: 10px 0 18px; container-type: inline-size; }
+.esq-matriz { min-width: 540px; }
+@container (max-width: 760px) {
+  .esq-matriz { grid-template-columns: 76px repeat(9, minmax(0, 1fr)); }
+  .esq-celda .esq-nombre { display: none; }
+  .esq-celda .ocupa { font-size: var(--t-2); }
+}
+.esq-matriz .cab { line-height: 1.25; }
+.esq-celda { position: relative; }
+.esq-celda .ocupa { font-size: var(--t-4); gap: 3px; }
+.esq-celda .esq-nombre { font-style: normal; font-size: var(--t-1); color: var(--tenue); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.esq-matriz .apagado { opacity: .3; }
+.esq-seccion { margin-top: 22px; }
+.esq-fichas { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 12px; }
+.esq-fichas-modal { grid-template-columns: 1fr; }
+.esq-mazo { margin-top: 12px; }
+.esq-ficha { border: 1px solid var(--linea); border-radius: var(--r-l, 10px); background: var(--panel); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.esq-ficha.propuesto { border-style: dashed; background: transparent; }
+.esq-ficha header { display: flex; gap: 10px; align-items: center; }
+.esq-ficha header > div { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.esq-glifo { font-size: var(--t-7); width: 1.6em; text-align: center; }
+.esq-estado { font-size: var(--t-1); padding: 2px 8px; border-radius: 99px; border: 1px solid var(--linea); color: var(--tenue); white-space: nowrap; }
+.esq-estado.trabajando { color: var(--acento); border-color: var(--acento); }
+.esq-estado.propuesto { border-style: dashed; }
+.esq-funcion { margin: 0; line-height: 1.45; }
+.esq-dos { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.esq-dos h4 { margin: 0 0 4px; font-size: var(--t-1); letter-spacing: .08em; text-transform: uppercase; color: var(--tenue); font-weight: 600; }
+.esq-dos ul { margin: 0; padding-left: 16px; font-size: var(--t-2); line-height: 1.45; color: var(--tenue); }
+.esq-pie { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: var(--t-1); color: var(--tenue); }
+.esq-pie b { color: var(--texto); }
+.esq-err { color: var(--malo); }
+.esq-acciones:empty { display: none; }
+@media (max-width: 720px) { .esq-dos { grid-template-columns: 1fr; } .esq-leyenda { margin-left: 0; } }
