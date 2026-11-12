@@ -486,8 +486,8 @@ export async function trabajarYoutube(db: Db): Promise<void> {
         }
         const directo = await leerVideo(item.url, pedirWeb).catch(() => null)
         if (directo?.transcripcion) { await completarVideo(db, item.id, directo); continue }
-        // Privado o borrado: ni Gemini ni la compu lo pueden leer; no queda esperando (Fragua #239).
-        if (directo?.motivo && /privad|private|no (est[aá] )?disponible|unavailable|eliminad|removed/i.test(directo.motivo)) {
+        // Privado, borrado o solo para miembros del canal: ni Gemini ni la compu lo pueden leer; no queda esperando (Fragua #239).
+        if (directo?.motivo && /privad|private|no (est[aá] )?disponible|unavailable|eliminad|removed|para (los )?miembros|members[- ]only|join this channel/i.test(directo.motivo)) {
           db.prepare(`UPDATE youtube_cola SET estado = 'fallo', motivo = ? WHERE id = ?`).run(`${directo.motivo}: nadie lo puede leer`, item.id)
           sinTexto(db, item, directo.motivo)
           continue
