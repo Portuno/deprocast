@@ -83,3 +83,9 @@ test('propuestas: mandarla a La Fragua la deja abierta y al frente', () => {
   resolverPropuesta(db, 1, 'descartada')
   assert.equal((db.prepare('SELECT estado FROM propuestas').get() as any).estado, 'descartada')
 })
+
+test('#245: antes de nombrar una reunión o una hora, el chat la verifica en la agenda de ese día y arrastra la fecha de origen', () => {
+  const p = promptMastropiero(abrir(':memory:'))
+  assert.match(p, /Antes de nombrar una reunión, una cita o una hora[^\n]*verificala en ESTE turno con ver_dia/)
+  assert.match(p, /de dónde sale y su fecha absoluta/)
+})
