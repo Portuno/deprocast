@@ -19,10 +19,24 @@ export const ORDENES: Record<string, string> = {
   azar: 'random()',
 }
 
+/**
+ * Lo que entra a la criba: sin peso, no generado, no retirado (las versiones viejas de una historia se retiran pero
+ * seguían saliendo: Fragua #246), y que no sea de una familia ya votada. Una familia son las versiones de lo que el
+ * sistema regenera (nivel investigación, misma fuente y mismo título: «Historia de X» de cada corrida): votada una, las
+ * demás y las que vengan no se vuelven a preguntar.
+ */
+export const ELEGIBLE_CRIBA = `peso IS NULL AND nivel != 'generada' AND estado != 'retirada'
+  AND NOT (nivel = 'investigacion' AND EXISTS (SELECT 1 FROM corpus h WHERE h.nivel = 'investigacion' AND h.fuente = corpus.fuente AND h.titulo = corpus.titulo AND h.id != corpus.id AND h.peso IS NOT NULL))`
+
+/** El peso de la familia de una pieza regenerada (la última votada con su mismo título y fuente), si la tiene. */
+export function pesoDeFamilia(db: Db, fuente: string, titulo: string): number | null {
+  return (db.prepare(`SELECT peso FROM corpus WHERE fuente = ? AND titulo = ? AND nivel = 'investigacion' AND peso IS NOT NULL ORDER BY id DESC LIMIT 1`).get(fuente, titulo) as { peso: number } | undefined)?.peso ?? null
+}
+
 /** Peso 0 = descartada (queda, pero al fondo). */
 export function siguiente(db: Db, f: { nivel?: string | null; saltear?: number[]; orden?: string | null } = {}): (Pieza & { tituloOriginal: string; notas: Nota[] }) | null {
   const saltear = (f.saltear ?? []).filter(Number.isFinite)
-  const r = db.prepare(`SELECT id FROM corpus WHERE peso IS NULL AND nivel != 'generada' ${f.nivel ? 'AND nivel = ?' : ''}
+  const r = db.prepare(`SELECT id FROM corpus WHERE ${ELEGIBLE_CRIBA} ${f.nivel ? 'AND nivel = ?' : ''}
       ${saltear.length ? `AND id NOT IN (${saltear.map(() => '?').join(',')})` : ''}
     ORDER BY ${ORDENES[f.orden ?? ''] ?? ORDENES.auto} LIMIT 1`).get(...(f.nivel ? [f.nivel] : []), ...saltear) as any
   return r ? paraCriba(db, leerPieza(db, r.id)!) : null
@@ -108,6 +122,8 @@ export function cribar(db: Db, id: number, peso: number, ahora = Date.now()) {
   if (!Number.isFinite(p) || p < 0 || p > 12) throw new Error('El peso va de 1 a 12 (0 = descartar)')
   if (!leerPieza(db, id)) throw new Error(`No existe la pieza ${id}`)
   db.prepare('UPDATE corpus SET peso = ? WHERE id = ?').run(p, id)
+  // Las hermanas de una familia regenerada (otra versión de la misma historia) se llevan el mismo voto (Fragua #246).
+  db.prepare(`UPDATE corpus SET peso = ? WHERE nivel = 'investigacion' AND peso IS NULL AND id != ? AND (fuente, titulo) = (SELECT fuente, titulo FROM corpus WHERE id = ? AND nivel = 'investigacion')`).run(p, id, id)
   db.prepare('INSERT INTO criba (pieza_id, peso, fecha, en) VALUES (?, ?, ?, ?)').run(id, p, fechaLocal(ahora), ahora)
   return marcador(db, ahora)
 }
@@ -133,7 +149,7 @@ export function marcador(db: Db, ahora = Date.now()) {
     diasMes: n('SELECT COUNT(DISTINCT fecha) AS n FROM criba WHERE fecha >= ? AND fecha <= ?', `${hoy.slice(0, 7)}-01`, hoy),
     ultimo: (db.prepare('SELECT MAX(fecha) AS f FROM criba').get() as { f: string | null }).f,
     cribadas: n('SELECT COUNT(*) AS n FROM corpus WHERE peso IS NOT NULL'),
-    faltan: n(`SELECT COUNT(*) AS n FROM corpus WHERE peso IS NULL AND nivel != 'generada'`),
+    faltan: n(`SELECT COUNT(*) AS n FROM corpus WHERE ${ELEGIBLE_CRIBA}`),
     descartadas: n('SELECT COUNT(*) AS n FROM corpus WHERE peso = 0'),
   }
 }

@@ -144,3 +144,31 @@ test('criba: la nota que sale con la puntuación decide sola si es para hacer', 
   assert.equal(r2!.mision, null, 'sin modelo, por las palabras: un comentario no es tarea')
   assert.ok(pareceTarea('Acordate de mandarle el mail'))
 })
+
+test('#246: la criba no muestra lo retirado ni otra versión de una historia ya votada; el voto se hereda a las hermanas y a las versiones nuevas', async () => {
+  const { abrir } = await import('../src/db.ts')
+  const { asegurarFuente, insertar } = await import('../src/corpus.ts')
+  const { cribar, marcador, pesoDeFamilia, siguiente } = await import('../src/criba.ts')
+  const db = abrir(':memory:')
+  asegurarFuente(db, { id: 'takeout-historia', nombre: 'Historias', nivel: 'investigacion' })
+  asegurarFuente(db, { id: 'audios', nombre: 'Audios', nivel: 'propia' })
+  const historia = (n: number) => insertar(db, { fuente: 'takeout-historia', nivel: 'investigacion', titulo: 'Historia de El Consultorio', contenido: `versión ${n}`, origenId: `h:${n}` })!
+  const vieja = historia(1), otra = historia(2)
+  db.prepare(`UPDATE corpus SET estado = 'retirada' WHERE id = ?`).run(vieja)
+  const vistas = new Set<number>()
+  for (let p = siguiente(db, { orden: 'id_asc' }); p; p = siguiente(db, { orden: 'id_asc', saltear: [...vistas] })) vistas.add(p.id)
+  assert.ok(!vistas.has(vieja), 'la retirada no sale')
+  assert.ok(vistas.has(otra))
+  const nueva = historia(3) // la corrida del 12/11
+  cribar(db, otra, 7)
+  assert.equal((db.prepare('SELECT peso FROM corpus WHERE id = ?').get(nueva) as any).peso, 7, 'la hermana se lleva el voto')
+  assert.equal(pesoDeFamilia(db, 'takeout-historia', 'Historia de El Consultorio'), 7, 'y las que vengan lo heredan')
+  const futura = historia(4)
+  assert.ok(siguiente(db, { orden: 'id_desc' })?.id !== futura, 'una versión futura sin peso tampoco vuelve a preguntarse')
+  assert.equal(marcador(db).faltan, 0)
+  // Lo propio con títulos repetidos («Nota de voz») no es una familia: cada una se criba.
+  const a = insertar(db, { fuente: 'audios', nivel: 'propia', titulo: 'Nota de voz', contenido: 'una', origenId: 'a:1' })!
+  const b = insertar(db, { fuente: 'audios', nivel: 'propia', titulo: 'Nota de voz', contenido: 'otra', origenId: 'a:2' })!
+  cribar(db, a, 5)
+  assert.equal(siguiente(db)?.id, b)
+})
