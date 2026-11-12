@@ -195,7 +195,8 @@ async function hacerSintesis(db: Db): Promise<boolean> {
   }
 }
 
-const CARRILES = 4
+// Seis carriles, y entre el reproceso y el Takeout nunca más de seis pasos a la vez (Fragua #244: «de a 6 a la vez»).
+const CARRILES = 6
 /** Qué paso de la pantalla es cada cosa que hace un carril. */
 const QUE_HACE = new Map<(db: Db) => Promise<boolean>, string>([[hacerPasajes, 'pasajes'], [hacerItems, 'recuerdos'], [hacerDestilado, 'destilado'], [hacerImportado, 'importado'], [hacerTarjetas, 'tarjetas'], [hacerBucles, 'bucles'], [hacerSuenos, 'suenos']])
 
@@ -238,7 +239,8 @@ export async function trabajarReproceso(db: Db): Promise<void> {
           for (const paso of pasos) {
             estado.carriles[carril] = QUE_HACE.get(paso) ?? ''
             // Cada paso que tarda más de un segundo queda anotado («paso reproceso:pasajes…»): para encontrar lo que traba.
-            if (await (await import('./autocritica.ts')).medirPaso(db, `reproceso:${QUE_HACE.get(paso) ?? '?'}`, () => paso(db)).catch((e) => { console.error('  reproceso:', e instanceof Error ? e.message : e); return false })) return true
+            const { PASOS_DE_FONDO } = await import('./semaforo.ts')
+            if (await PASOS_DE_FONDO.con(async () => (await import('./autocritica.ts')).medirPaso(db, `reproceso:${QUE_HACE.get(paso) ?? '?'}`, () => paso(db))).catch((e) => { console.error('  reproceso:', e instanceof Error ? e.message : e); return false })) return true
           }
           return false
         } finally {

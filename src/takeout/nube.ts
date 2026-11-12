@@ -12,6 +12,7 @@
  *    una pregunta para que él diga en qué estado está y a dónde va (eso lo fija él, no el archivo).
  */
 import fs from 'node:fs'
+import { PASOS_DE_FONDO } from '../semaforo.ts'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -813,6 +814,8 @@ export async function historiaDe(db: Db, lote_: string, x: Awaited<ReturnType<ty
     etiquetas: ['takeout', 'historia', 'proyecto'], entidades: x.entidad ? [x.entidad] : undefined, origenId: origenH,
     meta: { takeout: lote_, menciones: ms.length, propuesto: !x.entidad },
   }, ahora)
+  // Una historia nueva de un proyecto que ya tenía una votada hereda su peso: no vuelve a la criba (Fragua #246).
+  if (!yaH) { const heredado = (await import('../criba.ts')).pesoDeFamilia(db, FUENTES.historia.id, `Historia de ${ent?.nombre ?? x.nombre}`); if (heredado != null) db.prepare('UPDATE corpus SET peso = ? WHERE id = ? AND peso IS NULL').run(heredado, p.id) }
   ideas.forEach((i, k) => {
     const t = txt(i?.idea, 400)
     if (t) crearQuantomo(db, { texto: t, titulo: `¿Sirve hoy? · ${ent?.nombre ?? x.nombre} · ${txt(i?.de_cuando, 10)}`, piezaId: p.id, universo: 'archivo', procedencia: `Historia de ${ent?.nombre ?? x.nombre}: ${txt(i?.por_que_hoy, 200)}`, origenId: `takeout:revisar:${lote_}:${x.entidad ?? claveDe(x.nombre)}:${k}` }, ahora)
@@ -946,7 +949,8 @@ export async function trabajarTakeout(db: Db): Promise<void> {
     for (;;) {
       const pasos = await Promise.all(Array.from({ length: CARRILES }, async () => {
         let n = 0
-        while (await unPaso(db).catch((e) => { console.error('  takeout:', e instanceof Error ? e.message : e); return false })) n++
+        // Comparte el semáforo con el reproceso: entre los dos, nunca más de seis pasos a la vez (Fragua #244).
+        while (await PASOS_DE_FONDO.con(() => unPaso(db)).catch((e) => { console.error('  takeout:', e instanceof Error ? e.message : e); return false })) n++
         return n
       }))
       if (!pasos.some(Boolean)) break
