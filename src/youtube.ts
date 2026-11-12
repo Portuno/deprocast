@@ -154,7 +154,8 @@ export function reinicioDiario(ahora = Date.now()): number {
   return hoy > ahora ? hoy : hoy + 86_400_000
 }
 const saturado = (status: number, motivo: string) => [500, 502, 503, 504].includes(status) || /high demand|overloaded|unavailable|try again later/i.test(motivo)
-const MODELO_ALTERNO = () => process.env.GEMINI_MODELO_ALTERNO?.trim() || 'gemini-2.5-flash-lite'
+/** El de respaldo: el que él fije, o la versión «lite» del que anda (Google retira modelos: no se fija un nombre a mano). */
+export const modeloAlterno = (principal: string) => process.env.GEMINI_MODELO_ALTERNO?.trim() || (/-flash$/.test(principal) ? `${principal}-lite` : null)
 
 /** Lee la respuesta en renglones: la cabecera, los párrafos con su minuto y lo que se ve en pantalla. */
 export function leerRenglonesGemini(texto: string): { titulo: string | null; canal: string | null; idioma: string | null; parrafos: string[]; pantalla: string[]; ultimo: string | null } {
@@ -236,6 +237,7 @@ async function videoPorGemini(db: Db, id: string): Promise<{ video: VideoLeido }
   if (!geminiDisponible(db)) return claveGemini() ? { motivo: `sin cupo por ahora (${ajuste(db, 'youtube_gemini_motivo') ?? 'descansa un rato'})`, transitorio: true } : { motivo: 'no está configurado' }
   let modelo = modeloGemini(db)
   let cambioDeModelo = false, usoAlterno = false
+  let principal = modelo
   const pausar = (hasta: number, motivo: string) => { fijarAjuste(db, 'youtube_gemini_hasta', String(hasta)); fijarAjuste(db, 'youtube_gemini_motivo', motivo) }
   const parrafos: string[] = [], pantalla: string[] = []
   let cab: { titulo: string | null; canal: string | null; idioma: string | null } = { titulo: null, canal: null, idioma: null }
@@ -258,6 +260,8 @@ async function videoPorGemini(db: Db, id: string): Promise<{ video: VideoLeido }
       if (r.ok) break
       const motivo = `${r.status || 'sin respuesta'}: ${j?.error?.message ?? 'falló'}`.slice(0, 200)
       // El modelo ya no existe: se busca el nuevo una vez y se repite con él.
+      // El de respaldo no existe (o lo retiraron): se vuelve al principal y se sigue como si no hubiera respaldo.
+      if (usoAlterno && modeloRetirado(r.status, motivo)) { modelo = principal; pausar(Date.now() + 30 * 60_000, motivo); return { motivo, transitorio: true } }
       if (!cambioDeModelo && modeloRetirado(r.status, motivo) && !process.env.GEMINI_MODELO?.trim()) {
         cambioDeModelo = true
         const nuevo = await buscarModeloNuevo(db, modelo, String(j?.error?.message ?? ''))
@@ -266,7 +270,7 @@ async function videoPorGemini(db: Db, id: string): Promise<{ video: VideoLeido }
       // Un 403 «sin permiso» es de ese video (los «para niños», restringidos), no de la cuenta: no frena a los demás.
       const deEseVideo = r.status === 403 && /caller does not have permission|permission denied/i.test(motivo) && !/api key|billing|project/i.test(motivo)
       if (deEseVideo) return { motivo: `Google no deja leer este video (suele ser uno «para niños» o restringido): ${motivo}` }
-      const otroModelo = () => { if (usoAlterno || MODELO_ALTERNO() === modelo) return false; usoAlterno = true; modelo = MODELO_ALTERNO(); return true }
+      const otroModelo = () => { const alt = modeloAlterno(modelo); if (usoAlterno || !alt || alt === modelo) return false; usoAlterno = true; principal = modelo; modelo = alt; return true }
       // Google saturado: es de ahora. Dos reintentos, otro modelo, y si no, el video espera media hora en la nube.
       if (saturado(r.status, motivo)) {
         if (intento < 2) { await esperar(intento ? 60_000 : 20_000); continue }

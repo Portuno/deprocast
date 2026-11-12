@@ -137,6 +137,16 @@ test('YouTube por Gemini sin cupo del día (o Google saturado): prueba otro mode
     await yt.trabajarYoutube(db2)
     assert.equal(n503, 4, 'tres con el de siempre y uno con el otro modelo')
     assert.equal((db2.prepare('SELECT estado FROM youtube_cola WHERE id = ?').get('m3wNTex84R8') as any).estado, 'gemini')
+    // El respaldo no existe (Google retira modelos): se vuelve al principal, el video espera, y el modelo fijado no se toca.
+    const db3 = abrir(':memory:')
+    db3.prepare(`INSERT INTO ajustes (clave, valor) VALUES ('youtube_gemini_modelo', 'gemini-3.8-flash')`).run()
+    const usados: string[] = []
+    yt._probarYoutube({ gemini: async (url) => { const m = /models\/([^:]+)/.exec(url)![1]; usados.push(m); return m.endsWith('-lite') ? new Response(JSON.stringify({ error: { message: `models/${m} is not found for API version v1beta` } }), { status: 404 }) : new Response(JSON.stringify({ error: { message: 'high demand' } }), { status: 503 }) } })
+    await yt.encolarYoutube(db3, 'https://www.youtube.com/watch?v=MbsTLCe0iGs')
+    await yt.trabajarYoutube(db3)
+    assert.deepEqual([...new Set(usados)], ['gemini-3.8-flash', 'gemini-3.8-flash-lite'])
+    assert.equal((db3.prepare(`SELECT valor FROM ajustes WHERE clave = 'youtube_gemini_modelo'`).get() as any).valor, 'gemini-3.8-flash')
+    assert.equal((db3.prepare('SELECT estado FROM youtube_cola WHERE id = ?').get('MbsTLCe0iGs') as any).estado, 'gemini')
     assert.equal(yt.correrMinutos(['[00:10] a'], 1200)[0], '[20:10] a')
     assert.equal(yt.correrMinutos(['[20:10] a'], 1200)[0], '[20:10] a', 'si ya vienen del video, no se tocan')
   } finally {
