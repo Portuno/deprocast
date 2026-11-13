@@ -216,3 +216,27 @@ test('una nota de voz larga con un video de fondo (Fragua #205): la pieza marca 
   assert.ok(enviados.length)
   _probarTelegram({ separarNota: async () => null })
 })
+
+test('#265: un timeout que la vuelta siguiente resuelve no es un error; tres seguidos, sí (y el polling nunca se corta)', async () => {
+  const { vueltaTelegram, esPasajero, TELEGRAM_FALLAS_ERROR } = await import('../src/telegram.ts')
+  const db = abrir(':memory:')
+  const errores: string[] = []
+  const antes = console.error
+  console.error = (...xs: unknown[]) => { errores.push(xs.join(' ')) }
+  try {
+    let respuesta: () => Promise<any> = async () => { throw new Error('The operation was aborted due to timeout') }
+    _probarTelegram({ pedir: async () => respuesta() })
+    await vueltaTelegram(db)
+    respuesta = async () => ({ ok: true, result: [] })
+    assert.equal(await vueltaTelegram(db), 300, 'volvió a andar')
+    assert.equal(errores.length, 0, 'uno suelto no se registra')
+    respuesta = async () => { throw new Error('The operation was aborted due to timeout') }
+    for (let i = 0; i < TELEGRAM_FALLAS_ERROR; i++) assert.ok((await vueltaTelegram(db)) > 0, 'sigue reintentando')
+    assert.equal(errores.length, 1)
+    assert.match(errores[0], /3 veces seguidas/)
+    assert.equal(esPasajero('fetch failed'), true)
+    assert.equal(esPasajero('Unauthorized'), false)
+  } finally {
+    console.error = antes
+  }
+})

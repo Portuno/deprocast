@@ -1056,6 +1056,9 @@ export function esperaTelegram(conflicto: boolean, seguidas: number): number {
 }
 export const AVISO_OTRA_INSTANCIA = 'Otra instancia está escuchando este bot (¿la compu y la nube a la vez?). Dejá Telegram prendido en una sola.'
 const racha = { conflictos: 0, fallas: 0 }
+/** Cortes de red que se resuelven solos: no cuentan como error hasta que se repiten. */
+export const esPasajero = (m: string) => /aborted due to timeout|timed? ?out|fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|socket hang up|other side closed|5dd|Bad Gateway|Gateway Timeout/i.test(m)
+export const TELEGRAM_FALLAS_ERROR = 3
 /** Una vuelta del polling; devuelve cuánto esperar antes de la siguiente (para los tests, sin timers). */
 export async function vueltaTelegram(db: Db): Promise<number> {
   // El último mensaje ya procesado vive en la base: un servidor que recién arranca (un relevo) no vuelve a contestar
@@ -1087,7 +1090,11 @@ export async function vueltaTelegram(db: Db): Promise<number> {
     // Un corte (timeout, sin red, 5xx) no es otra instancia: se reintenta con espera creciente y se loguea solo la primera.
     racha.fallas++
     estado.ultimoError = e instanceof Error ? e.message : String(e)
-    if (racha.fallas === 1) console.error('  telegram:', estado.ultimoError)
+    // Un corte pasajero (timeout, sin red, 5xx) que la vuelta siguiente resuelve no es un error (Fragua #265): va al log y
+    // recién cuenta como error si se repite TELEGRAM_FALLAS_ERROR veces seguidas. Lo demás, a la primera.
+    if (!esPasajero(estado.ultimoError)) { if (racha.fallas === 1) console.error('  telegram:', estado.ultimoError) }
+    else if (racha.fallas === TELEGRAM_FALLAS_ERROR) console.error(`  telegram: ${estado.ultimoError} (${racha.fallas} veces seguidas)`)
+    else if (racha.fallas === 1) console.log('  telegram (pasajero, reintento):', estado.ultimoError)
     return esperaTelegram(false, racha.fallas)
   }
 }
