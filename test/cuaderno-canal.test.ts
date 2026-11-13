@@ -18,6 +18,8 @@ function bot() {
     pedir: async (metodo, cuerpo) => { const id = ++n; if (metodo === 'sendMessage') enviados.push({ id, ...cuerpo }); return { ok: true, result: { message_id: id } } },
     // Cada «foto» es un JPG distinto (si no, Tandas la toma por repetida).
     bajar: async (id) => ({ datos: Buffer.from(`\xff\xd8\xff jpg ${id}`), nombre: `${id}.jpg` }),
+    // Lo que no es registro ni hoja se lee entero (Fragua #270): acá, una descripción suelta.
+    ver: async () => 'Un perro',
   })
   _probarModelo(async () => ({ texto: 'Dale.', llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }))
   _probarHojas({ esperar: (ms) => new Promise((ok) => setTimeout(ok, Math.min(ms, 20))) })

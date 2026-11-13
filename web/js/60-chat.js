@@ -481,7 +481,9 @@ async function adjuntarImagenes(archivos) {
     pintarAdjuntos()
     try {
       const r = await fetch(`/api/chat/imagen?nombre=${encodeURIComponent(f.name || 'imagen.png')}`, { method: 'POST', body: f }).then(async (x) => { const j = await x.json(); if (!x.ok) throw new Error(j.error); return j })
-      Object.assign(a, { subiendo: false, marca: r.marca, descripcion: r.descripcion })
+      Object.assign(a, { subiendo: false, marca: r.marca, descripcion: r.descripcion, pieza: r.pieza })
+      // Si la lectura no quedó guardada, se dice ya (Fragua #272), no cuando la quiera buscar.
+      if (r.aviso) error(new Error(r.aviso))
     } catch (e) { error(e); chat.adjuntos = chat.adjuntos.filter((x) => x !== a) }
     pintarAdjuntos()
   }
@@ -493,7 +495,7 @@ function pintarAdjuntos() {
   cont.hidden = !chat.adjuntos.length
   cont.innerHTML = chat.adjuntos.map((a) => a.tipo === 'archivo'
     ? `<span class="adj adj-archivo ${a.subiendo ? 'subiendo' : ''}"><i>${ICONO_ARCHIVO[(a.nombre.split('.').pop() || '').toLowerCase()] ?? '📄'}</i><span><b title="${esc(a.nombre)}">${esc(a.nombre)}</b><small>${a.subiendo ? 'Leyendo…' : `${pesoLegible(a.bytes)} · ${a.palabras ? `${a.palabras.toLocaleString('es-AR')} palabras` : 'sin texto legible'}`}</small></span><button type="button" data-quitar-adj="${a.id}" title="Quitar">✕</button></span>`
-    : `<span class="adj ${a.subiendo ? 'subiendo' : ''}" title="${esc(a.descripcion ?? 'Subiendo y mirando la imagen…')}"><img src="${a.vista}" alt=""><small>${a.subiendo ? 'Mirando…' : 'Lista'}</small><button type="button" data-quitar-adj="${a.id}" title="Quitar">✕</button></span>`).join('')
+    : `<span class="adj ${a.subiendo ? 'subiendo' : ''}" title="${esc(a.descripcion ?? 'Subiendo y mirando la imagen…')}"><img src="${a.vista}" alt=""><small>${a.subiendo ? 'Leyendo…' : a.pieza ? `Leída · #${a.pieza}` : 'Lista'}</small><button type="button" data-quitar-adj="${a.id}" title="Quitar">✕</button></span>`).join('')
   $$('[data-quitar-adj]', cont).forEach((b) => (b.onclick = () => { chat.adjuntos = chat.adjuntos.filter((a) => String(a.id) !== b.dataset.quitarAdj); pintarAdjuntos() }))
 }
 

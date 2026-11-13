@@ -17,10 +17,14 @@ test('adjuntos: la imagen se guarda y se describe; el turno la ve, los siguiente
   const r = await guardarImagen(db, 'captura.png', Buffer.from('png-falso'))
   assert.match(r.url, /^\/adjuntos\/\d+-[0-9a-f]{10}\.png$/)
   assert.ok(fs.existsSync(path.join(process.env.MASTRO_ADJUNTOS!, path.basename(r.url))))
-  assert.equal(r.marca, `[imagen:${r.url}|Una captura con corchetes de una planilla con dos columnas.]`, 'la descripción no rompe la marca')
+  assert.equal(r.marca, `[imagen:${r.url}|Una captura con corchetes de una planilla con dos columnas. (lectura entera: pieza #${r.pieza})]`, 'la descripción no rompe la marca')
+  // La lectura queda en el corpus (Fragua #272): el número viaja en la marca para volver a ella.
+  assert.ok(r.pieza)
+  assert.equal((db.prepare('SELECT fuente FROM corpus WHERE id = ?').get(r.pieza) as any).fuente, 'capturas')
+  assert.equal(r.drive, false)
 
   const texto = `¿Qué ves acá?\n${r.marca}`
-  assert.equal(comoTexto(texto), '¿Qué ves acá?\n(imagen adjunta: Una captura con corchetes de una planilla con dos columnas.)')
+  assert.equal(comoTexto(texto), `¿Qué ves acá?\n(imagen adjunta: Una captura con corchetes de una planilla con dos columnas. (lectura entera: pieza #${r.pieza}))`)
   const partes = conImagenes(texto) as any[]
   assert.equal(partes[0].text, '¿Qué ves acá?\n(imagen adjunta: la ves abajo)')
   assert.match(partes[1].image_url.url, /^data:image\/png;base64,/)

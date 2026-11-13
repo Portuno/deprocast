@@ -525,9 +525,10 @@ export async function nanTranscribirDetallado(db: Db, audio: Buffer, nombre: str
 /** Ver una imagen: la cadena de los que tienen visión (DeepSeek primero: el más rápido; Qwen de respaldo). */
 export async function nanVision(
   l: { db: Db; clase: ClaseId | 'mastropiero'; agenteId: string },
-  o: { sistema: string; texto: string; imagen: string; maxTokens?: number },
+  o: { sistema: string; texto: string; imagen: string; maxTokens?: number; modelos?: string[] },
 ): Promise<{ texto: string; modelo: string; tokens: number }> {
-  const { modelo, r } = await recorrer(l, [M.deepseek, M.qwen], (m, _poco, masLargo) => pedir('POST', '/chat/completions', {
+  // modelos: otra cadena para esta lectura (la segunda pasada de una imagen, con otro modelo).
+  const { modelo, r } = await recorrer(l, o.modelos?.length ? o.modelos : [M.deepseek, M.qwen], (m, _poco, masLargo) => pedir('POST', '/chat/completions', {
     model: m, temperature: 0.2, max_tokens: Math.min(TOPE_SALIDA, (masLargo ? 2 : 1) * (m === M.deepseek ? Math.max(o.maxTokens ?? 800, 4096) : (o.maxTokens ?? 800) + PRESUPUESTO_RAZONAMIENTO)),
     messages: [
       { role: 'system', content: o.sistema },

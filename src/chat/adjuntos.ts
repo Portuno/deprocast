@@ -12,7 +12,7 @@ import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { resolverRuta, type Db } from '../db.ts'
-import { nanVision } from '../nan.ts'
+import { guardarLectura, leerImagen, type LecturaImagen } from '../lectura-imagen.ts'
 import { aJpeg } from '../tandas.ts'
 
 export const dirAdjuntos = () => path.resolve(process.env.MASTRO_ADJUNTOS ?? path.join(path.dirname(resolverRuta()), 'adjuntos'))
@@ -45,10 +45,8 @@ export async function guardarArchivo(nombre: string, datos: Buffer, ahora = Date
   return { url: `/adjuntos/${archivo}`, nombre: limpio, bytes: datos.length, palabras, marca: `[archivo:/adjuntos/${archivo}|${limpio}|${palabras} palabras]` }
 }
 
-let describir = async (db: Db, datos: Buffer, mime: string): Promise<string> => (await nanVision({ db, clase: 'mastropiero', agenteId: 'chat' }, {
-  sistema: 'Describís una imagen que el operador le manda a su asistente en una conversación. En castellano: qué es (captura de pantalla, foto, documento, gráfico…), todo el texto visible tal cual, y los detalles que importan. Entre 2 y 8 oraciones, sin adornos.',
-  texto: 'Describí esta imagen.', imagen: `data:${mime};base64,${datos.toString('base64')}`, maxTokens: 1200,
-})).texto
+// La imagen se lee entera (texto, estructura y lo ilegible: Fragua #270); un test puede devolver una descripción suelta.
+let describir = async (db: Db, datos: Buffer, mime: string): Promise<LecturaImagen | string> => leerImagen(db, { datos, mime })
 export function _probarAdjuntos(f: typeof describir) {
   describir = f
 }
@@ -77,13 +75,29 @@ export function leerFoto(url: string): { datos: Buffer; mime: string } | null {
   return { datos: fs.readFileSync(archivo), mime: archivo.endsWith('.png') ? 'image/png' : archivo.endsWith('.webp') ? 'image/webp' : 'image/jpeg' }
 }
 
-/** Guarda la imagen (achicada a JPEG si hace falta) y la describe. Devuelve la marca para el mensaje. */
-export async function guardarImagen(db: Db, nombre: string, datos: Buffer, ahora = Date.now()): Promise<{ url: string; descripcion: string; marca: string }> {
+/** Una descripción suelta (la de un test, o un modelo que no devolvió JSON) como lectura. */
+export const comoLectura = (l: LecturaImagen | string): LecturaImagen => typeof l === 'string' ? { clase: 'otro', titulo: 'Imagen', descripcion: l.trim(), texto: '', grupos: [], ilegible: [], modelo: null } : l
+
+/**
+ * Guarda la imagen (achicada a JPEG si hace falta), la lee entera y deja la lectura como pieza del corpus (Fragua #270 y
+ * #272: lo que se manda no se pierde con el turno). Devuelve la marca para el mensaje: en los turnos siguientes viaja un
+ * resumen corto con el número de pieza, para volver a la lectura entera. Si no se pudo guardar, `aviso` lo dice.
+ */
+export async function guardarImagen(db: Db, nombre: string, datos: Buffer, ahora = Date.now()): Promise<{ url: string; descripcion: string; marca: string; pieza: number | null; drive: boolean; aviso?: string }> {
   const { url, datos: jpeg, mime } = guardarFoto(nombre, datos, ahora)
-  let descripcion = ''
-  try { descripcion = limpia(await describir(db, jpeg, mime)) } catch { /* sin descripción: igual se ve en el turno */ }
-  void import('../google/drive.ts').then((d) => d.alDrive(db, { datos, nombre, tipo: 'imagen', origen: 'chat', descripcion })).catch(() => {})
-  return { url, descripcion, marca: `[imagen:${url}|${descripcion || 'sin descripción'}]` }
+  let descripcion = '', pieza: number | null = null, aviso: string | undefined
+  let lectura: LecturaImagen | null = null
+  try { lectura = comoLectura(await describir(db, jpeg, mime)) } catch (e) { aviso = `No pude leer la imagen (${(e as Error).message}): la ve el modelo en este turno, pero no quedó leída en tu corpus.` }
+  if (lectura) {
+    try { pieza = guardarLectura(db, lectura, { datos: jpeg, url, canal: 'chat' }, ahora) } catch (e) { aviso = `No pude guardar la lectura en tu corpus: ${(e as Error).message}` }
+    const estructura = lectura.grupos.length ? ` Estructura: ${lectura.grupos.map((g) => `${g.nombre}: ${g.items.join(', ')}`).join('; ')}.` : ''
+    descripcion = limpia(`${lectura.descripcion || lectura.titulo}${estructura}${!estructura && lectura.texto ? ` Texto: ${lectura.texto}` : ''}`)
+    if (pieza) descripcion = `${descripcion.slice(0, 640)} (lectura entera: pieza #${pieza})`
+  }
+  const { alDrive, guardaMedios } = await import('../google/drive.ts')
+  const drive = guardaMedios(db)
+  try { alDrive(db, { datos, nombre, tipo: 'imagen', origen: 'chat', descripcion }) } catch { /* la cola de Drive avisa sola */ }
+  return { url, descripcion, marca: `[imagen:${url}|${descripcion || 'sin descripción'}]`, pieza, drive, ...(aviso ? { aviso } : {}) }
 }
 
 /** Para los turnos siguientes, la memoria y los títulos: la imagen como su descripción; el archivo, con su comienzo. */
