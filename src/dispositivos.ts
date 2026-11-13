@@ -112,10 +112,47 @@ export async function recibirVoz(db: Db, d: Dispositivo, audio: Buffer, nombre: 
 }
 
 /** Lo mínimo para que la app abra al instante: el chat de Hoy (lo último) y cuántas cosas esperan tu ok. */
+// ─── envíos idempotentes y la marca de cambios (Deprocast Mobile 1.0) ───
+
+/**
+ * Reserva una clave de envío. La primera vez: nuevo (y queda «procesándose»). Si ya estaba: lo que respondió (o null si
+ * todavía se está procesando). Así un reintento del teléfono no transcribe dos veces el mismo tramo.
+ */
+export function reservarEnvio(db: Db, dispositivoId: number, clave: string, ahora = Date.now()): { nuevo: true } | { nuevo: false; respuesta: unknown | null } {
+  db.prepare('DELETE FROM dispositivo_envios WHERE en < ?').run(ahora - 7 * 86_400_000)
+  const r = db.prepare('INSERT OR IGNORE INTO dispositivo_envios (dispositivo_id, clave, respuesta, en) VALUES (?, ?, NULL, ?)').run(dispositivoId, clave.slice(0, 120), ahora)
+  if (r.changes) return { nuevo: true }
+  const ya = db.prepare('SELECT respuesta FROM dispositivo_envios WHERE dispositivo_id = ? AND clave = ?').get(dispositivoId, clave.slice(0, 120)) as { respuesta: string | null }
+  return { nuevo: false, respuesta: ya.respuesta ? JSON.parse(ya.respuesta) : null }
+}
+export function cerrarEnvio(db: Db, dispositivoId: number, clave: string, respuesta: unknown) {
+  db.prepare('UPDATE dispositivo_envios SET respuesta = ? WHERE dispositivo_id = ? AND clave = ?').run(JSON.stringify(respuesta ?? {}), dispositivoId, clave.slice(0, 120))
+}
+/** Falló: la clave se libera para que el reintento la procese. */
+export function soltarEnvio(db: Db, dispositivoId: number, clave: string) {
+  db.prepare('DELETE FROM dispositivo_envios WHERE dispositivo_id = ? AND clave = ? AND respuesta IS NULL').run(dispositivoId, clave.slice(0, 120))
+}
+
+/**
+ * La marca de Hoy: cambia cuando cambia algo de lo que muestra el teléfono (un mensaje nuevo, lo que espera tu ok).
+ * Barata, para preguntarla cada pocos segundos; el teléfono trae el paquete entero solo cuando cambió.
+ */
+let bandejaCache: { en: number; total: number } | null = null
+export async function marcaHoy(db: Db, ahora = Date.now()): Promise<{ marca: string; servidorEn: number }> {
+  const { conversacionHoy } = await import('./chat/index.ts')
+  const c = conversacionHoy(db)
+  const ultimo = (db.prepare(`SELECT COALESCE(MAX(id), 0) AS n FROM mensajes WHERE conversacion_id = ?`).get(c.id) as { n: number }).n
+  if (!bandejaCache || ahora - bandejaCache.en > 20_000) bandejaCache = { en: ahora, total: (await import('./sombra.ts')).bandeja(db).total }
+  return { marca: `${c.id}:${ultimo}:${bandejaCache.total}`, servidorEn: ahora }
+}
+
 export async function paqueteHoy(db: Db, o: { mensajes?: number } = {}) {
   const { conversacionHoy, ultimosMensajes } = await import('./chat/index.ts')
   const c = conversacionHoy(db)
   const { bandeja } = await import('./sombra.ts')
   const ms = ultimosMensajes(db, c.id, o.mensajes ?? 30).mensajes
-  return { conversacion: c.id, mensajes: ms.filter((m) => (m.rol === 'operador' || m.rol === 'asistente') && m.texto).map((m) => ({ id: m.id, rol: m.rol, texto: m.texto, en: m.en })), paraValidar: bandeja(db).total }
+  const paraValidar = bandeja(db).total
+  const ultimo = (db.prepare(`SELECT COALESCE(MAX(id), 0) AS n FROM mensajes WHERE conversacion_id = ?`).get(c.id) as { n: number }).n
+  // servidorEn: con qué hora del servidor salió (el teléfono no pisa algo más nuevo con algo más viejo); marca: la de marcaHoy.
+  return { conversacion: c.id, mensajes: ms.filter((m) => (m.rol === 'operador' || m.rol === 'asistente') && m.texto).map((m) => ({ id: m.id, rol: m.rol, texto: m.texto, en: m.en })), paraValidar, servidorEn: Date.now(), marca: `${c.id}:${ultimo}:${paraValidar}` }
 }

@@ -1300,6 +1300,16 @@ CREATE TABLE IF NOT EXISTS youtube_censos (
   creado INTEGER NOT NULL
 );
 -- Tu día en capas (plan v38, fase 6): un minuto por fila, por dispositivo (solo números: nunca audio).
+-- Lo que un dispositivo ya mandó (Deprocast Mobile 1.0): si el teléfono reintenta un tramo o un mensaje con la misma
+-- clave, se devuelve la respuesta de la primera vez en vez de procesarlo de nuevo.
+CREATE TABLE IF NOT EXISTS dispositivo_envios (
+  dispositivo_id INTEGER NOT NULL,
+  clave TEXT NOT NULL,
+  respuesta TEXT,                     -- null: todavía procesándose
+  en INTEGER NOT NULL,
+  PRIMARY KEY (dispositivo_id, clave)
+);
+
 CREATE TABLE IF NOT EXISTS capas_minuto (
   dispositivo_id INTEGER NOT NULL,
   minuto INTEGER NOT NULL,

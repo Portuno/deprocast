@@ -1740,6 +1740,23 @@ function soloNube(que: string) {
  * Bearer dpd_…», hoy (lo mínimo para abrir al instante), mensaje (escribirle a Mastropiero) y voz (un segmento de audio:
  * se transcribe y se descarta). Sin la clave de la pantalla.
  */
+/** Un tramo de voz de un dispositivo: lo de siempre (rescate o transcripción), con su código y su cuerpo. */
+async function vozDeDispositivo(req: http.IncomingMessage, url: URL, disp: import('./dispositivos.ts').Dispositivo): Promise<{ codigo: number; cuerpo: unknown }> {
+  const d = await import('./dispositivos.ts')
+  const pedido = url.searchParams.get('modo')
+  const modo = pedido === 'pasivo' || pedido === 'conversacion' ? pedido : 'dictado'
+  const n = (k: string) => (url.searchParams.get(k) != null ? Number(url.searchParams.get(k)) : undefined)
+  const audio = await leerCrudo(req, 25 * 1024 * 1024)
+  if (disp.estado === 'rescate') {
+    await (await import('./rescate.ts')).guardarDuranteRescate(db, disp, 'audio', url.searchParams.get('nombre') || 'voz.wav', audio, { modo, inicio: n('inicio'), fin: n('fin'), caminando: url.searchParams.get('caminando') === '1' })
+    return { codigo: 202, cuerpo: { texto: '', destino: 'rescate' } }
+  }
+  const r = await d.recibirVoz(db, disp, audio, url.searchParams.get('nombre') || 'voz.m4a', {
+    modo, inicio: n('inicio'), fin: n('fin'), ruidoDb: n('ruidoDb'), proximidad: url.searchParams.get('proximidad') === '1', caminando: url.searchParams.get('caminando') === '1',
+  })
+  return { codigo: 201, cuerpo: r }
+}
+
 async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
   const responder = (codigo: number, cuerpo: unknown) => void res.writeHead(codigo, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }).end(JSON.stringify(cuerpo))
   const d = await import('./dispositivos.ts')
@@ -1754,6 +1771,8 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
     const disp = d.autenticarDispositivo(db, req.headers.authorization)
     if (!disp) return responder(401, { error: 'Falta el token del dispositivo o no es válido (Authorization: Bearer dpd_…)' })
     if (ruta === 'hoy' && req.method === 'GET') return responder(200, { dispositivo: disp.nombre, estado: disp.estado, ...(await d.paqueteHoy(db)) })
+    // Mobile 1.0: la marca barata de «algo cambió en Hoy» (el teléfono la pregunta cada 5 s mientras está abierto).
+    if (ruta === 'cambio' && req.method === 'GET') return responder(200, await d.marcaHoy(db))
     // Tu día en capas (plan v38, fase 6): los minutos que juntó el teléfono.
     if (ruta === 'capas' && req.method === 'POST') {
       const b = JSON.parse((await leerCrudo(req, 2 * 1024 * 1024)).toString('utf8') || '{}')
@@ -1777,23 +1796,30 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
       const b = JSON.parse((await leerCrudo(req, 256 * 1024)).toString('utf8') || '{}')
       const texto = String(b.texto ?? '').trim()
       if (!texto) return responder(400, { error: '¿Qué le digo?' })
+      // Idempotente (Mobile 1.0): el mismo mensaje reintentado con su id no se manda dos veces.
+      if (b.id) { const r = d.reservarEnvio(db, disp.id, `mensaje:${b.id}`); if (!r.nuevo) return responder(200, { ok: true, repetido: true }); d.cerrarEnvio(db, disp.id, `mensaje:${b.id}`, { ok: true }) }
       if (disp.estado === 'rescate') { await (await import('./rescate.ts')).guardarDuranteRescate(db, disp, 'mensaje', 'mensaje.txt', Buffer.from(texto), {}); return responder(202, { ok: true, rescate: true }) }
       void enviar(db, conversacionHoy(db).id, texto)
       return responder(202, { ok: true })
     }
     if (ruta === 'voz' && req.method === 'POST') {
-      const pedido = url.searchParams.get('modo')
-      const modo = pedido === 'pasivo' || pedido === 'conversacion' ? pedido : 'dictado'
-      const n = (k: string) => (url.searchParams.get(k) != null ? Number(url.searchParams.get(k)) : undefined)
-      const audio = await leerCrudo(req, 25 * 1024 * 1024)
-      if (disp.estado === 'rescate') {
-        await (await import('./rescate.ts')).guardarDuranteRescate(db, disp, 'audio', url.searchParams.get('nombre') || 'voz.wav', audio, { modo, inicio: n('inicio'), fin: n('fin'), caminando: url.searchParams.get('caminando') === '1' })
-        return responder(202, { texto: '', destino: 'rescate' })
+      // Idempotente (Mobile 1.0): el mismo tramo reintentado (con su id) devuelve lo de la primera vez.
+      const clave = url.searchParams.get('id') ? `voz:${url.searchParams.get('id')}` : null
+      if (clave) {
+        const r = d.reservarEnvio(db, disp.id, clave)
+        if (!r.nuevo) { await leerCrudo(req, 25 * 1024 * 1024).catch(() => null); return responder(r.respuesta ? 200 : 202, { ...(r.respuesta as object ?? { texto: '', destino: 'nota' }), repetido: true, enCurso: !r.respuesta }) }
       }
-      const r = await d.recibirVoz(db, disp, audio, url.searchParams.get('nombre') || 'voz.m4a', {
-        modo, inicio: n('inicio'), fin: n('fin'), ruidoDb: n('ruidoDb'), proximidad: url.searchParams.get('proximidad') === '1', caminando: url.searchParams.get('caminando') === '1',
-      })
-      return responder(201, r)
+      try {
+        const x = await vozDeDispositivo(req, url, disp)
+        if (clave) d.cerrarEnvio(db, disp.id, clave, x.cuerpo)
+        return responder(x.codigo, x.cuerpo)
+      } catch (e) {
+        if (clave) d.soltarEnvio(db, disp.id, clave)
+        // Lo que no tiene arreglo (vacío, sin voz) es 422: el teléfono lo descarta. Lo demás (la transcripción caída, un
+        // corte) es 503: el teléfono lo deja en la cola y reintenta. Antes todo era 400 y el teléfono no sabía cuál era cuál.
+        const m = e instanceof Error ? e.message : String(e)
+        return responder(/vino vacío|no tenía voz|no es un audio|inválid/i.test(m) ? 422 : 503, { error: m })
+      }
     }
     // Las voces: lo último que se dijo (con su hablante), los hablantes, vincular uno a una persona, olvidarlo.
     const voces = await import('./hablantes.ts')
