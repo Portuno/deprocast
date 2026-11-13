@@ -6,6 +6,8 @@ const ESTADO_FORJA = {
   aplicada: ['aplicada', 'ok'], descartada: ['descartada', ''], revertida: ['revertida', 'mal'],
 }
 let fraguaEspera = null
+/** La categoría que se está mirando (Fragua #258): null = la que tiene más urgentes; «todas» = sin filtro. */
+let frArea = null
 
 function montarFragua() {
   $('#principal').innerHTML = `
@@ -81,12 +83,14 @@ async function refrescarFragua() {
   const grupos = d.grupos ?? []
   const enGrupo = new Set(grupos.flatMap((g) => g.ids))
   const porId = new Map(d.propuestas.map((p) => [p.id, p]))
-  const sueltas = d.propuestas.filter((p) => !enGrupo.has(p.id))
+  const area = frArea ?? d.inicial ?? 'todas'
+  const sueltas = d.propuestas.filter((p) => !enGrupo.has(p.id) && (area === 'todas' || p.area === area))
+  const chipsArea = (d.areas ?? []).length ? `<div class="chips fr-areas">${d.areas.map((a) => `<button class="chip ${a.id === area ? 'on' : ''}" data-fr-area="${a.id}" title="${esc(a.cubre)}">${esc(a.nombre)} <small>${a.abiertas}${a.altas ? ` · ${a.altas} alta${a.altas === 1 ? '' : 's'}` : ''}</small></button>`).join('')}<button class="chip ${area === 'todas' ? 'on' : ''}" data-fr-area="todas">Todas <small>${d.propuestas.length}</small></button></div>` : ''
   // Dónde está lo forjado de cada una (Fragua #209): en rama, aplicada en la nube, descartada… y si lleva una semana esperando.
   const lineaForja = (f) => f ? `<p class="tenue chico fr-estado">⚒ Forja #${f.id}: ${esc(f.texto)}${f.archivos ? ` · ${f.archivos} archivos` : ''}${f.viejo ? ` · <b class="fr-viejo">hace ${f.dias} días sin aplicar</b>` : ''} <button class="btn btn-chico" data-ver="${f.id}">Ver</button>${f.enlace ? ` <a href="${esc(f.enlace)}" target="_blank" rel="noopener">diff ↗</a>` : ''}</p>` : ''
   const tarjeta = (p) => `
         <article class="tarjeta" data-prop="${p.id}">
-          <div class="tarjeta-cab">#${p.id}${p.area ? `<span class="chip">${esc(p.area)}</span>` : ''}${p.prioridad ? `<span class="estado-chip ${p.prioridad === 'alta' ? 'vivo' : ''}">${esc(p.prioridad)}</span>` : ''}${p.origen === 'bloqueos' ? '<span class="chip" title="La armó sola el vigía de bloqueos">vigía</span>' : ''}</div>
+          <div class="tarjeta-cab">#${p.id}<button class="chip" data-fr-cambiar-area title="Cambiar de categoría (queda registro de la anterior)">${esc((d.areas ?? []).find((a) => a.id === p.area)?.nombre ?? p.area ?? 'sin categoría')}</button>${p.prioridad ? `<span class="estado-chip ${p.prioridad === 'alta' ? 'vivo' : ''}">${esc(p.prioridad)}</span>` : ''}${p.origen === 'bloqueos' ? '<span class="chip" title="La armó sola el vigía de bloqueos">vigía</span>' : ''}</div>
           <h4>${esc(p.titulo)}</h4>
           ${lineaForja(p.forja)}
           ${p.nota ? `<p class="tenue chico">◐ ${esc(p.nota)}</p>` : ''}
@@ -108,8 +112,9 @@ async function refrescarFragua() {
       </div>`).join('')}
     </section>` : ''}
     <section class="seccion">
-      <div class="seccion-cab"><h3>Propuestas abiertas · ${d.propuestas.length}</h3><span class="tenue">Las deja Mastropiero cuando ve algo para mejorar (o se las pedís en el chat). Forjar una la convierte en un cambio para revisar. Un commit que dice «Fragua #N» la cierra sola.</span></div>
-      ${sueltas.length ? `<div class="tarjetas">${sueltas.map(tarjeta).join('')}</div>` : d.propuestas.length ? '' : '<p class="vacio">No hay propuestas abiertas. Pedí una mejora arriba o contale al chat qué cambiarías.</p>'}
+      ${chipsArea}
+      <div class="seccion-cab"><h3>Propuestas abiertas · ${area === 'todas' ? d.propuestas.length : `${sueltas.length} de ${d.propuestas.length}`}</h3><span class="tenue">Las deja Mastropiero cuando ve algo para mejorar (o se las pedís en el chat). Forjar una la convierte en un cambio para revisar. Un commit que dice «Fragua #N» la cierra sola.</span></div>
+      ${sueltas.length ? `<div class="tarjetas">${sueltas.map(tarjeta).join('')}</div>` : d.propuestas.length ? '<p class="tenue">Nada abierto en esta categoría.</p>' : '<p class="vacio">No hay propuestas abiertas. Pedí una mejora arriba o contale al chat qué cambiarías.</p>'}
     </section>
     ${(d.cerradas ?? []).length ? `<section class="seccion"><details>
       <summary><h3 class="en-linea">Cerradas en las últimas dos semanas · ${d.cerradas.length}</h3> <span class="tenue">las que cerró un commit se pueden reabrir</span></summary>
@@ -133,6 +138,7 @@ async function refrescarFragua() {
         </div>`
       }).join('') || '<p class="vacio">Nada forjado todavía.</p>'}
     </section>`
+  $$('[data-fr-area]', cont).forEach((b) => (b.onclick = () => { frArea = b.dataset.frArea; refrescarFragua() }))
   $$('[data-prop]', cont).forEach((el) => {
     const id = Number(el.dataset.prop)
     const copiar = $('[data-copiar]', el)
@@ -151,6 +157,11 @@ Revisá si sigue vigente en el código, implementala con tests y marcala hecha.`
         toast(r.encolada ? `#${id} en cola<small>Se forja sola cuando vuelva el token.</small>` : 'A la fragua<small>Te aviso en Hoy cuando termine.</small>')
         refrescarFragua()
       } catch (e) { error(e) }
+    }
+    const cambiar = $('[data-fr-cambiar-area]', el)
+    if (cambiar) cambiar.onclick = () => {
+      abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>#${id} · ¿En qué categoría va?</h2><p class="tenue">Queda registro de la anterior.</p><div class="fr-areas-elegir">${(d.areas ?? []).map((a) => `<button class="btn" data-a="${a.id}"><b>${esc(a.nombre)}</b><small class="tenue">${esc(a.cubre)}</small></button>`).join('')}</div>`)
+      $$('#modal [data-a]').forEach((b) => (b.onclick = async () => { try { await api(`/propuestas/${id}/area`, { area: b.dataset.a }); cerrarModal(); refrescarFragua() } catch (e) { error(e) } }))
     }
     const sacar = $('[data-sacar-cola]', el)
     if (sacar) sacar.onclick = async () => { try { await api(`/propuestas/${id}/cola`, {}); refrescarFragua() } catch (e) { error(e) } }

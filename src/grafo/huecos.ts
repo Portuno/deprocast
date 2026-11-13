@@ -162,7 +162,7 @@ export function aLaFragua(db: Db, id: number, ahora = Date.now()): { propuestaId
   if (h.propuestaId) return { propuestaId: h.propuestaId }
   const titulo = `Unir ${h.terminosA.slice(0, 2).join(' y ')} con ${h.terminosB.slice(0, 2).join(' y ')}`
   const detalle = [`Un hueco de su grafo: dos grupos de ideas que casi no se tocan.`, `A: ${h.terminosA.join(', ')}`, `B: ${h.terminosB.join(', ')}`, h.pregunta ? `La pregunta: ${h.pregunta}` : '', h.puentes.length ? `Posibles puentes: ${h.puentes.join(', ')}` : ''].filter(Boolean).join('\n')
-  const propuestaId = Number(db.prepare(`INSERT INTO propuestas (titulo, detalle, area, prioridad, estado, origen, creada_en) VALUES (?, ?, 'otro', 'media', 'abierta', 'grafo', ?)`).run(titulo.slice(0, 160), detalle, ahora).lastInsertRowid)
+  const propuestaId = Number(db.prepare(`INSERT INTO propuestas (titulo, detalle, area, prioridad, estado, origen, creada_en) VALUES (?, ?, 'grafo', 'media', 'abierta', 'grafo', ?)`).run(titulo.slice(0, 160), detalle, ahora).lastInsertRowid)
   db.prepare('UPDATE grafo_huecos SET propuesta_id = ?, actualizado_en = ? WHERE id = ?').run(propuestaId, ahora, id)
   return { propuestaId }
 }
@@ -203,11 +203,12 @@ export async function derivarDeRespuesta(db: Db, id: number, ahora = Date.now())
   if (h.propuestaId) return { propuestaId: h.propuestaId }
   const respuesta = (db.prepare('SELECT contenido FROM corpus WHERE id = ?').get(h.respuestaPieza) as { contenido: string } | undefined)?.contenido ?? ''
   const d = await modelo(db, `Leés la respuesta del operador a un hueco de su grafo de ideas (dos grupos que casi no se tocan). Decidí si deja abierta una FUNCIONALIDAD de Deprocast (su sistema: el chat, los agentes, el corpus, el grafo, la Academia…) que habría que construir o cambiar. Si habla de sus proyectos, su vida o algo que no es el sistema, no es una propuesta. Concreto: qué cambiar y cómo se nota que está hecho.
-Forma: {"funcionalidad": null | {"titulo": string (máx. 90), "detalle": string (qué cambiar, por qué, criterio de hecho; 3 a 6 frases), "area": "liga" | "chat" | "corpus" | "pantalla" | "motores" | "otro"}}`,
+Forma: {"funcionalidad": null | {"titulo": string (máx. 90), "detalle": string (qué cambiar, por qué, criterio de hecho; 3 a 6 frases), "area": "corpus" | "grafo" | "chat" | "liga" | "pantalla" | "vida"}}`,
     `El hueco: [${h.terminosA.slice(0, 6).join(', ')}] ↔ [${h.terminosB.slice(0, 6).join(', ')}]\nLa pregunta: ${h.pregunta ?? '(sin pregunta)'}\nSu respuesta [#${h.respuestaPieza}]:\n${respuesta.slice(0, 4000)}`)
   const f = d?.funcionalidad
   if (!f?.titulo || !f?.detalle) return { propuestaId: null }
-  const area = ['liga', 'chat', 'corpus', 'pantalla', 'motores', 'otro'].includes(f.area) ? f.area : 'otro'
+  const area = (await import('../fragua-areas.ts')).areaOPorOrigen(f.area, `${f.titulo}
+${f.detalle}`, 'grafo')
   const detalle = `${String(f.detalle).trim()}\n\nSale de su respuesta [#${h.respuestaPieza}] al hueco del grafo «${h.terminosA.slice(0, 3).join(', ')} ↔ ${h.terminosB.slice(0, 3).join(', ')}».`
   const propuestaId = Number(db.prepare(`INSERT INTO propuestas (titulo, detalle, area, prioridad, estado, origen, creada_en) VALUES (?, ?, ?, 'media', 'abierta', 'grafo', ?)`).run(String(f.titulo).slice(0, 160), detalle, area, ahora).lastInsertRowid)
   db.prepare('UPDATE grafo_huecos SET propuesta_id = ?, actualizado_en = ? WHERE id = ?').run(propuestaId, ahora, id)

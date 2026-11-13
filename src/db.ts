@@ -2081,6 +2081,17 @@ CREATE TABLE IF NOT EXISTS lecciones (
 CREATE UNIQUE INDEX IF NOT EXISTS dominio_fuentes_obra ON dominio_fuentes(aprendizaje_id, obra_id) WHERE obra_id IS NOT NULL AND pieza_id IS NULL;
 
 -- Lo que se rompió (errores del servidor, rutas que no existen): la materia de la autocrítica. Uno por texto y día.
+-- Cada cambio de categoría de una propuesta de La Fragua, con la anterior (Fragua #258).
+CREATE TABLE IF NOT EXISTS propuestas_areas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  propuesta_id INTEGER NOT NULL,
+  de TEXT,
+  a TEXT NOT NULL,
+  por TEXT NOT NULL,
+  en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS propuestas_areas_prop ON propuestas_areas(propuesta_id);
+
 CREATE TABLE IF NOT EXISTS errores (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   origen TEXT NOT NULL,               -- servidor | ruta | rutina

@@ -6,6 +6,7 @@
  * las ideas quedan como quántomos para pesar.
  */
 import { fechaLocal, type Db } from './db.ts'
+import { areaOPorOrigen } from './fragua-areas.ts'
 import { insertar } from './corpus.ts'
 import { recordar } from './memoria.ts'
 import { crearQuantomo } from './quantomos.ts'
@@ -15,7 +16,7 @@ import { pedirJson } from './modelo.ts'
 const SISTEMA = `Leés un bloque de anotaciones del operador: ideas, decisiones, diseños, a veces marcadas [Confirmado] (lo dijo él, es así) o [Inferido] (lo dedujo alguien, no es seguro). Devolvé:
 - "resumen": una frase.
 - "recuerdos": [{"texto": una oración en tercera persona, "tipo": "hecho" | "meta" | "preferencia" | "sueño" | "vision" | "correccion", "horizonte": "castillo" | "campamento" | "trinchera" | null, "confirmado": true | false}] — solo lo duradero sobre él (sus metas, su visión, cómo trabaja, decisiones). confirmado = true si viene marcado [Confirmado] o él lo afirma; false si es [Inferido] o una deducción.
-- "propuestas": [{"titulo": string, "detalle": string (qué haría y para qué, concreto), "destino": "deprocast" | "idea" | "trabajo", "area": "pantalla" | "chat" | "corpus" | "liga" | "entidades" | "motores" | "otro", "restricciones": [string], "sensible": true | false}] — lo que propone construir o hacer. "destino": "deprocast" si es una mejora de Deprocast mismo (la plataforma: más rápido, una función nueva, una conexión); "idea" si es una idea suya de producto o negocio (no de Deprocast); "trabajo" si es algo de su trabajo que Mastropiero podría hacer solo cada tanto (un encargo). En "restricciones" copiá lo que el texto prohíbe o condiciona («no hay permiso para…», «es solo diseño»). "sensible" = true si toca datos biométricos (rostro, emociones de la cara, voz), cámaras, o actuar sobre cuentas de terceros (mutear, publicar, borrar).
+- "propuestas": [{"titulo": string, "detalle": string (qué haría y para qué, concreto), "destino": "deprocast" | "idea" | "trabajo", "area": "corpus" | "grafo" | "chat" | "liga" | "pantalla" | "vida", "restricciones": [string], "sensible": true | false}] — lo que propone construir o hacer. "destino": "deprocast" si es una mejora de Deprocast mismo (la plataforma: más rápido, una función nueva, una conexión); "idea" si es una idea suya de producto o negocio (no de Deprocast); "trabajo" si es algo de su trabajo que Mastropiero podría hacer solo cada tanto (un encargo). En "restricciones" copiá lo que el texto prohíbe o condiciona («no hay permiso para…», «es solo diseño»). "sensible" = true si toca datos biométricos (rostro, emociones de la cara, voz), cámaras, o actuar sobre cuentas de terceros (mutear, publicar, borrar).
 - "entidades": [{"nombre": string, "tipo": "persona" | "proyecto" | "agrupacion" | "lugar" | "concepto", "nota": string (qué es, según el texto)}] — nombres propios que aparecen.
 - "ideas": [{"texto": una idea atómica que se entienda sola, "proyecto": string | null}] (hasta 8).
 No inventes nada que no esté en el texto. Forma: {"resumen": string, "recuerdos": [...], "propuestas": [...], "entidades": [...], "ideas": [...]}`
@@ -29,7 +30,6 @@ const lista = (v: unknown) => (Array.isArray(v) ? v : [])
 const txt = (v: unknown, max = 500) => String(v ?? '').trim().slice(0, max)
 const clave = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
 const TIPOS_MEMORIA = ['hecho', 'meta', 'preferencia', 'sueño', 'vision', 'correccion']
-const AREAS = ['pantalla', 'chat', 'corpus', 'liga', 'entidades', 'motores', 'otro']
 const TIPOS_ENTIDAD = ['persona', 'proyecto', 'agrupacion', 'empresa', 'lugar', 'concepto']
 
 export type ResultadoAnotaciones = {
@@ -105,7 +105,8 @@ export async function procesarAnotaciones(db: Db, texto: string, o: { fecha?: st
       restricciones.length ? `Restricciones que dijiste:\n${restricciones.map((x) => `- ${x}`).join('\n')}` : '',
       sensible ? 'Toca datos sensibles (biométricos, cámaras o cuentas de terceros): necesita tu ok explícito, y aun así nada se hace sin que lo actives vos.' : '',
     ].filter(Boolean).join('\n\n')
-    const r = db.prepare(`INSERT INTO propuestas (titulo, detalle, area, prioridad, estado, origen, creada_en) VALUES (?, ?, ?, 'media', 'abierta', 'anotaciones', ?)`).run(titulo, detalle, AREAS.includes(p?.area) ? p.area : 'otro', ahora)
+    const r = db.prepare(`INSERT INTO propuestas (titulo, detalle, area, prioridad, estado, origen, creada_en) VALUES (?, ?, ?, 'media', 'abierta', 'anotaciones', ?)`).run(titulo, detalle, areaOPorOrigen(p?.area, `${titulo}
+${detalle}`, 'liga'), ahora)
     abiertas.add(clave(titulo))
     propuestas.push({ id: Number(r.lastInsertRowid), titulo, sensible })
   }

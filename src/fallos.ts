@@ -167,8 +167,9 @@ export async function errorALaFragua(db: Db, huella: string, ahora = Date.now())
   const titulo = `Arreglar: ${g.origen} — ${g.mensaje.slice(0, 90)}`
   const detalle = `${g.llano}\nMENSAJE: ${g.mensaje}\nHUELLA: ${g.huella} · ${g.veces} vez/veces entre ${new Date(g.primera ?? g.ultima).toISOString().slice(0, 16)} y ${new Date(g.ultima).toISOString().slice(0, 16)}\n${g.entrada ? `CON: ${g.entrada}\n` : ''}QUÉ HACER: ${g.accion}`
   const gr = await import('./fragua-grupos.ts')
-  const ya = gr.abiertaParecida(db, titulo, detalle, 'motores')
+  const ya = gr.abiertaParecida(db, titulo, detalle, 'liga')
   if (ya) { gr.sumarAPropuesta(db, ya.id, titulo, detalle, ahora); return { propuestaId: ya.id, sumada: true } }
-  const r = db.prepare(`INSERT INTO propuestas (titulo, detalle, area, prioridad, estado, origen, creada_en) VALUES (?, ?, 'motores', ?, 'abierta', 'errores', ?)`).run(titulo.slice(0, 160), detalle, g.bug ? 'alta' : 'media', ahora)
+  const r = db.prepare(`INSERT INTO propuestas (titulo, detalle, area, prioridad, estado, origen, creada_en) VALUES (?, ?, ?, ?, 'abierta', 'errores', ?)`).run(titulo.slice(0, 160), detalle, (await import('./fragua-areas.ts')).areaOPorOrigen(null, `${titulo}
+${detalle}`, 'liga'), g.bug ? 'alta' : 'media', ahora)
   return { propuestaId: Number(r.lastInsertRowid), sumada: false }
 }

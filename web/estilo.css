@@ -3466,3 +3466,8 @@ i.esq-pin.propuesto { border: 1px dashed var(--acento); }
 .esq-err { color: var(--malo); }
 .esq-acciones:empty { display: none; }
 @media (max-width: 720px) { .esq-dos { grid-template-columns: 1fr; } .esq-leyenda { margin-left: 0; } }
+
+/* La Fragua: las seis categorías fijas (propuesta 258). */
+.fr-areas { margin: 4px 0 10px; }
+.fr-areas-elegir { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 8px; }
+.fr-areas-elegir .btn { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; height: auto; padding: 8px 10px; white-space: normal; }

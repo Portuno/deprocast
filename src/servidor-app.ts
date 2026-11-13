@@ -219,6 +219,12 @@ if (ajuste(db, 'migracion_v38_fragua') !== '1') {
     if (abierta(158, 'Nuevas vías de comunicación')) await d.moverPropuesta(db, 158, 'idea')
   }).catch((e) => console.error('  migración v38:', e instanceof Error ? e.message : e))
 }
+// Fragua #258 (12/11/2026), una sola vez: las propuestas a las seis categorías fijas, con registro de la anterior.
+if (ajuste(db, 'migracion_fragua_areas6') !== '1') {
+  fijarAjuste(db, 'migracion_fragua_areas6', '1')
+  void import('./fragua-areas.ts').then((a) => { const r = a.reagrupar(db); if (r.cambiadas) console.log(`  ⚒ La Fragua: ${r.cambiadas} propuestas pasaron a las seis categorías`) })
+    .catch((e) => console.error('  migración de categorías:', e instanceof Error ? e.message : e))
+}
 // La cola del Taller: lo que quedó a medias por un reinicio vuelve a la cola y sigue.
 deFondo(() => { try { const n = retomarTaller(db); if (n) console.log(`  ✎ El Taller retoma ${n} trabajo${n === 1 ? '' : 's'}`) } catch (e) { console.error('  taller:', e instanceof Error ? e.message : e) } })
 alGuardar(() => { try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)') } catch { /* todavía no */ } })
@@ -1348,8 +1354,12 @@ const rutas: [string, RegExp, Ruta][] = [
       propuestas: (db.prepare(`SELECT id, titulo, detalle, area, prioridad, estado, nota, en_cola, origen FROM propuestas WHERE estado = 'abierta' ORDER BY id DESC`).all() as any[]).map((p) => ({ ...p, enCola: p.en_cola ?? null, forja: forjaDe(p.id) })),
       grupos: gruposDePropuestas(db),
       cerradas: cerradasRecientes(db),
+      // Las seis categorías fijas, con cuántas abiertas y urgentes tiene cada una (Fragua #258).
+      ...(await import('./fragua-areas.ts')).areasConCuenta(db),
     }
   }],
+  // Cambiar la categoría de una propuesta: solo a una de las seis, y queda registro de la anterior.
+  ['POST', /^\/api\/propuestas\/(\d+)\/area$/, async (b, [n]) => (await import('./fragua-areas.ts')).cambiarArea(db, id(n), String(b.area ?? ''), 'a mano')],
   ['GET', /^\/api\/fragua\/(\d+)$/, (_, [f]) => leerForja(db, id(f)) ?? (() => { throw new Error(`No existe la forja ${f}`) })()],
   ['POST', /^\/api\/fragua$/, async (b) => {
     const motivo = porQueNoSePuedeForjar()

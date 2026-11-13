@@ -4,6 +4,7 @@
  * La Fragua. Así el sistema se arregla de noche y él solo aprueba. No toca código: solo propone.
  */
 import { ajuste as ajusteDe, fijarAjuste as fijarAjusteDe, type Db } from './db.ts'
+import { areaOPorOrigen } from './fragua-areas.ts'
 import { registrarFallo } from './fallos.ts'
 import { abiertaParecida, sumarAPropuesta } from './fragua-grupos.ts'
 import { pedirJson } from './modelo.ts'
@@ -118,7 +119,8 @@ export async function autocritica(db: Db, ahora = Date.now()): Promise<{ id: num
     const ya = abiertaParecida(db, titulo, detalle, p?.area)
     if (ya) { sumarAPropuesta(db, ya.id, titulo, detalle, ahora); continue }
     const prioridad = ['alta', 'media', 'baja'].includes(p?.prioridad) ? p.prioridad : 'media'
-    const r = alta.run(titulo, detalle, String(p?.area ?? 'otro').slice(0, 30), prioridad, ahora)
+    const r = alta.run(titulo, detalle, areaOPorOrigen(p?.area, `${titulo}
+${detalle}`, 'liga'), prioridad, ahora)
     creadas.push({ id: Number(r.lastInsertRowid), titulo })
   }
   return creadas
@@ -188,7 +190,7 @@ export function propuestaPorBloqueos(db: Db, ahora = Date.now()): { id: number; 
   const detalle = `El vigía del servidor vio ${hora.bloqueos} bloqueos de más de dos segundos en una hora: todo Deprocast frenado mientras corría esto.
 EVIDENCIA — ${evidencia(hora)}.${antes ? `\nLa semana anterior (${antes.fecha.slice(0, 10)}): ${antes.bloqueos} bloqueos, peor ${antes.peor} ms → ${tendencia}.` : ''}
 QUÉ CAMBIAR: encontrar en «${principal}» el trabajo síncrono largo (un bucle sobre miles de filas, un cálculo O(n²), una lectura entera) y partirlo en tramos que cedan el event loop (await cada pocos miles), o hacerlo incremental. Criterio de hecho: con el volumen de la nube, ese paso no traba más de 200 ms seguidos.`
-  const r = db.prepare(`INSERT INTO propuestas (titulo, detalle, area, prioridad, estado, origen, clave, evidencia, creada_en) VALUES (?, ?, 'motores', 'alta', 'abierta', 'bloqueos', ?, ?, ?)`)
+  const r = db.prepare(`INSERT INTO propuestas (titulo, detalle, area, prioridad, estado, origen, clave, evidencia, creada_en) VALUES (?, ?, 'liga', 'alta', 'abierta', 'bloqueos', ?, ?, ?)`)
     .run(`Bloqueos del servidor durante «${principal.slice(0, 80)}»`, detalle, clave, JSON.stringify([...historia.slice(-23), hora]), ahora)
   return { id: Number(r.lastInsertRowid), nueva: true }
 }

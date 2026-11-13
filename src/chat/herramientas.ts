@@ -742,17 +742,21 @@ export const HERRAMIENTAS: Herramienta[] = [
   {
     nombre: 'proponer_mejora', familia: 'accion',
     descripcion: 'Registra una propuesta de mejora a la plataforma (código, diseño, reglas). Queda abierta para que el operador la acepte o la descarte; no se aplica sola. Si ya hay una abierta con la misma causa, lo nuevo se suma a esa (y te lo dice) en vez de abrir otra; con aparte=true se abre igual.',
-    parametros: S({ titulo: str('Título corto'), detalle: str('Qué cambiar, por qué y cómo, concreto'), area: str('liga | forja | corpus | quantomos | entidades | chat | pantalla | motores | otro'), prioridad: str('alta | media | baja', { enum: ['alta', 'media', 'baja'] }), aparte: { type: 'boolean', description: 'true: abrirla aparte aunque haya una con la misma causa' } }, ['titulo', 'detalle']),
+    parametros: S({ titulo: str('Título corto'), detalle: str('Qué cambiar, por qué y cómo, concreto'), area: str('Una de las seis: corpus (ingesta, fuentes, quántomos, Drive, conectores) | grafo (aristas, conceptos, fichas) | chat (Mastropiero, voz, captura, guardias) | liga (agentes, arquetipos, motores, economía, reproceso) | pantalla (app, escritorio, diseño, notificaciones, redes) | vida (plan, runs, salud, plata, personas, línea, reservas)', { enum: ['corpus', 'grafo', 'chat', 'liga', 'pantalla', 'vida'] }), prioridad: str('alta | media | baja', { enum: ['alta', 'media', 'baja'] }), aparte: { type: 'boolean', description: 'true: abrirla aparte aunque haya una con la misma causa' } }, ['titulo', 'detalle']),
     ejecutar: async (a, { db, conversacionId }) => {
+      // Una de las seis categorías (Fragua #258): si no la dijo y el texto no decide, no se registra hasta decidirlo.
+      const area = (await import('../fragua-areas.ts')).areaDe(a.area, `${a.titulo ?? ''}
+${a.detalle ?? ''}`)
+      if (!area) return { error: 'No queda claro en cuál de las seis categorías va (corpus, grafo, chat, liga, pantalla, vida). Elegí una y volvé a llamar; si no encaja en ninguna, preguntale a él antes de registrarla.' }
       // Fragua #208: misma causa que una abierta → se suma a esa, no se abre otra.
       const g = await import('../fragua-grupos.ts')
-      const ya = a.aparte ? null : g.abiertaParecida(db, String(a.titulo ?? ''), String(a.detalle ?? ''), a.area)
+      const ya = a.aparte ? null : g.abiertaParecida(db, String(a.titulo ?? ''), String(a.detalle ?? ''), area)
       if (ya) {
         g.sumarAPropuesta(db, ya.id, String(a.titulo ?? ''), String(a.detalle ?? ''))
         return { propuesta: ya.id, estado: 'abierta', sumada: true, aviso: `Ya había una abierta con la misma causa (${ya.causa}): #${ya.id} «${ya.titulo}». Lo nuevo quedó sumado ahí.` }
       }
       const r = db.prepare(`INSERT INTO propuestas (titulo, detalle, area, prioridad, estado, conversacion_id, creada_en) VALUES (?, ?, ?, ?, 'abierta', ?, ?)`)
-        .run(a.titulo, a.detalle, a.area ?? null, a.prioridad ?? 'media', conversacionId, Date.now())
+        .run(a.titulo, a.detalle, area, a.prioridad ?? 'media', conversacionId, Date.now())
       return { propuesta: Number(r.lastInsertRowid), estado: 'abierta' }
     },
     resumen: (a, r) => r?.sumada ? `sumó a la propuesta #${r.propuesta} (misma causa): ${recorte(a.titulo, 50)}` : `propuso la mejora #${r?.propuesta}: ${recorte(a.titulo, 50)}`,
