@@ -112,7 +112,11 @@ export const ACCIONES: Acciones = {
   /** A la noche, el gemelo se califica y cuenta cómo le fue. */
   async calificacion(db, fecha, ahora) {
     const r = await calificarDia(db, fecha, { ahora })
-    return r.predicciones.length ? textoDeCalificacion(r) : null
+    // Las hipótesis de La Mano a prueba: las que terminaron se cierran con su veredicto; las viejas sin prueba, se prueban.
+    const h = await import('./hipotesis.ts')
+    const pruebas = h.textoDeRevision(await h.revisarPruebas(db, ahora).catch(() => []))
+    if ((await import('./reproceso.ts')).enLaNube()) await h.probarPendientes(db, 3, ahora).catch(() => 0)
+    return [r.predicciones.length ? textoDeCalificacion(r) : null, pruebas].filter(Boolean).join('\n\n') || null
   },
   /** Los lunes (en la nube): la Academia propone qué le conviene aprender para lo que viene; quedan en 📥 Para validar. */
   async academia(db, _fecha, ahora) {

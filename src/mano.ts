@@ -6,6 +6,7 @@
  * día, misma mano) y lo nuevo de verdad sale primero.
  */
 import { ajuste, fechaLocal, fijarAjuste, json, type Db } from './db.ts'
+import { CRITERIOS_PARA_MODELO } from './hipotesis.ts'
 import { anotar } from './decisiones.ts'
 import { cercanosAVector, crearQuantomo, descartar, leerQuantomo, parecidosA, sellar, UMBRAL_VARIACION, type Quantomo } from './quantomos.ts'
 import { aDimsP, vectorDe } from './semantica.ts'
@@ -505,10 +506,12 @@ const SISTEMA_HIPOTESIS = `Te paso afirmaciones que una persona pesó como impor
 - "hipotesis": una frase, concreta, en segunda persona o impersonal ("Los días que…", "Cuando…").
 - "predice": qué tendría que pasar si es cierta.
 - "refutaria": qué la tiraría abajo.
+- "condicion" y "resultado": la hipótesis como prueba medible con sus datos de cada día (se compara en 3 semanas los días con la condición contra los días sin ella). El resultado tiene que ser otra cosa que la condición. Si no se puede medir con estos criterios, los dos null.
+${CRITERIOS_PARA_MODELO}
 Si no hay una hipótesis honesta que las una, devolvé {"hipotesis": null}.
-Forma: {"hipotesis": string|null, "predice": string, "refutaria": string}`
+Forma: {"hipotesis": string|null, "predice": string, "refutaria": string, "condicion": object|null, "resultado": object|null}`
 
-async function armarHipotesis(db: Db, eventoId: number, ahora: number) {
+export async function armarHipotesis(db: Db, eventoId: number, ahora: number) {
   const s = leerSorpresa(db, eventoId)
   if (!s) return
   const r = await modelo(db, SISTEMA_HIPOTESIS, s.cartas.map((c) => `- [${c.fuente ?? '?'}] ${c.texto}`).join('\n'))
@@ -516,7 +519,11 @@ async function armarHipotesis(db: Db, eventoId: number, ahora: number) {
   if (!h) return void db.prepare(`UPDATE mano_eventos SET texto = ?, estado = 'sin_hipotesis' WHERE id = ?`).run('No encontré una hipótesis honesta que las una.', eventoId)
   const texto = `${h}${r.predice ? `\nPredice: ${String(r.predice).trim()}` : ''}${r.refutaria ? `\nLa tiraría abajo: ${String(r.refutaria).trim()}` : ''}`
   const qid = crearQuantomo(db, { texto: h, titulo: 'Hipótesis (combo)', universo: 'hipotesis', procedencia: `combo de ${s.cartas.map((c) => `#${c.id}`).join(', ')}`, origenId: `combo:${eventoId}` }, ahora)
-  db.prepare('UPDATE mano_eventos SET texto = ?, otro_id = ? WHERE id = ?').run(texto, qid, eventoId)
+  // A prueba (el primer paso hacia lo causal): si se puede medir, se compara 3 semanas con sus datos de cada día.
+  const { abrirPrueba, textoDeCriterio } = await import('./hipotesis.ts')
+  const prueba = abrirPrueba(db, { quantomoId: qid, eventoId, hipotesis: h, condicion: r.condicion, resultado: r.resultado }, ahora)
+  const aPrueba = prueba ? `\nA prueba hasta el ${prueba.hasta.slice(8, 10)}/${prueba.hasta.slice(5, 7)}: los días en que ${textoDeCriterio(prueba.condicion)}, ¿${textoDeCriterio(prueba.resultado)} más que los demás?` : ''
+  db.prepare('UPDATE mano_eventos SET texto = ?, otro_id = ? WHERE id = ?').run(texto + aPrueba, qid, eventoId)
 }
 
 const SISTEMA_CHOQUE = `Te paso una afirmación NUEVA y otras que la persona ya creía (las pesó alto). Para cada una decí si la nueva la refuerza, la contradice o ninguna de las dos. Contradice = no pueden ser ciertas las dos a la vez, o la nueva cambia lo que conviene hacer.

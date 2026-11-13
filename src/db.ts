@@ -942,6 +942,25 @@ CREATE TABLE IF NOT EXISTS pesquisas (
 );
 -- Las sorpresas de La Mano (lo que no podía predecir), con lo que él hizo con cada una: puente no obvio (real | casualidad),
 -- la creencia que se cae (actualizo | sostengo | pruebo) y el combo con su hipótesis (real | casualidad).
+-- Las hipótesis de La Mano a prueba: condición y resultado medidos día por día, y su veredicto.
+CREATE TABLE IF NOT EXISTS hipotesis_pruebas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  quantomo_id INTEGER,
+  evento_id INTEGER,
+  hipotesis TEXT NOT NULL,
+  condicion TEXT NOT NULL,            -- JSON: criterio del gemelo
+  resultado TEXT NOT NULL,            -- JSON: criterio del gemelo
+  desde TEXT NOT NULL,
+  hasta TEXT NOT NULL,
+  estado TEXT NOT NULL,               -- en_prueba | confirmada | refutada | dudosa | sin_datos
+  tabla TEXT,                         -- JSON: días con y sin la condición, y en cuántos pasó el resultado
+  veredicto TEXT,
+  estirada INTEGER NOT NULL DEFAULT 0,
+  creada_en INTEGER NOT NULL,
+  cerrada_en INTEGER
+);
+CREATE INDEX IF NOT EXISTS hipotesis_pruebas_estado ON hipotesis_pruebas(estado, id);
+
 CREATE TABLE IF NOT EXISTS mano_eventos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   tipo TEXT NOT NULL,                 -- puente | contradiccion | combo

@@ -85,6 +85,14 @@ export const ORGANOS: Organo[] = [
     actividad: [{ sql: `SELECT COUNT(*) AS n FROM mano_jugadas WHERE deshecha = 0 AND en >= ?`, etiqueta: 'jugadas' }],
   },
   {
+    id: 'experimentador', nombre: 'El Experimentador', glifo: '🔬', celda: c(CRIBA, 7), tipo: 'organo', vista: 'mano', cadena: { clase: 'mastropiero', agenteId: 'hipotesis' },
+    funcion: 'Pone a prueba las hipótesis sobre él (las que salen de los combos de La Mano, o las que pide en el chat): las traduce a una condición y un resultado medibles con sus datos de cada día y compara tres semanas los días con la condición contra los demás.',
+    virtudes: ['Las hipótesis dejan de ser texto: se miden contra lo que pasó', 'Honesto: dice que es una comparación de sus días, no un experimento', 'Lo confirmado va a su memoria como hecho medido; lo refutado se descarta'],
+    hace: ['Condición y resultado con los criterios del gemelo (runs, Directo, sueño, ejercicio, kcal…)', 'Mide cada noche cómo viene la prueba', 'Veredicto: confirmada, refutada, dudosa (se estira) o sin datos'],
+    cuando: 'Cuando nace una hipótesis, y cada noche con la calificación del gemelo',
+    actividad: [{ sql: `SELECT COUNT(*) AS n FROM hipotesis_pruebas WHERE creada_en >= ?`, etiqueta: 'pruebas abiertas' }, { sql: `SELECT COUNT(*) AS n FROM hipotesis_pruebas WHERE cerrada_en >= ?`, etiqueta: 'veredictos' }],
+  },
+  {
     id: 'criba72', nombre: 'La Criba del 72', glifo: '⬡', celda: c(CRIBA, 8), tipo: 'organo', vista: 'criba72', cadena: { clase: 'mastropiero', agenteId: 'criba72' },
     funcion: '72 frases en 6 ejes de polos opuestos: él vota por instinto y recién al final se ve la estructura (pares partidos, tensiones vivas, zonas frías).',
     virtudes: ['No diagnostica: hipótesis con los ítems que las sostienen', 'Arma la siguiente donde hay tensión', 'Lo aprendido va a su memoria, para revisar'],

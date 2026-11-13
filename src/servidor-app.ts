@@ -395,6 +395,13 @@ const rutas: [string, RegExp, Ruta][] = [
   // Lo que quedó corriendo de fondo (un pedido largo): cómo va y, al terminar, su resultado.
   ['GET', /^\/api\/trabajos\/([\w]+)$/, async (_, [x]) => (await import('./trabajos.ts')).estadoTrabajo(x)],
   ['GET', /^\/api\/meta$/, () => meta()],
+  // Las hipótesis de La Mano a prueba: las que corren muestran cómo vienen (medidas hasta ayer); probar una, con el modelo.
+  ['GET', /^\/api\/hipotesis$/, async () => {
+    const h = await import('./hipotesis.ts')
+    const ayer = fechaLocal(Date.now() - 86_400_000)
+    return h.listarPruebas(db).map((p) => ({ ...p, tabla: p.estado === 'en_prueba' ? h.medir(db, p, ayer) : p.tabla, condicionTexto: h.textoDeCriterio(p.condicion), resultadoTexto: h.textoDeCriterio(p.resultado) }))
+  }],
+  ['POST', /^\/api\/hipotesis$/, async (b) => (await import('./hipotesis.ts')).probar(db, { texto: String(b.texto ?? ''), quantomoId: b.quantomoId ? Number(b.quantomoId) : null })],
   // El esqueleto: la Matriz 72 con los órganos del sistema, los propuestos y su actividad (las cartas vienen del roster).
   ['GET', /^\/api\/esqueleto$/, async () => (await import('./esqueleto.ts')).verEsqueleto(db)],
   ['GET', /^\/api\/estado$/, () => estado()],

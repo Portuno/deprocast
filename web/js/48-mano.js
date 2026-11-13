@@ -32,7 +32,8 @@ function montarMano() {
         <input class="campo-suelto" id="mn-porque" placeholder="¿Por qué? (opcional: una línea, viaja con la carta)">
       </div>
       <aside class="mano-caida" id="mn-caida"><p class="tenue">Jugá una carta: acá aparece con qué conecta de lo que ya sabías.</p></aside>
-    </div>`
+    </div>
+    <section class="seccion mano-pruebas" id="mn-pruebas"></section>`
   $$('#mn-pesos [data-peso]').forEach((b) => (b.onclick = () => jugarCarta({ gesto: 'peso', peso: Number(b.dataset.peso) })))
   $$('[data-gesto]').forEach((b) => (b.onclick = () => jugarCarta({ gesto: b.dataset.gesto })))
   $('#mn-robar').onclick = () => robarMano(true)
@@ -43,6 +44,7 @@ function montarMano() {
   $('#mn-deshacer').onclick = deshacerMano
   $('#mn-porque').addEventListener('keydown', (e) => { if (e.key === 'Escape') e.target.blur() })
   engancharSorpresas($('#mn-caida'))
+  pintarPruebas()
   robarMano(false)
 }
 
@@ -374,3 +376,20 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'r') { e.preventDefault(); robarMano(true) }
   else if (e.key === 'p') { e.preventDefault(); $('#mn-porque')?.focus() }
 })
+
+// Las hipótesis a prueba: cada una con su condición, su resultado y cómo vienen los días (con y sin la condición).
+const ICONO_PRUEBA = { en_prueba: '⏳', confirmada: '✓', refutada: '✗', dudosa: '≈', sin_datos: '∅' }
+async function pintarPruebas() {
+  const cont = $('#mn-pruebas')
+  if (!cont) return
+  let xs
+  try { xs = await api('/hipotesis') } catch { return }
+  const lado = (l) => (l.dias ? `${Math.round((l.paso / l.dias) * 100)} % <small class="tenue">(${l.paso} de ${l.dias} días)</small>` : '<small class="tenue">sin días todavía</small>')
+  cont.innerHTML = `<div class="seccion-cab"><h3>🔬 Hipótesis a prueba · ${xs.length}</h3><span class="tenue">Las hipótesis de los combos se miden con tus datos de cada día durante 3 semanas: los días con la condición contra los demás. Es una comparación, no un experimento.</span></div>
+    ${xs.length ? `<div class="pruebas">${xs.map((p) => `<article class="prueba ${p.estado}">
+      <div class="fila"><b>${ICONO_PRUEBA[p.estado] ?? '·'} ${esc(p.hipotesis)}</b><span class="espacio"></span><small class="tenue">${esc(p.desde.slice(8, 10))}/${esc(p.desde.slice(5, 7))} → ${esc(p.hasta.slice(8, 10))}/${esc(p.hasta.slice(5, 7))}</small></div>
+      <p class="tenue chico">Los días en que <b>${esc(p.condicionTexto)}</b>, ¿${esc(p.resultadoTexto)} más que los demás?</p>
+      ${p.tabla ? `<div class="prueba-tabla"><span>Con la condición: ${lado(p.tabla.con)}</span><span>Sin ella: ${lado(p.tabla.sin)}</span>${p.tabla.sinDato ? `<small class="tenue">${p.tabla.sinDato} días sin dato</small>` : ''}</div>` : ''}
+      ${p.veredicto ? `<p class="chico">${esc(p.veredicto)}</p>` : ''}
+    </article>`).join('')}</div>` : '<p class="tenue">Todavía no hay ninguna: la próxima hipótesis que salga de un combo entra sola (o pedíselo al chat: «poné a prueba que…»).</p>'}`
+}

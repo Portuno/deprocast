@@ -15,6 +15,7 @@ import { pedirJson } from './modelo.ts'
 import { calibracion, conAvance, listarMisiones, listarRuns, misionesDeRun, semanaDe } from './misiones.ts'
 import { personasParaPrompt } from './personas.ts'
 import { perfilDeRendimiento, textoDeRendimiento } from './rendimiento.ts'
+import { resumenDia } from './salud.ts'
 
 export type Criterio =
   | { tipo: 'bandas_hechas'; op: '>=' | '<='; valor: number }
@@ -23,6 +24,10 @@ export type Criterio =
   | { tipo: 'habla_de'; texto: string }
   | { tipo: 'directo_prendido'; valor: boolean }
   | { tipo: 'directo_minutos'; que: string; op: '>=' | '<='; valor: number }
+  // El cuerpo (para las hipótesis de La Mano y para predecir): sale de Salud.
+  | { tipo: 'sueno_horas'; op: '>=' | '<='; valor: number }
+  | { tipo: 'ejercicio'; valor: boolean }
+  | { tipo: 'kcal'; op: '>=' | '<='; valor: number }
 
 export type Prediccion = {
   id: number; fecha: string; texto: string; probabilidad: number; tipo: string; criterio: Criterio | null
@@ -62,7 +67,9 @@ export function evidencia(db: Db, fecha: string) {
   const minutos = minutosDelDirecto(db, desde, hasta)
   const primariasQueAvanzaron = [...new Set(bandas.filter((b) => b.padreId && ['hecha', 'parcial'].includes(b.estado)).map((b) => b.padreId!))]
     .map((id) => (db.prepare('SELECT titulo FROM misiones WHERE id = ?').get(id) as { titulo: string } | undefined)?.titulo).filter(Boolean) as string[]
-  return { runs, bandas, dijo, directo, cierre, primariasQueAvanzaron, minutos }
+  const s = resumenDia(db, fecha)
+  const salud = { sueno: s.sueno?.horas ?? null, ejercicio: s.ejercicio.sesiones, kcal: s.kcal, comidas: s.comidas }
+  return { runs, bandas, dijo, directo, cierre, primariasQueAvanzaron, minutos, salud }
 }
 
 /** Minutos por actividad y por app que vio el Directo entre dos momentos (null si no estuvo prendido). */
@@ -94,16 +101,22 @@ export function verificar(c: Criterio, ev: ReturnType<typeof evidencia>): number
       const n = minutosDe(ev.minutos, c.que)
       return (c.op === '>=' ? n >= c.valor : n <= c.valor) ? 1 : 0
     }
+    // Sin el dato anotado (no registró el sueño, ni comidas) no se puede decir: null, no «no».
+    case 'sueno_horas': return ev.salud.sueno == null ? null : (c.op === '>=' ? ev.salud.sueno >= c.valor : ev.salud.sueno <= c.valor) ? 1 : 0
+    case 'ejercicio': return (ev.salud.ejercicio > 0) === c.valor ? 1 : 0
+    case 'kcal': return !ev.salud.comidas ? null : (c.op === '>=' ? ev.salud.kcal >= c.valor : ev.salud.kcal <= c.valor) ? 1 : 0
   }
   return null
 }
 
-function criterioValido(c: any): Criterio | null {
+export function criterioValido(c: any): Criterio | null {
   if (!c || typeof c !== 'object') return null
   if (c.tipo === 'bandas_hechas' && (c.op === '>=' || c.op === '<=') && Number.isFinite(Number(c.valor))) return { tipo: c.tipo, op: c.op, valor: Number(c.valor) }
   if ((c.tipo === 'run_arrancada' || c.tipo === 'directo_prendido') && typeof c.valor === 'boolean') return { tipo: c.tipo, valor: c.valor }
   if (c.tipo === 'primaria_avanza' && typeof c.primaria === 'string' && c.primaria.trim()) return { tipo: c.tipo, primaria: c.primaria.trim() }
   if (c.tipo === 'habla_de' && typeof c.texto === 'string' && c.texto.trim().length >= 3) return { tipo: c.tipo, texto: c.texto.trim() }
+  if ((c.tipo === 'sueno_horas' || c.tipo === 'kcal') && (c.op === '>=' || c.op === '<=') && Number.isFinite(Number(c.valor))) return { tipo: c.tipo, op: c.op, valor: Number(c.valor) }
+  if (c.tipo === 'ejercicio' && typeof c.valor === 'boolean') return { tipo: c.tipo, valor: c.valor }
   if (c.tipo === 'directo_minutos' && typeof c.que === 'string' && c.que.trim().length >= 2 && (c.op === '>=' || c.op === '<=') && Number.isFinite(Number(c.valor))) return { tipo: c.tipo, que: c.que.trim(), op: c.op, valor: Number(c.valor) }
   return null
 }
@@ -147,6 +160,9 @@ const SISTEMA_PREDECIR = `Sos el gemelo predictivo del jugador: Mastropiero pred
   {"tipo": "habla_de", "texto": "palabra o nombre que va a aparecer en lo que te diga"}
   {"tipo": "directo_prendido", "valor": true | false}
   {"tipo": "directo_minutos", "que": "una actividad (programando, mirando video, chateando…) o una app (VS Code, YouTube…)", "op": ">=" | "<=", "valor": minutos} (lo que va a ver el Directo; solo si suele prenderlo)
+  {"tipo": "sueno_horas", "op": ">=" | "<=", "valor": horas} (lo que anota de su sueño)
+  {"tipo": "ejercicio", "valor": true | false} (si entrena ese día)
+  {"tipo": "kcal", "op": ">=" | "<=", "valor": kcal} (lo que anota que comió)
   Si no es verificable con datos, criterio null (lo juzga la evidencia o él).
 - Usá su rendimiento por franja y por día, lo que hizo los días anteriores, su agenda, las bandas de la run, sus primarias, su gente y tus errores de antes. No repitas una predicción que ya falló con el mismo objeto.
 - «texto» en una oración, en tercera persona, concreta («Va a mover el contrato de Ana entre las 9 y las 11», no «va a trabajar en la mañana»).
@@ -235,7 +251,7 @@ const SISTEMA_SUMAR = `Sos el gemelo predictivo del jugador y SUMÁS prediccione
 - Entre 2 y 4 predicciones NUEVAS: no repitas las que ya están. Si él te pasó una pista, predecí en base a eso.
 - Cada una nombra algo concreto de los datos (una persona, una banda, una primaria, una hora). Nada del molde «va a trabajar» o «va a estar cansado».
 - «probabilidad» de 0 a 1 bien calibrada (si dudás, cerca de 0,5; nada de 0 ni 1).
-- Si se puede verificar con datos, agregá «criterio» con los mismos tipos de siempre (bandas_hechas, run_arrancada, primaria_avanza, habla_de, directo_prendido, directo_minutos). Si no, criterio null.
+- Si se puede verificar con datos, agregá «criterio» con los mismos tipos de siempre (bandas_hechas, run_arrancada, primaria_avanza, habla_de, directo_prendido, directo_minutos, sueno_horas, ejercicio, kcal). Si no, criterio null.
 - «texto» en una oración, en tercera persona, concreta.
 Forma: {"predicciones": [{"texto": string, "probabilidad": number, "tipo": string, "criterio": object | null}]}`
 
