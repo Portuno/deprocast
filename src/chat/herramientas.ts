@@ -491,6 +491,17 @@ export const HERRAMIENTAS: Herramienta[] = [
     },
   },
   {
+    nombre: 'buscar_en_hilo', familia: 'lectura',
+    descripcion: 'Busca en ESTA conversación guardada (sus mensajes y tus respuestas, con sus adjuntos), también lo que ya no ves en el historial. Usala ANTES de decir que algo no te llegó o que no lo tenés: «traemela de vuelta», «la foto que te mandé», «lo que me dijiste antes», «estos eran». Con adjuntos=true, solo los mensajes con imagen o archivo; la imagen trae su lectura y, si quedó en el corpus, su pieza (leela con leer_pieza).',
+    parametros: S({ consulta: str('Palabras a buscar (sin tildes ni mayúsculas importa)'), adjuntos: { type: 'boolean', description: 'Solo mensajes con imagen o archivo' }, quien: str('Solo los suyos o solo los tuyos', { enum: ['operador', 'asistente'] }), antes_de: int('Para seguir hacia atrás: el id más viejo de la tanda anterior'), limite: int('Cuántos (máx. 30)') }),
+    ejecutar: async (a, { db, conversacionId }) => {
+      if (!conversacionId) return { error: 'Este turno no está en una conversación guardada.' }
+      const { buscarEnHilo } = await import('./hilo.ts')
+      const r = buscarEnHilo(db, conversacionId, { consulta: a.consulta, adjuntos: a.adjuntos === true, quien: a.quien, antesDe: a.antes_de, limite: a.limite })
+      return r.mensajes.length ? r : { ...r, nota: 'No hay nada así en esta conversación. Probá con otras palabras, con adjuntos=true, o en el corpus (buscar_corpus).' }
+    },
+  },
+  {
     nombre: 'listar_fuentes', familia: 'lectura', descripcion: 'Las fuentes del corpus, con su nivel y cantidad de piezas.', parametros: S({}),
     ejecutar: (_, { db }) => fuentes(db).map((f) => ({ id: f.id, nombre: f.nombre, nivel: f.nivel, madre: f.padreId, piezas: f.piezas })),
   },
@@ -2328,7 +2339,7 @@ ${a.detalle ?? ''}`)
  * (pedir_herramientas) o cuando el mensaje ya lo anuncia. Así cada respuesta no carga las 110 herramientas.
  */
 export const NUCLEO = [
-  'abrir_ficha_idea', 'pedir_herramientas', 'que_puede_deprocast', 'ver_dia', 'ver_agenda', 'ver_linea', 'fijar_horario', 'ver_uso', 'buscar_corpus', 'leer_pieza', 'leer_memoria', 'recordar',
+  'abrir_ficha_idea', 'pedir_herramientas', 'que_puede_deprocast', 'ver_dia', 'ver_agenda', 'ver_linea', 'fijar_horario', 'ver_uso', 'buscar_corpus', 'leer_pieza', 'buscar_en_hilo', 'leer_memoria', 'recordar',
   'corregir_memoria', 'listar_entidades', 'ver_entidad', 'ver_misiones', 'crear_mision', 'actualizar_mision', 'anotar_side_quest', 'ver_run', 'preparar_run',
   'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'proponer_mejora', 'deshacer_ultima_accion', 'ver_para_validar', 'validar', 'arrancar_bloque', 'terminar_bloque',
 ]
