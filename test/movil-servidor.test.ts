@@ -52,6 +52,15 @@ test('Mobile 1.0, por HTTP: la marca de Hoy cambia con un mensaje; un mensaje re
 
     const vacio = await fetch(`${base}/api/dispositivo/voz?id=t-1&modo=dictado`, { method: 'POST', headers: { ...h, 'content-type': 'audio/wav' }, body: new Uint8Array(0) })
     assert.equal(vacio.status, 422, 'no tiene arreglo: el teléfono lo descarta')
+
+    // El recorrido (1.0.1): los puntos del teléfono y el mapa del día.
+    const ahora = Date.now()
+    const puntos = Array.from({ length: 8 }, (_, i) => ({ en: ahora - (8 - i) * 60_000, lat: 39.4699, lon: -0.3763, precision: 10 }))
+    const sub = await (await fetch(`${base}/api/dispositivo/puntos`, { method: 'POST', headers: { ...h, 'content-type': 'application/json' }, body: JSON.stringify({ puntos }) })).json()
+    assert.equal(sub.guardados, 8)
+    const mapa = await (await fetch(`${base}/api/dispositivo/mapa`, { headers: h })).json()
+    assert.equal(mapa.puntos.length, 8)
+    assert.equal(mapa.paradas.length, 1, '7 minutos en el mismo lugar: una parada')
   } finally {
     srv.kill()
     await new Promise((ok) => setTimeout(ok, 300))

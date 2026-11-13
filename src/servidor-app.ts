@@ -1771,6 +1771,18 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
     const disp = d.autenticarDispositivo(db, req.headers.authorization)
     if (!disp) return responder(401, { error: 'Falta el token del dispositivo o no es válido (Authorization: Bearer dpd_…)' })
     if (ruta === 'hoy' && req.method === 'GET') return responder(200, { dispositivo: disp.nombre, estado: disp.estado, ...(await d.paqueteHoy(db)) })
+    // El recorrido (Mobile 1.0.1): los puntos del teléfono (pestaña Mapa, en segundo plano) y el mapa del día.
+    if (ruta === 'puntos' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 4 * 1024 * 1024)).toString('utf8') || '{}')
+      const r = (await import('./recorrido.ts')).guardarPuntos(db, `disp:${disp.id}`, b.puntos)
+      // El último punto, si es de hace poco, es también la ubicación en vivo (side quests cercanas), si la prendió.
+      if (r.ultimo && Date.now() - r.ultimo.en < 15 * 60_000) void import('./ubicacion.ts').then((u) => u.recibirUbicacion(db, { lat: r.ultimo!.lat, lon: r.ultimo!.lon, precision: r.ultimo!.precision, en: r.ultimo!.en, fuente: disp.nombre })).catch(() => {})
+      return responder(200, { guardados: r.guardados })
+    }
+    if (ruta === 'mapa' && req.method === 'GET') {
+      const dia = url.searchParams.get('dia')
+      return responder(200, await (await import('./recorrido.ts')).recorridoDelDia(db, dia && /^\d{4}-\d{2}-\d{2}$/.test(dia) ? dia : undefined))
+    }
     // Mobile 1.0: la marca barata de «algo cambió en Hoy» (el teléfono la pregunta cada 5 s mientras está abierto).
     if (ruta === 'cambio' && req.method === 'GET') return responder(200, await d.marcaHoy(db))
     // Tu día en capas (plan v38, fase 6): los minutos que juntó el teléfono.

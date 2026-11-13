@@ -931,6 +931,18 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
   else if (chatId !== suChat()) return // otro: silencio
   estado.ultimoMensaje = Date.now()
   if (u.callback_query) return boton(db, u.callback_query)
+  // Una ubicación (Mobile 1.0.1): entra al recorrido. La en vivo de Telegram llega como ediciones del mensaje: cada una es
+  // un punto, en silencio; al empezar se avisa una vez. La fija (y la de WhatsApp) además sigue a la charla.
+  if (msg.location && Number.isFinite(Number(msg.location.latitude))) {
+    const fuente = otroCanal() ? otroCanal()!.nombre.toLowerCase() : 'telegram'
+    const en = (Number(msg.edit_date ?? msg.date) || 0) * 1000 || Date.now()
+    const p = { en, lat: Number(msg.location.latitude), lon: Number(msg.location.longitude), precision: msg.location.horizontal_accuracy ?? null }
+    try { (await import('./recorrido.ts')).guardarPuntos(db, fuente, [p]) } catch (e) { console.error('  recorrido:', e instanceof Error ? e.message : e) }
+    void import('./ubicacion.ts').then((x) => x.recibirUbicacion(db, { ...p, fuente })).catch(() => {})
+    if (u.edited_message) return
+    if (msg.location.live_period) return decir(`📍 Recibo tu ubicación en vivo${msg.location.live_period < 0x7fffffff ? ` por ${Math.round(msg.location.live_period / 60)} min` : ''}: la sumo a tu recorrido. Preguntame «¿por dónde anduve hoy?» y te lo analizo.`)
+    if (!(msg.text ?? msg.caption)) msg.text = `(Te mando dónde estoy: ${p.lat}, ${p.lon}. Ya quedó en mi recorrido de hoy.)`
+  }
   const texto: string | undefined = msg.text ?? msg.caption
   // Responder a un registro que anotó (una comida, un gasto): lo corrige.
   const aCaptura = msg.reply_to_message ? capturasEnviadas.get(msg.reply_to_message.message_id) : undefined

@@ -1310,6 +1310,18 @@ CREATE TABLE IF NOT EXISTS dispositivo_envios (
   PRIMARY KEY (dispositivo_id, clave)
 );
 
+-- El recorrido: por dónde anduvo (el teléfono en segundo plano, Telegram, WhatsApp). La historia, no la señal en vivo.
+CREATE TABLE IF NOT EXISTS recorrido_puntos (
+  fuente TEXT NOT NULL,               -- disp:<id> | telegram | whatsapp
+  en INTEGER NOT NULL,                -- hora del teléfono (o del mensaje)
+  lat REAL NOT NULL,
+  lon REAL NOT NULL,
+  precision REAL,
+  recibido INTEGER NOT NULL,          -- hora del servidor
+  PRIMARY KEY (fuente, en)
+);
+CREATE INDEX IF NOT EXISTS recorrido_puntos_en ON recorrido_puntos(en);
+
 CREATE TABLE IF NOT EXISTS capas_minuto (
   dispositivo_id INTEGER NOT NULL,
   minuto INTEGER NOT NULL,

@@ -256,7 +256,7 @@ export function aTelegram(m: any): any | null {
     case 'video': return { message: { chat, video: { file_id: m.video.id, file_name: 'video.mp4', mime_type: m.video.mime_type }, caption: conContexto(m, m.video.caption) } }
     case 'location': {
       const l = m.location ?? {}
-      return { message: { chat, text: conContexto(m, `(Te mando dónde estoy: ${[l.name, l.address].filter(Boolean).join(', ') || 'mi ubicación'} · ${l.latitude}, ${l.longitude})`) } }
+      return { message: { chat, text: conContexto(m, `(Te mando dónde estoy: ${[l.name, l.address].filter(Boolean).join(', ') || 'mi ubicación'} · ${l.latitude}, ${l.longitude})`), location: { latitude: Number(l.latitude), longitude: Number(l.longitude) } } }
     }
     case 'contacts': {
       const cs = (m.contacts ?? []).map((x: any) => [x.name?.formatted_name, ...(x.phones ?? []).map((t: any) => t.phone), ...(x.emails ?? []).map((e: any) => e.email)].filter(Boolean).join(' · '))
@@ -300,6 +300,11 @@ async function reaccionar(db: Db, para: string, mensajeId: string, emoji: string
 function recibirMensaje(db: Db, de: string, m: any): Promise<unknown> {
   const e = estadoDe(de)
   e.ultimoId = String(m.id)
+  if (m.type === 'unsupported' && Date.now() - Number(ajuste(db, 'whatsapp_aviso_no_soportado') ?? 0) > 12 * 3_600_000) {
+    // La ubicación en vivo (y algunos otros tipos) WhatsApp no se la pasa a los bots: llega vacía. Se explica una vez.
+    fijarAjuste(db, 'whatsapp_aviso_no_soportado', String(Date.now()))
+    void mandarTexto(db, de, 'Eso no me llega: WhatsApp no le pasa a los bots la ubicación en vivo (ni algunos otros tipos de mensaje). Para que anote por dónde andás, prendé el recorrido en la app (pestaña Mapa), mandame la ubicación en vivo por Telegram, o acá una ubicación fija.').catch(() => {})
+  }
   if (IGNORADOS.has(m.type)) { marcarHecho(db, [String(m.id)]); return Promise.resolve() }
   let pensando = false
   try { pensando = estaPensando(conversacionHoy(db).id) } catch { /* sin charla todavía */ }
