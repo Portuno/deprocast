@@ -115,10 +115,13 @@ export async function pasajesDe(db: Db, ids: number[], ahora = Date.now()): Prom
   }
   const ins = db.prepare('INSERT INTO pasajes (pieza_id, orden, desde, hasta, modelo, vec, en) VALUES (?, ?, ?, ?, ?, ?, ?)')
   const filas: { t: (typeof tareas)[number]; v: number[]; modelo: string }[] = []
-  for (let i = 0; i < tareas.length; i += 32) {
-    const tanda = tareas.slice(i, i + 32)
-    const r = await embedder(db, tanda.map((t) => t.texto), 'reproceso-vec')
-    tanda.forEach((t, k) => { if (r.vectores[k]?.length) filas.push({ t, v: r.vectores[k], modelo: r.modelo }) })
+  // Las tandas de 32, de a 3 a la vez (Fragua #267): una pieza grande eran varias esperas a la red una detrás de otra.
+  const tandas: (typeof tareas)[] = []
+  for (let i = 0; i < tareas.length; i += 32) tandas.push(tareas.slice(i, i + 32))
+  for (let i = 0; i < tandas.length; i += 3) {
+    const grupo = tandas.slice(i, i + 3)
+    const rs = await Promise.all(grupo.map((tanda) => embedder(db, tanda.map((t) => t.texto), 'reproceso-vec')))
+    grupo.forEach((tanda, j) => tanda.forEach((t, k) => { if (rs[j].vectores[k]?.length) filas.push({ t, v: rs[j].vectores[k], modelo: rs[j].modelo }) }))
   }
   // Cada pieza en su transacción: queda con todos sus pasajes o con ninguno. Entre pieza y pieza se cede el turno (todo
   // junto eran cientos de filas con piezas grandes: casi 300 ms trabado). El índice en memoria se pone al día solo (saca

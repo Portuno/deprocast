@@ -129,7 +129,12 @@ ${detalle}`, 'liga'), prioridad, ahora)
 /** Mide un paso (de la liga, del reproceso…): si tarda más de un segundo, queda anotado como «lento» con su nombre. */
 /** Los pasos medidos que están corriendo ahora (el vigía de bloqueos los nombra: así se sabe cuál trabó). */
 export const pasosEnMarcha = new Map<string, number>()
-export async function medirPaso<T>(db: Db, nombre: string, f: () => T | Promise<T>): Promise<T> {
+/**
+ * umbralMs: desde cuánto es «lento». Los pasos que esperan a la red (embeddings, modelos: el reproceso) tardan segundos sin
+ * trabar nada —lo que traba el servidor lo mide el vigía de bloqueos—; con 1 s se llenaban los errores de falsos lentos
+ * (Fragua #267).
+ */
+export async function medirPaso<T>(db: Db, nombre: string, f: () => T | Promise<T>, umbralMs = 1000): Promise<T> {
   const t0 = performance.now()
   pasosEnMarcha.set(nombre, (pasosEnMarcha.get(nombre) ?? 0) + 1)
   try { return await f() } finally {
@@ -137,7 +142,7 @@ export async function medirPaso<T>(db: Db, nombre: string, f: () => T | Promise<
     if (n > 0) pasosEnMarcha.set(nombre, n)
     else pasosEnMarcha.delete(nombre)
     const ms = performance.now() - t0
-    if (ms > 1000) registrarError(db, 'lento', `paso ${nombre} tardó ${Math.round(ms)} ms`)
+    if (ms > umbralMs) registrarError(db, 'lento', `paso ${nombre} tardó ${Math.round(ms)} ms`)
   }
 }
 
