@@ -30,6 +30,8 @@ function bot() {
     hablar: async (t) => Buffer.from(`voz:${t}`),
     separarNota: async () => null, // una sola voz (la separación tiene su prueba)
     transcribir: async () => 'Mandé el mail',
+    // Sin red: bajar un audio de Telegram de verdad hacía fallar la prueba (y las forjas de la nube) cuando la red tosía.
+    bajar: async (id) => ({ datos: Buffer.from(`audio ${id}`), nombre: 'voz.oga' }),
   })
   _probarModelo(async (_l, o) => {
     const s = String(o.mensajes[0].content)

@@ -13,7 +13,7 @@
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import type { Db } from './db.ts'
 
 // ─── GitHub ─────────────────────────────────────────────────────────────
@@ -189,6 +189,25 @@ export const RUTAS_HUMO = ['/version', '/', '/api/estado', '/api/meta', '/api/ho
 const puertoLibre = () => new Promise<number>((ok, mal) => { const s = net.createServer(); s.unref(); s.on('error', mal); s.listen(0, '127.0.0.1', () => { const p = (s.address() as net.AddressInfo).port; s.close(() => ok(p)) }) })
 
 /**
+ * Corre un proceso de Node sin trabar el servidor. Con spawnSync, una forja en la nube congelaba todo (Telegram, la web,
+ * las rutinas) los cinco minutos que tardan el typecheck y la suite: el vigía lo marcaba como bloqueos de 330 s.
+ */
+export function correrNode(args: string[], o: { cwd: string; env?: NodeJS.ProcessEnv; timeoutMs?: number }): Promise<{ status: number | null; salida: string }> {
+  return new Promise((listo) => {
+    const hijo = spawn(process.execPath, args, { cwd: o.cwd, env: o.env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    const partes: Buffer[] = []
+    let largo = 0
+    const juntar = (b: Buffer) => { if (largo < 8 * 1024 * 1024) { partes.push(b); largo += b.length } }
+    hijo.stdout.on('data', juntar)
+    hijo.stderr.on('data', juntar)
+    const reloj = setTimeout(() => hijo.kill('SIGKILL'), o.timeoutMs ?? 10 * 60_000)
+    const fin = (status: number | null, extra = '') => { clearTimeout(reloj); listo({ status, salida: Buffer.concat(partes).toString('utf8') + extra }) }
+    hijo.on('error', (e) => fin(1, `\n${e.message}`))
+    hijo.on('close', (code) => fin(code))
+  })
+}
+
+/**
  * Levanta el servidor de `dir` con una base nueva y sin nada de afuera, recorre las rutas y compila los scripts de la
  * pantalla. ok = arrancó, ninguna ruta dio 5xx y todos los scripts compilan.
  */
@@ -198,8 +217,9 @@ export async function pruebaDeHumo(dir: string, entorno: NodeJS.ProcessEnv, o: {
   // Los scripts de la pantalla: que compilen (un error de sintaxis deja la web en blanco).
   const js = path.join(dir, 'web', 'js')
   if (fs.existsSync(js)) for (const f of fs.readdirSync(js).filter((x) => x.endsWith('.js'))) {
-    const r = spawnSync(process.execPath, ['--check', path.join(js, f)], { encoding: 'utf8', timeout: 30_000 })
-    if (r.status !== 0) { ok = false; lineas.push(`✖ web/js/${f} no compila: ${(r.stderr ?? '').split('\n').find((l) => /Error/.test(l)) ?? 'error'}`) }
+    // Asíncrono: son unos cien scripts y en la nube el servidor no se traba mientras tanto.
+    const r = await correrNode(['--check', path.join(js, f)], { cwd: dir, timeoutMs: 30_000 })
+    if (r.status !== 0) { ok = false; lineas.push(`✖ web/js/${f} no compila: ${r.salida.split('\n').find((l) => /Error/.test(l)) ?? 'error'}`) }
   }
   const puerto = await puertoLibre()
   const base = path.join(dir, 'data', 'humo')

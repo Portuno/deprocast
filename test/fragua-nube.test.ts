@@ -6,7 +6,7 @@ import path from 'node:path'
 import { abrir } from '../src/db.ts'
 import { _probarModelo } from '../src/modelo.ts'
 import { aprobarForja, forjarMejora, porQueNoSePuedeForjar, propuestasParaForjar, revertirForja } from '../src/fragua.ts'
-import { _probarGithub, diffDe, pruebaDeHumo, vigilarAprobadas } from '../src/fragua-nube.ts'
+import { _probarGithub, correrNode, diffDe, pruebaDeHumo, vigilarAprobadas } from '../src/fragua-nube.ts'
 
 /** Un GitHub falso: guarda lo que se le pide y contesta lo justo. */
 function githubFalso() {
@@ -159,4 +159,17 @@ test('Mobile 1.0 · bloque 5: todo archivo de la app móvil que leen los tests v
   assert.ok(leidos.size >= 5, [...leidos].join(', '))
   for (const r of leidos) assert.ok(cubierto(r), `los tests leen ${r}, pero la copia de la nube no lo lleva (sumalo a COPIAR)`)
   assert.ok(!COPIAR.some((c) => /node_modules|dist/.test(c)), 'nada armado ni dependencias')
+})
+
+test('la forja corre el typecheck y la suite sin trabar el servidor (antes, 330 s congelado en la nube)', async () => {
+  let latidos = 0
+  const reloj = setInterval(() => latidos++, 20)
+  const r = await correrNode(['-e', "setTimeout(() => { console.log('listo'); console.error('aviso'); process.exit(3) }, 400)"], { cwd: os.tmpdir() })
+  clearInterval(reloj)
+  assert.equal(r.status, 3)
+  assert.match(r.salida, /listo/)
+  assert.match(r.salida, /aviso/)
+  assert.ok(latidos >= 5, `el servidor siguió latiendo mientras tanto (${latidos})`)
+  const corta = await correrNode(['-e', 'setTimeout(() => {}, 60000)'], { cwd: os.tmpdir(), timeoutMs: 200 })
+  assert.notEqual(corta.status, 0, 'el tope de tiempo la corta')
 })

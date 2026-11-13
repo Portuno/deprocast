@@ -12,7 +12,7 @@ import path from 'node:path'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { fijarAjuste, type Db } from './db.ts'
 import { pedirJson } from './modelo.ts'
-import { abrirPullRequest, borrarCopia, cerrarPullRequest, diffDe, githubDisponible, mergearPullRequest, prepararCopia, pruebaDeHumo, revertirEnMain } from './fragua-nube.ts'
+import { abrirPullRequest, borrarCopia, cerrarPullRequest, diffDe, githubDisponible, mergearPullRequest, prepararCopia, correrNode, pruebaDeHumo, revertirEnMain } from './fragua-nube.ts'
 
 export type Forja = {
   id: number
@@ -115,7 +115,7 @@ export const listarForjas = (db: Db): Forja[] => db.prepare('SELECT * FROM fragu
 type Opciones = {
   repo?: string
   /** Typecheck + tests dentro del worktree; devuelve ok y la salida. Inyectable para tests. */
-  verificar?: (dir: string, repo: string) => { ok: boolean; salida: string }
+  verificar?: (dir: string, repo: string) => { ok: boolean; salida: string } | Promise<{ ok: boolean; salida: string }>
   /** La prueba de humo (levantar el servidor forjado y recorrerlo). Por defecto, la real; con `verificar` inyectado y sin esto, no corre. */
   humo?: (dir: string) => Promise<{ ok: boolean; salida: string }>
 }
@@ -144,16 +144,16 @@ export function sigueLaSuite(statusTsc: number): boolean {
 }
 
 /** Por defecto: el tsc y los tests del repo principal, corridos sobre la copia (el worktree no tiene node_modules). */
-function verificarDefecto(dir: string, repo: string): { ok: boolean; salida: string } {
+async function verificarDefecto(dir: string, repo: string): Promise<{ ok: boolean; salida: string }> {
   const tsc = path.join(repo, 'node_modules', 'typescript', 'bin', 'tsc')
   const salida: string[] = []
   if (fs.existsSync(tsc)) {
-    const r = spawnSync(process.execPath, [tsc, '-p', 'tsconfig.json'], { cwd: dir, encoding: 'utf8', timeout: 10 * 60_000, env: entornoLimpio() })
-    salida.push(salidaDeCompilador(`${r.stdout ?? ''}${r.stderr ?? ''}`))
+    const r = await correrNode([tsc, '-p', 'tsconfig.json'], { cwd: dir, env: entornoLimpio() })
+    salida.push(salidaDeCompilador(r.salida))
     if (!sigueLaSuite(r.status ?? 1)) return { ok: false, salida: salida.join('\n\n') }
   }
-  const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--test', 'test/**/*.test.ts'], { cwd: dir, encoding: 'utf8', timeout: 10 * 60_000, env: entornoLimpio() })
-  salida.push(salidaDeTests(`${r.stdout ?? ''}${r.stderr ?? ''}`))
+  const r = await correrNode(['--disable-warning=ExperimentalWarning', '--test', 'test/**/*.test.ts'], { cwd: dir, env: entornoLimpio() })
+  salida.push(salidaDeTests(r.salida))
   return { ok: r.status === 0, salida: salida.join('\n\n') }
 }
 
@@ -323,7 +323,7 @@ export async function forjarMejora(db: Db, p: { propuestaId?: number | null; ped
       problema ??= faltaTest([...tocados])
       if (!problema) {
         paso(vuelta ? `typecheck y tests, otra vez (corrección ${vuelta})` : 'typecheck y tests (unos minutos)')
-        const v = (o.verificar ?? verificarDefecto)(dir, repo)
+        const v = await (o.verificar ?? verificarDefecto)(dir, repo)
         verifico = true
         if (v.ok) {
           // Plan v38, fase 2: además, que el servidor forjado levante y conteste (la prueba de humo).
