@@ -2,7 +2,7 @@
   "expo": {
     "name": "Deprocast",
     "slug": "deprocast",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -33,7 +33,7 @@
         "android.permission.READ_CONTACTS",
         "android.permission.WRITE_CONTACTS"
       ],
-      "versionCode": 2
+      "versionCode": 3
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -51,7 +51,10 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Deprocast anota por dónde anduviste mientras escucha, para tu día en capas. Queda solo en tu Deprocast."
+          "locationWhenInUsePermission": "Deprocast anota por dónde anduviste, para el mapa de tu día. Queda solo en tu Deprocast.",
+          "locationAlwaysAndWhenInUsePermission": "Deprocast anota tu recorrido aunque la app esté cerrada (con un aviso fijo), para el mapa de tu día. Se apaga desde la pestaña Mapa.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
         }
       ],
       [

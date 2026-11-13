@@ -11,7 +11,8 @@
  * si el teléfono reintenta, el servidor no lo duplica). Nada se sube directo: primero a disco, después a la red.
  *
  * Tu día en capas (plan v38, fase 6): cada minuto, cuánto hablaste, cuánto escuchaste, ruido y silencio, el nivel de tu
- * voz y del ambiente, los pasos y (si diste el permiso) dónde estabas. Solo números, a la cola en disco.
+ * voz y del ambiente, los pasos y dónde estabas (el último punto del recorrido, si está prendido en la pestaña Mapa: la
+ * ubicación va aparte desde 1.0.1). Solo números, a la cola en disco.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppState } from 'react-native'
@@ -27,7 +28,8 @@ import { alCambiar, sincronizar } from './sincronizar'
 import { archivoParaTramo } from './tramos'
 import { claveNueva } from './logica/sincro'
 import { debeCerrar } from './logica/tramos'
-import { capta, crearParadas, parametrosUbicacion, SOSTENER_MS } from './logica/captura'
+import { capta } from './logica/captura'
+import { ultimoPunto } from './recorrido'
 import { ajustesCaptura } from './captura'
 
 export type Envio = { en: number; modo: string; texto: string | null; error?: string }
@@ -49,6 +51,9 @@ export function useEscucha(c: Credenciales | null) {
   useEffect(() => { modoConv.current = conversacion }, [conversacion])
   const [ultimo, setUltimo] = useState(0)
   const [lectura, setLectura] = useState<Lectura | null>(null)
+  // Lo que está haciendo, para decirlo claro (1.0.1): si está grabando un tramo, desde cuándo y a dónde va.
+  const [grabando, setGrabando] = useState<{ desde: number; conv: boolean } | null>(null)
+  const [enviadosHoy, setEnviadosHoy] = useState(0)
   const [envios, setEnvios] = useState<Envio[]>([])
   const [enCola, setEnCola] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -58,15 +63,15 @@ export function useEscucha(c: Credenciales | null) {
     tramo: null as Tramo | null,
     ocupado: false,
     pasos: 0, acum: null as Acumulado | null, ubic: null as null | { lat: number; lon: number; precision: number | null; t: number },
-    ubicSub: null as null | { remove: () => void },
-    // Mobile 1.0, bloque 4: los pasos del sensor (si está y diste el permiso), el ritmo de la ubicación y las paradas.
+    // Mobile 1.0, bloque 4: los pasos del sensor (si está y diste el permiso).
     pedSub: null as null | { remove: () => void }, pasosSensor: null as number | null,
-    ubicActiva: false, moviendoseUbic: false, moviendose: false, moviendoseDesde: 0, soloParadas: false, paradas: crearParadas(),
+    // La lectura se muestra a lo sumo dos veces por segundo (antes diez: la pantalla temblaba).
+    pintadoEn: 0, estadoPintado: '',
   })
 
   // Lo que sube la sincronización de la app (de cualquier pantalla) aparece en «lo que se dijo».
   useEffect(() => alCambiar((r) => {
-    if (r.subidos.length) { setEnvios((xs) => [...r.subidos.map((s) => ({ en: Date.now(), modo: s.modo, texto: s.texto })), ...xs].slice(0, 20)); setUltimo(Date.now()) }
+    if (r.subidos.length) { setEnvios((xs) => [...r.subidos.map((s) => ({ en: Date.now(), modo: s.modo, texto: s.texto })), ...xs].slice(0, 20)); setUltimo(Date.now()); setEnviadosHoy((n) => n + r.subidos.length) }
     void cuantoEnCola().then((n) => setEnCola(n.voces))
   }), [])
 
@@ -76,7 +81,8 @@ export function useEscucha(c: Credenciales | null) {
     const a = e.acum
     e.acum = nuevoMinuto(t, e.pasos)
     if (!a) return
-    const u = e.ubic && t - e.ubic.t < 15 * 60_000 ? e.ubic : null
+    const p = ultimoPunto()
+    const u = p && t - p.en < 15 * 60_000 ? p : null
     const seg = (n: number) => Math.min(60, Math.round(n / 10)) // cuadros de 100 ms → segundos
     const m: MinutoCapa = {
       minuto: a.minuto, hablo: seg(a.hablo), escucho: seg(a.escucho), ruido: seg(a.ruido), silencio: seg(a.silencio),
@@ -91,6 +97,7 @@ export function useEscucha(c: Credenciales | null) {
     const e = estado.current
     const tramo = e.tramo
     e.tramo = null
+    setGrabando(null)
     if (!tramo) return
     await tramo.grabando.catch(() => {})
     try { await stream.stopFileRecordingAsync() } catch { /* no había grabación: el archivo, si existe, lo recupera el próximo arranque */ }
@@ -114,7 +121,7 @@ export function useEscucha(c: Credenciales | null) {
     const t = Date.now()
     const r = e.rasgos.cuadro(x)
     const l = e.conciencia.cuadro({ t, db: r.db, voz: r.voz, cerca: null, caminando: e.caminando, levantado: e.levantado })
-    setLectura(l)
+    if (t - e.pintadoEn >= 500 || l.estado !== e.estadoPintado) { e.pintadoEn = t; e.estadoPintado = l.estado; setLectura(l) }
     // La capa del minuto: qué se oyó en estos 100 ms.
     if (!e.acum || t - e.acum.minuto >= 60_000) cerrarMinuto(t)
     const a = e.acum!
@@ -136,6 +143,7 @@ export function useEscucha(c: Credenciales | null) {
         // Primero anotado en disco, después a grabar: si la app se corta, el tramo se recupera al abrir.
         const grabando = anotarTramo(id, uri, t, meta).then(() => stream.startFileRecordingAsync({ format: 'wav', uri }))
         e.tramo = { id, uri, inicio: t, ultimaVoz: t, dictado: 0, escucha: 0, ruido: 0, voz: 0, caminando: !!e.caminando, conv, grabando }
+        setGrabando({ desde: t, conv })
         e.ocupado = true
         void grabando.catch(() => { if (e.tramo?.id === id) e.tramo = null; void cerrarTramoEnDisco(id, null) }).finally(() => { e.ocupado = false })
         return
@@ -179,33 +187,9 @@ export function useEscucha(c: Credenciales | null) {
       estado.current.levantado = r.levantado
       const e = estado.current
       e.pasos = e.pasosSensor ?? r.pasos
-      const ahora = Date.now()
-      if (!!r.caminando !== e.moviendose) { e.moviendose = !!r.caminando; e.moviendoseDesde = ahora }
     })
     return () => sub.remove()
   }, [activa])
-
-  const vigilarUbicacion = useCallback(async () => {
-    const e = estado.current
-    if (!e.ubicActiva) return
-    const L = await import('expo-location')
-    e.ubicSub?.remove()
-    e.moviendoseUbic = e.moviendose
-    e.ubicSub = await L.watchPositionAsync({ accuracy: e.moviendose ? L.Accuracy.Balanced : L.Accuracy.Low, ...parametrosUbicacion(e.moviendose) }, (p) => {
-      const punto = { lat: p.coords.latitude, lon: p.coords.longitude, precision: p.coords.accuracy ?? null, t: Date.now() }
-      if (!e.soloParadas) { e.ubic = punto; return }
-      const parada = e.paradas.sumar(punto)
-      e.ubic = parada ? { lat: parada.lat, lon: parada.lon, precision: null, t: punto.t } : null
-    })
-  }, [])
-  useEffect(() => {
-    if (!activa) return
-    const x = setInterval(() => {
-      const e = estado.current
-      if (e.ubicActiva && e.moviendose !== e.moviendoseUbic && Date.now() - e.moviendoseDesde >= SOSTENER_MS) void vigilarUbicacion().catch(() => {})
-    }, 15_000)
-    return () => clearInterval(x)
-  }, [activa, vigilarUbicacion])
 
   // Al cambiar de app (o bloquear la pantalla), el tramo en curso se cierra: queda entero en la cola y la escucha sigue.
   useEffect(() => {
@@ -230,16 +214,6 @@ export function useEscucha(c: Credenciales | null) {
     e.pendiente = new Float32Array(0)
     e.acum = null
     try { await stream.start(); setActiva(true) } catch (err) { return setError(err instanceof Error ? err.message : String(err)) }
-    // La ubicación (si está prendida y diste el permiso), con su ritmo según si te movés; o solo las paradas.
-    e.soloParadas = aj.soloParadas
-    e.paradas = crearParadas()
-    e.ubic = null
-    if (capta(aj, 'ubicacion')) {
-      try {
-        const L = await import('expo-location')
-        if ((await L.requestForegroundPermissionsAsync()).granted) { e.ubicActiva = true; await vigilarUbicacion() }
-      } catch { /* sin el módulo o sin permiso: las capas van sin ubicación */ }
-    }
     // Los pasos por el sensor del teléfono (no por GPS), si está y diste el permiso; si no, el acelerómetro.
     e.pasosSensor = null
     if (capta(aj, 'pasos')) {
@@ -248,19 +222,19 @@ export function useEscucha(c: Credenciales | null) {
         if ((await Pedometer.isAvailableAsync()) && (await Pedometer.requestPermissionsAsync()).granted) e.pedSub = Pedometer.watchStepCount((r) => { e.pasosSensor = r.steps })
       } catch { /* sin sensor: el acelerómetro */ }
     }
-  }, [stream, vigilarUbicacion])
+  }, [stream])
 
   const parar = useCallback(async () => {
     const e = estado.current
     if (e.tramo) await cerrarTramo()
     stream.stop()
     if (e.acum) { cerrarMinuto(Date.now()); e.acum = null }
-    e.ubicSub?.remove(); e.ubicSub = null; e.ubicActiva = false
     e.pedSub?.remove(); e.pedSub = null; e.pasosSensor = null
     setActiva(false)
     setLectura(null)
+    setGrabando(null)
     if (c) void sincronizar(c)
   }, [stream, cerrarTramo, cerrarMinuto, c])
 
-  return { activa, lectura, envios, enCola, error, empezar, parar, conversacion, setConversacion, ultimo }
+  return { activa, lectura, envios, enCola, enviadosHoy, grabando, error, empezar, parar, conversacion, setConversacion, ultimo }
 }

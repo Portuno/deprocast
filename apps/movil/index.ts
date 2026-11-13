@@ -1,4 +1,6 @@
 import { registerRootComponent } from 'expo';
+// La tarea de fondo del recorrido tiene que estar definida apenas arranca (Android la despierta con la app cerrada).
+import './src/recorrido';
 
 import App from './App';
 

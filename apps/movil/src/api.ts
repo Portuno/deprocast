@@ -107,3 +107,10 @@ export async function subirItem(c: Credenciales, clave: string, cuerpo: { uri: s
   if (!r.ok) throw new Error(j.error ?? `Deprocast respondió ${r.status}`)
   return j as { clave: string; estado: string }
 }
+
+/** El recorrido (1.0.1): los puntos que anotó la pestaña Mapa (hora del teléfono), y el mapa de un día. */
+export type PuntoMapa = { en: number; lat: number; lon: number; precision: number | null; fuente?: string }
+export type ParadaMapa = { lat: number; lon: number; desde: number; hasta: number; minutos: number; lugar: string | null }
+export type DiaMapa = { fecha: string; puntos: PuntoMapa[]; paradas: ParadaMapa[]; distanciaKm: number; fuentes: string[]; ultimo: PuntoMapa | null }
+export const subirPuntos = (c: Credenciales, puntos: PuntoMapa[]) => pedir<{ guardados: number }>(c, 'puntos', { method: 'POST', body: JSON.stringify({ puntos }) })
+export const traerMapa = (c: Credenciales, dia?: string) => pedir<DiaMapa>(c, `mapa${dia ? `?dia=${dia}` : ''}`)

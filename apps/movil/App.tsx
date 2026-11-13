@@ -1,6 +1,6 @@
 /**
  * Deprocast en el teléfono (plan v33, paso 2). Sin vincular: la pantalla de Vincular. Vinculado: Hoy (el chat,
- * local-first) y Escucha (la conciencia acústica). El menú ⋯: Captura y permisos (Mobile 1.0) y Desvincular (borra el token
+ * local-first), Escucha (la conciencia acústica) y Mapa (el recorrido, aparte de la escucha desde 1.0.1). El menú ⋯: Captura y permisos (Mobile 1.0) y Desvincular (borra el token
  * y todo lo guardado en el teléfono).
  */
 import { useCallback, useEffect, useState } from 'react'
@@ -14,13 +14,16 @@ import { recuperarTramos } from './src/tramos'
 import { registrarCapas } from './src/capas'
 import { registrarCaptura } from './src/captura'
 import { Captura } from './src/pantallas/Captura'
+import { Mapa } from './src/pantallas/Mapa'
+import { registrarRecorrido } from './src/recorrido'
 import { Vincular } from './src/pantallas/Vincular'
 import { Hoy } from './src/pantallas/Hoy'
 import { Escucha } from './src/pantallas/Escucha'
 import { Rescate } from './src/pantallas/Rescate'
 import { ESP, LETRA, TOQUE, useTema } from './src/tema'
 
-type Pestana = 'hoy' | 'escucha'
+type Pestana = 'hoy' | 'escucha' | 'mapa'
+const NOMBRE_PESTANA: Record<Pestana, string> = { hoy: 'Hoy', escucha: 'Escucha', mapa: 'Mapa' }
 
 export default function App() {
   const t = useTema()
@@ -39,6 +42,7 @@ export default function App() {
     if (!c) return
     registrarCapas()
     registrarCaptura()
+    registrarRecorrido()
     void recuperarTramos().then((n) => { if (n) void sincronizar(c) }).catch(() => {})
   }, [c])
 
@@ -61,14 +65,14 @@ export default function App() {
       {!c ? <Vincular alVincular={(x) => { setC(x); setRescate(true) }} /> : rescate ? <Rescate c={c} alTerminar={() => setRescate(false)} /> : verCaptura ? <Captura cerrar={() => setVerCaptura(false)} /> : (
         <>
           <View style={[s.barra, { borderColor: t.linea }]}>
-            {(['hoy', 'escucha'] as const).map((p) => (
+            {(['hoy', 'escucha', 'mapa'] as const).map((p) => (
               <Pressable key={p} onPress={() => setPestana(p)} style={[s.pestana, pestana === p && { borderColor: t.acento }]} accessibilityRole="tab" accessibilityState={{ selected: pestana === p }}>
-                <Text style={[LETRA.cuerpo, { color: pestana === p ? t.texto : t.tenue, fontWeight: '600' }]}>{p === 'hoy' ? 'Hoy' : 'Escucha'}</Text>
+                <Text style={[LETRA.cuerpo, { color: pestana === p ? t.texto : t.tenue, fontWeight: '600' }]}>{NOMBRE_PESTANA[p]}</Text>
               </Pressable>
             ))}
             <Pressable onPress={menu} style={s.menu} accessibilityLabel="Menú: captura y permisos, desvincular"><Text style={[LETRA.chica, { color: t.tenue }]} numberOfLines={1}>{c.nombre} ⋯</Text></Pressable>
           </View>
-          {pestana === 'hoy' ? <Hoy c={c} /> : <Escucha c={c} />}
+          {pestana === 'hoy' ? <Hoy c={c} /> : pestana === 'escucha' ? <Escucha c={c} /> : <Mapa c={c} />}
         </>
       )}
     </SafeAreaView>

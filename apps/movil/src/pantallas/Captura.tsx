@@ -14,7 +14,7 @@ type Funcion = { clave: 'audio' | 'ubicacion' | 'pasos'; titulo: string; capta: 
 
 const FUNCIONES: Funcion[] = [
   { clave: 'audio', titulo: 'Micrófono', capta: 'Tu voz, en tramos cortos (se cortan al dejar de hablar, al cambiar de app o al minuto), también con la pantalla apagada.', para: 'El dictado (va al chat de Hoy) y la escucha (notas de voz). El audio se sube, se transcribe y se borra del teléfono.', permiso: 'Micrófono' },
-  { clave: 'ubicacion', titulo: 'Ubicación', capta: 'Dónde estabas mientras escuchás: quieto casi no marca; caminando, cada 30–60 s. O solo las paradas.', para: 'Tu día en capas: qué dijiste y dónde, para encontrarlo después («lo que hablé en tal lugar»).', permiso: 'Ubicación mientras se usa la app' },
+  { clave: 'ubicacion', titulo: 'Ubicación', capta: 'Tu recorrido, aparte de la escucha (se prende en la pestaña Mapa y sigue con la app cerrada): quieto casi no marca; caminando, cada 30 s. O solo las paradas.', para: 'El mapa de tu día, que Mastropiero lo analice («¿por dónde anduve?») y cruzar lo que dijiste con dónde estabas.', permiso: 'Ubicación (todo el tiempo, para que siga con la app cerrada)' },
   { clave: 'pasos', titulo: 'Pasos', capta: 'Los pasos y si caminás, por el sensor del teléfono (no por GPS).', para: 'Cruzar lo que dijiste con cómo te movías.', permiso: 'Actividad física' },
 ]
 

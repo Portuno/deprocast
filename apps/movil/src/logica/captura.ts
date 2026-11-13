@@ -80,3 +80,30 @@ export function servidorSeguro(url: string): string {
   const local = host === 'localhost' || /^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || host.endsWith('.local')
   return local ? x : x.replace(/^http:/i, 'https:')
 }
+
+/**
+ * «Solo las paradas», para la cola del recorrido: los puntos se agrupan en tramos seguidos que no se alejan más de
+ * 100 m; los de un grupo que duró 5 minutos o más se suben (es una parada); los de un grupo cerrado que no llegó (el
+ * recorrido en movimiento) se descartan sin subirse; el último grupo, si todavía puede llegar a ser parada, espera.
+ */
+export function separarParadas(puntos: { en: number; lat: number; lon: number }[], ahora = Date.now()): { subir: number[]; descartar: number[]; esperar: number[] } {
+  const out = { subir: [] as number[], descartar: [] as number[], esperar: [] as number[] }
+  const grupos: { en: number; lat: number; lon: number }[][] = []
+  let g: { en: number; lat: number; lon: number }[] = []
+  for (const p of [...puntos].sort((a, b) => a.en - b.en)) {
+    if (g.length) {
+      const c = { lat: g.reduce((s, x) => s + x.lat, 0) / g.length, lon: g.reduce((s, x) => s + x.lon, 0) / g.length }
+      if (distancia(c, p) > RADIO_PARADA_M) { grupos.push(g); g = [] }
+    }
+    g.push(p)
+  }
+  if (g.length) grupos.push(g)
+  grupos.forEach((x, i) => {
+    const dura = x.at(-1)!.en - x[0].en
+    const ens = x.map((p) => p.en)
+    if (dura >= MINIMO_PARADA_MS) out.subir.push(...ens)
+    else if (i === grupos.length - 1 && ahora - x.at(-1)!.en < MINIMO_PARADA_MS * 2) out.esperar.push(...ens)
+    else out.descartar.push(...ens)
+  })
+  return out
+}

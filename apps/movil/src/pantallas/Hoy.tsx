@@ -5,7 +5,9 @@
  * Estados explícitos (Mobile 1.0): cargando la primera vez, vacío, y el error con «Reintentar» (nunca un spinner eterno).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { FlatList, KeyboardAvoidingView, Platform, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native'
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
+import { useAltoTeclado } from '../teclado'
 import type { Credenciales } from '../api'
 import { encolar, estadoSincro, leerChat, type EstadoSincro, type MensajeLocal } from '../almacen'
 import { alCambiar, sincronizar } from '../sincronizar'
@@ -23,6 +25,10 @@ export function Hoy({ c }: { c: Credenciales }) {
   const [tirando, setTirando] = useState(false)
   const [, setAhora] = useState(Date.now())
   const lista = useRef<FlatList<MensajeLocal>>(null)
+  // El teclado (1.0.1): la pantalla le deja su lugar abajo, así lo que escribís queda a la vista (antes lo tapaba).
+  const teclado = useAltoTeclado()
+  const bordes = useSafeAreaInsets()
+  useEffect(() => { if (teclado) setTimeout(() => lista.current?.scrollToEnd({ animated: true }), 50) }, [teclado])
 
   const pintar = useCallback(async () => {
     const l = await leerChat()
@@ -58,7 +64,7 @@ export function Hoy({ c }: { c: Credenciales }) {
     : sincro.sincronizadoEn ? `Actualizado ${hora(sincro.sincronizadoEn)}${viejo ? ' · tirá para actualizar' : ''}` : null
 
   return (
-    <KeyboardAvoidingView style={[s.raiz, { backgroundColor: t.fondo }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={60}>
+    <View style={[s.raiz, { backgroundColor: t.fondo, paddingBottom: teclado ? Math.max(0, teclado - bordes.bottom) : 0 }]}>
       {aviso ? (
         <View style={[s.aviso, { borderColor: t.linea }]}>
           <Text style={[s.avisoTexto, { color: sincro.error ? t.mal : t.tenue }]} numberOfLines={2}>{aviso}</Text>
@@ -91,7 +97,7 @@ export function Hoy({ c }: { c: Credenciales }) {
           <Text style={[LETRA.cuerpo, { color: t.sobreAcento, fontWeight: '700' }]}>Enviar</Text>
         </Pressable>
       </View>
-    </KeyboardAvoidingView>
+    </View>
   )
 }
 

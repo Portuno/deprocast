@@ -148,3 +148,38 @@ test('Mobile 1.0 · bloque 4: no capta contactos; pasos con su permiso; la panta
   assert.match(e, /if \(!capta\(aj, 'audio'\)\) return setError/, 'la escucha respeta el interruptor')
   assert.match(e, /Pedometer\.watchStepCount/)
 })
+
+test('Mobile 1.0.1: «solo las paradas» sube los puntos de una parada, descarta el recorrido en movimiento y deja esperar lo que todavía puede ser parada', () => {
+  const MIN = 60_000, base = { lat: 39.4699, lon: -0.3763 }
+  const puntos = [
+    ...Array.from({ length: 7 }, (_, i) => ({ en: i * MIN, ...base })), // 6 min quieto: parada
+    ...Array.from({ length: 4 }, (_, i) => ({ en: (7 + i) * MIN, lat: base.lat + (i + 1) * 0.003, lon: base.lon })), // caminando
+    ...Array.from({ length: 3 }, (_, i) => ({ en: (11 + i) * MIN, lat: base.lat + 0.02, lon: base.lon })), // recién llega: puede ser parada
+  ]
+  const r = captura.separarParadas(puntos, 13 * MIN)
+  assert.equal(r.subir.length, 7)
+  assert.equal(r.descartar.length, 4, 'el recorrido en movimiento no se sube')
+  assert.equal(r.esperar.length, 3)
+})
+
+test('Mobile 1.0.1: el teclado ya no tapa lo que escribís; la ubicación va aparte de la escucha (pestaña Mapa, en segundo plano); la escucha dice qué hace sin saltar', async () => {
+  const fs = await import('node:fs')
+  const hoy = fs.readFileSync('apps/movil/src/pantallas/Hoy.tsx', 'utf8')
+  assert.match(hoy, /useAltoTeclado\(\)[\s\S]*paddingBottom: teclado \? Math\.max\(0, teclado - bordes\.bottom\)/)
+  assert.doesNotMatch(hoy, /KeyboardAvoidingView/)
+  const e = fs.readFileSync('apps/movil/src/escucha.ts', 'utf8')
+  assert.doesNotMatch(e, /expo-location|watchPositionAsync/, 'la escucha ya no maneja el GPS')
+  assert.match(e, /ultimoPunto\(\)/, 'toma el último punto del recorrido')
+  assert.match(fs.readFileSync('apps/movil/index.ts', 'utf8'), /import '\.\/src\/recorrido'/, 'la tarea de fondo se define al arrancar')
+  const r = fs.readFileSync('apps/movil/src/recorrido.ts', 'utf8')
+  assert.match(r, /TaskManager\.defineTask\(TAREA/)
+  assert.match(r, /foregroundService: \{ notificationTitle: 'Deprocast anota tu recorrido'/)
+  assert.match(fs.readFileSync('apps/movil/App.tsx', 'utf8'), /\['hoy', 'escucha', 'mapa'\]/)
+  const app = JSON.parse(fs.readFileSync('apps/movil/app.json', 'utf8')).expo
+  const loc = app.plugins.find((p: any) => Array.isArray(p) && p[0] === 'expo-location')[1]
+  assert.equal(loc.isAndroidBackgroundLocationEnabled, true)
+  const pantalla = fs.readFileSync('apps/movil/src/pantallas/Escucha.tsx', 'utf8')
+  assert.match(pantalla, /Grabando \$\{/, 'dice que está grabando y cuánto')
+  assert.match(pantalla, /detalles \? '▾ Detalles' : '▸ Detalles'/, 'lo técnico, plegado')
+  assert.match(pantalla, /numberOfLines=\{1\}>\s*\{l \?/, 'los datos técnicos en una línea fija')
+})

@@ -5,6 +5,8 @@
  *   hablante (Hablante 1, 2… o su nombre si ya lo vinculaste). Tocando un hablante le ponés nombre: «soy yo» o una
  *   persona de tus entidades. Desde ahí lo reconoce.
  * Abajo, «Lo que se dijo»: la lista con la hora, quién y qué.
+ * 1.0.1: la tarjeta dice en palabras qué está haciendo (apagada, atenta, grabando: cuánto y a dónde va), con alto fijo; los
+ * datos técnicos (fuente, distancia, señal/ruido) van plegados en «Detalles», con ancho fijo, para que nada salte.
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
@@ -13,19 +15,18 @@ import { buscarPersonas, olvidarHablante, traerTurnos, vincularHablante, type Cr
 import { useEscucha } from '../escucha'
 import { AREA_EXTRA, ESP, LETRA, TOQUE, useTema } from '../tema'
 
-const NOMBRE: Record<Estado, string> = { dictado: 'Dictado', escucha: 'Escucha pasiva', silencio_intencional: 'Silencio intencional', ruido: 'Solo ruido' }
-const QUE_HACE: Record<Estado, string> = {
-  dictado: 'Lo acercaste y le hablás: va al chat de Hoy.',
-  escucha: 'Pensás en voz alta con el teléfono lejos: queda como nota de voz.',
-  silencio_intencional: 'Caminás callado: no se manda nada.',
-  ruido: 'Ruido de fondo o voces de otros: no se manda ni se guarda.',
-}
+const NOMBRE: Record<Estado, string> = { dictado: 'dictado', escucha: 'pensar en voz alta', silencio_intencional: 'silencio', ruido: 'ruido' }
+const FUENTE: Record<string, string> = { voz_directa: 'tu voz', voz: 'otra voz', ruido: 'ruido', silencio: 'silencio' }
 const quien = (h: Hablante | null) => (h ? h.nombre ?? h.etiqueta : 'Sin identificar')
 const hora = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
 
 export function Escucha({ c }: { c: Credenciales }) {
   const t = useTema()
-  const { activa, lectura: l, enCola, error, empezar, parar, conversacion, setConversacion, ultimo } = useEscucha(c)
+  const { activa, lectura: l, enCola, enviadosHoy, grabando, error, empezar, parar, conversacion, setConversacion, ultimo } = useEscucha(c)
+  const [detalles, setDetalles] = useState(false)
+  const [, setTic] = useState(0)
+  // Mientras graba, el contador de segundos avanza (una vez por segundo, no más).
+  useEffect(() => { if (!grabando) return; const x = setInterval(() => setTic((n) => n + 1), 1000); return () => clearInterval(x) }, [grabando])
   const [turnos, setTurnos] = useState<Turno[]>([])
   const [elegido, setElegido] = useState<Hablante | null>(null)
 
@@ -35,11 +36,30 @@ export function Escucha({ c }: { c: Credenciales }) {
 
   return (
     <ScrollView style={{ backgroundColor: t.fondo }} contentContainerStyle={s.raiz}>
-      <Text style={[s.titulo, { color: t.texto }]}>Conciencia acústica</Text>
-      <View style={[s.tarjeta, { backgroundColor: t.panel, borderColor: activa ? t.acento : t.linea }]}>
-        <Text style={[s.estado, { color: activa ? t.acento : t.tenue }]}>{activa ? (conversacion ? 'Conversación' : l ? NOMBRE[l.estado] : 'Escuchando…') : 'Apagada'}</Text>
-        <Text style={[s.texto, { color: t.texto }]}>{!activa ? 'Tocá «Escuchar». Sigue aunque bloquees el teléfono (con un aviso fijo).' : conversacion ? 'Grabo a todos y separo por turnos y por voz. Avisales a los demás que estás grabando.' : l ? QUE_HACE[l.estado] : ''}</Text>
-        {activa && l ? <Text style={[s.dato, { color: t.tenue }]}>fuente: {l.fuente === 'voz_directa' ? 'tu voz' : l.fuente} · distancia: {l.distancia} · señal/ruido: {l.snr} dB · se manda: {conversacion ? 'todo lo que se dice' : destinoDe(l.estado) ?? 'nada'}</Text> : null}
+      <View style={[s.tarjeta, { backgroundColor: t.panel, borderColor: grabando ? t.mal : activa ? t.acento : t.linea }]}>
+        <Text style={[s.estado, { color: grabando ? t.mal : activa ? t.acento : t.tenue }]} numberOfLines={1}>
+          {!activa ? 'Apagada' : grabando ? `● Grabando ${Math.max(0, Math.round((Date.now() - grabando.desde) / 1000))} s` : conversacion ? 'Escuchando la charla' : 'Atenta a tu voz'}
+        </Text>
+        <Text style={[s.texto, { color: t.texto }]} numberOfLines={3}>
+          {!activa
+            ? 'No escucha. Tocá «Escuchar» y seguí con lo tuyo: sigue con la pantalla bloqueada (con un aviso fijo).'
+            : grabando
+              ? (grabando.conv ? 'Grabo la conversación y separo quién dice qué. Avisales a los demás.' : l?.estado === 'dictado' ? 'Te oigo cerca: lo que digas va al chat de Hoy como mensaje.' : 'Pensás en voz alta: queda como nota de voz.')
+              : conversacion ? 'Grabo cuando alguien habla; el silencio y el ruido no se guardan.' : 'No guarda nada hasta que hables cerca del teléfono. El ruido y las voces de otros se ignoran.'}
+        </Text>
+        <Text style={[s.dato, { color: t.tenue }]} numberOfLines={1}>
+          {`Hoy: ${enviadosHoy} tramo${enviadosHoy === 1 ? '' : 's'} enviado${enviadosHoy === 1 ? '' : 's'}${enCola ? ` · ${enCola} esperando en el teléfono` : ''}`}
+        </Text>
+        {activa ? (
+          <Pressable onPress={() => setDetalles((x) => !x)} style={s.detallesBoton} hitSlop={AREA_EXTRA} accessibilityRole="button">
+            <Text style={[LETRA.chica, { color: t.tenue }]}>{detalles ? '▾ Detalles' : '▸ Detalles'}</Text>
+          </Pressable>
+        ) : null}
+        {activa && detalles ? (
+          <Text style={[s.dato, s.fijo, { color: t.tenue }]} numberOfLines={1}>
+            {l ? `${(FUENTE[l.fuente] ?? l.fuente).padEnd(9)} · ${String(l.distancia).padEnd(5)} · señal/ruido ${String(Math.round(l.snr)).padStart(3)} dB · ${NOMBRE[l.estado]}${conversacion ? '' : ` → ${destinoDe(l.estado) ?? 'nada'}`}` : '…'}
+          </Text>
+        ) : null}
       </View>
       <View style={[s.fila, { borderColor: t.linea }]}>
         <View style={{ flex: 1 }}>
@@ -52,7 +72,6 @@ export function Escucha({ c }: { c: Credenciales }) {
       <Pressable onPress={activa ? parar : empezar} style={[s.boton, { backgroundColor: activa ? t.panel : t.acento, borderColor: t.linea }]} accessibilityRole="button">
         <Text style={[LETRA.cuerpo, { color: activa ? t.texto : t.sobreAcento, fontWeight: '700' }]}>{activa ? '■ Dejar de escuchar' : '● Escuchar'}</Text>
       </Pressable>
-      {enCola ? <Text style={[s.dato, { color: t.tenue }]}>{enCola} tramo(s) guardados en el teléfono: salen solos cuando haya red.</Text> : null}
 
       <Text style={[s.sub, { color: t.tenue }]}>Lo que se dijo (últimas 24 h)</Text>
       {turnos.length ? [...turnos].reverse().map((x) => (
@@ -109,8 +128,10 @@ const s = StyleSheet.create({
   titulo: { ...LETRA.titulo, fontWeight: '700' },
   texto: { ...LETRA.cuerpo },
   sub: { ...LETRA.chica, marginTop: ESP(2) },
-  tarjeta: { borderWidth: 1, borderRadius: 14, padding: ESP(4), gap: ESP(2) },
+  tarjeta: { borderWidth: 1, borderRadius: 14, padding: ESP(4), gap: ESP(2), minHeight: 188 },
   estado: { ...LETRA.grande, fontWeight: '700' },
+  detallesBoton: { alignSelf: 'flex-start', paddingVertical: ESP(1) },
+  fijo: { fontVariant: ['tabular-nums'] },
   dato: { ...LETRA.chica },
   fila: { flexDirection: 'row', alignItems: 'center', gap: ESP(3), borderWidth: 1, borderRadius: 12, padding: ESP(3), minHeight: TOQUE },
   boton: { minHeight: TOQUE + ESP(3), justifyContent: 'center', borderRadius: 12, paddingVertical: ESP(4), alignItems: 'center', borderWidth: 1 },
