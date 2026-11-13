@@ -179,13 +179,65 @@ export async function archivarConversaciones(db: Db, dia = fechaLocal()): Promis
 
 // ─── lo que Mastropiero guarda ahí ──────────────────────────────────────
 
-/** Un documento de Google en Mastropiero/Documentos (o una subcarpeta), con ese título y ese texto. */
+type EnCarpeta = { id: string; name: string; mimeType: string; modifiedTime?: string; webViewLink?: string }
+/** Lo que hay en una carpeta (sin la papelera), los más nuevos primero. */
+async function enCarpeta(db: Db, carpetaId: string): Promise<EnCarpeta[]> {
+  const q = new URLSearchParams({ q: `'${carpetaId}' in parents and trashed = false`, fields: 'files(id,name,mimeType,modifiedTime,webViewLink)', pageSize: '200', orderBy: 'modifiedTime desc' })
+  return (await llamarGoogle<{ files?: EnCarpeta[] }>(db, `${API}?${q}`)).files ?? []
+}
+
+/**
+ * Un documento de Google en Mastropiero/Documentos (o una subcarpeta), con ese título y ese texto. Idempotente (Fragua
+ * #240): si ya hay uno con ese nombre en la carpeta, se reescribe ese en vez de crear otro (un reintento no deja
+ * huérfanos ni restos de prueba). Crear es un solo pedido con el texto adentro: o queda entero o no queda.
+ */
 export async function guardarDocumento(db: Db, titulo: string, contenido: string, subcarpeta?: string | null) {
   if (!puedeEscribir(db)) throw new Error('Para escribir en tu Drive hay que volver a conectar Google (Perfil → Apps conectadas).')
   if (!titulo.trim() || !contenido.trim()) throw new Error('Falta el título o el contenido.')
   const ruta = ['Documentos', ...(subcarpeta?.trim() ? [subcarpeta.trim().slice(0, 80)] : [])]
-  const r = await subir(db, { datos: Buffer.from(contenido, 'utf8'), nombre: titulo.trim().slice(0, 150), mime: 'text/plain', ruta, comoDoc: true })
-  return { id: r.id, link: r.link, carpeta: [RAIZ, ...ruta].join('/') }
+  const nombre = titulo.trim().slice(0, 150)
+  const mismos = (await enCarpeta(db, await carpeta(db, ruta)).catch(() => [] as EnCarpeta[])).filter((f) => f.name === nombre && f.mimeType === DOC)
+  if (mismos[0]) {
+    await reemplazar(db, mismos[0].id, Buffer.from(contenido, 'utf8'), 'text/plain')
+    return { id: mismos[0].id, link: mismos[0].webViewLink ?? null, carpeta: [RAIZ, ...ruta].join('/'), actualizado: true, ...(mismos.length > 1 ? { aviso: `Hay ${mismos.length} documentos con ese nombre: actualicé el más nuevo. Los otros (${mismos.slice(1).map((f) => f.id).join(', ')}) se pueden mandar a la papelera con borrar_de_drive.` } : {}) }
+  }
+  const r = await subir(db, { datos: Buffer.from(contenido, 'utf8'), nombre, mime: 'text/plain', ruta, comoDoc: true })
+  return { id: r.id, link: r.link, carpeta: [RAIZ, ...ruta].join('/'), actualizado: false }
+}
+
+/**
+ * A la papelera (se recupera desde Drive) o, con definitivo, borrado para siempre. Solo lo que creó Deprocast (el permiso
+ * drive.file no alcanza para lo demás). Lo pide el chat con su confirmación explícita.
+ */
+export async function borrarDeDrive(db: Db, entrada: string, definitivo = false) {
+  if (!puedeEscribir(db)) throw new Error('Para tocar tu Drive hay que volver a conectar Google (Perfil → Apps conectadas).')
+  const id = idDeArchivo(entrada)
+  const meta = await llamarGoogle<{ name: string }>(db, `${API}/${encodeURIComponent(id)}?fields=name`)
+  if (definitivo) await llamarGoogle(db, `${API}/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  else await llamarGoogle(db, `${API}/${encodeURIComponent(id)}?fields=id`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ trashed: true }) })
+  return { id, nombre: meta.name, como: definitivo ? 'borrado para siempre' : 'a la papelera (se recupera desde Drive)' }
+}
+
+/**
+ * El barrido de Mastropiero/Documentos (y sus subcarpetas): cada documento con su fecha y el largo de su texto, marcando
+ * los repetidos (mismo nombre en la misma carpeta) y los vacíos o casi vacíos, para limpiar de una pasada.
+ */
+export async function barrerDocumentos(db: Db, max = 60) {
+  const raizDocs = await carpeta(db, ['Documentos'])
+  const salida: { id: string; nombre: string; carpeta: string; modificado: string | null; largo: number | null; link: string | null; repetido: boolean; vacio: boolean }[] = []
+  const recorrer = async (id: string, nombreCarpeta: string, profundidad: number) => {
+    const fs_ = await enCarpeta(db, id)
+    const porNombre = new Map<string, number>()
+    for (const f of fs_) if (f.mimeType !== CARPETA) porNombre.set(f.name, (porNombre.get(f.name) ?? 0) + 1)
+    for (const f of fs_) {
+      if (salida.length >= max) return
+      if (f.mimeType === CARPETA) { if (profundidad < 2) await recorrer(f.id, `${nombreCarpeta}/${f.name}`, profundidad + 1); continue }
+      const largo = legible(f.mimeType) ? await textoDeArchivo(db, f.id, f.mimeType).then((t) => t.texto.trim().length).catch(() => null) : null
+      salida.push({ id: f.id, nombre: f.name, carpeta: nombreCarpeta, modificado: f.modifiedTime ?? null, largo, link: f.webViewLink ?? null, repetido: (porNombre.get(f.name) ?? 0) > 1, vacio: largo != null && largo < 40 })
+    }
+  }
+  await recorrer(raizDocs, `${RAIZ}/Documentos`, 0)
+  return { documentos: salida, repetidos: salida.filter((d) => d.repetido).length, vacios: salida.filter((d) => d.vacio).length }
 }
 
 // ─── leer de su Drive ───────────────────────────────────────────────────

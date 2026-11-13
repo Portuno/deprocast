@@ -5,7 +5,7 @@ import path from 'node:path'
 import { after, before, describe, it } from 'node:test'
 import { abrir, fijarAjuste } from '../src/db.ts'
 import { _probarGoogle } from '../src/google/oauth.ts'
-import { alDrive, archivarConversaciones, estadoDrive, guardarDocumento, idDeArchivo, sincronizarCorpus, sumarCarpetaCorpus, trabajarCola } from '../src/google/drive.ts'
+import { alDrive, archivarConversaciones, barrerDocumentos, borrarDeDrive, estadoDrive, guardarDocumento, idDeArchivo, sincronizarCorpus, sumarCarpetaCorpus, trabajarCola } from '../src/google/drive.ts'
 
 const json = (x: unknown, status = 200) => new Response(JSON.stringify(x), { status, headers: { 'content-type': 'application/json' } })
 
@@ -15,6 +15,8 @@ function driveFalso(archivos: Record<string, { name: string; mimeType: string; m
   const cambios: any[] = (archivos as any).__cambios ?? []
   const subidas: { meta: any; contenido: string }[] = []
   const reemplazos: { id: string; contenido: string }[] = []
+  const papelera: string[] = []
+  const borrados: string[] = []
   let n = 0
   _probarGoogle((async (u: string, init: RequestInit = {}) => {
     const url = String(u)
@@ -35,6 +37,8 @@ function driveFalso(archivos: Record<string, { name: string; mimeType: string; m
       subidas.push({ meta, contenido: partes.slice(2).join('\r\n\r\n').replace(/\r\n--deprocast[0-9a-f]+--$/, '') })
       return json({ id: `archivo-${subidas.length}`, webViewLink: `https://drive/${subidas.length}` })
     }
+    if (metodo === 'DELETE') { borrados.push(url.split('/files/')[1].split('?')[0]); return new Response(null, { status: 204 }) }
+    if (metodo === 'PATCH' && /\?fields=id$/.test(url) && String(init.body ?? '').includes('trashed')) { papelera.push(url.split('/files/')[1].split('?')[0]); return json({ id: 'x' }) }
     if (metodo === 'PATCH') { reemplazos.push({ id: url.split('/files/')[1].split('?')[0], contenido: Buffer.from(init.body as Uint8Array).toString('utf8') }); return json({ id: 'x' }) }
     const lista = /\?q=([^&]+)/.exec(url)
     if (lista) {
@@ -47,7 +51,7 @@ function driveFalso(archivos: Record<string, { name: string; mimeType: string; m
     if (meta) { const f = archivos[meta[1]]; return json({ name: f.name, mimeType: f.mimeType, modifiedTime: f.modifiedTime, webViewLink: `https://docs/${meta[1]}` }) }
     return json({ error: { message: `no simulado: ${metodo} ${url}` } }, 500)
   }) as typeof fetch)
-  return { carpetas, subidas, reemplazos }
+  return { carpetas, subidas, reemplazos, papelera, borrados }
 }
 
 function conectado() {
@@ -158,5 +162,33 @@ describe('Drive (plan v35, fase 2)', () => {
     fijarAjuste(sinPermiso, 'google_refresh', 'r1')
     fijarAjuste(sinPermiso, 'google_alcances', 'https://www.googleapis.com/auth/drive.readonly')
     await assert.rejects(guardarDocumento(sinPermiso, 'x', 'y'), /volver a conectar/)
+  })
+
+  it('#240: guardar un documento con un nombre que ya está lo reescribe (no crea otro); borrar va a la papelera; el barrido marca repetidos y vacíos', async () => {
+    const db = conectado()
+    fijarAjuste(db, 'drive_carpeta:Mastropiero/Documentos', 'docs')
+    const DOC = 'application/vnd.google-apps.document'
+    const g = driveFalso({
+      docBuenoAbCdEfGhIjKlMn: { name: 'Prototipo 72 arquetipos', mimeType: DOC, modifiedTime: '2026-11-12T10:00:00Z', padre: 'docs', texto: 'Las doce tandas, completas, con todo el material que hacía falta.' },
+      docRestoAbCdEfGhIjKlMn: { name: 'Prototipo 72 arquetipos', mimeType: DOC, modifiedTime: '2026-11-11T10:00:00Z', padre: 'docs', texto: 'Prueba' },
+      docOtroAbCdEfGhIjKlMnO: { name: 'Plan', mimeType: DOC, modifiedTime: '2026-11-10T10:00:00Z', padre: 'docs', texto: 'Un plan con suficiente texto para no contar como vacío.' },
+    })
+    const r = await guardarDocumento(db, 'Prototipo 72 arquetipos', 'Versión nueva')
+    assert.equal(r.actualizado, true)
+    assert.equal(g.subidas.length, 0, 'no crea otro')
+    assert.deepEqual(g.reemplazos.map((x) => x.id), ['docBuenoAbCdEfGhIjKlMn'], 'reescribe el más nuevo')
+    assert.match((r as any).aviso, /2 documentos con ese nombre/)
+    const nuevo = await guardarDocumento(db, 'Otro título', 'Texto')
+    assert.equal(nuevo.actualizado, false)
+    assert.equal(g.subidas.length, 1)
+    const b = await barrerDocumentos(db)
+    assert.equal(b.repetidos, 2)
+    assert.equal(b.vacios, 1)
+    assert.ok(b.documentos.find((d) => d.id === 'docRestoAbCdEfGhIjKlMn')!.vacio)
+    const x = await borrarDeDrive(db, 'https://docs.google.com/document/d/docRestoAbCdEfGhIjKlMn/edit')
+    assert.deepEqual(g.papelera, ['docRestoAbCdEfGhIjKlMn'])
+    assert.match(x.como, /papelera/)
+    await borrarDeDrive(db, 'docRestoAbCdEfGhIjKlMn', true)
+    assert.deepEqual(g.borrados, ['docRestoAbCdEfGhIjKlMn'])
   })
 })

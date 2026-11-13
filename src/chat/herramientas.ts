@@ -359,10 +359,27 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'guardar_en_drive', familia: 'accion',
-    descripcion: 'Guarda un documento en SU carpeta «Mastropiero» de Google Drive (en Documentos, o en una subcarpeta), como Google Doc: un resumen, un plan, un borrador, una lista, lo que él pida o lo que convenga dejarle a mano. Devuelve el link.',
+    descripcion: 'Guarda un documento en SU carpeta «Mastropiero» de Google Drive (en Documentos, o en una subcarpeta), como Google Doc: un resumen, un plan, un borrador, una lista, lo que él pida o lo que convenga dejarle a mano. Si ya hay uno con ese título en esa carpeta, lo reescribe (no crea otro). Devuelve el link.',
     parametros: S({ titulo: str('El título del documento'), contenido: str('El texto (puede llevar listas y títulos simples)'), carpeta: str('Subcarpeta dentro de Documentos, opcional') }, ['titulo', 'contenido']),
     ejecutar: async (a, { db }) => (await import('../google/drive.ts')).guardarDocumento(db, a.titulo, a.contenido, a.carpeta || null),
-    resumen: (a) => `guardó «${a.titulo}» en tu Drive (Mastropiero)`,
+    resumen: (a, r: any) => `${r?.actualizado ? 'actualizó' : 'guardó'} «${a.titulo}» en tu Drive (Mastropiero)`,
+  },
+  {
+    nombre: 'borrar_de_drive', familia: 'accion',
+    descripcion: 'Manda a la papelera (o, con definitivo, borra para siempre) un archivo de Drive que creó Deprocast: un documento repetido, uno de prueba, uno vacío. Es destructivo: primero decile cuál (nombre y link) y pedile el ok; solo con un sí explícito llamás con confirmado=true. Por defecto, papelera (se recupera desde Drive).',
+    parametros: S({ archivo: str('Link o id del archivo'), definitivo: { type: 'boolean', description: 'true: borrar para siempre (sin papelera). Solo si él lo pidió así.' }, confirmado: { type: 'boolean', description: 'true solo después de su sí explícito' } }, ['archivo']),
+    ejecutar: async (a, { db }) => {
+      if (a.confirmado !== true) return { error: 'Falta su ok: decile qué archivo es (nombre y link) y preguntale si lo mandás a la papelera. Con su sí, llamá de nuevo con confirmado=true.' }
+      return (await import('../google/drive.ts')).borrarDeDrive(db, a.archivo, a.definitivo === true)
+    },
+    resumen: (_, r: any) => r?.nombre ? `mandó «${r.nombre}» ${r.como}` : 'pidió su ok para borrar de Drive',
+  },
+  {
+    nombre: 'barrer_documentos_drive', familia: 'lectura',
+    descripcion: 'Lista los documentos de Mastropiero/Documentos (y sus subcarpetas) con fecha y largo del texto, y marca los repetidos (mismo nombre en la misma carpeta) y los vacíos: para limpiar Drive de una pasada.',
+    parametros: S({}),
+    ejecutar: async (_, { db }) => (await import('../google/drive.ts')).barrerDocumentos(db),
+    resumen: (_, r: any) => `barrió los documentos de Drive: ${r?.documentos?.length ?? 0}, ${r?.repetidos ?? 0} repetidos, ${r?.vacios ?? 0} vacíos`,
   },
   {
     nombre: 'buscar_en_drive', familia: 'lectura',
@@ -2266,7 +2283,7 @@ export const GRUPOS: Record<string, string[]> = {
   vida: ['ficha_empresa', 'responder_pregunta', 'votar_criba', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas'],
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado', 'borrar_programado'],
   correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'marcar_correo_atendido', 'buscar_contacto'],
-  drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],
+  drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'borrar_de_drive', 'barrer_documentos_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],
   web: ['ver_censo_canal', 'aprobar_censo_canal', 'seguir_en_feed', 'ver_feed', 'buscar_web', 'buscar_en', 'explorar', 'usar_alexandria', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus'],
   mapamundi: ['ver_mapamundi', 'disputar'],
