@@ -1,7 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-const sincro = await import('../apps/movil/src/logica/sincro.ts')
+// Con la ruta en una variable: Node los carga, y tsc no los mezcla con el servidor (la app no es ESM).
+const deLaApp = (m: string): Promise<any> => import(`../apps/movil/src/logica/${m}.ts`)
+const sincro = await deLaApp('sincro')
 
 test('Mobile 1.0 · bloque 1: qué se reintenta y qué se descarta (un ítem roto no traba la cola)', () => {
   assert.equal(sincro.claseDe(null), 'reintentar', 'sin red')
@@ -49,7 +51,7 @@ test('Mobile 1.0 · bloque 1: la sincronización es de la app (no solo de Hoy), 
   assert.match(fs.readFileSync('apps/movil/src/api.ts', 'utf8'), /AbortController/, 'ningún pedido se queda colgado')
 })
 
-const tramos = await import('../apps/movil/src/logica/tramos.ts')
+const tramos = await deLaApp('tramos')
 
 test('Mobile 1.0 · bloque 2: al abrir, lo que quedó grabándose (cierre forzado) y lo suelto vuelve a la cola; lo casi vacío se borra; lo que ya está en la cola no se toca', () => {
   const B = tramos.BYTES_POR_SEGUNDO
@@ -66,7 +68,7 @@ test('Mobile 1.0 · bloque 2: al abrir, lo que quedó grabándose (cierre forzad
     { uri: 'file:///doc/tramos/encola.wav', bytes: 44 + 5 * B, modificado: 9_000_000 },
   ]
   const d = tramos.recuperar(enCurso, archivos, new Set(['file:///doc/tramos/encola.wav']), 10_000_000)
-  const por = Object.fromEntries(d.map((x) => [x.uri.split('/').pop(), x]))
+  const por = Object.fromEntries(d.map((x: any) => [x.uri.split('/').pop(), x]))
   assert.deepEqual(por['a.wav'].meta, { id: 'a', modo: 'dictado', inicio: 1_000_000, fin: 1_012_000, caminando: true, recuperado: true })
   assert.equal(por['b.wav'].accion, 'borrar')
   assert.equal(por['c.wav'].meta!.modo, 'conversacion')
