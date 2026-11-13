@@ -138,7 +138,7 @@ test('La meta hacia atrás: clases por semana hasta la fecha, al día o atrasado
   assert.equal(r.estado, 'atrasado')
   assert.match(r.texto, /arrancaste con 3: vas atrasado/)
   assert.throws(() => co.fijarMeta(db, ac.leerDominio(db, d.id)!, { fecha: '2020-01-01' }, T), /ya pasó/)
-  assert.match(ac.academiaParaPrompt(db), /meta: Nivel 2 para el/)
+  assert.match(ac.academiaParaPrompt(db, T), /meta: Nivel 2 para el/)
 
   db.prepare(`INSERT INTO aprendizajes (tema, estado, sugerencia, creado_en) VALUES ('Drones', 'sugerido', ?, ?)`).run(JSON.stringify({ porQue: 'evento', fecha }), T)
   const sug = ac.sugeridosDe(db)[0]

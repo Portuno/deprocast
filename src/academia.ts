@@ -127,8 +127,8 @@ export function listarDominios(db: Db, ahora = Date.now()) {
 }
 
 /** Para Mastropiero: sus dominios con el nivel en que está cada uno. */
-export function academiaParaPrompt(db: Db): string {
-  const xs = listarDominios(db).filter((d) => d.estado === 'activo')
+export function academiaParaPrompt(db: Db, ahora = Date.now()): string {
+  const xs = listarDominios(db, ahora).filter((d) => d.estado === 'activo')
   if (!xs.length) return ''
   return `Su Academia (lo que está aprendiendo, con un tutor de 6 niveles: ${NIVELES_TUTOR.map((n) => n.nombre).join(' → ')}): ${xs.map((d) => `${d.tema} en nivel ${d.tutorNivel} (${d.nivelNombre})${d.examen ? ', con el examen habilitado' : ''}${d.ritmo && d.ritmo.estado !== 'lograda' ? ` — meta: ${d.ritmo.texto}` : ''}`).join('; ')}.`
 }
