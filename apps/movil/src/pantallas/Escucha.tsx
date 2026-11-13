@@ -11,7 +11,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View
 import { destinoDe, type Estado } from '../conciencia/acustica'
 import { buscarPersonas, olvidarHablante, traerTurnos, vincularHablante, type Credenciales, type Hablante, type Turno } from '../api'
 import { useEscucha } from '../escucha'
-import { useTema } from '../tema'
+import { AREA_EXTRA, ESP, LETRA, TOQUE, useTema } from '../tema'
 
 const NOMBRE: Record<Estado, string> = { dictado: 'Dictado', escucha: 'Escucha pasiva', silencio_intencional: 'Silencio intencional', ruido: 'Solo ruido' }
 const QUE_HACE: Record<Estado, string> = {
@@ -43,14 +43,14 @@ export function Escucha({ c }: { c: Credenciales }) {
       </View>
       <View style={[s.fila, { borderColor: t.linea }]}>
         <View style={{ flex: 1 }}>
-          <Text style={{ color: t.texto, fontWeight: '600' }}>Modo conversación</Text>
+          <Text style={[LETRA.cuerpo, { color: t.texto, fontWeight: '600' }]}>Modo conversación</Text>
           <Text style={[s.dato, { color: t.tenue }]}>Graba también a los demás y reconoce quién habla. El audio se borra; las huellas de voz quedan solo en tu Deprocast.</Text>
         </View>
         <Switch value={conversacion} onValueChange={setConversacion} trackColor={{ true: t.acento }} />
       </View>
       {error ? <Text style={[s.texto, { color: t.mal }]}>{error}</Text> : null}
       <Pressable onPress={activa ? parar : empezar} style={[s.boton, { backgroundColor: activa ? t.panel : t.acento, borderColor: t.linea }]} accessibilityRole="button">
-        <Text style={{ color: activa ? t.texto : t.sobreAcento, fontWeight: '700', fontSize: 16 }}>{activa ? '■ Dejar de escuchar' : '● Escuchar'}</Text>
+        <Text style={[LETRA.cuerpo, { color: activa ? t.texto : t.sobreAcento, fontWeight: '700' }]}>{activa ? '■ Dejar de escuchar' : '● Escuchar'}</Text>
       </Pressable>
       {enCola ? <Text style={[s.dato, { color: t.tenue }]}>{enCola} tramo(s) guardados en el teléfono: salen solos cuando haya red.</Text> : null}
 
@@ -59,12 +59,12 @@ export function Escucha({ c }: { c: Credenciales }) {
         <View key={x.id} style={[s.turno, { borderColor: t.linea }]}>
           <View style={s.cabTurno}>
             <Text style={[s.dato, { color: t.tenue }]}>{hora(x.inicio)}</Text>
-            <Pressable onPress={() => x.hablante && setElegido(x.hablante)} style={[s.chip, { borderColor: x.hablante?.nombre ? t.acento : t.linea }]} accessibilityRole="button" accessibilityLabel={`Ponerle nombre a ${quien(x.hablante)}`}>
-              <Text style={{ color: x.hablante?.nombre ? t.acento : t.texto, fontSize: 12, fontWeight: '600' }}>{quien(x.hablante)}</Text>
+            <Pressable onPress={() => x.hablante && setElegido(x.hablante)} style={[s.chip, { borderColor: x.hablante?.nombre ? t.acento : t.linea }]} hitSlop={AREA_EXTRA} accessibilityRole="button" accessibilityLabel={`Ponerle nombre a ${quien(x.hablante)}`}>
+              <Text style={[LETRA.chica, { color: x.hablante?.nombre ? t.acento : t.texto, fontWeight: '600' }]}>{quien(x.hablante)}</Text>
             </Pressable>
             <Text style={[s.dato, { color: t.tenue }]}>{x.modo === 'dictado' ? '→ chat' : x.modo === 'pasivo' ? '→ nota' : ''}</Text>
           </View>
-          <Text style={{ color: t.texto, fontSize: 15, lineHeight: 21 }}>{x.texto}</Text>
+          <Text style={[LETRA.cuerpo, { color: t.texto }]}>{x.texto}</Text>
         </View>
       )) : <Text style={[s.dato, { color: t.tenue }]}>Todavía nada.</Text>}
 
@@ -90,36 +90,36 @@ function ElegirPersona({ c, h, cerrar }: { c: Credenciales; h: Hablante | null; 
     <Modal visible={!!h} transparent animationType="slide" onRequestClose={() => cerrar(false)}>
       <Pressable style={s.velo} onPress={() => cerrar(false)} />
       <View style={[s.hoja, { backgroundColor: t.panel, borderColor: t.linea }]}>
-        <Text style={[s.titulo, { color: t.texto, fontSize: 18 }]}>¿Quién es {h ? quien(h) : ''}?</Text>
+        <Text style={[s.titulo, { color: t.texto }]}>¿Quién es {h ? quien(h) : ''}?</Text>
         <Text style={[s.dato, { color: t.tenue }]}>{h ? `${h.tramos} tramo(s) de esta voz.` : ''} Al ponerle nombre, la reconozco de acá en más.</Text>
-        <Pressable onPress={() => h && hacer(() => vincularHablante(c, h.id, { yo: true }))} style={[s.opcion, { borderColor: t.acento }]}><Text style={{ color: t.acento, fontWeight: '700' }}>Soy yo</Text></Pressable>
+        <Pressable onPress={() => h && hacer(() => vincularHablante(c, h.id, { yo: true }))} style={[s.opcion, { borderColor: t.acento }]}><Text style={[LETRA.cuerpo, { color: t.acento, fontWeight: '700' }]}>Soy yo</Text></Pressable>
         <TextInput value={q} onChangeText={setQ} placeholder="Buscar en tus personas…" placeholderTextColor={t.tenue} style={[s.campo, { color: t.texto, borderColor: t.linea }]} autoCorrect={false} />
         {personas.map((p) => (
-          <Pressable key={p.id} onPress={() => h && hacer(() => vincularHablante(c, h.id, { entidadId: p.id }))} style={[s.opcion, { borderColor: t.linea }]}><Text style={{ color: t.texto }}>{p.nombre}</Text></Pressable>
+          <Pressable key={p.id} onPress={() => h && hacer(() => vincularHablante(c, h.id, { entidadId: p.id }))} style={[s.opcion, { borderColor: t.linea }]}><Text style={[LETRA.cuerpo, { color: t.texto }]}>{p.nombre}</Text></Pressable>
         ))}
         {error ? <Text style={[s.dato, { color: t.mal }]}>{error}</Text> : null}
-        <Pressable onPress={() => h && hacer(() => olvidarHablante(c, h.id))} style={s.olvidar}><Text style={{ color: t.mal }}>Olvidar esta voz (borra su huella)</Text></Pressable>
+        <Pressable onPress={() => h && hacer(() => olvidarHablante(c, h.id))} style={s.olvidar}><Text style={[LETRA.cuerpo, { color: t.mal }]}>Olvidar esta voz (borra su huella)</Text></Pressable>
       </View>
     </Modal>
   )
 }
 
 const s = StyleSheet.create({
-  raiz: { padding: 20, gap: 14 },
-  titulo: { fontSize: 22, fontWeight: '700' },
-  texto: { fontSize: 15, lineHeight: 21 },
-  sub: { fontSize: 13, marginTop: 8 },
-  tarjeta: { borderWidth: 1, borderRadius: 14, padding: 16, gap: 8 },
-  estado: { fontSize: 26, fontWeight: '700' },
-  dato: { fontSize: 12, lineHeight: 18 },
-  fila: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderRadius: 12, padding: 12 },
-  boton: { borderRadius: 12, paddingVertical: 16, alignItems: 'center', borderWidth: 1 },
-  turno: { borderBottomWidth: 1, paddingVertical: 8, gap: 4 },
-  cabTurno: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  chip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 },
+  raiz: { padding: ESP(5), gap: ESP(4) },
+  titulo: { ...LETRA.titulo, fontWeight: '700' },
+  texto: { ...LETRA.cuerpo },
+  sub: { ...LETRA.chica, marginTop: ESP(2) },
+  tarjeta: { borderWidth: 1, borderRadius: 14, padding: ESP(4), gap: ESP(2) },
+  estado: { ...LETRA.grande, fontWeight: '700' },
+  dato: { ...LETRA.chica },
+  fila: { flexDirection: 'row', alignItems: 'center', gap: ESP(3), borderWidth: 1, borderRadius: 12, padding: ESP(3), minHeight: TOQUE },
+  boton: { minHeight: TOQUE + ESP(3), justifyContent: 'center', borderRadius: 12, paddingVertical: ESP(4), alignItems: 'center', borderWidth: 1 },
+  turno: { borderBottomWidth: 1, paddingVertical: ESP(2), gap: ESP(1) },
+  cabTurno: { flexDirection: 'row', alignItems: 'center', gap: ESP(2), flexWrap: 'wrap' },
+  chip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: ESP(3), paddingVertical: ESP(1) },
   velo: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
-  hoja: { borderTopLeftRadius: 18, borderTopRightRadius: 18, borderWidth: 1, padding: 20, gap: 10, paddingBottom: 36 },
-  opcion: { borderWidth: 1, borderRadius: 10, padding: 12 },
-  campo: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16 },
-  olvidar: { padding: 12, alignItems: 'center' },
+  hoja: { borderTopLeftRadius: 18, borderTopRightRadius: 18, borderWidth: 1, padding: ESP(5), gap: ESP(3), paddingBottom: ESP(9) },
+  opcion: { minHeight: TOQUE, justifyContent: 'center', borderWidth: 1, borderRadius: 10, paddingHorizontal: ESP(3) },
+  campo: { ...LETRA.cuerpo, minHeight: TOQUE, borderWidth: 1, borderRadius: 10, paddingHorizontal: ESP(3), paddingVertical: ESP(2) },
+  olvidar: { minHeight: TOQUE, justifyContent: 'center', alignItems: 'center' },
 })

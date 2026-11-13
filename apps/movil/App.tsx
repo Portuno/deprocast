@@ -15,7 +15,7 @@ import { Vincular } from './src/pantallas/Vincular'
 import { Hoy } from './src/pantallas/Hoy'
 import { Escucha } from './src/pantallas/Escucha'
 import { Rescate } from './src/pantallas/Rescate'
-import { useTema } from './src/tema'
+import { ESP, LETRA, TOQUE, useTema } from './src/tema'
 
 type Pestana = 'hoy' | 'escucha'
 
@@ -53,10 +53,10 @@ export default function App() {
           <View style={[s.barra, { borderColor: t.linea }]}>
             {(['hoy', 'escucha'] as const).map((p) => (
               <Pressable key={p} onPress={() => setPestana(p)} style={[s.pestana, pestana === p && { borderColor: t.acento }]} accessibilityRole="tab" accessibilityState={{ selected: pestana === p }}>
-                <Text style={{ color: pestana === p ? t.texto : t.tenue, fontWeight: '600' }}>{p === 'hoy' ? 'Hoy' : 'Escucha'}</Text>
+                <Text style={[LETRA.cuerpo, { color: pestana === p ? t.texto : t.tenue, fontWeight: '600' }]}>{p === 'hoy' ? 'Hoy' : 'Escucha'}</Text>
               </Pressable>
             ))}
-            <Pressable onPress={desvincular} style={s.menu} accessibilityLabel="Desvincular"><Text style={{ color: t.tenue }}>{c.nombre} ⋯</Text></Pressable>
+            <Pressable onPress={desvincular} style={s.menu} accessibilityLabel="Desvincular"><Text style={[LETRA.chica, { color: t.tenue }]} numberOfLines={1}>{c.nombre} ⋯</Text></Pressable>
           </View>
           {pestana === 'hoy' ? <Hoy c={c} /> : <Escucha c={c} />}
         </>
@@ -68,7 +68,7 @@ export default function App() {
 
 const s = StyleSheet.create({
   raiz: { flex: 1 },
-  barra: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, paddingHorizontal: 8 },
-  pestana: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 2, borderColor: 'transparent' },
-  menu: { marginLeft: 'auto', padding: 12 },
+  barra: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, paddingHorizontal: ESP(2) },
+  pestana: { minHeight: TOQUE, justifyContent: 'center', paddingHorizontal: ESP(4), borderBottomWidth: 2, borderColor: 'transparent' },
+  menu: { marginLeft: 'auto', minHeight: TOQUE, justifyContent: 'center', paddingHorizontal: ESP(3), flexShrink: 1 },
 })

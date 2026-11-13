@@ -10,7 +10,7 @@ import type { Credenciales } from '../api'
 import { encolar, estadoSincro, leerChat, type EstadoSincro, type MensajeLocal } from '../almacen'
 import { alCambiar, sincronizar } from '../sincronizar'
 import { VIEJO_MS } from '../logica/sincro'
-import { useTema } from '../tema'
+import { AREA_EXTRA, ESP, LETRA, TOQUE, useTema } from '../tema'
 
 const hora = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
 
@@ -62,7 +62,7 @@ export function Hoy({ c }: { c: Credenciales }) {
       {aviso ? (
         <View style={[s.aviso, { borderColor: t.linea }]}>
           <Text style={[s.avisoTexto, { color: sincro.error ? t.mal : t.tenue }]} numberOfLines={2}>{aviso}</Text>
-          {sincro.error ? <Pressable onPress={actualizar} style={s.reintentar} accessibilityRole="button" accessibilityLabel="Reintentar"><Text style={{ color: t.acento, fontWeight: '700' }}>Reintentar</Text></Pressable> : null}
+          {sincro.error ? <Pressable onPress={actualizar} style={s.reintentar} hitSlop={AREA_EXTRA} accessibilityRole="button" accessibilityLabel="Reintentar"><Text style={[LETRA.cuerpo, { color: t.acento, fontWeight: '700' }]}>Reintentar</Text></Pressable> : null}
         </View>
       ) : null}
       {paraValidar ? <Text style={[s.avisoTexto, s.validar, { color: t.acento, borderColor: t.linea }]}>📥 {paraValidar} esperan tu ok (se validan en la compu)</Text> : null}
@@ -80,15 +80,15 @@ export function Hoy({ c }: { c: Credenciales }) {
         }
         renderItem={({ item: m }) => (
           <View style={[s.burbuja, m.rol === 'operador' ? [s.mia, { backgroundColor: t.acento }] : [s.suya, { backgroundColor: t.panel, borderColor: t.linea }]]}>
-            <Text style={{ color: m.rol === 'operador' ? t.sobreAcento : t.texto, fontSize: 15, lineHeight: 21 }}>{m.texto}</Text>
+            <Text style={[LETRA.cuerpo, { color: m.rol === 'operador' ? t.sobreAcento : t.texto }]}>{m.texto}</Text>
             {m.pendiente ? <Text style={[s.pendiente, { color: t.sobreAcento }]}>en cola</Text> : null}
           </View>
         )}
       />
       <View style={[s.compositor, { borderColor: t.linea, backgroundColor: t.panel }]}>
-        <TextInput style={[s.entrada, { color: t.texto }]} value={texto} onChangeText={setTexto} placeholder="Escribile a Mastropiero…" placeholderTextColor={t.tenue} multiline />
+        <TextInput style={[s.entrada, { color: t.texto }]} value={texto} onChangeText={setTexto} placeholder="Escribile a Mastropiero…" placeholderTextColor={t.tenue} multiline keyboardAppearance={t.fondo === '#0f1012' ? 'dark' : 'light'} />
         <Pressable onPress={mandar} style={[s.enviar, { backgroundColor: t.acento }]} accessibilityRole="button" accessibilityLabel="Enviar">
-          <Text style={{ color: t.sobreAcento, fontWeight: '700' }}>Enviar</Text>
+          <Text style={[LETRA.cuerpo, { color: t.sobreAcento, fontWeight: '700' }]}>Enviar</Text>
         </Pressable>
       </View>
     </KeyboardAvoidingView>
@@ -97,18 +97,18 @@ export function Hoy({ c }: { c: Credenciales }) {
 
 const s = StyleSheet.create({
   raiz: { flex: 1 },
-  aviso: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, borderBottomWidth: 1 },
-  avisoTexto: { flex: 1, fontSize: 13, paddingVertical: 8 },
-  validar: { paddingHorizontal: 16, borderBottomWidth: 1 },
-  reintentar: { paddingHorizontal: 8, paddingVertical: 8 },
-  lista: { padding: 12, gap: 8 },
+  aviso: { flexDirection: 'row', alignItems: 'center', gap: ESP(2), paddingHorizontal: ESP(4), borderBottomWidth: 1 },
+  avisoTexto: { ...LETRA.chica, flex: 1, paddingVertical: ESP(2) },
+  validar: { paddingHorizontal: ESP(4), borderBottomWidth: 1 },
+  reintentar: { minHeight: TOQUE, justifyContent: 'center', paddingHorizontal: ESP(2) },
+  lista: { padding: ESP(3), gap: ESP(2) },
   listaVacia: { flexGrow: 1, justifyContent: 'center' },
-  vacio: { textAlign: 'center', fontSize: 15, padding: 24 },
-  burbuja: { maxWidth: '86%', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 9 },
+  vacio: { ...LETRA.cuerpo, textAlign: 'center', padding: ESP(6) },
+  burbuja: { maxWidth: '86%', borderRadius: 14, paddingHorizontal: ESP(3), paddingVertical: ESP(2) },
   mia: { alignSelf: 'flex-end' },
   suya: { alignSelf: 'flex-start', borderWidth: 1 },
-  pendiente: { fontSize: 11, opacity: 0.7, marginTop: 2 },
-  compositor: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, margin: 10, borderWidth: 1, borderRadius: 14, padding: 6 },
-  entrada: { flex: 1, fontSize: 16, maxHeight: 140, paddingHorizontal: 8, paddingVertical: 8 },
-  enviar: { borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10 },
+  pendiente: { ...LETRA.chica, opacity: 0.8, marginTop: ESP(1) },
+  compositor: { flexDirection: 'row', alignItems: 'flex-end', gap: ESP(2), margin: ESP(3), borderWidth: 1, borderRadius: 14, padding: ESP(2) },
+  entrada: { ...LETRA.cuerpo, flex: 1, maxHeight: 140, minHeight: TOQUE, paddingHorizontal: ESP(2), paddingVertical: ESP(2) },
+  enviar: { minHeight: TOQUE, justifyContent: 'center', borderRadius: 10, paddingHorizontal: ESP(4) },
 })

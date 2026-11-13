@@ -8,7 +8,7 @@ import { useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
 import { cerrarRescate, inventariar, subirItem, type Credenciales, type ItemRescate } from '../api'
 import { colasCompletas, sacarDeCola, sacarVoz } from '../almacen'
-import { useTema } from '../tema'
+import { ESP, LETRA, TOQUE, useTema } from '../tema'
 
 const DIAS_FOTOS = 30
 const MAX_FOTOS = 500
@@ -92,7 +92,7 @@ export function Rescate({ c, alTerminar }: { c: Credenciales; alTerminar: () => 
 
   const opcion = (titulo: string, detalle: string, valor: boolean, cambiar: (v: boolean) => void) => (
     <View style={[s.fila, { borderColor: t.linea }]}>
-      <View style={{ flex: 1 }}><Text style={{ color: t.texto, fontWeight: '600' }}>{titulo}</Text><Text style={[s.chico, { color: t.tenue }]}>{detalle}</Text></View>
+      <View style={{ flex: 1 }}><Text style={[LETRA.cuerpo, { color: t.texto, fontWeight: '600' }]}>{titulo}</Text><Text style={[s.chico, { color: t.tenue }]}>{detalle}</Text></View>
       <Switch value={valor} onValueChange={cambiar} disabled={corriendo} trackColor={{ true: t.acento }} />
     </View>
   )
@@ -101,7 +101,7 @@ export function Rescate({ c, alTerminar }: { c: Credenciales; alTerminar: () => 
       <Text style={[s.titulo, { color: t.texto }]}>Primero, el rescate</Text>
       <Text style={[s.texto, { color: t.tenue }]}>Antes de procesar nada, lo que trae este teléfono se guarda crudo en tu Deprocast (y una copia en tu Drive, si está conectado). Si algo falla o el teléfono se pierde, el material no se pierde.</Text>
       <View style={[s.tarjeta, { backgroundColor: t.panel, borderColor: t.linea }]}>
-        <Text style={{ color: t.texto, fontWeight: '600' }}>Siempre</Text>
+        <Text style={[LETRA.cuerpo, { color: t.texto, fontWeight: '600' }]}>Siempre</Text>
         <Text style={[s.chico, { color: t.tenue }]}>Lo que haya quedado sin enviar en este teléfono (mensajes y voces).</Text>
       </View>
       {opcion('Fotos', `Las de los últimos ${DIAS_FOTOS} días (hasta ${MAX_FOTOS}). Quedan en tu Drive; no se mandan al modelo.`, fotos, setFotos)}
@@ -116,12 +116,12 @@ export function Rescate({ c, alTerminar }: { c: Credenciales; alTerminar: () => 
 }
 
 const s = StyleSheet.create({
-  raiz: { padding: 20, gap: 12 },
-  titulo: { fontSize: 24, fontWeight: '700' },
-  texto: { fontSize: 15, lineHeight: 21 },
-  chico: { fontSize: 13, lineHeight: 18, marginTop: 2 },
-  tarjeta: { borderWidth: 1, borderRadius: 12, padding: 14 },
-  fila: { flexDirection: 'row', alignItems: 'center', gap: 12, borderTopWidth: 1, paddingVertical: 12 },
-  boton: { marginTop: 8, borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
-  botonTexto: { fontSize: 16, fontWeight: '700' },
+  raiz: { padding: ESP(5), gap: ESP(3) },
+  titulo: { ...LETRA.titulo, fontWeight: '700' },
+  texto: { ...LETRA.cuerpo },
+  chico: { ...LETRA.chica, marginTop: ESP(1) },
+  tarjeta: { borderWidth: 1, borderRadius: 12, padding: ESP(4) },
+  fila: { flexDirection: 'row', alignItems: 'center', gap: ESP(3), borderTopWidth: 1, paddingVertical: ESP(3), minHeight: TOQUE },
+  boton: { marginTop: ESP(2), minHeight: TOQUE, justifyContent: 'center', borderRadius: 10, paddingVertical: ESP(3), alignItems: 'center' },
+  botonTexto: { ...LETRA.cuerpo, fontWeight: '700' },
 })

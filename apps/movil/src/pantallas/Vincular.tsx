@@ -2,7 +2,7 @@
 import { useState } from 'react'
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
 import { vincular, type Credenciales } from '../api'
-import { useTema } from '../tema'
+import { ESP, LETRA, TOQUE, useTema } from '../tema'
 
 export function Vincular({ alVincular }: { alVincular: (c: Credenciales) => void }) {
   const t = useTema()
@@ -38,12 +38,12 @@ export function Vincular({ alVincular }: { alVincular: (c: Credenciales) => void
 }
 
 const s = StyleSheet.create({
-  raiz: { flex: 1, padding: 24, justifyContent: 'center', gap: 8 },
-  titulo: { fontSize: 28, fontWeight: '700', marginBottom: 8 },
-  texto: { fontSize: 15, lineHeight: 21 },
-  etiqueta: { fontSize: 13, marginTop: 12 },
-  campo: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16 },
-  codigo: { fontSize: 24, letterSpacing: 6, textAlign: 'center' },
-  boton: { marginTop: 20, borderRadius: 10, paddingVertical: 14, alignItems: 'center' },
-  botonTexto: { fontSize: 16, fontWeight: '700' },
+  raiz: { flex: 1, padding: ESP(6), justifyContent: 'center', gap: ESP(2) },
+  titulo: { ...LETRA.grande, fontWeight: '700', marginBottom: ESP(2) },
+  texto: { ...LETRA.cuerpo },
+  etiqueta: { ...LETRA.chica, marginTop: ESP(3) },
+  campo: { ...LETRA.cuerpo, minHeight: TOQUE, borderWidth: 1, borderRadius: 10, paddingHorizontal: ESP(4), paddingVertical: ESP(3) },
+  codigo: { ...LETRA.titulo, letterSpacing: 6, textAlign: 'center' },
+  boton: { marginTop: ESP(5), minHeight: TOQUE, justifyContent: 'center', borderRadius: 10, paddingVertical: ESP(3), alignItems: 'center' },
+  botonTexto: { ...LETRA.cuerpo, fontWeight: '700' },
 })
