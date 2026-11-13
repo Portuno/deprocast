@@ -245,9 +245,10 @@ const gitInstalado = (repo = process.cwd()) => {
 
 export function porQueNoSePuedeForjar(repo = process.cwd()): string | null {
   if (process.env.MASTRO_USUARIO) return 'La Fragua es solo del dueño de este Deprocast.'
-  if (!gitInstalado() && !(githubDisponible() && !fs.existsSync(path.join(repo, '.git')))) return 'Acá no hay git, y La Fragua lo necesita para trabajar en una rama aparte. En la nube no se puede forjar: copiá la propuesta y pasásela a Claude Code, o forjala desde Deprocast en tu compu.'
-  // En la nube no hay repositorio (el código baja como paquete): se forja sobre una copia y se abre un pull request.
+  // En la nube no hay repositorio (el código baja como paquete) ni git: se forja sobre una copia y se abre un pull
+  // request, así que lo que falta ahí es el token, no git.
   if (!fs.existsSync(path.join(repo, '.git'))) return githubDisponible() ? null : 'En la nube La Fragua forja sobre una copia y abre un pull request en GitHub: falta GITHUB_FRAGUA_TOKEN (un token con permiso solo sobre este repo) en las variables de NaN. Mientras tanto, copiá la propuesta y pasásela a Claude Code.'
+  if (!gitInstalado(repo)) return 'Acá no hay git, y La Fragua lo necesita para trabajar en una rama aparte: instalalo, o copiá la propuesta y pasásela a Claude Code.'
   return null
 }
 

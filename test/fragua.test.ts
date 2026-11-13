@@ -3,11 +3,13 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { abrir } from '../src/db.ts'
 import { _probarModelo } from '../src/modelo.ts'
 import { aplicarCambios, aplicarForja, descartarForja, faltaTest, forjarMejora, salidaDeCompilador, salidaDeTests, sigueLaSuite } from '../src/fragua.ts'
 
+// En la nube (donde La Fragua corre la suite de cada forja) no hay git: estas pruebas no aplican ahí, no son rotas.
+const sinGit = spawnSync('git', ['--version']).error ? 'sin git en esta máquina (la nube forja sobre una copia)' : false
 const git = (cwd: string, ...a: string[]) => execFileSync('git', a, { cwd, encoding: 'utf8' }).trim()
 
 function repoDePrueba() {
@@ -41,7 +43,7 @@ function modelo(cambios: unknown[], correccion: unknown[] = cambios) {
   })
 }
 
-test('fragua: forja en su rama sin tocar main; aplica solo si pasó y con su ok; descarta limpio', async () => {
+test('fragua: forja en su rama sin tocar main; aplica solo si pasó y con su ok; descarta limpio', { skip: sinGit }, async () => {
   const repo = repoDePrueba()
   const db = abrir(':memory:')
   db.prepare(`INSERT INTO propuestas (titulo, detalle, estado, creada_en) VALUES ('Saludo con onda', 'Que diga buenas', 'abierta', 1)`).run()
@@ -85,7 +87,7 @@ test('fragua: forja en su rama sin tocar main; aplica solo si pasó y con su ok;
   descartarForja(db, mal.id, { repo })
 })
 
-test('fragua: si no compila, le devuelve el error y se corrige; si toca src/ sin test, se lo pide', async () => {
+test('fragua: si no compila, le devuelve el error y se corrige; si toca src/ sin test, se lo pide', { skip: sinGit }, async () => {
   const repo = repoDePrueba()
   const db = abrir(':memory:')
   // Primera vuelta: cambia el código sin test. Le pide el test; lo trae; el typecheck falla; le pasa el error; corrige.
