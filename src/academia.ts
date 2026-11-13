@@ -96,12 +96,12 @@ const sesionLista = (db: Db, id: number, tipo: SesionTutor['tipo'] = 'clase') =>
   (db.prepare(`SELECT * FROM tutor_sesiones WHERE aprendizaje_id = ? AND tipo = ? AND estado IN ('lista', 'en_curso') ORDER BY id DESC LIMIT 1`).get(id, tipo) as any) ?? null
 
 /** Si ya puede rendir el examen del nivel: dos clases seguidas del nivel con 80 % o más, o todos sus conceptos sabidos. */
-export function examenHabilitado(db: Db, id: number): boolean {
+export function examenHabilitado(db: Db, id: number, ahora = Date.now()): boolean {
   const d = leerDominio(db, id)
   if (!d || d.tutorNivel >= 6) return false
   // Desde el nivel 4 (aplicado), sin el proyecto del nivel aprobado no hay examen: se sabe haciendo.
   if (d.tutorNivel >= NIVEL_PROYECTO_OBLIGATORIO && !proyectoAprobado(db, id, d.tutorNivel)) return false
-  if (nivelSabido(db, id, d.tutorNivel)) return true
+  if (nivelSabido(db, id, d.tutorNivel, ahora)) return true
   const ultimas = db.prepare(`SELECT puntaje FROM tutor_sesiones WHERE aprendizaje_id = ? AND nivel = ? AND tipo = 'clase' AND estado = 'hecha' ORDER BY id DESC LIMIT 2`).all(id, d.tutorNivel) as { puntaje: number | null }[]
   return ultimas.length === 2 && ultimas.every((s) => (s.puntaje ?? 0) >= 0.8)
 }
@@ -121,7 +121,7 @@ export function listarDominios(db: Db, ahora = Date.now()) {
       ritmo: ritmoDe(db, d, ahora), diagnosticado: !!d.diagnosticoEn,
       clases: (db.prepare(`SELECT COUNT(*) AS n FROM tutor_sesiones WHERE aprendizaje_id = ? AND estado = 'hecha'`).get(a.id) as { n: number }).n,
       tarjetasHoy: paraRepasar(db, { mazo: mazoDe(a.id), limite: 200 }, ahora).length,
-      examen: examenHabilitado(db, a.id),
+      examen: examenHabilitado(db, a.id, ahora),
     }
   })
 }
@@ -273,7 +273,7 @@ export function prepararSesionTutor(db: Db, id: number, o: { tema?: string | nul
     const d = leerDominio(db, id)
     if (!d) throw new Error(`No existe el dominio ${id}`)
     const n = d.tutorNivel
-    if (o.examen && !examenHabilitado(db, id)) throw new Error(n >= NIVEL_PROYECTO_OBLIGATORIO && !proyectoAprobado(db, id, n) ? `Desde el nivel ${NIVEL_PROYECTO_OBLIGATORIO}, el examen pide el proyecto del nivel aprobado` : 'El examen se habilita con dos clases seguidas del nivel resueltas con 80 % o más')
+    if (o.examen && !examenHabilitado(db, id, ahora)) throw new Error(n >= NIVEL_PROYECTO_OBLIGATORIO && !proyectoAprobado(db, id, n) ? `Desde el nivel ${NIVEL_PROYECTO_OBLIGATORIO}, el examen pide el proyecto del nivel aprobado` : 'El examen se habilita con dos clases seguidas del nivel resueltas con 80 % o más')
     const mapa = await asegurarMapa(db, d, ahora)
     const delNivel = mapa.filter((c) => c.nivel === n)
     // El concepto: el que pidió, la frontera o, si ya sabe todo lo del nivel, lo que menos domina (repaso antes del examen).
@@ -497,7 +497,7 @@ export function cerrarSesionTutor(db: Db, sid: number, ahora = Date.now()) {
   // Al subir de nivel, material del nivel nuevo (más avanzado).
   if (subio) buscarFuentesEnFondo(db, d.id)
   const fallidas = p.preguntas.filter((_, i) => !ultimos.get(i)?.correcto).map((q) => q.pregunta)
-  return { puntaje, piezaId, quantomos: quantomos.length, tarjetas, subio, nivel: leerDominio(db, d.id)!.tutorNivel, examen: examenHabilitado(db, d.id), repasar: s.tipo === 'examen' && !subio ? fallidas : [] }
+  return { puntaje, piezaId, quantomos: quantomos.length, tarjetas, subio, nivel: leerDominio(db, d.id)!.tutorNivel, examen: examenHabilitado(db, d.id, ahora), repasar: s.tipo === 'examen' && !subio ? fallidas : [] }
 }
 
 /**
@@ -517,7 +517,7 @@ function cerrarDiagnostico(db: Db, s: SesionTutor, d: Dominio, ultimos: Map<numb
   db.prepare('UPDATE aprendizajes SET tutor_nivel = ?, tema_idx = 0, diagnostico_en = ? WHERE id = ?').run(nuevo, ahora, d.id)
   if (nuevo > 1) marcarSabidos(db, d.id, nuevo - 1, SABIDO, ahora)
   prepararEnFondo(db, d.id)
-  return { puntaje, piezaId: null, quantomos: 0, tarjetas: 0, subio: nuevo > d.tutorNivel, nivel: nuevo, nivelNombre: nombreNivel(nuevo), examen: examenHabilitado(db, d.id), repasar: [] as string[], diagnostico: true }
+  return { puntaje, piezaId: null, quantomos: 0, tarjetas: 0, subio: nuevo > d.tutorNivel, nivel: nuevo, nivelNombre: nombreNivel(nuevo), examen: examenHabilitado(db, d.id, ahora), repasar: [] as string[], diagnostico: true }
 }
 
 /** Sumar un dominio a la Academia (si ya estaba sugerido o pausado, se activa). */
@@ -1012,7 +1012,7 @@ export async function entregarProyecto(db: Db, pid: number, e: { texto: string; 
     try { (await import('./misiones.ts')).actualizarMision(db, p.misionId, { estado: 'hecha', feedback: devolucion.slice(0, 300) }, { por: 'academia', ahora }) } catch { /* la misión ya no está */ }
   }
   registrarPractica(db, { aprendizajeId: d.id, minutos: null, que: `Proyecto nivel ${p.nivel}: ${p.titulo}`, fuente: 'academia' }, ahora)
-  return { ...leerProyecto(db, pid)!, aprobado, examen: examenHabilitado(db, d.id) }
+  return { ...leerProyecto(db, pid)!, aprobado, examen: examenHabilitado(db, d.id, ahora) }
 }
 
 /** Descartar el propuesto (el tutor puede proponer otro). */
