@@ -1,6 +1,6 @@
 /**
  * El rescate (plan v38, fase 6; Fragua #157): lo primero que hace un teléfono recién vinculado. Junta lo que trae
- * (lo que quedó sin enviar y, si lo elegís, tus fotos recientes y tus contactos), lo sube crudo a tu Deprocast (que
+ * (lo que quedó sin enviar y, si lo elegís, tus fotos recientes), lo sube crudo a tu Deprocast (que
  * guarda una copia y otra en tu Drive) y recién cuando todo está a salvo le dice que lo procese. Si algo falla a mitad
  * de camino, se reintenta: lo que ya subió no se vuelve a subir.
  */
@@ -18,7 +18,6 @@ type Origen = { item: ItemRescate; cuerpo: () => Promise<{ uri: string; tipo?: s
 export function Rescate({ c, alTerminar }: { c: Credenciales; alTerminar: () => void }) {
   const t = useTema()
   const [fotos, setFotos] = useState(false)
-  const [contactos, setContactos] = useState(false)
   const [paso, setPaso] = useState<string | null>(null)
   const [hecho, setHecho] = useState({ n: 0, de: 0 })
   const [error, setError] = useState<string | null>(null)
@@ -45,15 +44,6 @@ export function Rescate({ c, alTerminar }: { c: Credenciales; alTerminar: () => 
         item: { clave: `foto:${a.id}`, tipo: 'foto', nombre: a.filename, fecha: a.creationTime, meta: { ancho: a.width, alto: a.height } },
         cuerpo: async () => { const info = await ML.getAssetInfoAsync(a); if (!info.localUri) throw new Error(`No pude leer ${a.filename}`); return { uri: info.localUri, tipo: /\.png$/i.test(a.filename) ? 'image/png' : 'image/jpeg' } },
       })
-    }
-    if (contactos) {
-      setPaso('Leyendo tus contactos…')
-      const C = await import('expo-contacts/legacy')
-      if (!(await C.requestPermissionsAsync()).granted) throw new Error('Sin permiso para ver tus contactos: destildá «Contactos» o dalo en Ajustes.')
-      const { data } = await C.getContactsAsync({ fields: [C.Fields.Name, C.Fields.PhoneNumbers, C.Fields.Emails] })
-      const lista = data.map((x) => ({ nombre: x.name, telefonos: (x.phoneNumbers ?? []).map((p) => p.number).filter(Boolean), mails: (x.emails ?? []).map((m) => m.email).filter(Boolean) }))
-      const hoy = new Date().toISOString().slice(0, 10)
-      out.push({ item: { clave: `contactos:${hoy}`, tipo: 'contactos', nombre: `contactos-${hoy}.json`, fecha: Date.now(), meta: { cuantos: lista.length } }, cuerpo: async () => ({ texto: JSON.stringify(lista) }) })
     }
     return out
   }
@@ -105,7 +95,6 @@ export function Rescate({ c, alTerminar }: { c: Credenciales; alTerminar: () => 
         <Text style={[s.chico, { color: t.tenue }]}>Lo que haya quedado sin enviar en este teléfono (mensajes y voces).</Text>
       </View>
       {opcion('Fotos', `Las de los últimos ${DIAS_FOTOS} días (hasta ${MAX_FOTOS}). Quedan en tu Drive; no se mandan al modelo.`, fotos, setFotos)}
-      {opcion('Contactos', 'Los que no estén entre tus personas entran como personas nuevas, con su teléfono y su mail.', contactos, setContactos)}
       {paso ? <Text style={[s.texto, { color: t.acento }]}>{paso}{hecho.de ? ` (${hecho.n} de ${hecho.de})` : ''}</Text> : null}
       {error ? <Text style={[s.texto, { color: t.mal }]}>{error}</Text> : null}
       <Pressable onPress={rescatar} disabled={corriendo} style={[s.boton, { backgroundColor: t.acento, opacity: corriendo ? 0.6 : 1 }]} accessibilityRole="button">

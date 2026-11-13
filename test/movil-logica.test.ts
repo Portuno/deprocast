@@ -96,3 +96,55 @@ test('Mobile 1.0 · bloque 2: los tramos van a la carpeta de documentos, anotado
   assert.match(fs.readFileSync('apps/movil/src/api.ts', 'utf8'), /\.\.\.\(m\.id \? \{ id: m\.id \} : \{\}\)/, 'la clave del tramo viaja al servidor')
   assert.match(fs.readFileSync('apps/movil/App.tsx', 'utf8'), /recuperarTramos\(\)/)
 })
+
+const captura = await deLaApp('captura')
+
+test('Mobile 1.0 · bloque 4: un interruptor por función y uno que apaga todo; el audio espera sin red o con la batería baja', () => {
+  const a = captura.leerAjustes(null)
+  assert.deepEqual(a, { todo: true, audio: true, ubicacion: true, soloParadas: false, pasos: true })
+  assert.equal(captura.capta({ ...a, ubicacion: false }, 'ubicacion'), false)
+  assert.equal(captura.capta({ ...a, todo: false }, 'audio'), false, 'el general manda')
+  assert.deepEqual(captura.leerAjustes('{roto'), a, 'un ajuste roto vuelve a los iniciales')
+  assert.equal(captura.puedeSubirAudio({ nivel: 0.8, cargando: false, conectado: true }), true)
+  assert.equal(captura.puedeSubirAudio({ nivel: 0.8, cargando: false, conectado: false }), false, 'sin red, espera en disco')
+  assert.equal(captura.puedeSubirAudio({ nivel: 0.1, cargando: false, conectado: true }), false, 'batería baja: espera')
+  assert.equal(captura.puedeSubirAudio({ nivel: 0.1, cargando: true, conectado: true }), true, 'cargando, sí')
+  assert.equal(captura.puedeSubirAudio({ nivel: null, cargando: false, conectado: null }), true, 'sin datos: como antes')
+})
+
+test('Mobile 1.0 · bloque 4: la ubicación se adapta (quieto casi no marca; en movimiento cada 30 s) y «solo paradas» da el centro de donde te quedaste 5 min', () => {
+  assert.deepEqual(captura.parametrosUbicacion(true), { timeInterval: 30_000, distanceInterval: 20 })
+  assert.deepEqual(captura.parametrosUbicacion(false), { timeInterval: 600_000, distanceInterval: 100 })
+  const p = captura.crearParadas()
+  const base = { lat: 39.4699, lon: -0.3763 }
+  assert.equal(p.sumar({ ...base, t: 0 }), null)
+  assert.equal(p.sumar({ lat: base.lat + 0.0002, lon: base.lon, t: 2 * 60_000 }), null, 'todavía no son 5 minutos')
+  const parada = p.sumar({ lat: base.lat + 0.0001, lon: base.lon + 0.0001, t: 6 * 60_000 })
+  assert.ok(parada && captura.distancia(parada, base) < 30 && parada.desde === 0)
+  assert.equal(p.sumar({ lat: base.lat + 0.01, lon: base.lon, t: 7 * 60_000 }), null, 'se fue: ya no es parada')
+  assert.ok(Math.abs(captura.distancia({ lat: 0, lon: 0 }, { lat: 0, lon: 1 }) - 111_195) < 50)
+})
+
+test('Mobile 1.0 · bloque 4: solo por conexión cifrada (https), salvo un servidor de tu red', () => {
+  assert.equal(captura.servidorSeguro('mi-deprocast.apps.nan.builders/'), 'https://mi-deprocast.apps.nan.builders')
+  assert.equal(captura.servidorSeguro('http://mi-deprocast.apps.nan.builders'), 'https://mi-deprocast.apps.nan.builders', 'http hacia afuera se pasa a https')
+  assert.equal(captura.servidorSeguro('http://192.168.1.20:7272'), 'http://192.168.1.20:7272', 'tu compu en tu red')
+  assert.equal(captura.servidorSeguro('https://x.y'), 'https://x.y')
+})
+
+test('Mobile 1.0 · bloque 4: no capta contactos; pasos con su permiso; la pantalla de captura dice qué capta, para qué y qué no', async () => {
+  const fs = await import('node:fs')
+  const app = JSON.parse(fs.readFileSync('apps/movil/app.json', 'utf8')).expo
+  assert.ok(app.android.permissions.includes('android.permission.ACTIVITY_RECOGNITION'))
+  assert.ok(app.android.blockedPermissions.includes('android.permission.READ_CONTACTS'))
+  assert.ok(!JSON.stringify(app.plugins).includes('expo-contacts'))
+  assert.ok(!fs.readFileSync('apps/movil/package.json', 'utf8').includes('expo-contacts'))
+  assert.doesNotMatch(fs.readFileSync('apps/movil/src/pantallas/Rescate.tsx', 'utf8'), /expo-contacts/)
+  const pantalla = fs.readFileSync('apps/movil/src/pantallas/Captura.tsx', 'utf8')
+  assert.match(pantalla, /Lo que NO capta[\s\S]*El teclado, tus contactos, el contenido de otras apps ni capturas de pantalla/)
+  assert.match(pantalla, /Un toque apaga todo/)
+  for (const f of ['Micrófono', 'Ubicación', 'Pasos']) assert.match(pantalla, new RegExp(`titulo: '${f}', capta: '[^']+', para: '[^']+', permiso: '[^']+'`))
+  const e = fs.readFileSync('apps/movil/src/escucha.ts', 'utf8')
+  assert.match(e, /if \(!capta\(aj, 'audio'\)\) return setError/, 'la escucha respeta el interruptor')
+  assert.match(e, /Pedometer\.watchStepCount/)
+})

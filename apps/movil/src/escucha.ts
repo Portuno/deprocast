@@ -27,6 +27,8 @@ import { alCambiar, sincronizar } from './sincronizar'
 import { archivoParaTramo } from './tramos'
 import { claveNueva } from './logica/sincro'
 import { debeCerrar } from './logica/tramos'
+import { capta, crearParadas, parametrosUbicacion, SOSTENER_MS } from './logica/captura'
+import { ajustesCaptura } from './captura'
 
 export type Envio = { en: number; modo: string; texto: string | null; error?: string }
 const CUADRO_MS = 100
@@ -57,6 +59,9 @@ export function useEscucha(c: Credenciales | null) {
     ocupado: false,
     pasos: 0, acum: null as Acumulado | null, ubic: null as null | { lat: number; lon: number; precision: number | null; t: number },
     ubicSub: null as null | { remove: () => void },
+    // Mobile 1.0, bloque 4: los pasos del sensor (si está y diste el permiso), el ritmo de la ubicación y las paradas.
+    pedSub: null as null | { remove: () => void }, pasosSensor: null as number | null,
+    ubicActiva: false, moviendoseUbic: false, moviendose: false, moviendoseDesde: 0, soloParadas: false, paradas: crearParadas(),
   })
 
   // Lo que sube la sincronización de la app (de cualquier pantalla) aparece en «lo que se dijo».
@@ -71,7 +76,7 @@ export function useEscucha(c: Credenciales | null) {
     const a = e.acum
     e.acum = nuevoMinuto(t, e.pasos)
     if (!a) return
-    const u = e.ubic && t - e.ubic.t < 180_000 ? e.ubic : null
+    const u = e.ubic && t - e.ubic.t < 15 * 60_000 ? e.ubic : null
     const seg = (n: number) => Math.min(60, Math.round(n / 10)) // cuadros de 100 ms → segundos
     const m: MinutoCapa = {
       minuto: a.minuto, hablo: seg(a.hablo), escucho: seg(a.escucho), ruido: seg(a.ruido), silencio: seg(a.silencio),
@@ -172,10 +177,35 @@ export function useEscucha(c: Credenciales | null) {
       const r = estado.current.mov.medir({ t: Date.now(), x: m.x, y: m.y, z: m.z })
       estado.current.caminando = r.caminando
       estado.current.levantado = r.levantado
-      estado.current.pasos = r.pasos
+      const e = estado.current
+      e.pasos = e.pasosSensor ?? r.pasos
+      const ahora = Date.now()
+      if (!!r.caminando !== e.moviendose) { e.moviendose = !!r.caminando; e.moviendoseDesde = ahora }
     })
     return () => sub.remove()
   }, [activa])
+
+  const vigilarUbicacion = useCallback(async () => {
+    const e = estado.current
+    if (!e.ubicActiva) return
+    const L = await import('expo-location')
+    e.ubicSub?.remove()
+    e.moviendoseUbic = e.moviendose
+    e.ubicSub = await L.watchPositionAsync({ accuracy: e.moviendose ? L.Accuracy.Balanced : L.Accuracy.Low, ...parametrosUbicacion(e.moviendose) }, (p) => {
+      const punto = { lat: p.coords.latitude, lon: p.coords.longitude, precision: p.coords.accuracy ?? null, t: Date.now() }
+      if (!e.soloParadas) { e.ubic = punto; return }
+      const parada = e.paradas.sumar(punto)
+      e.ubic = parada ? { lat: parada.lat, lon: parada.lon, precision: null, t: punto.t } : null
+    })
+  }, [])
+  useEffect(() => {
+    if (!activa) return
+    const x = setInterval(() => {
+      const e = estado.current
+      if (e.ubicActiva && e.moviendose !== e.moviendoseUbic && Date.now() - e.moviendoseDesde >= SOSTENER_MS) void vigilarUbicacion().catch(() => {})
+    }, 15_000)
+    return () => clearInterval(x)
+  }, [activa, vigilarUbicacion])
 
   // Al cambiar de app (o bloquear la pantalla), el tramo en curso se cierra: queda entero en la cola y la escucha sigue.
   useEffect(() => {
@@ -189,6 +219,8 @@ export function useEscucha(c: Credenciales | null) {
 
   const empezar = useCallback(async () => {
     setError(null)
+    const aj = await ajustesCaptura()
+    if (!capta(aj, 'audio')) return setError(aj.todo ? 'El micrófono está apagado en Captura y permisos (⋯).' : 'La captura está toda apagada (⋯ → Captura y permisos).')
     const p = await requestRecordingPermissionsAsync()
     if (!p.granted) return setError('Sin permiso de micrófono no puedo escuchar.')
     await setAudioModeAsync({ allowsRecording: true, allowsBackgroundRecording: true, shouldPlayInBackground: true })
@@ -198,20 +230,33 @@ export function useEscucha(c: Credenciales | null) {
     e.pendiente = new Float32Array(0)
     e.acum = null
     try { await stream.start(); setActiva(true) } catch (err) { return setError(err instanceof Error ? err.message : String(err)) }
-    // La ubicación, si la app la tiene y diste el permiso.
-    try {
-      const L = await import('expo-location')
-      const pl = await L.requestForegroundPermissionsAsync()
-      if (pl.granted) e.ubicSub = await L.watchPositionAsync({ accuracy: L.Accuracy.Balanced, timeInterval: 60_000, distanceInterval: 25 }, (p) => { e.ubic = { lat: p.coords.latitude, lon: p.coords.longitude, precision: p.coords.accuracy ?? null, t: Date.now() } })
-    } catch { /* sin el módulo o sin permiso: las capas van sin ubicación */ }
-  }, [stream])
+    // La ubicación (si está prendida y diste el permiso), con su ritmo según si te movés; o solo las paradas.
+    e.soloParadas = aj.soloParadas
+    e.paradas = crearParadas()
+    e.ubic = null
+    if (capta(aj, 'ubicacion')) {
+      try {
+        const L = await import('expo-location')
+        if ((await L.requestForegroundPermissionsAsync()).granted) { e.ubicActiva = true; await vigilarUbicacion() }
+      } catch { /* sin el módulo o sin permiso: las capas van sin ubicación */ }
+    }
+    // Los pasos por el sensor del teléfono (no por GPS), si está y diste el permiso; si no, el acelerómetro.
+    e.pasosSensor = null
+    if (capta(aj, 'pasos')) {
+      try {
+        const { Pedometer } = await import('expo-sensors')
+        if ((await Pedometer.isAvailableAsync()) && (await Pedometer.requestPermissionsAsync()).granted) e.pedSub = Pedometer.watchStepCount((r) => { e.pasosSensor = r.steps })
+      } catch { /* sin sensor: el acelerómetro */ }
+    }
+  }, [stream, vigilarUbicacion])
 
   const parar = useCallback(async () => {
     const e = estado.current
     if (e.tramo) await cerrarTramo()
     stream.stop()
     if (e.acum) { cerrarMinuto(Date.now()); e.acum = null }
-    e.ubicSub?.remove(); e.ubicSub = null
+    e.ubicSub?.remove(); e.ubicSub = null; e.ubicActiva = false
+    e.pedSub?.remove(); e.pedSub = null; e.pasosSensor = null
     setActiva(false)
     setLectura(null)
     if (c) void sincronizar(c)

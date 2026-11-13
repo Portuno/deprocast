@@ -4,6 +4,7 @@
  */
 import * as SecureStore from 'expo-secure-store'
 import { Platform } from 'react-native'
+import { servidorSeguro } from './logica/captura'
 
 export type Credenciales = { servidor: string; token: string; nombre: string }
 export type MensajeRemoto = { id: number; rol: 'operador' | 'asistente'; texto: string; en: number }
@@ -29,14 +30,16 @@ export async function leerCredenciales(): Promise<Credenciales | null> {
 }
 export const olvidarCredenciales = () => SecureStore.deleteItemAsync(CLAVE)
 
-/** El servidor como lo escribió (con o sin https://, con o sin barra final). */
+/**
+ * El servidor como lo escribió (con o sin https://, con o sin barra final). Solo por conexión cifrada (Mobile 1.0):
+ * https siempre, salvo un servidor de tu red (tu compu).
+ */
 export function normalizarServidor(s: string): string {
-  const x = s.trim().replace(/\/+$/, '')
-  return /^https?:\/\//i.test(x) ? x : `https://${x}`
+  return servidorSeguro(s)
 }
 
 async function pedir<T>(c: Pick<Credenciales, 'servidor' | 'token'> | { servidor: string; token?: string }, ruta: string, init: RequestInit = {}): Promise<T> {
-  const r = await conTiempo(`${c.servidor}/api/dispositivo/${ruta}`, {
+  const r = await conTiempo(`${servidorSeguro(c.servidor)}/api/dispositivo/${ruta}`, {
     ...init,
     headers: { 'content-type': 'application/json', ...(c.token ? { authorization: `Bearer ${c.token}` } : {}), ...(init.headers as Record<string, string> ?? {}) },
   }, 20_000)
@@ -68,7 +71,7 @@ export type Turno = { id: number; hablante: Hablante | null; texto: string; inic
 export async function subirVoz(c: Credenciales, uri: string, m: MetaVoz): Promise<{ texto: string; destino: 'chat' | 'nota' | 'conversacion'; hablante?: Hablante | null }> {
   const { File } = await import('expo-file-system')
   const q = new URLSearchParams({ modo: m.modo, inicio: String(m.inicio), fin: String(m.fin), caminando: m.caminando ? '1' : '0', nombre: 'voz.wav', ...(m.id ? { id: m.id } : {}) })
-  const r = await conTiempo(`${c.servidor}/api/dispositivo/voz?${q}`, { method: 'POST', headers: { authorization: `Bearer ${c.token}`, 'content-type': 'audio/wav' }, body: new File(uri) }, 120_000)
+  const r = await conTiempo(`${servidorSeguro(c.servidor)}/api/dispositivo/voz?${q}`, { method: 'POST', headers: { authorization: `Bearer ${c.token}`, 'content-type': 'audio/wav' }, body: new File(uri) }, 120_000)
   const j = await r.json().catch(() => ({}))
   if (!r.ok) throw new ErrorApi(j.error ?? `Deprocast respondió ${r.status}`, r.status)
   return j
@@ -99,7 +102,7 @@ export const cerrarRescate = (c: Credenciales) => pedir<EstadoRescate & { estado
 /** Sube un ítem crudo: un archivo del teléfono (uri) o un texto. */
 export async function subirItem(c: Credenciales, clave: string, cuerpo: { uri: string } | { texto: string }, tipo = 'application/octet-stream') {
   const body = 'uri' in cuerpo ? new (await import('expo-file-system')).File(cuerpo.uri) : cuerpo.texto
-  const r = await fetch(`${c.servidor}/api/dispositivo/rescate/subir?clave=${encodeURIComponent(clave)}`, { method: 'POST', headers: { authorization: `Bearer ${c.token}`, 'content-type': 'uri' in cuerpo ? tipo : 'text/plain; charset=utf-8' }, body })
+  const r = await fetch(`${servidorSeguro(c.servidor)}/api/dispositivo/rescate/subir?clave=${encodeURIComponent(clave)}`, { method: 'POST', headers: { authorization: `Bearer ${c.token}`, 'content-type': 'uri' in cuerpo ? tipo : 'text/plain; charset=utf-8' }, body })
   const j = await r.json().catch(() => ({}))
   if (!r.ok) throw new Error(j.error ?? `Deprocast respondió ${r.status}`)
   return j as { clave: string; estado: string }

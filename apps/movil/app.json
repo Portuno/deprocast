@@ -26,7 +26,12 @@
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
-        "android.permission.FOREGROUND_SERVICE_MICROPHONE"
+        "android.permission.FOREGROUND_SERVICE_MICROPHONE",
+        "android.permission.ACTIVITY_RECOGNITION"
+      ],
+      "blockedPermissions": [
+        "android.permission.READ_CONTACTS",
+        "android.permission.WRITE_CONTACTS"
       ]
     },
     "web": {
@@ -49,19 +54,15 @@
         }
       ],
       [
-        "expo-contacts",
-        {
-          "contactsPermission": "Deprocast rescata tus contactos al vincular este teléfono (solo si lo elegís)."
-        }
-      ],
-      [
         "expo-media-library",
         {
           "photosPermission": "Deprocast rescata tus fotos recientes al vincular este teléfono (solo si lo elegís).",
           "savePhotosPermission": false,
           "isAccessMediaLocationEnabled": false
         }
-      ]
+      ],
+      "expo-asset",
+      "expo-status-bar"
     ],
     "scheme": "deprocast",
     "extra": {

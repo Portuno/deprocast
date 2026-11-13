@@ -1,6 +1,7 @@
 /**
  * Deprocast en el teléfono (plan v33, paso 2). Sin vincular: la pantalla de Vincular. Vinculado: Hoy (el chat,
- * local-first) y Escucha (la conciencia acústica). Desvincular borra el token y todo lo guardado en el teléfono.
+ * local-first) y Escucha (la conciencia acústica). El menú ⋯: Captura y permisos (Mobile 1.0) y Desvincular (borra el token
+ * y todo lo guardado en el teléfono).
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
@@ -11,6 +12,8 @@ import { borrarTodo, cuantoEnCola } from './src/almacen'
 import { sincronizar, useSincronizacion } from './src/sincronizar'
 import { recuperarTramos } from './src/tramos'
 import { registrarCapas } from './src/capas'
+import { registrarCaptura } from './src/captura'
+import { Captura } from './src/pantallas/Captura'
 import { Vincular } from './src/pantallas/Vincular'
 import { Hoy } from './src/pantallas/Hoy'
 import { Escucha } from './src/pantallas/Escucha'
@@ -24,6 +27,7 @@ export default function App() {
   const [c, setC] = useState<Credenciales | null | undefined>(undefined)
   const [pestana, setPestana] = useState<Pestana>('hoy')
   const [rescate, setRescate] = useState(false)
+  const [verCaptura, setVerCaptura] = useState(false)
   useEffect(() => { void leerCredenciales().then(setC) }, [])
   // Un teléfono recién vinculado (o que quedó a mitad) pasa primero por el rescate. Sin red, se sigue y se pregunta después.
   useEffect(() => { if (c) void estadoRescate(c).then((r) => setRescate(r.estado === 'rescate')).catch(() => {}) }, [c])
@@ -34,9 +38,15 @@ export default function App() {
   useEffect(() => {
     if (!c) return
     registrarCapas()
+    registrarCaptura()
     void recuperarTramos().then((n) => { if (n) void sincronizar(c) }).catch(() => {})
   }, [c])
 
+  const menu = () => Alert.alert(c?.nombre ?? 'Este teléfono', undefined, [
+    { text: 'Captura y permisos', onPress: () => setVerCaptura(true) },
+    { text: 'Desvincular', style: 'destructive', onPress: desvincular },
+    { text: 'Cancelar', style: 'cancel' },
+  ])
   const desvincular = () => Alert.alert('¿Desvincular este teléfono?', 'Se borra el token y todo lo guardado acá. En Deprocast, revocalo también en Apps conectadas.', [
     { text: 'Cancelar', style: 'cancel' },
     { text: 'Desvincular', style: 'destructive', onPress: async () => { await olvidarCredenciales(); await borrarTodo(); setC(null) } },
@@ -48,7 +58,7 @@ export default function App() {
     <SafeAreaProvider>
     <SafeAreaView edges={['top', 'bottom', 'left', 'right']} style={[s.raiz, { backgroundColor: t.fondo }]}>
       <StatusBar style="auto" />
-      {!c ? <Vincular alVincular={(x) => { setC(x); setRescate(true) }} /> : rescate ? <Rescate c={c} alTerminar={() => setRescate(false)} /> : (
+      {!c ? <Vincular alVincular={(x) => { setC(x); setRescate(true) }} /> : rescate ? <Rescate c={c} alTerminar={() => setRescate(false)} /> : verCaptura ? <Captura cerrar={() => setVerCaptura(false)} /> : (
         <>
           <View style={[s.barra, { borderColor: t.linea }]}>
             {(['hoy', 'escucha'] as const).map((p) => (
@@ -56,7 +66,7 @@ export default function App() {
                 <Text style={[LETRA.cuerpo, { color: pestana === p ? t.texto : t.tenue, fontWeight: '600' }]}>{p === 'hoy' ? 'Hoy' : 'Escucha'}</Text>
               </Pressable>
             ))}
-            <Pressable onPress={desvincular} style={s.menu} accessibilityLabel="Desvincular"><Text style={[LETRA.chica, { color: t.tenue }]} numberOfLines={1}>{c.nombre} ⋯</Text></Pressable>
+            <Pressable onPress={menu} style={s.menu} accessibilityLabel="Menú: captura y permisos, desvincular"><Text style={[LETRA.chica, { color: t.tenue }]} numberOfLines={1}>{c.nombre} ⋯</Text></Pressable>
           </View>
           {pestana === 'hoy' ? <Hoy c={c} /> : <Escucha c={c} />}
         </>
