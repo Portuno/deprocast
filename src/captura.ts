@@ -40,7 +40,7 @@ const SISTEMA = `Clasificás lo que el jugador le manda a su asistente (una foto
 - descripcion: lo que se ve o se entiende, en una o dos oraciones.
 - datos según el tipo (números, sin unidades):
   comida: {"items": [string], "kcal": number, "proteina": number, "carbos": number, "grasa": number} — estimá porciones con lo que se ve y lo que dice; gramos de macros; redondeá.
-  ejercicio: {"minutos": number, "intensidad": "suave"|"media"|"fuerte", "distancia_km": number|null, "kcal": number|null, "que": string}
+  ejercicio: {"minutos": number, "intensidad": "suave"|"media"|"fuerte", "distancia_km": number|null, "kcal": number|null, "pasos": number|null, "que": string} (en una captura de una app de deporte, los minutos son la duración del ejercicio, no otro número: si no la ves, null)
   sueno: {"horas": number, "calidad": 1|2|3 (mal, bien, muy bien) | null}
   medida: {"peso": number|null, "grasa_corporal": number|null, "cintura": number|null}
   gasto o ingreso: {"monto": number (positivo), "moneda": "EUR"|"USD"|"ARS"|…, "comercio": string, "categoria": una de ${CATEGORIAS.join(', ')}, "proyecto": string|null (si dice para qué proyecto o persona)}
@@ -109,7 +109,7 @@ function registrarCapturaSola(db: Db, c: Captura, o: { foto?: string | null; fue
     const resumen = c.tipo === 'comida'
       ? `🍽 ${r.titulo}: ~${n0(r.datos.kcal)} kcal · ${n0(r.datos.proteina)} g prot. ${r.fecha === fechaLocal(ahora) ? 'Hoy llevás' : `El ${r.fecha} van`} ${dia.kcal}${m.kcal ? ` de ${m.kcal}` : ''} kcal y ${dia.proteina}${m.proteina ? ` de ${m.proteina}` : ''} g de proteína.`
       : c.tipo === 'ejercicio'
-        ? `💪 ${r.titulo}${r.datos.minutos ? `: ${r.datos.minutos} min` : ''}${r.datos.distancia_km ? ` · ${r.datos.distancia_km} km` : ''}. Anotado.`
+        ? `💪 ${r.titulo}${r.datos.minutos ? `: ${r.datos.minutos} min` : ''}${r.datos.distancia_km ? ` · ${r.datos.distancia_km} km` : ''}. Anotado.${r.datos.sospechoso ? ` ⚠ Ojo: ${r.datos.sospechoso}.` : ''}`
         : c.tipo === 'sueno'
           ? `😴 ${r.titulo}${r.datos.calidad ? ` (${['', 'mal', 'bien', 'muy bien'][r.datos.calidad]})` : ''}. Anotado.`
           : `⚖ ${r.datos.peso != null ? `${r.datos.peso} kg` : r.titulo}${m.peso && r.datos.peso != null ? ` (objetivo ${m.peso})` : ''}. Anotado.`

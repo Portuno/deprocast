@@ -14,13 +14,13 @@ const deFila = (r: any): RegistroSalud => ({ id: r.id, fecha: r.fecha, hora: r.h
 /** Los campos numéricos que se guardan, por tipo (lo demás se descarta). */
 const CAMPOS: Record<TipoSalud, string[]> = {
   comida: ['kcal', 'proteina', 'carbos', 'grasa'],
-  ejercicio: ['minutos', 'distancia_km', 'kcal', 'series', 'intensidad'],
+  ejercicio: ['minutos', 'distancia_km', 'kcal', 'series', 'intensidad', 'pasos', 'minutos_leidos'],
   sueno: ['horas', 'calidad'],
   medida: ['peso', 'grasa_corporal', 'cintura'],
   sintoma: ['intensidad'],
   otro: [],
 }
-const TEXTOS = ['items', 'intensidad_texto', 'nota', 'que']
+const TEXTOS = ['items', 'intensidad_texto', 'nota', 'que', 'sospechoso']
 
 function limpiarDatos(tipo: TipoSalud, d: Record<string, unknown> = {}): Record<string, unknown> {
   const out: Record<string, unknown> = {}
@@ -45,12 +45,27 @@ export function leerSalud(db: Db, id: number): RegistroSalud | null {
   return r ? deFila(r) : null
 }
 
+/**
+ * La duración de un ejercicio, contra los pasos y la distancia (Fragua #268): una captura de Google Fit leída «10 min»
+ * con 14,76 km y 19.528 pasos no cierra (sería correr a 41 s el km). Si no cierra, se estima por los pasos (~115 por
+ * minuto caminando) o por la distancia (~12 min el km), la leída queda al lado y el registro se marca como dudoso.
+ */
+export function revisarEjercicio(d: Record<string, unknown>): Record<string, unknown> {
+  const min = Number(d.minutos), km = Number(d.distancia_km), pasos = Number(d.pasos)
+  if (!(min > 0)) return d
+  const porPasos = pasos > 0 ? pasos / min : 0 // pasos por minuto: más de 220 no se camina ni se corre
+  const porKm = km > 0 ? min / km : Infinity // minutos por km: menos de 2,5 no lo hace nadie
+  if (porPasos <= 220 && porKm >= 2.5) return d
+  const estimado = pasos > 0 ? Math.round(pasos / 115) : Math.round(km * 12)
+  return { ...d, minutos: estimado, minutos_leidos: min, sospechoso: `la duración leída (${min} min) no cierra con ${pasos > 0 ? `${pasos} pasos` : `${km} km`}: estimé ${estimado} min; corregila si sabés la real` }
+}
+
 /** Anota un registro. El sueño es uno por día: si ya hay, se completa ese (horas y calidad pueden llegar por separado). */
 export function registrarSalud(db: Db, r: { tipo: string; titulo?: string | null; fecha?: string | null; hora?: string | null; datos?: Record<string, unknown>; foto?: string | null; fuente?: string }, ahora = Date.now()): RegistroSalud {
   const tipo = tipoValido(r.tipo)
   const fecha = r.fecha && /^\d{4}-\d{2}-\d{2}$/.test(r.fecha) ? r.fecha : fechaLocal(ahora)
   const hora = r.hora && /^\d{1,2}:\d{2}$/.test(r.hora) ? r.hora.padStart(5, '0') : tipo === 'sueno' ? null : new Date(ahora).toTimeString().slice(0, 5)
-  const datos = limpiarDatos(tipo, r.datos)
+  const datos = tipo === 'ejercicio' ? revisarEjercicio(limpiarDatos(tipo, r.datos)) : limpiarDatos(tipo, r.datos)
   const titulo = String(r.titulo ?? '').trim().slice(0, 160) || (tipo === 'sueno' && datos.horas != null ? `Dormiste ${datos.horas} h` : TITULO[tipo])
   if (tipo === 'sueno') {
     const ya = db.prepare(`SELECT * FROM salud WHERE tipo = 'sueno' AND fecha = ?`).get(fecha) as any
@@ -65,13 +80,21 @@ export function registrarSalud(db: Db, r: { tipo: string; titulo?: string | null
   return leerSalud(db, Number(res.lastInsertRowid))!
 }
 
-export function editarSalud(db: Db, id: number, c: { titulo?: string; fecha?: string; hora?: string; datos?: Record<string, unknown> }): RegistroSalud {
+export function editarSalud(db: Db, id: number, c: { titulo?: string; fecha?: string; hora?: string; tipo?: string; datos?: Record<string, unknown> }): RegistroSalud & { ignorados: string[] } {
   const r = leerSalud(db, id)
   if (!r) throw new Error(`No existe el registro ${id}`)
-  const datos = c.datos ? { ...r.datos, ...limpiarDatos(r.tipo, c.datos) } : r.datos
-  db.prepare('UPDATE salud SET titulo = ?, fecha = ?, hora = ?, datos = ? WHERE id = ?')
-    .run(c.titulo?.trim() || r.titulo, c.fecha && /^\d{4}-\d{2}-\d{2}$/.test(c.fecha) ? c.fecha : r.fecha, c.hora ?? r.hora, JSON.stringify(datos), id)
-  return leerSalud(db, id)!
+  // El tipo también se corrige (una actividad que quedó como «otro» pasa a ejercicio, y recién ahí acepta minutos).
+  const tipo = c.tipo && (TIPOS_SALUD as readonly string[]).includes(c.tipo) ? (c.tipo as TipoSalud) : r.tipo
+  const nuevos = c.datos ? limpiarDatos(tipo, c.datos) : {}
+  // Lo que se pidió corregir y no corresponde a este tipo se dice (Fragua #268: antes se ignoraba en silencio).
+  const ignorados = c.datos ? Object.keys(c.datos).filter((k) => !(k in nuevos) && c.datos![k] != null && !(k === 'intensidad' && 'intensidad_texto' in nuevos)) : []
+  // La duración corregida a mano manda: ya no es dudosa.
+  const base = { ...r.datos } as Record<string, unknown>
+  if ('minutos' in nuevos) { delete base.sospechoso; delete base.minutos_leidos }
+  const datos = { ...base, ...nuevos }
+  db.prepare('UPDATE salud SET titulo = ?, fecha = ?, hora = ?, tipo = ?, datos = ? WHERE id = ?')
+    .run(c.titulo?.trim() || r.titulo, c.fecha && /^\d{4}-\d{2}-\d{2}$/.test(c.fecha) ? c.fecha : r.fecha, c.hora ?? r.hora, tipo, JSON.stringify(datos), id)
+  return { ...leerSalud(db, id)!, ignorados }
 }
 
 export function borrarSalud(db: Db, id: number) {

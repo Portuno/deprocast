@@ -1001,14 +1001,17 @@ ${a.detalle ?? ''}`)
     parametros: S({
       id: int('id del registro (de ver_salud)'), titulo: str('Título corregido'), fecha: str('YYYY-MM-DD'), hora: str('HH:MM'),
       kcal: { type: 'number' }, proteina: { type: 'number' }, carbos: { type: 'number' }, grasa: { type: 'number' }, minutos: { type: 'number' }, distancia_km: { type: 'number' },
-      horas: { type: 'number' }, calidad: int('sueño: 1 a 3'), peso: { type: 'number' },
+      horas: { type: 'number' }, calidad: int('sueño: 1 a 3'), peso: { type: 'number' }, pasos: { type: 'number' },
+      tipo: str('Para corregir el tipo', { enum: ['comida', 'ejercicio', 'sueno', 'medida', 'sintoma', 'otro'] }),
     }, ['id']),
     ejecutar: (a, { db }) => {
       const antes = leerSalud(db, a.id)
       if (!antes) return { error: `No existe el registro ${a.id}. Mirá los ids con ver_salud.` }
-      const { id: _, titulo, fecha, hora, ...datos } = a
-      const r = editarSalud(db, a.id, { titulo, fecha, hora, datos: Object.keys(datos).length ? datos : undefined })
-      return { corregido: { id: r.id, fecha: r.fecha, hora: r.hora, titulo: r.titulo, datos: r.datos }, antes: { titulo: antes.titulo, datos: antes.datos } }
+      // Los campos pueden venir sueltos o adentro de «datos» (Fragua #268: anidados se perdían).
+      const { id: _, titulo, fecha, hora, tipo, datos: anidados, ...sueltos } = a
+      const datos = { ...(anidados && typeof anidados === 'object' ? anidados : {}), ...sueltos }
+      const r = editarSalud(db, a.id, { titulo, fecha, hora, tipo, datos: Object.keys(datos).length ? datos : undefined })
+      return { corregido: { id: r.id, tipo: r.tipo, fecha: r.fecha, hora: r.hora, titulo: r.titulo, datos: r.datos }, antes: { tipo: antes.tipo, titulo: antes.titulo, datos: antes.datos }, ...(r.ignorados.length ? { aviso: `No apliqué ${r.ignorados.join(', ')}: no son campos de un registro de ${r.tipo}. Si era otro tipo, corregí también «tipo».` } : {}) }
     },
     resumen: (_, r) => `corrigió el registro de salud «${recorte(r?.corregido?.titulo ?? '', 40)}»`,
   },

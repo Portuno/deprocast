@@ -169,3 +169,23 @@ test('#249: el promedio de kcal de la semana es sobre 7 días, con cuántos día
   assert.equal(s.diasAnotados, 3)
   assert.match(saludParaPrompt(db, new Date(2026, 10, 12, 12).getTime()), /371\.7 kcal por día en promedio de 7 \(3 de 7 días/)
 })
+
+test('#268: un ejercicio con una duración que no cierra (10 min para 14,76 km y 19.528 pasos) se estima, queda dudoso y avisa; corregirlo aplica los datos (sueltos o anidados) y el tipo', async () => {
+  const { HERRAMIENTAS } = await import('../src/chat/herramientas.ts')
+  const db = abrir(':memory:')
+  const r = registrarSalud(db, { tipo: 'ejercicio', titulo: 'Caminata', fecha: '2026-11-13', datos: { minutos: 10, distancia_km: 14.76, pasos: 19528 } })
+  assert.equal(r.datos.minutos, 170, '19.528 pasos a ~115 por minuto')
+  assert.equal(r.datos.minutos_leidos, 10)
+  assert.match(String(r.datos.sospechoso), /no cierra con 19528 pasos: estimé 170 min/)
+  const bien = registrarSalud(db, { tipo: 'ejercicio', titulo: 'Correr', fecha: '2026-11-13', datos: { minutos: 30, distancia_km: 5, pasos: 4800 } })
+  assert.equal(bien.datos.sospechoso, undefined, 'lo que cierra no se toca')
+
+  const corregir = HERRAMIENTAS.find((h) => h.nombre === 'corregir_registro_salud')!
+  const x = await corregir.ejecutar({ id: r.id, datos: { minutos: 165, kcal: 900 } }, { db } as any) as any
+  assert.deepEqual([x.corregido.datos.minutos, x.corregido.datos.kcal, x.corregido.datos.sospechoso], [165, 900, undefined], 'anidados, aplicados; ya no es dudoso')
+  const otro = registrarSalud(db, { tipo: 'otro', titulo: 'Actividad', fecha: '2026-11-13' })
+  const y = await corregir.ejecutar({ id: otro.id, minutos: 40 }, { db } as any) as any
+  assert.match(y.aviso, /No apliqué minutos: no son campos de un registro de otro/, 'lo que no aplica, lo dice')
+  const z = await corregir.ejecutar({ id: otro.id, tipo: 'ejercicio', minutos: 40 }, { db } as any) as any
+  assert.deepEqual([z.corregido.tipo, z.corregido.datos.minutos], ['ejercicio', 40])
+})
