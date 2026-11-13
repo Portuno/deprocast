@@ -157,6 +157,9 @@ export function lineamientos(seccion?: string) {
 
 // ─── el catálogo ────────────────────────────────────────────────────────
 
+/** El tema o nombre de lo que se crea, venga con el nombre de parámetro que venga (el modelo no siempre usa el documentado). */
+const temaDe = (a: Record<string, any>): string => String(a.tema ?? a.nombre ?? a.titulo ?? a.dominio ?? a.que ?? a.aprender ?? a.tema_a_aprender ?? '').trim()
+
 export const HERRAMIENTAS: Herramienta[] = [
   // Lectura
   {
@@ -1036,11 +1039,27 @@ ${a.detalle ?? ''}`)
     resumen: (_, r) => (r?.deshechas?.length ? `deshizo: ${recorte(r.deshechas.join(' · '), 60)}` : 'no había nada para deshacer'),
   },
   {
+    nombre: 'crear_dominio', familia: 'accion',
+    descripcion: 'Crea un dominio entero de una vez (Fragua #269): el dominio de la Academia (para aprenderlo con el tutor), su entidad en el grafo y su fuente en el corpus (para que lo que entre con esa etiqueta tenga dónde vivir). Usalo cuando pida «creame el dominio X».',
+    parametros: S({ nombre: str('El nombre del dominio («Energía y almacenamiento»)'), descripcion: str('De qué trata y para qué lo quiere'), nivel: str('Nivel por defecto de lo que entre a su fuente', { enum: NIVEL_ENUM }) }, ['nombre']),
+    ejecutar: async (a, { db }) => {
+      const nombre = temaDe(a)
+      if (!nombre) return { error: 'Falta el parámetro «nombre»: cómo se llama el dominio.' }
+      const ap = crearAprendizaje(db, { tema: nombre, porQue: a.descripcion ?? null })
+      const fuente = asegurarFuente(db, { nombre, nivel: NIVEL_ENUM.includes(a.nivel) ? a.nivel : 'primaria', descripcion: a.descripcion ?? `Lo que entra del dominio «${nombre}».` })
+      return { dominio: nombre, academia: { id: ap.id, nuevo: ap.nuevo }, fuente: fuente.id ?? fuente, nota: 'Quedó en la Academia (Aprender), en el grafo como dominio y como fuente del corpus.' }
+    },
+    resumen: (a) => `creó el dominio ${a.nombre ?? a.titulo ?? ''}`,
+  },
+  {
     nombre: 'crear_aprendizaje', familia: 'accion',
     descripcion: 'Anota algo que quiere aprender (un tema o una habilidad), con por qué y hasta dónde quiere llegar.',
     parametros: S({ tema: str('Corto: «Francés», «SQL», «Teórico de conducir»'), por_que: str('Para qué'), nivel_actual: str('Dónde está hoy'), nivel_objetivo: str('Hasta dónde quiere llegar') }, ['tema']),
     ejecutar: async (a, { db }) => {
-      const r = crearAprendizaje(db, { tema: a.tema, porQue: a.por_que, nivelActual: a.nivel_actual, nivelObjetivo: a.nivel_objetivo })
+      // El modelo a veces lo manda con otro nombre (titulo, nombre, dominio, que…): se acepta igual (Fragua #269).
+      const tema = temaDe(a)
+      if (!tema) return { error: 'Falta el parámetro «tema»: qué quiere aprender, corto («Francés», «Energía y almacenamiento»).' }
+      const r = crearAprendizaje(db, { tema, porQue: a.por_que ?? a.porque ?? a.descripcion, nivelActual: a.nivel_actual, nivelObjetivo: a.nivel_objetivo })
       // Arranque al 20 %: lo que ya hizo hacia esto (decíselo: «ya empezaste»).
       const ev = await import('../evidencia.ts')
       const previos = await ev.buscarPrevios(db, 'aprendizaje', r.id, `${r.tema}. ${r.porQue ?? ''}`).catch(() => [])
@@ -2312,9 +2331,9 @@ export const NUCLEO = [
 ]
 export const GRUPOS: Record<string, string[]> = {
   liga: ['crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'ver_banco_de_pruebas', 'correr_banco_de_pruebas', 'comparar_motores', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
-  corpus: ['al_diario', 'ver_diario', 'retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
+  corpus: ['al_diario', 'ver_diario', 'crear_dominio', 'retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_criterios', 'fijar_criterio', 'ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['ficha_empresa', 'responder_pregunta', 'votar_criba', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_hipotesis', 'probar_hipotesis', 'ver_recorrido', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas'],
+  vida: ['ficha_empresa', 'responder_pregunta', 'votar_criba', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'crear_dominio', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_hipotesis', 'probar_hipotesis', 'ver_recorrido', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas'],
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado', 'borrar_programado'],
   correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'marcar_correo_atendido', 'buscar_contacto'],
   drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'borrar_de_drive', 'barrer_documentos_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],
