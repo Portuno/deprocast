@@ -137,7 +137,9 @@ export async function prsMergeadosDesde(desde: string): Promise<CommitRef[]> {
 
 // ─── el taller de copia ─────────────────────────────────────────────────
 
-const COPIAR = ['src', 'web', 'test', 'scripts', 'docs', 'package.json', 'tsconfig.json', 'README.md']
+// apps/movil/src: el test de la app nativa compara su conciencia acústica con la del servidor; sin ella, toda forja de la
+// nube fallaba ese test aunque no tocara nada de eso (forjas #14–#17, Fragua #266). Solo el código: ni dist ni node_modules.
+const COPIAR = ['src', 'web', 'test', 'scripts', 'docs', 'apps/movil/src', 'package.json', 'tsconfig.json', 'README.md']
 
 /** Copia el código que está corriendo a un taller aparte (con los node_modules prestados). */
 export function prepararCopia(origen: string, destino: string) {

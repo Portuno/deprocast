@@ -126,3 +126,20 @@ test('la prueba de humo dice que no si el servidor no levanta; el diff sin git m
   assert.equal(diffDe('a.ts', 'uno\ndos\ntres\n', 'uno\nDOS\ntres\n'), '--- a/a.ts\n+++ b/a.ts\n@@ -1,3 +1,3 @@\n uno\n-dos\n+DOS\n tres')
   assert.match(diffDe('nuevo.ts', null, 'hola\n'), /^--- \/dev\/null\n\+\+\+ b\/nuevo\.ts/)
 })
+
+test('#266: la copia de la nube para forjar lleva el código de la app nativa (su test compara la conciencia acústica), sin dist ni node_modules', async () => {
+  const { prepararCopia, borrarCopia } = await import('../src/fragua-nube.ts')
+  const fs = await import('node:fs')
+  const os = await import('node:os')
+  const path = await import('node:path')
+  const origen = fs.mkdtempSync(path.join(os.tmpdir(), 'forja-origen-'))
+  for (const f of ['src/conciencia/acustica.ts', 'apps/movil/src/conciencia/acustica.ts', 'apps/movil/dist/bundle.js', 'apps/movil/App.tsx', 'test/movil.test.ts']) {
+    fs.mkdirSync(path.dirname(path.join(origen, f)), { recursive: true })
+    fs.writeFileSync(path.join(origen, f), 'x')
+  }
+  const destino = path.join(os.tmpdir(), `forja-copia-${Date.now()}`)
+  prepararCopia(origen, destino)
+  assert.ok(fs.existsSync(path.join(destino, 'apps/movil/src/conciencia/acustica.ts')))
+  assert.ok(!fs.existsSync(path.join(destino, 'apps/movil/dist')), 'lo armado no viaja')
+  borrarCopia(destino)
+})
