@@ -18,6 +18,14 @@
         "buildType": "apk"
       },
       "channel": "preview"
+    },
+    "production": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk",
+        "credentialsSource": "remote"
+      },
+      "channel": "production"
     }
   }
 }
