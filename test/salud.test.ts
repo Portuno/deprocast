@@ -159,3 +159,13 @@ test('telegram: los botones de sueño, el freno a los repetidos y un solo dueño
   delete process.env.MASTRO_TELEGRAM
   assert.equal(telegramActivo(), true)
 })
+
+test('#249: el promedio de kcal de la semana es sobre 7 días, con cuántos días tienen comidas al lado', () => {
+  const db = abrir(':memory:')
+  const dia = (f: string, kcal: number) => registrarSalud(db, { tipo: 'comida', titulo: 'Comida', fecha: f, datos: { kcal, proteina: 10 } })
+  dia('2026-11-08', 2280); dia('2026-11-11', 320); dia('2026-11-12', 2)
+  const s = resumenSemana(db, '2026-11-12')
+  assert.equal(s.kcalPromedio, 371.7, '2602 / 7, no / 3')
+  assert.equal(s.diasAnotados, 3)
+  assert.match(saludParaPrompt(db, new Date(2026, 10, 12, 12).getTime()), /371\.7 kcal por día en promedio de 7 \(3 de 7 días/)
+})

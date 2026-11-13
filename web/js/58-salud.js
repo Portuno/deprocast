@@ -105,7 +105,7 @@ async function pintarSalud() {
       <div class="sal-semana">${semana.dias.map((x) => `<div class="sal-col ${x.fecha === saludFecha ? 'hoy' : ''}" data-ir="${x.fecha}" title="${x.kcal} kcal · ${x.proteina} g prot · ${x.minutos} min${x.sueno != null ? ` · ${x.sueno} h de sueño` : ''}">
         <div class="sal-col-barra"><i style="height:${Math.round((x.kcal / max) * 100)}%"></i>${m.kcal ? `<s style="bottom:${Math.round((m.kcal / max) * 100)}%"></s>` : ''}</div>
         <small>${new Date(`${x.fecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'short' })}</small><small>${x.entreno ? '💪' : '·'}${x.sueno != null ? ` ${x.sueno}h` : ''}</small></div>`).join('')}</div>
-      <p class="tenue chico">${semana.kcalPromedio != null ? `${semana.kcalPromedio} kcal y ${semana.proteinaPromedio} g de proteína por día anotado · ` : ''}${semana.minutos} min de ejercicio en ${semana.entrenos} días</p></section>`
+      <p class="tenue chico">${semana.kcalPromedio != null ? `${semana.kcalPromedio} kcal y ${semana.proteinaPromedio} g de proteína por día (promedio de 7; ${semana.diasAnotados} de 7 días anotados) · ` : ''}${semana.minutos} min de ejercicio en ${semana.entrenos} días</p></section>`
   $$('[data-dia]', cont).forEach((b) => (b.onclick = () => { saludFecha = b.dataset.dia === 'hoy' ? hoyISO() : corrDia(saludFecha, Number(b.dataset.dia)); pintarSalud() }))
   $$('[data-ir]', cont).forEach((b) => (b.onclick = () => { saludFecha = b.dataset.ir; pintarSalud() }))
   $$('[data-dormi]', cont).forEach((b) => (b.onclick = async () => { try { await api('/salud', { tipo: 'sueno', fecha: saludFecha, datos: { horas: Number(b.dataset.dormi) } }); pintarSalud() } catch (e) { error(e) } }))

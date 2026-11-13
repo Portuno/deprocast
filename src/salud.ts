@@ -144,7 +144,11 @@ export function resumenSemana(db: Db, hasta = fechaLocal()) {
   const pesoIni = pesoHasta(db, corrida(hasta, -7))
   return {
     desde: dias[0].fecha, hasta, dias, metas: metasSalud(db),
-    kcalPromedio: prom(conComida.map((d) => d.kcal)), proteinaPromedio: prom(conComida.map((d) => d.proteina)),
+    // Sobre los 7 días, no sobre los anotados (Fragua #249): con un día completo y dos sueltos, el promedio por día
+    // anotado inflaba la cifra. Al lado va cuántos días tienen comidas, para que no se lea como consumo diario.
+    kcalPromedio: conComida.length ? Math.round((dias.reduce((s, d) => s + d.kcal, 0) / 7) * 10) / 10 : null,
+    proteinaPromedio: conComida.length ? Math.round((dias.reduce((s, d) => s + d.proteina, 0) / 7) * 10) / 10 : null,
+    diasAnotados: conComida.length,
     entrenos: dias.filter((d) => d.entreno).length, minutos: dias.reduce((s, d) => s + d.minutos, 0),
     suenoPromedio: prom(conSueno.map((d) => d.sueno!)),
     peso: pesoFin ? { actual: pesoFin.peso, cambio: pesoIni && pesoIni.fecha !== pesoFin.fecha ? Math.round((pesoFin.peso - pesoIni.peso) * 10) / 10 : null } : null,
@@ -171,7 +175,7 @@ export function saludParaPrompt(db: Db, ahora = Date.now()): string {
   return [
     'Su cuerpo:',
     linea(ayer, 'Ayer'), linea(hoy, 'Hoy hasta ahora'),
-    `Semana: ${s.entrenos} días con ejercicio${s.metas.entrenos ? ` de ${s.metas.entrenos}` : ''}${s.suenoPromedio != null ? `, duerme ${s.suenoPromedio} h en promedio${s.metas.sueno ? ` (meta ${s.metas.sueno})` : ''}` : ''}${s.kcalPromedio != null ? `, ${s.kcalPromedio} kcal por día anotado` : ''}.`,
+    `Semana: ${s.entrenos} días con ejercicio${s.metas.entrenos ? ` de ${s.metas.entrenos}` : ''}${s.suenoPromedio != null ? `, duerme ${s.suenoPromedio} h en promedio${s.metas.sueno ? ` (meta ${s.metas.sueno})` : ''}` : ''}${s.kcalPromedio != null ? `, ${s.kcalPromedio} kcal por día en promedio de 7 (${s.diasAnotados} de 7 días con comidas anotadas)` : ''}.`,
     s.peso ? `Peso: ${s.peso.actual} kg${s.peso.cambio != null ? ` (${s.peso.cambio > 0 ? '+' : ''}${s.peso.cambio} en la semana)` : ''}${s.metas.peso ? `, objetivo ${s.metas.peso}` : ''}.` : '',
   ].filter(Boolean).join(' ')
 }
