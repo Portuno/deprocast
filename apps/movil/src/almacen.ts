@@ -23,6 +23,8 @@ async function base(): Promise<SQLite.SQLiteDatabase> {
       CREATE TABLE IF NOT EXISTS cola (id INTEGER PRIMARY KEY AUTOINCREMENT, texto TEXT NOT NULL, en INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS estado (clave TEXT PRIMARY KEY, valor TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS voz_cola (id INTEGER PRIMARY KEY AUTOINCREMENT, uri TEXT NOT NULL, meta TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS tramos_en_curso (id TEXT PRIMARY KEY, uri TEXT NOT NULL, inicio INTEGER NOT NULL, meta TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS capas_cola (minuto INTEGER PRIMARY KEY, datos TEXT NOT NULL);
     `)
     // Columnas nuevas (1.0) sobre una base que ya existía: si ya están, el ALTER falla y no pasa nada.
     for (const sql of ['ALTER TABLE cola ADD COLUMN clave TEXT', 'ALTER TABLE voz_cola ADD COLUMN intentos INTEGER NOT NULL DEFAULT 0']) {
@@ -114,7 +116,42 @@ export async function sacarVoz(id: number) {
   await (await base()).runAsync('DELETE FROM voz_cola WHERE id = ?', id)
 }
 
+// ─── los tramos y las capas en disco (Mobile 1.0, bloque 2) ─────────────
+
+/** Un tramo que empieza a grabarse queda anotado: si la app se corta, al abrir se recupera. */
+export async function anotarTramo(id: string, uri: string, inicio: number, meta: unknown) {
+  await (await base()).runAsync('INSERT OR REPLACE INTO tramos_en_curso (id, uri, inicio, meta) VALUES (?, ?, ?, ?)', id, uri, inicio, JSON.stringify(meta))
+}
+/** El tramo terminó: sale de «en curso» y, si vale, entra a la cola (en la misma transacción: nunca queda en ninguna). */
+export async function cerrarTramoEnDisco(id: string, encolarCon: { uri: string; meta: unknown } | null) {
+  const d = await base()
+  await d.withTransactionAsync(async () => {
+    await d.runAsync('DELETE FROM tramos_en_curso WHERE id = ?', id)
+    if (encolarCon) await d.runAsync('INSERT INTO voz_cola (uri, meta) VALUES (?, ?)', encolarCon.uri, JSON.stringify(encolarCon.meta))
+  })
+}
+export async function tramosEnCurso(): Promise<{ id: string; uri: string; inicio: number; meta: string }[]> {
+  return (await base()).getAllAsync('SELECT id, uri, inicio, meta FROM tramos_en_curso')
+}
+export async function urisEnCola(): Promise<Set<string>> {
+  return new Set((await (await base()).getAllAsync<{ uri: string }>('SELECT uri FROM voz_cola')).map((r) => r.uri))
+}
+
+/** Los minutos de tu día en capas esperan acá (no en memoria: un cierre de la app los perdía), hasta 12 horas. */
+export async function guardarMinuto(minuto: number, datos: unknown) {
+  const d = await base()
+  await d.runAsync('INSERT OR REPLACE INTO capas_cola (minuto, datos) VALUES (?, ?)', minuto, JSON.stringify(datos))
+  await d.runAsync('DELETE FROM capas_cola WHERE minuto < ?', Date.now() - 12 * 3_600_000)
+}
+export async function minutosEnCola(max = 240): Promise<{ minuto: number; datos: string }[]> {
+  return (await base()).getAllAsync('SELECT minuto, datos FROM capas_cola ORDER BY minuto LIMIT ?', max)
+}
+export async function sacarMinutos(minutos: number[]) {
+  const d = await base()
+  await d.withTransactionAsync(async () => { for (const m of minutos) await d.runAsync('DELETE FROM capas_cola WHERE minuto = ?', m) })
+}
+
 /** Al desvincular: se borra todo lo local. */
 export async function borrarTodo() {
-  await (await base()).execAsync('DELETE FROM mensajes; DELETE FROM cola; DELETE FROM estado; DELETE FROM voz_cola;')
+  await (await base()).execAsync('DELETE FROM mensajes; DELETE FROM cola; DELETE FROM estado; DELETE FROM voz_cola; DELETE FROM tramos_en_curso; DELETE FROM capas_cola;')
 }

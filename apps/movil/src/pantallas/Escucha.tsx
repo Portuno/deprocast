@@ -25,7 +25,7 @@ const hora = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
 
 export function Escucha({ c }: { c: Credenciales }) {
   const t = useTema()
-  const { activa, lectura: l, envios, error, empezar, parar, conversacion, setConversacion, ultimo } = useEscucha(c)
+  const { activa, lectura: l, enCola, error, empezar, parar, conversacion, setConversacion, ultimo } = useEscucha(c)
   const [turnos, setTurnos] = useState<Turno[]>([])
   const [elegido, setElegido] = useState<Hablante | null>(null)
 
@@ -52,7 +52,7 @@ export function Escucha({ c }: { c: Credenciales }) {
       <Pressable onPress={activa ? parar : empezar} style={[s.boton, { backgroundColor: activa ? t.panel : t.acento, borderColor: t.linea }]} accessibilityRole="button">
         <Text style={{ color: activa ? t.texto : t.sobreAcento, fontWeight: '700', fontSize: 16 }}>{activa ? '■ Dejar de escuchar' : '● Escuchar'}</Text>
       </Pressable>
-      {envios.some((e) => e.error) ? <Text style={[s.dato, { color: t.tenue }]}>{envios.filter((e) => e.error).length} tramo(s) en cola: salen cuando vuelva la red.</Text> : null}
+      {enCola ? <Text style={[s.dato, { color: t.tenue }]}>{enCola} tramo(s) guardados en el teléfono: salen solos cuando haya red.</Text> : null}
 
       <Text style={[s.sub, { color: t.tenue }]}>Lo que se dijo (últimas 24 h)</Text>
       {turnos.length ? [...turnos].reverse().map((x) => (

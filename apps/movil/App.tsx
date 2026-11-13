@@ -8,7 +8,9 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import { estadoRescate, leerCredenciales, olvidarCredenciales, type Credenciales } from './src/api'
 import { borrarTodo, cuantoEnCola } from './src/almacen'
-import { useSincronizacion } from './src/sincronizar'
+import { sincronizar, useSincronizacion } from './src/sincronizar'
+import { recuperarTramos } from './src/tramos'
+import { registrarCapas } from './src/capas'
 import { Vincular } from './src/pantallas/Vincular'
 import { Hoy } from './src/pantallas/Hoy'
 import { Escucha } from './src/pantallas/Escucha'
@@ -28,6 +30,12 @@ export default function App() {
   // La sincronización es de la app, no de una pantalla (Mobile 1.0): corre en Hoy y en Escucha por igual.
   const hayPendientes = useCallback(async () => { const n = await cuantoEnCola(); return n.textos + n.voces > 0 }, [])
   useSincronizacion(c && !rescate ? c : null, hayPendientes)
+  // Al abrir: lo que quedó a medias (la app se cerró grabando) vuelve a la cola, y las capas salen con cada sincronización.
+  useEffect(() => {
+    if (!c) return
+    registrarCapas()
+    void recuperarTramos().then((n) => { if (n) void sincronizar(c) }).catch(() => {})
+  }, [c])
 
   const desvincular = () => Alert.alert('¿Desvincular este teléfono?', 'Se borra el token y todo lo guardado acá. En Deprocast, revocalo también en Apps conectadas.', [
     { text: 'Cancelar', style: 'cancel' },

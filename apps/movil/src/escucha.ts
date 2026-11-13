@@ -3,35 +3,42 @@
  * 100 ms → rasgos (nivel, banda de voz, cruces por cero) → la conciencia acústica, junto con el acelerómetro (caminando,
  * levantado). La grabación de un tramo arranca apenas aparece tu voz directa (así no se pierden las primeras sílabas) y
  * se cierra cuando dejás de hablar; el modo se decide al cerrar, por lo que predominó: dictado → chat de Hoy, escucha →
- * nota de voz. Un ruido suelto se descarta. Cada WAV se sube y se borra; sin red, espera en la cola (y se borra al subir).
+ * nota de voz. Un ruido suelto se descarta.
  *
- * Tu día en capas (plan v38, fase 6): mientras escucha, junta cada minuto cuánto hablaste, cuánto escuchaste, ruido y
- * silencio, el nivel de tu voz y del ambiente, los pasos y (si diste el permiso) dónde estabas. Solo números: cada 5
- * minutos salen al servidor; sin red, esperan (hasta 12 horas).
+ * Mobile 1.0 (bloque 2): cada tramo se graba a su propio archivo en la carpeta de documentos y queda anotado «en curso»
+ * antes de empezar (si la app se corta, al abrir se recupera); se cierra al dejar de hablar, al cambiar de app o al
+ * minuto, lo que pase primero; al cerrarse entra a la cola en disco y sale con la sincronización de la app (con su clave:
+ * si el teléfono reintenta, el servidor no lo duplica). Nada se sube directo: primero a disco, después a la red.
+ *
+ * Tu día en capas (plan v38, fase 6): cada minuto, cuánto hablaste, cuánto escuchaste, ruido y silencio, el nivel de tu
+ * voz y del ambiente, los pasos y (si diste el permiso) dónde estabas. Solo números, a la cola en disco.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { AppState } from 'react-native'
 import { requestRecordingPermissionsAsync, setAudioModeAsync, useAudioStream, type AudioStreamBuffer } from 'expo-audio'
 import { Accelerometer } from 'expo-sensors'
+import { File } from 'expo-file-system'
 import { crearConciencia, type Lectura } from './conciencia/acustica'
 import { crearRasgos } from './conciencia/rasgos'
 import { crearMovimiento } from './conciencia/movimiento'
-import { subirCapas, subirVoz, type Credenciales, type MinutoCapa } from './api'
-import { encolarVoz } from './almacen'
+import { type Credenciales, type MinutoCapa } from './api'
+import { anotarTramo, cerrarTramoEnDisco, cuantoEnCola, guardarMinuto } from './almacen'
+import { alCambiar, sincronizar } from './sincronizar'
+import { archivoParaTramo } from './tramos'
+import { claveNueva } from './logica/sincro'
+import { debeCerrar } from './logica/tramos'
 
-export type Envio = { en: number; modo: 'dictado' | 'pasivo' | 'conversacion'; texto: string | null; error?: string }
+export type Envio = { en: number; modo: string; texto: string | null; error?: string }
 const CUADRO_MS = 100
 const FIN_MS = 1500 // sin tu voz directa este tiempo, el tramo se cierra
-const MAX_MS = 60_000 // un tramo larguísimo se corta igual
 const MIN_MS = 700 // menos que esto no es habla
-// En conversación se corta por turnos: una pausa más corta y tramos más cortos (para saber quién dijo qué).
+// En conversación se corta por turnos: una pausa más corta (para saber quién dijo qué).
 const FIN_CONV_MS = 800
-const MAX_CONV_MS = 20_000
-const CAPAS_CADA = 5 // minutos juntos por envío
-const CAPAS_TOPE = 720 // sin red, hasta 12 horas esperando
 
 type Acumulado = { minuto: number; hablo: number; escucho: number; ruido: number; silencio: number; voz: number; vozN: number; cerca: number; cercaN: number; piso: number; pisoN: number; pasos0: number; caminando: number }
 const nuevoMinuto = (t: number, pasos: number): Acumulado => ({ minuto: Math.floor(t / 60_000) * 60_000, hablo: 0, escucho: 0, ruido: 0, silencio: 0, voz: 0, vozN: 0, cerca: 0, cercaN: 0, piso: 0, pisoN: 0, pasos0: pasos, caminando: 0 })
 const prom = (s: number, n: number) => (n ? Math.round((s / n) * 10) / 10 : null)
+type Tramo = { id: string; uri: string; inicio: number; ultimaVoz: number; dictado: number; escucha: number; ruido: number; voz: number; caminando: boolean; conv: boolean; grabando: Promise<unknown> }
 
 export function useEscucha(c: Credenciales | null) {
   const [activa, setActiva] = useState(false)
@@ -41,24 +48,24 @@ export function useEscucha(c: Credenciales | null) {
   const [ultimo, setUltimo] = useState(0)
   const [lectura, setLectura] = useState<Lectura | null>(null)
   const [envios, setEnvios] = useState<Envio[]>([])
+  const [enCola, setEnCola] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const estado = useRef({
     conciencia: crearConciencia(), rasgos: null as ReturnType<typeof crearRasgos> | null, mov: crearMovimiento(),
-    pendiente: new Float32Array(0), sr: 16000, t0: 0, caminando: false as boolean | null, levantado: false,
-    tramo: null as null | { inicio: number; ultimaVoz: number; dictado: number; escucha: number; ruido: number; voz: number; caminando: boolean; conv: boolean },
+    pendiente: new Float32Array(0), sr: 16000, caminando: false as boolean | null, levantado: false,
+    tramo: null as Tramo | null,
     ocupado: false,
-    pasos: 0, acum: null as Acumulado | null, capas: [] as MinutoCapa[], ubic: null as null | { lat: number; lon: number; precision: number | null; t: number },
-    ubicSub: null as null | { remove: () => void }, enviando: false,
+    pasos: 0, acum: null as Acumulado | null, ubic: null as null | { lat: number; lon: number; precision: number | null; t: number },
+    ubicSub: null as null | { remove: () => void },
   })
 
-  /** Cierra el minuto en curso y, cada tanto, manda lo juntado (sin red queda esperando). */
-  const enviarCapas = useCallback(async (todo = false) => {
-    const e = estado.current
-    if (!c || e.enviando || !e.capas.length || (!todo && e.capas.length < CAPAS_CADA)) return
-    e.enviando = true
-    const lote = e.capas.slice(0, 240)
-    try { await subirCapas(c, lote); e.capas.splice(0, lote.length) } catch { /* sin red: siguen esperando */ } finally { e.enviando = false }
-  }, [c])
+  // Lo que sube la sincronización de la app (de cualquier pantalla) aparece en «lo que se dijo».
+  useEffect(() => alCambiar((r) => {
+    if (r.subidos.length) { setEnvios((xs) => [...r.subidos.map((s) => ({ en: Date.now(), modo: s.modo, texto: s.texto })), ...xs].slice(0, 20)); setUltimo(Date.now()) }
+    void cuantoEnCola().then((n) => setEnCola(n.voces))
+  }), [])
+
+  /** Cierra el minuto en curso: a la cola en disco (sale con la próxima sincronización). */
   const cerrarMinuto = useCallback((t: number) => {
     const e = estado.current
     const a = e.acum
@@ -66,37 +73,33 @@ export function useEscucha(c: Credenciales | null) {
     if (!a) return
     const u = e.ubic && t - e.ubic.t < 180_000 ? e.ubic : null
     const seg = (n: number) => Math.min(60, Math.round(n / 10)) // cuadros de 100 ms → segundos
-    e.capas.push({
+    const m: MinutoCapa = {
       minuto: a.minuto, hablo: seg(a.hablo), escucho: seg(a.escucho), ruido: seg(a.ruido), silencio: seg(a.silencio),
       vozDb: prom(a.voz, a.vozN), vozCercaDb: prom(a.cerca, a.cercaN), pisoDb: prom(a.piso, a.pisoN),
       pasos: Math.max(0, e.pasos - a.pasos0), caminando: seg(a.caminando), lat: u?.lat ?? null, lon: u?.lon ?? null, precision: u?.precision ?? null,
-    })
-    if (e.capas.length > CAPAS_TOPE) e.capas.splice(0, e.capas.length - CAPAS_TOPE)
-    void enviarCapas()
-  }, [enviarCapas])
+    }
+    void guardarMinuto(m.minuto, m).catch(() => {})
+  }, [])
 
+  /** Cierra el tramo en curso: el archivo queda terminado y entra a la cola (o se borra, si no era habla). */
   const cerrarTramo = useCallback(async () => {
     const e = estado.current
     const tramo = e.tramo
     e.tramo = null
     if (!tramo) return
-    let uri: string
-    try { uri = (await stream.stopFileRecordingAsync()).uri } catch { return }
+    await tramo.grabando.catch(() => {})
+    try { await stream.stopFileRecordingAsync() } catch { /* no había grabación: el archivo, si existe, lo recupera el próximo arranque */ }
     const dur = tramo.ultimaVoz - tramo.inicio
     const modo = tramo.conv ? 'conversacion' as const : tramo.dictado >= tramo.escucha ? 'dictado' as const : 'pasivo' as const
-    const { File } = await import('expo-file-system')
     const poca = tramo.conv ? tramo.voz < 4 : tramo.dictado + tramo.escucha < 4
-    if (dur < MIN_MS || poca || !c) { try { new File(uri).delete() } catch { /* ya no está */ } return }
-    const meta = { modo, inicio: tramo.inicio, fin: tramo.ultimaVoz, caminando: tramo.caminando }
-    try {
-      const r = await subirVoz(c, uri, meta)
-      setEnvios((xs) => [{ en: Date.now(), modo, texto: r.texto }, ...xs].slice(0, 20))
-      setUltimo(Date.now()) // la lista de lo que se dijo se pone al día
-      try { new File(uri).delete() } catch { /* ya no está */ }
-    } catch (err) {
-      await encolarVoz(uri, meta) // sin red: queda en la cola y sale en la próxima sincronización
-      setEnvios((xs) => [{ en: Date.now(), modo, texto: null, error: err instanceof Error ? err.message : String(err) }, ...xs].slice(0, 20))
+    if (dur < MIN_MS || poca || !c) {
+      try { new File(tramo.uri).delete() } catch { /* ya no está */ }
+      await cerrarTramoEnDisco(tramo.id, null)
+      return
     }
+    await cerrarTramoEnDisco(tramo.id, { uri: tramo.uri, meta: { id: tramo.id, modo, inicio: tramo.inicio, fin: tramo.ultimaVoz, caminando: tramo.caminando } })
+    setEnCola((n) => n + 1)
+    void sincronizar(c) // a disco primero; a la red, en cuanto se pueda
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [c])
 
@@ -122,9 +125,14 @@ export function useEscucha(c: Credenciales | null) {
     const hayVoz = conv ? r.voz >= 0.6 && l.snr >= 3 : l.fuente === 'voz_directa'
     if (hayVoz) {
       if (!e.tramo) {
-        e.tramo = { inicio: t, ultimaVoz: t, dictado: 0, escucha: 0, ruido: 0, voz: 0, caminando: !!e.caminando, conv }
+        const id = claveNueva(t)
+        const uri = archivoParaTramo(id)
+        const meta = { modo: l.estado === 'dictado' ? 'dictado' : 'pasivo', caminando: !!e.caminando, conv }
+        // Primero anotado en disco, después a grabar: si la app se corta, el tramo se recupera al abrir.
+        const grabando = anotarTramo(id, uri, t, meta).then(() => stream.startFileRecordingAsync({ format: 'wav', uri }))
+        e.tramo = { id, uri, inicio: t, ultimaVoz: t, dictado: 0, escucha: 0, ruido: 0, voz: 0, caminando: !!e.caminando, conv, grabando }
         e.ocupado = true
-        void stream.startFileRecordingAsync({ format: 'wav' }).catch(() => { e.tramo = null }).finally(() => { e.ocupado = false })
+        void grabando.catch(() => { if (e.tramo?.id === id) e.tramo = null; void cerrarTramoEnDisco(id, null) }).finally(() => { e.ocupado = false })
         return
       }
       e.tramo.ultimaVoz = t
@@ -134,7 +142,7 @@ export function useEscucha(c: Credenciales | null) {
       if (l.estado === 'dictado') e.tramo.dictado++
       else if (l.estado === 'escucha') e.tramo.escucha++
       else e.tramo.ruido++
-      if (t - e.tramo.ultimaVoz > (e.tramo.conv ? FIN_CONV_MS : FIN_MS) || t - e.tramo.inicio > (e.tramo.conv ? MAX_CONV_MS : MAX_MS)) {
+      if (debeCerrar(e.tramo, t, e.tramo.conv ? FIN_CONV_MS : FIN_MS, false)) {
         e.ocupado = true
         void cerrarTramo().finally(() => { e.ocupado = false })
       }
@@ -169,6 +177,16 @@ export function useEscucha(c: Credenciales | null) {
     return () => sub.remove()
   }, [activa])
 
+  // Al cambiar de app (o bloquear la pantalla), el tramo en curso se cierra: queda entero en la cola y la escucha sigue.
+  useEffect(() => {
+    if (!activa) return
+    const app = AppState.addEventListener('change', (s) => {
+      const e = estado.current
+      if (s !== 'active' && e.tramo && !e.ocupado) { e.ocupado = true; void cerrarTramo().finally(() => { e.ocupado = false }) }
+    })
+    return () => app.remove()
+  }, [activa, cerrarTramo])
+
   const empezar = useCallback(async () => {
     setError(null)
     const p = await requestRecordingPermissionsAsync()
@@ -180,7 +198,7 @@ export function useEscucha(c: Credenciales | null) {
     e.pendiente = new Float32Array(0)
     e.acum = null
     try { await stream.start(); setActiva(true) } catch (err) { return setError(err instanceof Error ? err.message : String(err)) }
-    // La ubicación, si la app la tiene (llega con la versión instalada que trae el módulo) y diste el permiso.
+    // La ubicación, si la app la tiene y diste el permiso.
     try {
       const L = await import('expo-location')
       const pl = await L.requestForegroundPermissionsAsync()
@@ -193,11 +211,11 @@ export function useEscucha(c: Credenciales | null) {
     if (e.tramo) await cerrarTramo()
     stream.stop()
     if (e.acum) { cerrarMinuto(Date.now()); e.acum = null }
-    void enviarCapas(true)
     e.ubicSub?.remove(); e.ubicSub = null
     setActiva(false)
     setLectura(null)
-  }, [stream, cerrarTramo, cerrarMinuto, enviarCapas])
+    if (c) void sincronizar(c)
+  }, [stream, cerrarTramo, cerrarMinuto, c])
 
-  return { activa, lectura, envios, error, empezar, parar, conversacion, setConversacion, ultimo }
+  return { activa, lectura, envios, enCola, error, empezar, parar, conversacion, setConversacion, ultimo }
 }
