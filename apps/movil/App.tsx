@@ -2,12 +2,13 @@
  * Deprocast en el teléfono (plan v33, paso 2). Sin vincular: la pantalla de Vincular. Vinculado: Hoy (el chat,
  * local-first) y Escucha (la conciencia acústica). Desvincular borra el token y todo lo guardado en el teléfono.
  */
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import { estadoRescate, leerCredenciales, olvidarCredenciales, type Credenciales } from './src/api'
-import { borrarTodo } from './src/almacen'
+import { borrarTodo, cuantoEnCola } from './src/almacen'
+import { useSincronizacion } from './src/sincronizar'
 import { Vincular } from './src/pantallas/Vincular'
 import { Hoy } from './src/pantallas/Hoy'
 import { Escucha } from './src/pantallas/Escucha'
@@ -24,6 +25,9 @@ export default function App() {
   useEffect(() => { void leerCredenciales().then(setC) }, [])
   // Un teléfono recién vinculado (o que quedó a mitad) pasa primero por el rescate. Sin red, se sigue y se pregunta después.
   useEffect(() => { if (c) void estadoRescate(c).then((r) => setRescate(r.estado === 'rescate')).catch(() => {}) }, [c])
+  // La sincronización es de la app, no de una pantalla (Mobile 1.0): corre en Hoy y en Escucha por igual.
+  const hayPendientes = useCallback(async () => { const n = await cuantoEnCola(); return n.textos + n.voces > 0 }, [])
+  useSincronizacion(c && !rescate ? c : null, hayPendientes)
 
   const desvincular = () => Alert.alert('¿Desvincular este teléfono?', 'Se borra el token y todo lo guardado acá. En Deprocast, revocalo también en Apps conectadas.', [
     { text: 'Cancelar', style: 'cancel' },

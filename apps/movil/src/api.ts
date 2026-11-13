@@ -7,7 +7,19 @@ import { Platform } from 'react-native'
 
 export type Credenciales = { servidor: string; token: string; nombre: string }
 export type MensajeRemoto = { id: number; rol: 'operador' | 'asistente'; texto: string; en: number }
-export type PaqueteHoy = { dispositivo: string; estado?: string; conversacion: number; mensajes: MensajeRemoto[]; paraValidar: number }
+export type PaqueteHoy = { dispositivo: string; estado?: string; conversacion: number; mensajes: MensajeRemoto[]; paraValidar: number; servidorEn?: number; marca?: string }
+
+/** Un error de Deprocast con su código (null = no hubo respuesta: sin red o se cortó por tiempo). */
+export class ErrorApi extends Error {
+  constructor(mensaje: string, readonly status: number | null) { super(mensaje) }
+}
+
+/** Un fetch que no se queda colgado: sin respuesta en ms, se corta (antes un pedido colgado congelaba Hoy). */
+async function conTiempo(url: string, init: RequestInit, ms: number): Promise<Response> {
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), ms)
+  try { return await fetch(url, { ...init, signal: ctrl.signal }) } catch (e) { throw new ErrorApi(ctrl.signal.aborted ? 'Deprocast no contestó a tiempo' : `Sin conexión: ${e instanceof Error ? e.message : String(e)}`, null) } finally { clearTimeout(t) }
+}
 
 const CLAVE = 'deprocast.credenciales'
 
@@ -24,12 +36,12 @@ export function normalizarServidor(s: string): string {
 }
 
 async function pedir<T>(c: Pick<Credenciales, 'servidor' | 'token'> | { servidor: string; token?: string }, ruta: string, init: RequestInit = {}): Promise<T> {
-  const r = await fetch(`${c.servidor}/api/dispositivo/${ruta}`, {
+  const r = await conTiempo(`${c.servidor}/api/dispositivo/${ruta}`, {
     ...init,
     headers: { 'content-type': 'application/json', ...(c.token ? { authorization: `Bearer ${c.token}` } : {}), ...(init.headers as Record<string, string> ?? {}) },
-  })
+  }, 20_000)
   const j = await r.json().catch(() => ({}))
-  if (!r.ok) throw new Error(j.error ?? `Deprocast respondió ${r.status}`)
+  if (!r.ok) throw new ErrorApi(j.error ?? `Deprocast respondió ${r.status}`, r.status)
   return j as T
 }
 
@@ -45,17 +57,20 @@ export async function vincular(servidor: string, codigo: string, nombre: string)
 }
 
 export const traerHoy = (c: Credenciales) => pedir<PaqueteHoy>(c, 'hoy')
+/** La marca barata de «algo cambió en Hoy»: se pregunta cada 5 s con la app abierta. */
+export const traerMarca = (c: Credenciales) => pedir<{ marca: string; servidorEn: number }>(c, 'cambio')
 
-export type MetaVoz = { modo: 'dictado' | 'pasivo' | 'conversacion'; inicio: number; fin: number; caminando: boolean }
+/** id: la clave del tramo (el servidor no lo procesa dos veces si el teléfono reintenta). inicio y fin: hora del teléfono. */
+export type MetaVoz = { modo: 'dictado' | 'pasivo' | 'conversacion'; inicio: number; fin: number; caminando: boolean; id?: string; recuperado?: boolean }
 export type Hablante = { id: number; etiqueta: string; entidadId: number | null; nombre: string | null; tramos: number }
 export type Turno = { id: number; hablante: Hablante | null; texto: string; inicio: number; fin: number | null; modo: string }
 /** Un tramo de tu voz (WAV): Deprocast lo transcribe y lo descarta. Devuelve el texto y a dónde fue. */
 export async function subirVoz(c: Credenciales, uri: string, m: MetaVoz): Promise<{ texto: string; destino: 'chat' | 'nota' | 'conversacion'; hablante?: Hablante | null }> {
   const { File } = await import('expo-file-system')
-  const q = new URLSearchParams({ modo: m.modo, inicio: String(m.inicio), fin: String(m.fin), caminando: m.caminando ? '1' : '0', nombre: 'voz.wav' })
-  const r = await fetch(`${c.servidor}/api/dispositivo/voz?${q}`, { method: 'POST', headers: { authorization: `Bearer ${c.token}`, 'content-type': 'audio/wav' }, body: new File(uri) })
+  const q = new URLSearchParams({ modo: m.modo, inicio: String(m.inicio), fin: String(m.fin), caminando: m.caminando ? '1' : '0', nombre: 'voz.wav', ...(m.id ? { id: m.id } : {}) })
+  const r = await conTiempo(`${c.servidor}/api/dispositivo/voz?${q}`, { method: 'POST', headers: { authorization: `Bearer ${c.token}`, 'content-type': 'audio/wav' }, body: new File(uri) }, 120_000)
   const j = await r.json().catch(() => ({}))
-  if (!r.ok) throw new Error(j.error ?? `Deprocast respondió ${r.status}`)
+  if (!r.ok) throw new ErrorApi(j.error ?? `Deprocast respondió ${r.status}`, r.status)
   return j
 }
 /** Lo último que se dijo (con su hablante) y los hablantes que conoce. */
@@ -64,7 +79,8 @@ export const buscarPersonas = (c: Credenciales, q: string) => pedir<{ personas: 
 /** Ponerle nombre a una voz: una persona de tus entidades, o vos («yo»). */
 export const vincularHablante = (c: Credenciales, id: number, a: { entidadId?: number | null; yo?: boolean }) => pedir<Hablante>(c, `hablantes/${id}`, { method: 'POST', body: JSON.stringify(a) })
 export const olvidarHablante = (c: Credenciales, id: number) => pedir<{ ok: true }>(c, `hablantes/${id}/olvidar`, { method: 'POST', body: '{}' })
-export const mandarMensaje = (c: Credenciales, texto: string) => pedir<{ ok: true }>(c, 'mensaje', { method: 'POST', body: JSON.stringify({ texto }) })
+/** id: la clave del mensaje en la cola (un reintento no lo manda dos veces); en: cuándo lo escribiste (hora del teléfono). */
+export const mandarMensaje = (c: Credenciales, texto: string, o: { id?: string; en?: number } = {}) => pedir<{ ok: true; repetido?: boolean }>(c, 'mensaje', { method: 'POST', body: JSON.stringify({ texto, ...o }) })
 
 /** Un minuto de tu día en capas (plan v38, fase 6): solo números, nunca audio. */
 export type MinutoCapa = {
