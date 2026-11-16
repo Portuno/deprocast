@@ -250,6 +250,11 @@ export const ACCIONES: Acciones = {
     const total = r.poda + r.fusiones + r.puentes
     return total ? `🌙 El Soñador dejó ${total} propuesta${total === 1 ? '' : 's'} en Para validar: ${[r.poda ? `${r.poda} poda${r.poda === 1 ? '' : 's'}` : '', r.fusiones ? `${r.fusiones} para juntar` : '', r.puentes ? `${r.puentes} puente${r.puentes === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')}.` : null
   },
+  /** Al mediodía (Fragua #298): el sueño de anoche, estimado por la actividad (nunca pisa uno anotado). En silencio. */
+  async sueno(db, fecha, ahora) {
+    await (await import('./sueno-estimado.ts')).anotarSuenoEstimado(db, fecha, ahora)
+    return null
+  },
   /** Cada noche (Fragua #286): el día de ayer y de hoy en su diario, hacia arriba hasta el lustro, y 14 días del pasado. */
   async escalas(db, _fecha, ahora) {
     // Primero, cada pieza suya con su lugar (por la hora, contra el recorrido: Fragua #259).

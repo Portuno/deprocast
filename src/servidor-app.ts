@@ -1845,6 +1845,8 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
       const b = JSON.parse((await leerCrudo(req, 64 * 1024)).toString('utf8') || '{}')
       const t = await import('./territorio.ts')
       for (const x of (Array.isArray(b.dias) ? b.dias : [b]).slice(0, 31)) if (x?.fecha && x?.pasos != null) t.anotarPasos(db, `disp:${disp.id}`, String(x.fecha), Number(x.pasos))
+      // Mobile 1.5: también por hora (para el sueño estimado, Fragua #298).
+      if (Array.isArray(b.horas)) t.anotarPasosHora(db, `disp:${disp.id}`, b.horas)
       return responder(200, t.actividadDelDia(db))
     }
     // Mobile 1.3: tu tiempo en el teléfono (pantalla, desbloqueos y cada app, por día) y los avisos que el teléfono programa.

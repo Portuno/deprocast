@@ -80,3 +80,35 @@ test('Mobile 1.3 · compartir: un audio se transcribe y va a Hoy (uno largo qued
   assert.match(avisosHoy.at(-1)!, /📄 Cargué «informe\.pdf»: 3 piezas nuevas\. \(con tu nota: «para el lunes»\)/)
   assert.match(charlas.at(-1)!, /ya está cargado en tu corpus\.\)\npara el lunes/)
 })
+
+test('Fragua #298 · sueño estimado sin reloj: el hueco más largo de la noche, con una mirada al teléfono como interrupción; nunca pisa uno anotado', async () => {
+  const { estimarSueno, anotarSuenoEstimado } = await import('../src/sueno-estimado.ts')
+  const { conversacionHoy } = await import('../src/chat/index.ts')
+  const db = abrir(':memory:')
+  const t = (s: string, dia = '2026-11-16') => new Date(`${dia}T${s}:00`).getTime()
+  // Pantalla: hasta las 00:40 del 16 (sesión de la víspera), una mirada 03:10–03:13, y desde las 07:50.
+  uso.recibirUso(db, 'disp:1', [
+    { fecha: '2026-11-15', pantallaMin: 120, desbloqueos: 30, apps: [], sesiones: [[t('22:00', '2026-11-15'), t('23:59', '2026-11-15')]] },
+    { fecha: '2026-11-16', pantallaMin: 60, desbloqueos: 10, apps: [], sesiones: [[t('00:00'), t('00:40')], [t('03:10'), t('03:13')], [t('07:50'), t('08:20')]] },
+  ] as any)
+  // Un mensaje suyo a las 08:30 (otra fuente).
+  const c = conversacionHoy(db)
+  db.prepare(`INSERT INTO mensajes (conversacion_id, rol, texto, en) VALUES (?, 'operador', 'buen día', ?)`).run(c.id, t('08:30'))
+  const s = estimarSueno(db, '2026-11-16')!
+  assert.equal(s.dormir, '00:40')
+  assert.equal(s.despertar, '07:50')
+  assert.equal(s.interrupciones, 1)
+  assert.equal(s.horas, 7.2)
+  assert.equal(s.confianza, 'alta')
+  assert.deepEqual(s.fuentes.sort(), ['chat', 'pantalla'])
+  await anotarSuenoEstimado(db, '2026-11-16')
+  const r = db.prepare(`SELECT titulo, fuente, datos FROM salud WHERE tipo = 'sueno' AND fecha = '2026-11-16'`).get() as any
+  assert.equal(r.fuente, 'estimado')
+  assert.match(r.titulo, /^Dormiste ~7,2 h \(estimado, 00:40–07:50, 1 interrupción\)$/)
+  assert.equal(JSON.parse(r.datos).origen, 'estimado')
+  // Uno anotado a mano manda: el estimado no lo pisa.
+  db.prepare(`UPDATE salud SET fuente = 'manual' WHERE tipo = 'sueno'`).run()
+  assert.equal(await anotarSuenoEstimado(db, '2026-11-16'), null)
+  // Sin actividad después de dormir (no se sabe cuándo se despertó): no se estima.
+  assert.equal(estimarSueno(db, '2026-11-17'), null)
+})

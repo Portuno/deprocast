@@ -329,3 +329,8 @@ test('Mobile 1.3 · compartir: textos y links van juntos como mensaje (con la no
   assert.equal(captura.capta({ ...captura.leerAjustes(null), uso: false }, 'uso'), false)
   assert.equal(captura.avisa({ ...captura.leerAjustes(null), todo: false }), true, 'los avisos no son captura')
 })
+
+test('Fragua #298 · las sesiones de pantalla se juntan si las separa menos de un minuto', () => {
+  assert.deepEqual(usoL.juntarSesiones([[100_000, 200_000], [0, 30_000], [230_000, 300_000], [500_000, 400_000]]), [[0, 30_000], [100_000, 300_000]])
+  assert.deepEqual(usoL.resumirUso('2026-11-16', { pantallaMs: 0, desbloqueos: 0, apps: [] }).sesiones, [])
+})

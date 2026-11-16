@@ -75,6 +75,8 @@ class UsoTelefonoModule : Module() {
       var pantallaDesde: Long? = null
       var pantallaMs = 0L
       var desbloqueos = 0
+      // Cuándo estuvo prendida la pantalla (Mobile 1.5, para el sueño estimado): [desde, hasta] en ms.
+      val sesiones = mutableListOf<List<Double>>()
       fun sumar(m: HashMap<String, Long>, k: String, a: Long, b: Long) {
         val x = maxOf(a, desde)
         val y = minOf(b, hasta)
@@ -116,7 +118,7 @@ class UsoTelefonoModule : Module() {
             if (d != null) {
               val x = maxOf(d, desde)
               val y = minOf(t, hasta)
-              if (y > x) pantallaMs += y - x
+              if (y > x) { pantallaMs += y - x; sesiones.add(listOf(x.toDouble(), y.toDouble())) }
             }
             pantallaDesde = null
           }
@@ -124,11 +126,11 @@ class UsoTelefonoModule : Module() {
         }
       }
       cerrar(hasta)
-      pantallaDesde?.let { d -> val x = maxOf(d, desde); if (hasta > x) pantallaMs += hasta - x }
+      pantallaDesde?.let { d -> val x = maxOf(d, desde); if (hasta > x) { pantallaMs += hasta - x; sesiones.add(listOf(x.toDouble(), hasta.toDouble())) } }
       val apps = ms.entries.sortedByDescending { it.value }.take(80).map { (paquete, tiempo) ->
         mapOf("paquete" to paquete, "nombre" to nombreDe(ctx, paquete), "ms" to tiempo.toDouble(), "aperturas" to (aperturas[paquete] ?: 0))
       }
-      mapOf("pantallaMs" to pantallaMs.toDouble(), "desbloqueos" to desbloqueos, "apps" to apps)
+      mapOf("pantallaMs" to pantallaMs.toDouble(), "desbloqueos" to desbloqueos, "apps" to apps, "sesiones" to sesiones.takeLast(400))
     }
   }
 }

@@ -197,6 +197,8 @@ export async function sumarPasosPorHora(reparto: { hora: string; pasos: number }
     }
   })
 }
+/** Las horas con pasos desde una hora ('AAAA-MM-DDTHH'), para mandarlas (el sueño estimado). */
+export const pasosHoraDesde = async (desde: string) => (await base()).getAllAsync<{ hora: string; pasos: number }>('SELECT hora, pasos FROM pasos_hora WHERE hora >= ? ORDER BY hora', desde)
 export const pasosPorHora = async (fecha: string) => (await base()).getAllAsync<{ hora: string; pasos: number }>('SELECT hora, pasos FROM pasos_hora WHERE hora LIKE ?', fecha + '%')
 export const pasosDe = async (fecha: string) => ((await (await base()).getFirstAsync<{ pasos: number }>('SELECT pasos FROM pasos_dia WHERE fecha = ?', fecha))?.pasos ?? 0)
 export const pasosRecientes = async (dias = 3) => (await base()).getAllAsync<{ fecha: string; pasos: number }>('SELECT fecha, pasos FROM pasos_dia ORDER BY fecha DESC LIMIT ?', dias)

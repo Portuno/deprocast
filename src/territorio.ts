@@ -222,8 +222,27 @@ const ESQUEMA_ACTIVIDAD = `CREATE TABLE IF NOT EXISTS actividad_dia (
   pasos INTEGER NOT NULL DEFAULT 0,
   actualizado INTEGER NOT NULL,
   PRIMARY KEY (fecha, fuente)
+);
+CREATE TABLE IF NOT EXISTS actividad_hora (
+  hora TEXT NOT NULL,
+  fuente TEXT NOT NULL,
+  pasos INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (hora, fuente)
 )`
 const listos = new WeakSet<Db>()
+
+/** Los pasos por hora que cuenta el teléfono (Mobile 1.5, para el sueño estimado): 'AAAA-MM-DDTHH', el mayor visto. */
+export function anotarPasosHora(db: Db, fuente: string, horas: unknown) {
+  asegurar(db)
+  const alta = db.prepare(`INSERT INTO actividad_hora (hora, fuente, pasos) VALUES (?, ?, ?) ON CONFLICT (hora, fuente) DO UPDATE SET pasos = MAX(pasos, excluded.pasos)`)
+  let n = 0
+  for (const h of (Array.isArray(horas) ? horas : []).slice(0, 24 * 7) as { hora?: unknown; pasos?: unknown }[]) {
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}$/.test(String(h?.hora)) || !(Number(h?.pasos) >= 0)) continue
+    alta.run(String(h.hora), fuente.slice(0, 40), Math.round(Number(h.pasos)))
+    n++
+  }
+  return n
+}
 function asegurar(db: Db) { if (!listos.has(db)) { db.exec(ESQUEMA_ACTIVIDAD); listos.add(db) } }
 
 /** El teléfono informa los pasos del día (su contador). Se guarda el mayor que haya visto (el contador solo sube). */

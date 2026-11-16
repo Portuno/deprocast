@@ -5,7 +5,7 @@
 import { requireOptionalNativeModule } from 'expo'
 
 export type AppCruda = { paquete: string; nombre: string; ms: number; aperturas: number }
-export type UsoCrudo = { pantallaMs: number; desbloqueos: number; apps: AppCruda[] }
+export type UsoCrudo = { pantallaMs: number; desbloqueos: number; apps: AppCruda[]; sesiones?: [number, number][] }
 type Nativo = { tienePermiso(): boolean; abrirPermiso(): boolean; leer(desde: number, hasta: number): Promise<UsoCrudo | null> }
 
 const nativo = requireOptionalNativeModule<Nativo>('UsoTelefono')

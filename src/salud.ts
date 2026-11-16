@@ -20,7 +20,7 @@ const CAMPOS: Record<TipoSalud, string[]> = {
   sintoma: ['intensidad'],
   otro: [],
 }
-const TEXTOS = ['items', 'intensidad_texto', 'nota', 'que', 'sospechoso']
+const TEXTOS = ['items', 'intensidad_texto', 'nota', 'que', 'sospechoso', 'dormir', 'despertar', 'origen', 'confianza']
 
 function limpiarDatos(tipo: TipoSalud, d: Record<string, unknown> = {}): Record<string, unknown> {
   const out: Record<string, unknown> = {}

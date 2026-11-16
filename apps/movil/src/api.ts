@@ -132,7 +132,7 @@ export async function subirArchivo(c: Credenciales, uri: string, m: MetaArchivo)
   return j
 }
 /** Los pasos que contó el teléfono, por día (el servidor se queda con el mayor). Devuelve la actividad de hoy. */
-export const mandarPasos = (c: Credenciales, dias: { fecha: string; pasos: number }[]) => pedir<Actividad>(c, 'actividad', { method: 'POST', body: JSON.stringify({ dias }) })
+export const mandarPasos = (c: Credenciales, dias: { fecha: string; pasos: number }[], horas?: { hora: string; pasos: number }[]) => pedir<Actividad>(c, 'actividad', { method: 'POST', body: JSON.stringify({ dias, horas }) })
 export type Frecuente = { lat: number; lon: number; dias: number; horas: number }
 export const traerLugares = (c: Credenciales) => pedir<{ frecuentes: Frecuente[]; lugares: { id: number; nombre: string; lat: number; lon: number }[] }>(c, 'lugares')
 export const guardarLugar = (c: Credenciales, l: { nombre: string; lat: number; lon: number }) => pedir<{ id: number; nombre: string }>(c, 'lugares', { method: 'POST', body: JSON.stringify(l) })
@@ -140,7 +140,7 @@ export const guardarLugar = (c: Credenciales, l: { nombre: string; lat: number; 
 export const traerMapaRango = (c: Credenciales, desde: string, hasta: string) => pedir<DiaMapa & { desde: string; hasta: string; total: number }>(c, `mapa?desde=${desde}&hasta=${hasta}`)
 
 // ─── Mobile 1.3: el uso del teléfono y los avisos ──────────────────────
-export type DiaUsoApi = { fecha: string; pantallaMin: number; desbloqueos: number; apps: { paquete: string; nombre: string; min: number; aperturas: number }[] }
+export type DiaUsoApi = { fecha: string; pantallaMin: number; desbloqueos: number; apps: { paquete: string; nombre: string; min: number; aperturas: number }[]; sesiones?: [number, number][] }
 export const subirUso = (c: Credenciales, dias: DiaUsoApi[]) => pedir<{ guardados: number }>(c, 'uso', { method: 'POST', body: JSON.stringify({ dias }) })
 export type AvisoApi = { clave: string; titulo: string; cuerpo: string; en: number }
 export const traerAvisos = (c: Credenciales) => pedir<{ minutosAntes: number; avisos: AvisoApi[] }>(c, 'avisos')

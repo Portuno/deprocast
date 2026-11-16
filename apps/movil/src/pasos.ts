@@ -11,12 +11,12 @@
 import { AppState } from 'react-native'
 import { Pedometer } from 'expo-sensors'
 import * as Contador from '../modules/contador-pasos'
-import { fijarAjuste, leerAjuste, pasosDe, pasosPorHora, pasosRecientes, sumarPasos, sumarPasosPorHora } from './almacen'
+import { fijarAjuste, leerAjuste, pasosDe, pasosHoraDesde, pasosPorHora, pasosRecientes, sumarPasos, sumarPasosPorHora } from './almacen'
 import { mandarPasos, type Credenciales } from './api'
 import { alSincronizar } from './sincronizar'
 import { ajustesCaptura } from './captura'
 import { capta } from './logica/captura'
-import { contar, horasDelDia, type Lectura } from './logica/pasos'
+import { contar, horaDe, horasDelDia, type Lectura } from './logica/pasos'
 
 const hoy = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 
@@ -97,5 +97,7 @@ export async function registrarPasos(): Promise<string | null> {
 
 export async function subirPasos(c: Credenciales) {
   const dias = await pasosRecientes(3)
-  if (dias.length) await mandarPasos(c, dias)
+  // Y por hora, las últimas 48 (para el sueño estimado, Fragua #298).
+  const horas = await pasosHoraDesde(horaDe(Date.now() - 48 * 3_600_000))
+  if (dias.length) await mandarPasos(c, dias, horas)
 }

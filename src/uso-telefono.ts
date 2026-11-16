@@ -20,6 +20,18 @@ function asegurar(db: Db) {
   db.exec(`CREATE TABLE IF NOT EXISTS uso_telefono (
     fecha TEXT NOT NULL, fuente TEXT NOT NULL, pantalla_min INTEGER NOT NULL DEFAULT 0, desbloqueos INTEGER NOT NULL DEFAULT 0,
     apps TEXT NOT NULL DEFAULT '[]', actualizado INTEGER NOT NULL, PRIMARY KEY (fecha, fuente))`)
+  // Mobile 1.5 (para el sueño estimado, Fragua #298): cuándo estuvo prendida la pantalla, [[desde, hasta], …].
+  if (!(db.prepare(`SELECT 1 FROM pragma_table_info('uso_telefono') WHERE name = 'sesiones'`).get())) db.exec(`ALTER TABLE uso_telefono ADD COLUMN sesiones TEXT`)
+}
+
+/** Las sesiones de pantalla de un día: ordenadas, dentro del día y sin basura (como mucho 400). */
+function limpiarSesiones(fecha: string, s: unknown): [number, number][] {
+  const a = new Date(`${fecha}T00:00:00`).getTime(), b = a + 86_400_000
+  return (Array.isArray(s) ? s : [])
+    .map((x) => (Array.isArray(x) ? [Math.max(a, Number(x[0])), Math.min(b, Number(x[1]))] as [number, number] : null))
+    .filter((x): x is [number, number] => !!x && Number.isFinite(x[0]) && Number.isFinite(x[1]) && x[1] > x[0])
+    .sort((x, y) => x[0] - y[0])
+    .slice(0, 400)
 }
 
 /** Por paquete (o su comienzo). Lo que no está, por palabras del nombre; si no, «otras». */
@@ -56,8 +68,8 @@ const esDistraccion = (a: { paquete: string; nombre: string; categoria: Categori
 export function recibirUso(db: Db, fuente: string, dias: unknown, ahora = Date.now()): number {
   asegurar(db)
   let n = 0
-  const alta = db.prepare(`INSERT INTO uso_telefono (fecha, fuente, pantalla_min, desbloqueos, apps, actualizado) VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT (fecha, fuente) DO UPDATE SET pantalla_min = excluded.pantalla_min, desbloqueos = excluded.desbloqueos, apps = excluded.apps, actualizado = excluded.actualizado`)
+  const alta = db.prepare(`INSERT INTO uso_telefono (fecha, fuente, pantalla_min, desbloqueos, apps, actualizado, sesiones) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (fecha, fuente) DO UPDATE SET pantalla_min = excluded.pantalla_min, desbloqueos = excluded.desbloqueos, apps = excluded.apps, actualizado = excluded.actualizado, sesiones = COALESCE(excluded.sesiones, uso_telefono.sesiones)`)
   for (const d of (Array.isArray(dias) ? dias : []).slice(0, 14) as Partial<DiaUso>[]) {
     if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(String(d.fecha))) continue
     const apps = (Array.isArray(d.apps) ? d.apps : [])
@@ -66,7 +78,7 @@ export function recibirUso(db: Db, fuente: string, dias: unknown, ahora = Date.n
       .sort((a, b) => b.min - a.min)
       .slice(0, 60)
     const pantalla = Math.max(0, Math.min(1440, Math.round(Number(d.pantallaMin) || 0)))
-    alta.run(String(d.fecha), fuente.slice(0, 40), pantalla, Math.max(0, Math.round(Number(d.desbloqueos) || 0)), JSON.stringify(apps), ahora)
+    alta.run(String(d.fecha), fuente.slice(0, 40), pantalla, Math.max(0, Math.round(Number(d.desbloqueos) || 0)), JSON.stringify(apps), ahora, Array.isArray((d as any).sesiones) ? JSON.stringify(limpiarSesiones(String(d.fecha), (d as any).sesiones)) : null)
     n++
   }
   return n
