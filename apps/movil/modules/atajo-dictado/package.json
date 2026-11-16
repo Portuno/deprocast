@@ -1,0 +1,8 @@
+{
+  "name": "atajo-dictado",
+  "version": "0.1.0",
+  "description": "Un icono rapido en la barra de notificaciones para dictarle a Deprocast.",
+  "main": "index.ts",
+  "private": true,
+  "license": "MIT"
+}

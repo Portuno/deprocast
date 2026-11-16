@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AppState, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
 import { abrirPermisoUso, hayModuloUso, tienePermisoUso } from '../uso'
+import { hayAtajo, ofrecerAtajo, puedeOfrecerAtajo } from '../../modules/atajo-dictado'
 import { ajustesCaptura, energiaYRed, guardarAjustesCaptura } from '../captura'
 import { AJUSTES_INICIALES, type Ajustes } from '../logica/captura'
 import { ESP, LETRA, TOQUE, useTema } from '../tema'
@@ -113,6 +114,18 @@ export function Captura({ cerrar }: { cerrar: () => void }) {
           ) : null}
         </View>
       </View>
+
+      {hayAtajo() ? (
+        <View style={[s.tarjeta, { backgroundColor: t.panel, borderColor: t.linea }]}>
+          <Text style={[LETRA.cuerpo, { color: t.texto, fontWeight: '700' }]}>Atajo para dictar</Text>
+          <Text style={[LETRA.chica, { color: t.texto }]}>Un icono en los accesos rápidos de la barra de notificaciones: un toque abre Deprocast con la escucha prendida, lista para hablar.</Text>
+          {puedeOfrecerAtajo() ? (
+            <Pressable onPress={() => { if (!ofrecerAtajo()) Linking.openSettings() }} style={s.boton} accessibilityRole="button"><Text style={[LETRA.chica, { color: t.acento, fontWeight: '700' }]}>Agregar el atajo a la barra</Text></Pressable>
+          ) : (
+            <Text style={[LETRA.chica, { color: t.tenue }]}>Para agregarlo: bajá la barra dos veces, tocá el lápiz y arrastrá «Dictar a Deprocast» arriba.</Text>
+          )}
+        </View>
+      ) : null}
 
       <View style={[s.tarjeta, { backgroundColor: t.panel, borderColor: t.linea }]}>
         <Text style={[LETRA.cuerpo, { color: t.texto, fontWeight: '700' }]}>Batería y red</Text>

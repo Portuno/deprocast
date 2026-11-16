@@ -334,3 +334,11 @@ test('Fragua #298 · las sesiones de pantalla se juntan si las separa menos de u
   assert.deepEqual(usoL.juntarSesiones([[100_000, 200_000], [0, 30_000], [230_000, 300_000], [500_000, 400_000]]), [[0, 30_000], [100_000, 300_000]])
   assert.deepEqual(usoL.resumirUso('2026-11-16', { pantallaMs: 0, desbloqueos: 0, apps: [] }).sesiones, [])
 })
+
+test('Fragua #300 · el icono rápido abre la app con deprocast://dictar', async () => {
+  const atajo = await deLaApp('atajo')
+  assert.equal(atajo.esPedidoDeDictado('deprocast://dictar'), true)
+  assert.equal(atajo.esPedidoDeDictado('deprocast:///dictar?x=1'), true)
+  assert.equal(atajo.esPedidoDeDictado('deprocast://expo-sharing'), false)
+  assert.equal(atajo.esPedidoDeDictado(null), false)
+})

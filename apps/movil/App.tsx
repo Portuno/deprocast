@@ -7,7 +7,8 @@
  * fondo (pasos, uso del teléfono y avisos) y los avisos.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native'
+import { esPedidoDeDictado } from './src/logica/atajo'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import { useIncomingShare } from 'expo-sharing'
@@ -44,6 +45,14 @@ export default function App() {
   const [verCaptura, setVerCaptura] = useState(false)
   // Lo que llega por «Compartir → Deprocast» (con los archivos ya copiados a la caché de la app).
   const compartido = useIncomingShare()
+  // El icono rápido «Dictar a Deprocast» (Fragua #300): abre la app por deprocast://dictar → Hoy con la escucha prendida.
+  const [dictar, setDictar] = useState(0)
+  useEffect(() => {
+    const ver = (url: string | null | undefined) => { if (esPedidoDeDictado(url)) { setPestana('hoy'); setVerCaptura(false); setDictar(Date.now()) } }
+    void Linking.getInitialURL().then(ver).catch(() => {})
+    const x = Linking.addEventListener('url', (e) => ver(e.url))
+    return () => x.remove()
+  }, [])
   const items = compartido.resolvedSharedPayloads.length ? compartido.resolvedSharedPayloads : compartido.sharedPayloads
   useEffect(() => { void leerCredenciales().then(setC) }, [])
   // Un teléfono recién vinculado (o que quedó a mitad) pasa primero por el rescate. Sin red, se sigue y se pregunta después.
@@ -92,7 +101,7 @@ export default function App() {
             ))}
             <Pressable onPress={menu} style={s.menu} accessibilityLabel="Menú: captura y permisos, desvincular"><Text style={[LETRA.chica, { color: t.tenue }]} numberOfLines={1}>{c.nombre} ⋯</Text></Pressable>
           </View>
-          {pestana === 'hoy' ? <Hoy c={c} irAEscucha={() => setPestana('escucha')} /> : pestana === 'escucha' ? <Escucha c={c} /> : <Mapa c={c} />}
+          {pestana === 'hoy' ? <Hoy c={c} irAEscucha={() => setPestana('escucha')} dictar={dictar} /> : pestana === 'escucha' ? <Escucha c={c} /> : <Mapa c={c} />}
         </EscuchaGlobal>
       )}
     </SafeAreaView>

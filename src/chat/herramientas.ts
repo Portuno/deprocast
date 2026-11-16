@@ -1325,7 +1325,7 @@ ${a.detalle ?? ''}`)
     ejecutar: async (a, { db }) => {
       // El modelo a veces lo manda con otro nombre (titulo, nombre, dominio, que…): se acepta igual (Fragua #269).
       const tema = temaDe(a)
-      if (!tema) return { error: 'Falta el parámetro «tema»: qué quiere aprender, corto («Francés», «Energía y almacenamiento»).' }
+      if (tema.length < 2) return { error: 'Falta el parámetro «tema»: qué quiere aprender, corto («Francés», «Energía y almacenamiento»). Si en la charla no está claro, preguntáselo vos con tus palabras.', falta: ['tema'] }
       const r = crearAprendizaje(db, { tema, porQue: a.por_que ?? a.porque ?? a.descripcion, nivelActual: a.nivel_actual, nivelObjetivo: a.nivel_objetivo })
       // Arranque al 20 %: lo que ya hizo hacia esto (decíselo: «ya empezaste»).
       const ev = await import('../evidencia.ts')

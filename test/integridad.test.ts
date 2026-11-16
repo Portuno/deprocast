@@ -34,3 +34,15 @@ test('Fragua #291 · un error de clave foránea dice qué tabla, qué columna y 
   assert.deepEqual(hs.find((x) => x.tabla === 'mensajes'), { tabla: 'mensajes', padre: 'conversaciones', filas: 1 })
   assert.equal((db.prepare('SELECT COUNT(*) AS n FROM mensajes WHERE conversacion_id = 777').get() as any).n, 1, 'no se borró')
 })
+
+test('Fragua #282 · crear_aprendizaje sin tema (o con una letra) devuelve un error que dice qué falta, no una pregunta', async () => {
+  const db = abrir(':memory:')
+  const lista = (await import('../src/chat/herramientas.ts')).HERRAMIENTAS
+  for (const args of ['{}', '{"tema":"x"}']) {
+    const r = await ejecutarHerramienta(lista, 'crear_aprendizaje', args, { db } as any)
+    assert.equal(r.ok, false)
+    assert.match((r.resultado as any).error, /^Falta el parámetro «tema»/)
+    assert.deepEqual((r.resultado as any).falta, ['tema'])
+    assert.doesNotMatch((r.resultado as any).error, /^¿/)
+  }
+})

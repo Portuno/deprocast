@@ -30,7 +30,8 @@ export function aprendizajePorTema(db: Db, tema: string): Aprendizaje | null {
 
 export function crearAprendizaje(db: Db, a: { tema: string; porQue?: string | null; nivelActual?: string | null; nivelObjetivo?: string | null; frenteId?: string | null }, ahora = Date.now()): Aprendizaje & { nuevo: boolean } {
   const tema = String(a.tema ?? '').trim().slice(0, 120)
-  if (tema.length < 2) throw new Error('¿Qué querés aprender?')
+  // Fragua #282: un error que dice qué falta, no una pregunta (la pregunta, si hace falta, la arma quien llama).
+  if (tema.length < 2) throw new Error('Falta el tema del aprendizaje: qué quiere aprender, al menos 2 letras («Francés», «SQL»).')
   const ya = aprendizajePorTema(db, tema)
   if (ya && norm(ya.tema) === norm(tema)) return { ...ya, nuevo: false }
   const r = db.prepare('INSERT INTO aprendizajes (tema, por_que, nivel_actual, nivel_objetivo, frente_id, creado_en) VALUES (?, ?, ?, ?, ?, ?)')

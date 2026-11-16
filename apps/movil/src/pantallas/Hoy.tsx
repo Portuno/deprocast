@@ -53,10 +53,12 @@ function BarraEscucha({ irAEscucha, enVoz, setEnVoz }: { irAEscucha: () => void;
   )
 }
 
-export function Hoy({ c, irAEscucha }: { c: Credenciales; irAEscucha: () => void }) {
+export function Hoy({ c, irAEscucha, dictar = 0 }: { c: Credenciales; irAEscucha: () => void; dictar?: number }) {
   const t = useTema()
   const escucha = useEscuchaGlobal()
   const [enVoz, setEnVoz] = useState(false)
+  // Desde el icono rápido de la barra (Fragua #300): la escucha se prende sola, lista para hablar.
+  useEffect(() => { if (dictar && !escucha.activa) { setEnVoz(true); void escucha.empezar() } }, [dictar]) // eslint-disable-line react-hooks/exhaustive-deps
   // Lo que ya estaba al abrir no se lee: solo lo que llega de acá en más.
   const leidos = useRef<Set<string> | null>(null)
   const vozRef = useRef(false)
