@@ -17,6 +17,8 @@ import { registrarCaptura } from './src/captura'
 import { Captura } from './src/pantallas/Captura'
 import { Mapa } from './src/pantallas/Mapa'
 import { registrarRecorrido } from './src/recorrido'
+import { registrarArchivos } from './src/archivos'
+import { registrarPasos } from './src/pasos'
 import { Vincular } from './src/pantallas/Vincular'
 import { Hoy } from './src/pantallas/Hoy'
 import { Escucha } from './src/pantallas/Escucha'
@@ -45,6 +47,8 @@ export default function App() {
     registrarCapas()
     registrarCaptura()
     registrarRecorrido()
+    registrarArchivos()
+    void registrarPasos()
     void recuperarTramos().then((n) => { if (n) void sincronizar(c) }).catch(() => {})
   }, [c])
 

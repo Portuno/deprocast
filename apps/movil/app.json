@@ -2,7 +2,7 @@
   "expo": {
     "name": "Deprocast",
     "slug": "deprocast",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -33,7 +33,7 @@
         "android.permission.READ_CONTACTS",
         "android.permission.WRITE_CONTACTS"
       ],
-      "versionCode": 4
+      "versionCode": 5
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -66,7 +66,15 @@
         }
       ],
       "expo-asset",
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Deprocast usa las fotos y videos que elegís para mandarlos a tu Hoy (los lee y los guarda en tu corpus).",
+          "cameraPermission": "Deprocast usa la cámara para que saques una foto o un video y lo mandes a tu Hoy.",
+          "microphonePermission": "Deprocast graba el sonido de los videos que sacás con la cámara, para transcribir lo que se dice."
+        }
+      ]
     ],
     "scheme": "deprocast",
     "extra": {

@@ -3,13 +3,17 @@
  * día (la marca cada 5 s con la app abierta, enseguida al volver del segundo plano) y esta pantalla se redibuja cuando
  * termina. Tirando hacia abajo se sincroniza a mano. Lo que escribís aparece enseguida; sin red, queda «en cola».
  * Estados explícitos (Mobile 1.0): cargando la primera vez, vacío, y el error con «Reintentar» (nunca un spinner eterno).
+ * Mobile 1.2: arriba, la actividad del día (pasos contra tu meta, minutos caminando, km); en el compositor, 📎 para mandar
+ * fotos y videos (de la galería, varios a la vez, o la cámara), con lo escrito como nota; lo que espera subir se ve.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { FlatList, Pressable, RefreshControl, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
+import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAltoTeclado } from '../teclado'
-import type { Credenciales } from '../api'
-import { encolar, estadoSincro, leerChat, type EstadoSincro, type MensajeLocal } from '../almacen'
+import type { Actividad, Credenciales } from '../api'
+import { archivosEnCola, encolar, estadoSincro, leerActividad, leerChat, type EstadoSincro, type MensajeLocal } from '../almacen'
+import { elegirArchivos } from '../archivos'
+import { alCambiarPasos, pasosDeHoy } from '../pasos'
 import { alCambiar, sincronizar } from '../sincronizar'
 import { VIEJO_MS } from '../logica/sincro'
 import { AREA_EXTRA, ESP, LETRA, TOQUE, useTema } from '../tema'
@@ -63,6 +67,9 @@ export function Hoy({ c, irAEscucha }: { c: Credenciales; irAEscucha: () => void
   const [texto, setTexto] = useState('')
   const [sincro, setSincro] = useState<EstadoSincro>({ sincronizadoEn: null, error: null, marca: null })
   const [tirando, setTirando] = useState(false)
+  const [actividad, setActividad] = useState<Actividad | null>(null)
+  const [pasosLocal, setPasosLocal] = useState(0)
+  const [subiendo, setSubiendo] = useState(0)
   const [, setAhora] = useState(Date.now())
   const lista = useRef<FlatList<MensajeLocal>>(null)
   // El teclado (1.0.1): la pantalla le deja su lugar abajo, así lo que escribís queda a la vista (antes lo tapaba).
@@ -79,13 +86,17 @@ export function Hoy({ c, irAEscucha }: { c: Credenciales; irAEscucha: () => void
     setMensajes(l.mensajes)
     setParaValidar(l.paraValidar)
     setSincro(await estadoSincro())
+    setActividad(await leerActividad())
+    setPasosLocal(await pasosDeHoy())
+    setSubiendo((await archivosEnCola()).length)
   }, [])
 
   useEffect(() => {
     void pintar() // lo guardado, al instante
     const sacar = alCambiar(() => { void pintar() })
+    const sacarPasos = alCambiarPasos(setPasosLocal)
     const reloj = setInterval(() => setAhora(Date.now()), 30_000) // para que «Actualizado» envejezca a la vista
-    return () => { sacar(); clearInterval(reloj) }
+    return () => { sacar(); sacarPasos(); clearInterval(reloj) }
   }, [pintar])
 
   const actualizar = async () => {
@@ -101,6 +112,28 @@ export function Hoy({ c, irAEscucha }: { c: Credenciales; irAEscucha: () => void
     await pintar()
     void sincronizar(c)
   }
+
+  /** 📎: la galería o la cámara. Lo escrito va como nota del archivo (no como mensaje aparte). */
+  const adjuntar = () => {
+    const elegir = async (camara: boolean) => {
+      const nota = texto.trim() || null
+      const res = await elegirArchivos(c, { camara, nota })
+      if (res.encolados && nota) setTexto('')
+      if (res.aviso) Alert.alert('Fotos y videos', res.aviso)
+      void pintar()
+    }
+    Alert.alert('Mandar a Deprocast', texto.trim() ? 'Lo que escribiste va como nota.' : 'Fotos o videos: los leo, los anoto si son un registro y quedan en tu corpus.', [
+      { text: 'Galería', onPress: () => void elegir(false) },
+      { text: 'Cámara', onPress: () => void elegir(true) },
+      { text: 'Cancelar', style: 'cancel' },
+    ])
+  }
+  // Los pasos: lo que contó el teléfono hoy o lo que sabe el servidor (la escucha también cuenta), lo que sea más.
+  const d = new Date()
+  const hoyLocal = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const deHoy = actividad?.fecha === hoyLocal ? actividad : null
+  const pasos = Math.max(pasosLocal, deHoy?.pasos ?? 0)
+  const meta = actividad?.meta ?? 8000
 
   const viejo = sincro.sincronizadoEn != null && Date.now() - sincro.sincronizadoEn > VIEJO_MS
   const aviso = sincro.error
@@ -121,6 +154,14 @@ export function Hoy({ c, irAEscucha }: { c: Credenciales; irAEscucha: () => void
           <Text style={[s.avisoTexto, { color: t.texto }]}>{escucha.retorno}</Text>
         </Pressable>
       ) : null}
+      {pasos || deHoy?.km ? (
+        <View style={[s.actividad, { borderColor: t.linea }]} accessibilityLabel={`Hoy: ${pasos} pasos de ${meta}`}>
+          <Text style={[LETRA.chica, { color: t.texto, fontWeight: '700' }]}>🚶 {pasos.toLocaleString('es-AR')} pasos</Text>
+          <View style={[s.barraPasos, { backgroundColor: t.linea }]}><View style={[s.llenoPasos, { backgroundColor: t.acento, width: `${Math.min(100, Math.round((pasos / meta) * 100))}%` }]} /></View>
+          <Text style={[LETRA.chica, { color: t.tenue }]}>{deHoy?.minutosCaminando ? `${deHoy.minutosCaminando} min · ` : ''}{deHoy?.km ? `${deHoy.km} km` : `meta ${meta.toLocaleString('es-AR')}`}</Text>
+        </View>
+      ) : null}
+      {subiendo ? <Text style={[s.avisoTexto, s.validar, { color: t.tenue, borderColor: t.linea }]}>📎 {subiendo} archivo{subiendo === 1 ? '' : 's'} esperando subir (salen solos con red)</Text> : null}
       {paraValidar ? <Text style={[s.avisoTexto, s.validar, { color: t.acento, borderColor: t.linea }]}>📥 {paraValidar} esperan tu ok (se validan en la compu)</Text> : null}
       <FlatList
         ref={lista}
@@ -142,6 +183,9 @@ export function Hoy({ c, irAEscucha }: { c: Credenciales; irAEscucha: () => void
         )}
       />
       <View style={[s.compositor, { borderColor: t.linea, backgroundColor: t.panel }]}>
+        <Pressable onPress={adjuntar} style={s.clip} hitSlop={AREA_EXTRA} accessibilityRole="button" accessibilityLabel="Mandar fotos o videos">
+          <Text style={[LETRA.titulo, { color: t.acento }]}>📎</Text>
+        </Pressable>
         <TextInput style={[s.entrada, { color: t.texto }]} value={texto} onChangeText={setTexto} placeholder="Escribile a Mastropiero…" placeholderTextColor={t.tenue} multiline keyboardAppearance={t.fondo === '#0f1012' ? 'dark' : 'light'} />
         <Pressable onPress={mandar} style={[s.enviar, { backgroundColor: t.acento }]} accessibilityRole="button" accessibilityLabel="Enviar">
           <Text style={[LETRA.cuerpo, { color: t.sobreAcento, fontWeight: '700' }]}>Enviar</Text>
@@ -167,6 +211,10 @@ const s = StyleSheet.create({
   compositor: { flexDirection: 'row', alignItems: 'flex-end', gap: ESP(2), margin: ESP(3), borderWidth: 1, borderRadius: 14, padding: ESP(2) },
   entrada: { ...LETRA.cuerpo, flex: 1, maxHeight: 140, minHeight: TOQUE, paddingHorizontal: ESP(2), paddingVertical: ESP(2) },
   enviar: { minHeight: TOQUE, justifyContent: 'center', borderRadius: 10, paddingHorizontal: ESP(4) },
+  actividad: { flexDirection: 'row', alignItems: 'center', gap: ESP(2), marginHorizontal: ESP(3), marginTop: ESP(2), paddingHorizontal: ESP(3), paddingVertical: ESP(2), borderWidth: 1, borderRadius: 12 },
+  barraPasos: { flex: 1, height: ESP(2), borderRadius: ESP(1), overflow: 'hidden' },
+  llenoPasos: { height: '100%' },
+  clip: { minHeight: TOQUE, minWidth: TOQUE, justifyContent: 'center', alignItems: 'center' },
   escucha: { flexDirection: 'row', alignItems: 'center', gap: ESP(2), marginHorizontal: ESP(3), marginTop: ESP(2), borderWidth: 1, borderRadius: 12, paddingHorizontal: ESP(3), minHeight: TOQUE + ESP(2) },
   prender: { flex: 1, minHeight: TOQUE, justifyContent: 'center', paddingVertical: ESP(1) },
   verEscucha: { flex: 1, minHeight: TOQUE, justifyContent: 'center' },

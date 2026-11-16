@@ -233,3 +233,20 @@ test('Mobile 1.1 · contestar en voz: se dice el texto, sin Markdown, links ni c
   const d = await deLaApp('decir')
   assert.equal(d.paraDecir('**Uno**: pensá en [esto](https://x.org) [#41, #42]\n- dos\n- tres https://y.org'), 'Uno: pensá en esto dos tres')
 })
+
+test('Mobile 1.2 · fotos y videos desde Hoy: nombre y tipo de lo elegido, y qué hacer con cada respuesta del servidor', async () => {
+  const a = await deLaApp('archivos')
+  const T = Date.UTC(2026, 10, 17, 10, 30)
+  assert.deepEqual(a.nombreYTipo({ uri: 'file:///cache/ImagePicker/abc.jpg', mimeType: 'image/jpeg', type: 'image' }, T), { nombre: 'abc.jpg', tipo: 'image/jpeg', esVideo: false })
+  assert.deepEqual(a.nombreYTipo({ uri: 'content://media/42', fileName: 'VID_2026.mp4', type: 'video' }, T), { nombre: 'VID_2026.mp4', tipo: 'video/mp4', esVideo: true })
+  // La galería a veces no dice el tipo ni el nombre: se arma uno con la fecha.
+  const sin = a.nombreYTipo({ uri: 'content://media/external/images/media/99', type: 'image' }, T)
+  assert.equal(sin.tipo, 'image/jpeg')
+  assert.match(sin.nombre, /\.jpg$/)
+  assert.equal(a.nombreYTipo({ uri: 'file:///x/clip.MOV' }, T).tipo, 'video/quicktime')
+  assert.equal(a.queHacer(202, 0), 'ok')
+  assert.equal(a.queHacer(422, 0), 'descartar', 'no tiene arreglo (tipo, vacío)')
+  assert.equal(a.queHacer(null, 0), 'reintentar', 'sin red, espera')
+  assert.equal(a.queHacer(503, 2), 'reintentar')
+  assert.equal(a.queHacer(503, 7), 'descartar', 'a los 8 intentos se deja')
+})

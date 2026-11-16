@@ -4,9 +4,9 @@
  * con el recorrido, las paradas y el último punto, y la lista de paradas con su hora y cuánto estuviste.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
+import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
 import { WebView } from 'react-native-webview'
-import { traerMapa, type Credenciales, type DiaMapa } from '../api'
+import { guardarLugar, traerLugares, traerMapa, traerMapaRango, type Credenciales, type DiaMapa, type Frecuente } from '../api'
 import { apagarRecorrido, prenderRecorrido, puntosEnCola, recorridoPrendido } from '../recorrido'
 import { alCambiar, sincronizar } from '../sincronizar'
 import { ESP, LETRA, TOQUE, useTema, type Tema } from '../tema'
@@ -64,7 +64,11 @@ export function Mapa({ c }: { c: Credenciales }) {
   const t = useTema()
   const [prendido, setPrendido] = useState(false)
   const [aviso, setAviso] = useState<string | null>(null)
-  const [dia, setDia] = useState(0)
+  // Mobile 1.2 (Fragua #259): hoy, ayer, la semana o el mes.
+  const [rango, setRango] = useState<'hoy' | 'ayer' | 'semana' | 'mes'>('hoy')
+  const dia = rango === 'ayer' ? -1 : 0
+  const [frecuentes, setFrecuentes] = useState<Frecuente[]>([])
+  const [nombres, setNombres] = useState<Record<number, string>>({})
   const [datos, setDatos] = useState<DiaMapa | null>(null)
   const [enCola, setEnCola] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -74,16 +78,27 @@ export function Mapa({ c }: { c: Credenciales }) {
     const cola = await puntosEnCola().catch(() => [])
     setEnCola(cola.length)
     try {
-      const d = await traerMapa(c, fechaDe(dia))
+      const d: DiaMapa = rango === 'semana' || rango === 'mes'
+        ? await traerMapaRango(c, fechaDe(rango === 'semana' ? -6 : -29), fechaDe(0)).then((x) => ({ fecha: x.desde, puntos: x.puntos, paradas: x.paradas, distanciaKm: x.distanciaKm, fuentes: [], ultimo: x.puntos.at(-1) ?? null }))
+        : await traerMapa(c, fechaDe(dia))
       // Lo de hoy que todavía no subió también se dibuja.
-      if (dia === 0 && cola.length) { d.puntos = [...d.puntos, ...cola].sort((a, b) => a.en - b.en); d.ultimo = d.puntos.at(-1) ?? d.ultimo }
+      if (rango === 'hoy' && cola.length) { d.puntos = [...d.puntos, ...cola].sort((a, b) => a.en - b.en); d.ultimo = d.puntos.at(-1) ?? d.ultimo }
       setDatos(d)
       setError(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
-      if (dia === 0 && cola.length) setDatos({ fecha: fechaDe(0), puntos: cola, paradas: [], distanciaKm: 0, fuentes: [], ultimo: cola.at(-1) ?? null })
+      if (rango === 'hoy' && cola.length) setDatos({ fecha: fechaDe(0), puntos: cola, paradas: [], distanciaKm: 0, fuentes: [], ultimo: cola.at(-1) ?? null })
     }
-  }, [c, dia])
+  }, [c, rango, dia])
+
+  // Los lugares donde parás seguido y no tienen nombre: para ponérselo (quedan como lugares tuyos en Deprocast).
+  const traerFrecuentes = useCallback(async () => { try { setFrecuentes((await traerLugares(c)).frecuentes) } catch { /* sin red: la próxima */ } }, [c])
+  useEffect(() => { void traerFrecuentes() }, [traerFrecuentes])
+  const nombrar = async (i: number, f: Frecuente) => {
+    const nombre = (nombres[i] ?? '').trim()
+    if (!nombre) return
+    try { await guardarLugar(c, { nombre, lat: f.lat, lon: f.lon }); setNombres((x) => ({ ...x, [i]: '' })); await traerFrecuentes(); await traer() } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+  }
 
   useEffect(() => {
     void traer()
@@ -112,9 +127,9 @@ export function Mapa({ c }: { c: Credenciales }) {
       </View>
 
       <View style={s.fila}>
-        {[0, -1].map((x) => (
-          <Pressable key={x} onPress={() => setDia(x)} style={[s.chip, { borderColor: dia === x ? t.acento : t.linea }]} accessibilityRole="button">
-            <Text style={[LETRA.chica, { color: dia === x ? t.acento : t.texto, fontWeight: '700' }]}>{x === 0 ? 'Hoy' : 'Ayer'}</Text>
+        {(['hoy', 'ayer', 'semana', 'mes'] as const).map((x) => (
+          <Pressable key={x} onPress={() => setRango(x)} style={[s.chip, { borderColor: rango === x ? t.acento : t.linea }]} accessibilityRole="button">
+            <Text style={[LETRA.chica, { color: rango === x ? t.acento : t.texto, fontWeight: '700' }]}>{{ hoy: 'Hoy', ayer: 'Ayer', semana: '7 días', mes: '30 días' }[x]}</Text>
           </Pressable>
         ))}
         <Text style={[LETRA.chica, { color: t.tenue, flex: 1, textAlign: 'right' }]} numberOfLines={2}>
@@ -131,10 +146,25 @@ export function Mapa({ c }: { c: Credenciales }) {
       <Text style={[LETRA.cuerpo, { color: t.texto, fontWeight: '700' }]}>Paradas</Text>
       {datos?.paradas.length ? datos.paradas.map((p, i) => (
         <View key={i} style={[s.parada, { borderColor: t.linea }]}>
-          <Text style={[LETRA.cuerpo, { color: t.texto }]}><Text style={{ color: t.acento, fontWeight: '700' }}>{i + 1}.</Text> {hora(p.desde)}–{hora(p.hasta)} · {p.minutos} min</Text>
+          <Text style={[LETRA.cuerpo, { color: t.texto }]}><Text style={{ color: t.acento, fontWeight: '700' }}>{i + 1}.</Text> {rango === 'semana' || rango === 'mes' ? `${new Date(p.desde).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' })} ` : ''}{hora(p.desde)}–{hora(p.hasta)} · {p.minutos} min</Text>
           <Text style={[LETRA.chica, { color: t.tenue }]}>{p.lugar ?? `${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`}</Text>
         </View>
       )) : <Text style={[LETRA.chica, { color: t.tenue }]}>{datos?.puntos.length ? 'Todavía ninguna (una parada es quedarte 5 minutos o más en un lugar).' : 'Sin recorrido este día. Prendé «Anotar mi recorrido» arriba.'}</Text>}
+      {frecuentes.length ? (
+        <>
+          <Text style={[LETRA.cuerpo, { color: t.texto, fontWeight: '700' }]}>Donde parás seguido</Text>
+          <Text style={[LETRA.chica, { color: t.tenue }]}>Lugares donde estuviste 3 días o más este mes y no tienen nombre. Ponéselo y quedan como lugares tuyos (así tus audios y fotos de ahí quedan ubicados).</Text>
+          {frecuentes.map((f, i) => (
+            <View key={`${f.lat},${f.lon}`} style={[s.parada, { borderColor: t.linea }]}>
+              <Text style={[LETRA.chica, { color: t.tenue }]}>{f.dias} días · {f.horas} h · {f.lat.toFixed(4)}, {f.lon.toFixed(4)}</Text>
+              <View style={s.fila}>
+                <TextInput value={nombres[i] ?? ''} onChangeText={(v) => setNombres((x) => ({ ...x, [i]: v }))} placeholder="¿Qué es? (la oficina, el gimnasio…)" placeholderTextColor={t.tenue} style={[s.campo, { color: t.texto, borderColor: t.linea }]} />
+                <Pressable onPress={() => void nombrar(i, f)} style={s.guardar} accessibilityRole="button" accessibilityLabel="Guardar el nombre del lugar"><Text style={[LETRA.cuerpo, { color: t.acento, fontWeight: '700' }]}>Guardar</Text></Pressable>
+              </View>
+            </View>
+          ))}
+        </>
+      ) : null}
       <Pressable onPress={() => void sincronizar(c).then(traer)} style={s.boton} accessibilityRole="button"><Text style={[LETRA.cuerpo, { color: t.acento, fontWeight: '700' }]}>Actualizar</Text></Pressable>
     </ScrollView>
   )
@@ -148,4 +178,6 @@ const s = StyleSheet.create({
   mapa: { height: 360, borderWidth: 1, borderRadius: 12, overflow: 'hidden' },
   parada: { borderBottomWidth: 1, paddingVertical: ESP(2), gap: ESP(1) },
   boton: { minHeight: TOQUE, justifyContent: 'center', alignItems: 'center' },
+  campo: { ...LETRA.cuerpo, flex: 1, minHeight: TOQUE, borderWidth: 1, borderRadius: 10, paddingHorizontal: ESP(3) },
+  guardar: { minHeight: TOQUE, justifyContent: 'center', paddingHorizontal: ESP(2) },
 })
