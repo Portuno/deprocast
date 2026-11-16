@@ -7,6 +7,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
+import { engancharIntegridad } from './integridad.ts'
 
 export type Db = DatabaseSync
 
@@ -33,6 +34,8 @@ export function abrir(ruta: string = resolverRuta()): Db {
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL; PRAGMA cache_size = -65536; PRAGMA mmap_size = 268435456; PRAGMA temp_store = MEMORY; PRAGMA busy_timeout = 5000;')
   db.exec(ESQUEMA)
   migrar(db)
+  // Fragua #291: un «FOREIGN KEY constraint failed» dice qué tabla, qué columna y qué valor (o qué depende de qué).
+  engancharIntegridad(db)
   // Estadísticas para el planificador (solo donde hacen falta: es barato).
   try { db.exec('PRAGMA optimize = 0x10002') } catch { /* SQLite viejo */ }
   return db

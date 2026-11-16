@@ -1423,6 +1423,8 @@ const rutas: [string, RegExp, Ruta][] = [
   // Mobile 1.3: tu tiempo en el teléfono (un día o los últimos n) y qué cuenta como distracción; los recordatorios.
   ['GET', /^\/api\/uso$/, async (_, __, q) => { const u = await import('./uso-telefono.ts'); return q.get('dias') ? u.usoDeDias(db, Number(q.get('dias')) || 7) : u.usoDelDia(db, q.get('fecha') || undefined) }],
   ['POST', /^\/api\/uso\/distracciones$/, async (req) => { const b = JSON.parse((await leerCrudo(req, 64 * 1024)).toString('utf8') || '{}'); return { distracciones: (await import('./uso-telefono.ts')).fijarDistracciones(db, Array.isArray(b.distracciones) ? b.distracciones : []) } }],
+  // Fragua #291: los huérfanos que encontró la revisión del arranque (o, con ?ahora=1, una revisión nueva).
+  ['GET', /^\/api\/integridad$/, async (_, __, q) => q.get('ahora') ? { en: Date.now(), h: await (await import('./integridad.ts')).huerfanos(db) } : JSON.parse(ajuste(db, 'integridad_huerfanos') ?? '{"h":[]}')],
   ['GET', /^\/api\/recordatorios$/, async () => ({ recordatorios: (await import('./avisos-movil.ts')).recordatorios(db) })],
   ['GET', /^\/api\/actividad$/, async (_, __, q) => { const t = await import('./territorio.ts'); return q.get('semana') ? t.actividadSemana(db) : t.actividadDelDia(db, q.get('fecha') || undefined) }],
 
@@ -2742,6 +2744,12 @@ deFondo(() => {
 })
 // Los videos que quedaron en la cola (o a mitad) por un reinicio: siguen.
 deFondo(() => setTimeout(() => void import('./video.ts').then((v) => v.trabajarVideos(db)).catch((e) => console.error('  videos:', e instanceof Error ? e.message : e)), 45_000).unref())
+// Fragua #291: al arrancar, lo que ya está roto (filas que apuntan a algo que no existe), sin borrar nada.
+deFondo(() => setTimeout(() => void import('./integridad.ts').then(async (i) => {
+  const h = await i.huerfanos(db)
+  fijarAjuste(db, 'integridad_huerfanos', JSON.stringify({ en: Date.now(), h }))
+  if (h.length) console.warn(`  integridad: ${h.map((x) => `${x.tabla}→${x.padre} ${x.filas}`).join(' · ')} (huérfanos; no se borró nada)`)
+}).catch((e) => console.error('  integridad:', e instanceof Error ? e.message : e)), 90_000).unref())
 // WhatsApp: lo que un reinicio (una actualización) cortó a mitad de respuesta, se retoma al minuto de arrancar.
 setTimeout(() => void import('./whatsapp.ts').then((wa) => wa.retomarWhatsapp(db)).catch((e) => console.error('  whatsapp retomar:', e instanceof Error ? e.message : e)), 70_000).unref?.()
 

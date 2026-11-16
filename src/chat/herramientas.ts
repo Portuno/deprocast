@@ -2686,7 +2686,10 @@ export async function ejecutarHerramienta(hs: Herramienta[], nombre: string, arg
     }
     return { resultado, resumen: h.resumen?.(a, resultado) ?? nombre.replace(/_/g, ' '), ok: true, inversa }
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    return { resultado: await conFallo({ error: msg }, msg), resumen: `${nombre} falló: ${recorte(msg, 80)}`, ok: false }
+    let msg = e instanceof Error ? e.message : String(e)
+    // Fragua #291: un error de integridad dice qué acción falló, en castellano (y su detalle, para explicarlo).
+    const integridad = (e as { detalle?: unknown })?.detalle && /^No se pudo /.test(msg) ? (e as { detalle: unknown }).detalle : null
+    if (integridad || /FOREIGN KEY constraint failed/i.test(msg)) msg = `Al ${nombre.replace(/_/g, ' ')}: ${/FOREIGN KEY/i.test(msg) ? 'una regla de integridad de la base frenó el cambio (una clave foránea).' : msg}`
+    return { resultado: await conFallo({ error: msg, ...(integridad ? { integridad } : {}) }, msg), resumen: `${nombre} falló: ${recorte(msg, 80)}`, ok: false }
   }
 }
