@@ -1396,6 +1396,32 @@ const rutas: [string, RegExp, Ruta][] = [
   // Economía de agentes
   ['GET', /^\/api\/economia$/, (_, __, q) => ({ semana: q.get('semana') || semanaDe(), tarifas: TARIFAS, resultados: RESULTADOS, tabla: tablaEconomia(db, q.get('semana') || semanaDe()), historia: db.prepare('SELECT semana, COUNT(*) AS agentes, ROUND(SUM(neto), 1) AS neto FROM temporadas GROUP BY semana ORDER BY semana DESC LIMIT 8').all() })],
 
+  // Páginas propias: los 72 arquetipos y los dominios (cada una se construye sola y él la moldea con instrucciones).
+  ['GET', /^\/api\/paginas\/arquetipos$/, async () => (await import('./paginas.ts')).listarArquetipos(db)],
+  ['GET', /^\/api\/paginas\/dominios$/, async () => (await import('./paginas.ts')).listarPaginasDominio(db)],
+  ['GET', /^\/api\/paginas\/(arquetipo|dominio)\/(\d+)$/, async (_, [t, c]) => { const p = await import('./paginas.ts'); return { pagina: p.leerPagina(db, t as any, c), datos: await p.datosDe(db, t as any, c) } }],
+  ['POST', /^\/api\/paginas\/(arquetipo|dominio)\/(\d+)\/construir$/, async (_, [t, c]) => (await import('./paginas.ts')).construirPagina(db, t as any, c)],
+  ['POST', /^\/api\/paginas\/(arquetipo|dominio)\/(\d+)\/instruir$/, async (b, [t, c]) => (await import('./paginas.ts')).instruirPagina(db, t as any, c, String(b.texto ?? ''))],
+  ['POST', /^\/api\/paginas\/(arquetipo|dominio)\/(\d+)\/nombre$/, async (b, [t, c]) => (await import('./paginas.ts')).nombrarPagina(db, t as any, c, b.nombre ?? null)],
+  ['POST', /^\/api\/paginas\/(arquetipo|dominio)\/(\d+)\/seccion$/, async (b, [t, c]) => (await import('./paginas.ts')).escribirSeccion(db, t as any, c, { id: b.id ?? null, titulo: String(b.titulo ?? ''), cuerpo: b.cuerpo ?? null })],
+
+  // La lista de compras
+  ['GET', /^\/api\/compras$/, async (_, __, q) => (await import('./compras.ts')).listarCompras(db, { estado: (q.get('estado') as any) || 'todas' })],
+  ['POST', /^\/api\/compras$/, async (b) => {
+    const c = await import('./compras.ts')
+    const items = Array.isArray(b.items) ? b.items : String(b.texto ?? '').split(/\n|,|;/).map((x) => ({ item: x }))
+    return c.anotarCompras(db, items, { origen: 'pantalla' })
+  }],
+  ['POST', /^\/api\/compras\/marcar$/, async (b) => (await import('./compras.ts')).marcarCompras(db, Array.isArray(b.ids) ? b.ids : [], ['pendiente', 'comprado', 'descartado'].includes(b.estado) ? b.estado : 'comprado')],
+  ['POST', /^\/api\/compras\/importar$/, async () => (await import('./compras.ts')).importarDelHilo(db)],
+
+  // Los cuadernos de la tableta (Huion): sus hojas como páginas
+  ['GET', /^\/api\/hojas$/, async () => (await import('./tandas.ts')).cuadernosHuion(db)],
+  ['GET', /^\/api\/hojas\/cuaderno$/, async (_, __, q) => (await import('./tandas.ts')).hojasDelCuaderno(db, q.get('nombre') ?? '')],
+
+  // El Menú general: todo Deprocast en una página (cuánto hay de cada cosa)
+  ['GET', /^\/api\/menu$/, async () => (await import('./menu.ts')).menuGeneral(db)],
+
   // Cuadernos
   ['GET', /^\/api\/cuadernos$/, () => listarCuadernos(db)],
   ['POST', /^\/api\/cuadernos$/, (b) => crearCuaderno(db, String(b.titulo ?? ''), b.descripcion || null)],
@@ -2082,6 +2108,13 @@ const servidor = http.createServer(async (req, res) => {
     comprimirJson(req, res)
     try {
       // Una imagen para el chat (cruda): se guarda, se describe y vuelve la marca para el mensaje.
+      // La imagen original de una hoja de la tableta (si sigue en disco).
+      const hoja = /^\/api\/hojas\/(\d+)\/imagen$/.exec(url.pathname)
+      if (req.method === 'GET' && hoja) {
+        const im = (await import('./tandas.ts')).imagenDeHoja(db, Number(hoja[1]))
+        if (!im) return void res.writeHead(404).end(JSON.stringify({ error: 'La imagen de esa hoja ya no está' }))
+        return void res.writeHead(200, { 'content-type': im.mime, 'cache-control': 'private, max-age=86400' }).end(fs.readFileSync(im.ruta))
+      }
       // Una pieza o un cuaderno como archivo .md (para bajar)
       const md = /^\/api\/(corpus|cuadernos)\/(\d+)\.md$/.exec(url.pathname)
       if (req.method === 'GET' && md) {

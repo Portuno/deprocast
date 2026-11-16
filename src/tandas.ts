@@ -343,3 +343,31 @@ export async function vocesDeNota(db: Db, texto: string): Promise<{ contenido: s
     voces: v,
   }
 }
+
+// ─── los cuadernos de la tableta, como páginas ───────────────────────────
+
+const SIN_CUADERNO = 'Sin cuaderno'
+
+/** Los cuadernos de la tableta (Huion y lo que llegó como hoja): cuántas hojas, cuántas leídas y de cuándo. */
+export function cuadernosHuion(db: Db) {
+  return (db.prepare(`SELECT COALESCE(NULLIF(TRIM(cuaderno), ''), ?) AS nombre, COUNT(*) AS hojas, SUM(estado = 'hecha') AS leidas, SUM(estado = 'fallo') AS fallas,
+      MIN(fecha) AS desde, MAX(fecha) AS hasta, MAX(creada_en) AS ultima
+    FROM tandas WHERE tipo = 'pagina' GROUP BY 1 ORDER BY ultima DESC`).all(SIN_CUADERNO) as any[])
+    .map((r) => ({ nombre: r.nombre, hojas: r.hojas, leidas: r.leidas ?? 0, fallas: r.fallas ?? 0, desde: r.desde, hasta: r.hasta, ultima: r.ultima }))
+}
+
+/** Las hojas de un cuaderno, en orden, con lo que se leyó de cada una (la pieza del corpus). */
+export function hojasDelCuaderno(db: Db, nombre: string) {
+  return (db.prepare(`SELECT t.id, t.hoja, t.fecha, t.estado, t.error, t.pieza_id, t.creada_en, c.titulo, SUBSTR(c.contenido, 1, 4000) AS contenido
+    FROM tandas t LEFT JOIN corpus c ON c.id = t.pieza_id
+    WHERE t.tipo = 'pagina' AND COALESCE(NULLIF(TRIM(t.cuaderno), ''), ?) = ? ORDER BY COALESCE(t.hoja, 999999), t.fecha, t.id`).all(SIN_CUADERNO, nombre) as any[])
+    .map((r) => ({ id: r.id, hoja: r.hoja, fecha: r.fecha, estado: r.estado, error: r.error, piezaId: r.pieza_id, titulo: r.titulo, contenido: r.contenido, creadaEn: r.creada_en }))
+}
+
+/** La imagen original de una hoja (si sigue en disco). */
+export function imagenDeHoja(db: Db, id: number): { ruta: string; mime: string } | null {
+  const r = db.prepare(`SELECT ruta FROM tandas WHERE id = ? AND tipo = 'pagina'`).get(id) as { ruta: string } | undefined
+  if (!r || !fs.existsSync(r.ruta)) return null
+  const ext = path.extname(r.ruta).toLowerCase()
+  return { ruta: r.ruta, mime: ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : ext === '.pdf' ? 'application/pdf' : 'image/jpeg' }
+}

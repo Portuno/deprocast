@@ -502,6 +502,69 @@ export const HERRAMIENTAS: Herramienta[] = [
     },
   },
   {
+    nombre: 'ver_pagina', familia: 'lectura',
+    descripcion: 'La página propia de un arquetipo (una de las 72 celdas de la Matriz: por número o por el nombre que él le puso, «el Modista») o de un dominio (por id o por tema): sus secciones, sus instrucciones y lo que pasa ahí.',
+    parametros: S({ tipo: str('Qué página', { enum: ['arquetipo', 'dominio'] }), cual: str('Número de celda (1–72) o nombre del arquetipo; id o tema del dominio') }, ['tipo', 'cual']),
+    ejecutar: async (a, { db }) => {
+      const p = await import('../paginas.ts')
+      const clave = p.resolverPagina(db, a.tipo, a.cual)
+      if (!clave) return { error: `No encontré ${a.tipo === 'arquetipo' ? 'un arquetipo' : 'un dominio'} «${a.cual}». ${a.tipo === 'arquetipo' ? 'Los arquetipos van del 1 al 72; si querés llamarlo así, usá nombrar_arquetipo.' : 'Mirá los dominios con ver_aprendizajes.'}` }
+      const pg = p.leerPagina(db, a.tipo, clave)
+      return { tipo: a.tipo, clave, link: `#${a.tipo}/${clave}`, nombre: pg.nombre, descripcion: pg.descripcion, secciones: pg.secciones.map((s) => ({ titulo: s.titulo, cuerpo: recorte(s.cuerpo, 1500), suya: s.origen === 'operador' })), instrucciones: pg.instrucciones, construida: pg.construidaEn, datos: await p.datosDe(db, a.tipo, clave) }
+    },
+  },
+  {
+    nombre: 'instruir_pagina', familia: 'accion',
+    descripcion: 'Le da una instrucción en lenguaje natural a la página propia de un arquetipo o de un dominio («sumale una sección de proveedores», «sacá las clases viejas», «que muestre primero el monedero»). Se anota (sigue valiendo) y la página se reconstruye en el momento.',
+    parametros: S({ tipo: str('Qué página', { enum: ['arquetipo', 'dominio'] }), cual: str('Número de celda o nombre del arquetipo; id o tema del dominio'), instruccion: str('Lo que pidió, con sus palabras') }, ['tipo', 'cual', 'instruccion']),
+    ejecutar: async (a, { db }) => {
+      const p = await import('../paginas.ts')
+      const clave = p.resolverPagina(db, a.tipo, a.cual)
+      if (!clave) return { error: `No encontré ${a.tipo === 'arquetipo' ? 'el arquetipo' : 'el dominio'} «${a.cual}».` }
+      const r = await p.instruirPagina(db, a.tipo, clave, String(a.instruccion ?? ''))
+      return { link: `#${a.tipo}/${clave}`, secciones: r.secciones.map((s) => s.titulo), pendientes: r.instrucciones.filter((x) => !x.aplicada).map((x) => x.texto), notas: r.notas }
+    },
+    resumen: (a) => `instruyó la página de ${a.cual}`,
+  },
+  {
+    nombre: 'nombrar_arquetipo', familia: 'accion',
+    descripcion: 'Le pone nombre (o se lo cambia) a uno de los 72 arquetipos de la Matriz («la celda 12 es El Modista»). El nombre lo decide él: no lo inventes.',
+    parametros: S({ celda: int('Número de celda, 1 a 72'), nombre: str('El nombre que eligió él («El Modista»); vacío lo borra') }, ['celda']),
+    ejecutar: async (a, { db }) => {
+      const p = await import('../paginas.ts')
+      const r = p.nombrarPagina(db, 'arquetipo', String(a.celda), a.nombre ?? null)
+      return { celda: a.celda, nombre: r.nombre, link: `#arquetipo/${a.celda}` }
+    },
+    resumen: (a) => `nombró el arquetipo ${a.celda}: ${a.nombre ?? '(sin nombre)'}`,
+  },
+  {
+    nombre: 'anotar_compras', familia: 'accion',
+    descripcion: 'Anota en su lista de compras lo que hay que comprar («comprar leche y pilas», una lista que mandó, una foto de una lista). Lo repetido no se duplica. Usala siempre que mande cosas para comprar, aunque no diga «anotá».',
+    parametros: S({ items: { type: 'array', items: { type: 'object', properties: { item: str('Qué (corto)'), cantidad: str('Cuánto, si lo dijo'), nota: str('Una aclaración, si la dio') }, required: ['item'] }, description: 'Los ítems' } }, ['items']),
+    ejecutar: async (a, { db }) => {
+      const c = await import('../compras.ts')
+      const r = c.anotarCompras(db, Array.isArray(a.items) ? a.items : [])
+      return { anotados: r.nuevos.map((x) => x.item), yaEstaban: r.yaEstaban.map((x) => x.item), pendientes: c.listarCompras(db).length, link: '#compras' }
+    },
+    resumen: (a) => `anotó ${Array.isArray(a.items) ? a.items.length : 0} compras`,
+  },
+  {
+    nombre: 'ver_compras', familia: 'lectura',
+    descripcion: 'Su lista de compras: lo pendiente (o lo ya comprado).',
+    parametros: S({ estado: str('Cuáles', { enum: ['pendiente', 'comprado', 'descartado', 'todas'] }) }),
+    ejecutar: async (a, { db }) => (await import('../compras.ts')).listarCompras(db, { estado: a.estado ?? 'pendiente', limite: 100 }).map((x) => ({ id: x.id, item: x.item, cantidad: x.cantidad, nota: x.nota, estado: x.estado })),
+  },
+  {
+    nombre: 'marcar_compras', familia: 'accion',
+    descripcion: 'Marca ítems de la lista de compras como comprados (o descartados, o de vuelta a pendientes), por id o por nombre.',
+    parametros: S({ items: { type: 'array', items: { type: 'string' }, description: 'Ids o nombres («leche»)' }, estado: str('Cómo quedan', { enum: ['comprado', 'descartado', 'pendiente'] }) }, ['items']),
+    ejecutar: async (a, { db }) => {
+      const r = (await import('../compras.ts')).marcarCompras(db, Array.isArray(a.items) ? a.items : [], a.estado ?? 'comprado')
+      return r.length ? { marcados: r.map((x) => `${x.item} → ${x.estado}`) } : { error: 'No encontré esos ítems en la lista (mirá ver_compras).' }
+    },
+    resumen: (a) => `marcó ${Array.isArray(a.items) ? a.items.join(', ') : ''} como ${a.estado ?? 'comprado'}`,
+  },
+  {
     nombre: 'listar_fuentes', familia: 'lectura', descripcion: 'Las fuentes del corpus, con su nivel y cantidad de piezas.', parametros: S({}),
     ejecutar: (_, { db }) => fuentes(db).map((f) => ({ id: f.id, nombre: f.nombre, nivel: f.nivel, madre: f.padreId, piezas: f.piezas })),
   },
@@ -2339,15 +2402,15 @@ ${a.detalle ?? ''}`)
  * (pedir_herramientas) o cuando el mensaje ya lo anuncia. Así cada respuesta no carga las 110 herramientas.
  */
 export const NUCLEO = [
-  'abrir_ficha_idea', 'pedir_herramientas', 'que_puede_deprocast', 'ver_dia', 'ver_agenda', 'ver_linea', 'fijar_horario', 'ver_uso', 'buscar_corpus', 'leer_pieza', 'buscar_en_hilo', 'leer_memoria', 'recordar',
+  'abrir_ficha_idea', 'pedir_herramientas', 'que_puede_deprocast', 'ver_dia', 'ver_agenda', 'ver_linea', 'fijar_horario', 'ver_uso', 'buscar_corpus', 'leer_pieza', 'buscar_en_hilo', 'anotar_compras', 'leer_memoria', 'recordar',
   'corregir_memoria', 'listar_entidades', 'ver_entidad', 'ver_misiones', 'crear_mision', 'actualizar_mision', 'anotar_side_quest', 'ver_run', 'preparar_run',
   'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'proponer_mejora', 'deshacer_ultima_accion', 'ver_para_validar', 'validar', 'arrancar_bloque', 'terminar_bloque',
 ]
 export const GRUPOS: Record<string, string[]> = {
-  liga: ['crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'ver_banco_de_pruebas', 'correr_banco_de_pruebas', 'comparar_motores', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
+  liga: ['ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'ver_banco_de_pruebas', 'correr_banco_de_pruebas', 'comparar_motores', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['al_diario', 'ver_diario', 'crear_dominio', 'retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_criterios', 'fijar_criterio', 'ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['ficha_empresa', 'responder_pregunta', 'votar_criba', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'crear_dominio', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_hipotesis', 'probar_hipotesis', 'ver_recorrido', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas'],
+  vida: ['ficha_empresa', 'responder_pregunta', 'votar_criba', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'crear_dominio', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_hipotesis', 'probar_hipotesis', 'ver_recorrido', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ver_compras', 'marcar_compras'],
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado', 'borrar_programado'],
   correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'marcar_correo_atendido', 'buscar_contacto'],
   drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'borrar_de_drive', 'barrer_documentos_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],
@@ -2365,7 +2428,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox|misi[oó]n|pista|me respondi|reuni[oó]n con|claude code|bit[aá]cora de desarrollo|benchmark|banco de pruebas|comparar motores|qu[eé] motor|qu[eé] modelo conviene/.test(t)) g.push('liga')
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|retir[aá]|pieza|historia de|mal generad|est[aá] mal|correg[ií] (la|esa|esta) (pieza|historia)|\[confirmado\]|\[inferido\]|prensa|peri[oó]dico|noticias? de|el diario de hoy/.test(t)) g.push('corpus')
   if (/primaria|reporte|informe|ayudante|principal|north star|inventario|personaje|run |criterio|la urgente|el ambicioso|la medidora|el entusiasta|la curiosa|el deudor/.test(t)) g.push('misiones')
-  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|hip[oó]tesis|recorrido|d[oó]nde estuve|por d[oó]nde|ubicaci[oó]n|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend|criba|empresa|compa[ñn][ií]a|cif\b|raz[oó]n social/.test(t)) g.push('vida')
+  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|hip[oó]tesis|recorrido|d[oó]nde estuve|por d[oó]nde|ubicaci[oó]n|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend|criba|empresa|compa[ñn][ií]a|cif\b|raz[oó]n social|p[aá]gina|arquetipo|matriz 72|compra|s[uú]per\b|mercadona/.test(t)) g.push('vida')
   if (/\bcada (lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|d[ií]a|ma[ñn]ana|noche|semana|mes|\d+ horas|hora)|todos los (d[ií]as|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bados|domingos)|todas las (ma[ñn]anas|noches)|program[aá]|encargo programado|de lunes a viernes/.test(t)) g.push('programados')
   if (/\bmails?\b|correo|gmail|bandeja|inbox|borrador|me escribi[oó]|contest(ar|[aá]le) a/.test(t)) g.push('correo')
   if (/drive|planilla|sheets?\b|hoja de c[aá]lculo|spreadsheet|excel|docs\.google/.test(t)) g.push('drive')

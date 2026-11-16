@@ -94,7 +94,7 @@ const forja = { clase: null, reparto: {}, motor: '', instrucciones: '', proyecto
 const mision = { clase: 'buscador', proyectoId: '' }
 
 /** Las vistas de la maquinaria de la liga: van agrupadas y plegadas en el menú, con su HUD propio. */
-const VISTAS_MAQUINA = new Set(['liga', 'forja', 'encargos', 'matriz', 'cementerio'])
+const VISTAS_MAQUINA = new Set(['liga', 'forja', 'encargos', 'matriz', 'cementerio', 'arquetipos', 'arquetipo'])
 const claseDe = (id) => META.clases.find((c) => c.id === id)
 const colorDe = (id) => `var(--${id})`
 const ESTADOS_CORPUS = ['crudo', 'extraido', 'clasificado', 'disponible']

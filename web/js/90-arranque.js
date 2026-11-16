@@ -53,6 +53,14 @@ const VISTAS = {
   quantomos: { montar: montarQuantomos, refrescar: refrescarQuantomos },
   matriz: { montar: montarEsqueleto, refrescar: () => pintarEsqueleto() },
   cementerio: { montar: montarCementerio, refrescar: montarCementerio },
+  // Páginas propias (con dirección: #arquetipo/12, #dominio/3, #hojas/Rojo) y el Menú general.
+  menu: { montar: montarMenu, refrescar: () => {} },
+  arquetipos: { montar: montarArquetipos, refrescar: () => {} },
+  arquetipo: { montar: montarArquetipo, refrescar: () => {} },
+  dominios: { montar: montarDominios, refrescar: () => {} },
+  dominio: { montar: montarDominio, refrescar: () => {} },
+  hojas: { montar: montarHojas, refrescar: () => {} },
+  compras: { montar: montarCompras, refrescar: () => {} },
 }
 
 /**
@@ -86,21 +94,22 @@ const firmaDeVista = (v) => (FIRMA_VISTA[v] && E ? JSON.stringify(FIRMA_VISTA[v]
  * pestaña se entra la primera vez. Los links de siempre (#salud, #mano…) siguen andando. tecla: «g» + esa letra.
  */
 const ESPACIOS = [
+  { id: 'menu', nombre: 'Menú', ico: 'house', tecla: 'u', vistas: [['menu', 'Menú general']] },
   { id: 'hoy', nombre: 'Hoy', ico: 'sun', tecla: 'h', vistas: [['hoy', 'Hoy'], ['correo', 'Correo'], ['informe', 'Informe'], ['directo', 'Directo']] },
   { id: 'chat', nombre: 'Chat', ico: 'message-circle', tecla: 'c', vistas: [['chat', 'Chat']] },
   { id: 'plan', nombre: 'Plan', ico: 'target', tecla: 'p', vistas: [['misiones', 'Misiones'], ['calendario', 'Calendario'], ['linea', 'Línea'], ['mapa', 'Mapa']] },
-  { id: 'vida', nombre: 'Vida', ico: 'heart-pulse', tecla: 'v', vistas: [['salud', 'Salud'], ['tudia', 'Tu día'], ['personas', 'Personas'], ['capsulas', 'Cápsulas'], ['jugador', 'Jugador'], ['suenos', 'Sueños']] },
-  { id: 'aprender', nombre: 'Aprender', ico: 'graduation-cap', tecla: 'a', vistas: [['aprender', 'Academia'], ['idiomas', 'Idiomas'], ['criba72', 'Criba del 72'], ['criba', 'Criba lúdica']] },
+  { id: 'vida', nombre: 'Vida', ico: 'heart-pulse', tecla: 'v', vistas: [['salud', 'Salud'], ['tudia', 'Tu día'], ['personas', 'Personas'], ['compras', 'Compras'], ['capsulas', 'Cápsulas'], ['jugador', 'Jugador'], ['suenos', 'Sueños']] },
+  { id: 'aprender', nombre: 'Aprender', ico: 'graduation-cap', tecla: 'a', vistas: [['aprender', 'Academia'], ['dominios', 'Dominios'], ['idiomas', 'Idiomas'], ['criba72', 'Criba del 72'], ['criba', 'Criba lúdica']] },
   { id: 'grafo', nombre: 'Grafo', ico: 'waypoints', tecla: 'r', vistas: [['grafo', 'Grafo'], ['grafos', 'Mis grafos'], ['grafosalud', 'Salud']] },
   { id: 'agentes', nombre: 'Agentes', ico: 'bot', tecla: 'e', vistas: [['agsala', 'Sala'], ['agmisiones', 'Misiones'], ['programados', 'Programados'], ['agpistas', 'Pistas'], ['agtemporada', 'Temporada'], ['liga', 'Roster'], ['forja', 'Forja'], ['encargos', 'Encargos'], ['cementerio', 'Cementerio']] },
   { id: 'mapamundi', nombre: 'Mapamundi', ico: 'hexagon', tecla: 'w', vistas: [['mapamundi', 'Mapamundi']] },
-  { id: 'saber', nombre: 'Saber', ico: 'library', tecla: 's', vistas: [['corpus', 'Corpus'], ['prensa', 'Diario'], ['cuadernos', 'Cuadernos'], ['libreria', 'Librería'], ['entidades', 'Entidades']] },
+  { id: 'saber', nombre: 'Saber', ico: 'library', tecla: 's', vistas: [['corpus', 'Corpus'], ['prensa', 'Diario'], ['cuadernos', 'Cuadernos'], ['hojas', 'A mano'], ['libreria', 'Librería'], ['entidades', 'Entidades']] },
   { id: 'afuera', nombre: 'Afuera', ico: 'globe', tecla: 'f', vistas: [['feed', 'Feed'], ['taller', 'Taller'], ['radar', 'Radar'], ['observatorio', 'Observatorio'], ['campanas', 'Campañas'], ['cuentas', 'Cuentas'], ['discovery', 'Discovery']] },
-  { id: 'maquina', nombre: 'La máquina', ico: 'cog', tecla: 'm', vistas: [['matriz', 'Matriz 72'], ['fragua', 'La Fragua'], ['revision', 'Revisión']] },
+  { id: 'maquina', nombre: 'La máquina', ico: 'cog', tecla: 'm', vistas: [['matriz', 'Matriz 72'], ['arquetipos', 'Arquetipos'], ['fragua', 'La Fragua'], ['revision', 'Revisión']] },
   { id: 'perfil', nombre: 'Perfil', ico: 'user', tecla: 'y', vistas: [['perfil', 'Perfil']] },
 ]
 /** Las vistas que viven adentro de otra (se marcan como esa pestaña). */
-const VISTA_PADRE = { quantomos: 'corpus', estudio: 'taller' }
+const VISTA_PADRE = { quantomos: 'corpus', estudio: 'taller', arquetipo: 'arquetipos', dominio: 'dominios' }
 const espacioDe = (v) => ESPACIOS.find((e) => e.vistas.some(([x]) => x === (VISTA_PADRE[v] ?? v))) ?? ESPACIOS[0]
 const nombreDeVista = (v) => ESPACIOS.flatMap((e) => e.vistas).find(([x]) => x === v)?.[1] ?? v
 /** Cuántas veces abrió cada vista (30 días): decide la pestaña de entrada de un espacio la primera vez. */
@@ -204,11 +213,22 @@ $('#barra-abajo').addEventListener('click', (e) => {
   else hojaEspacios()
 })
 
-function irA(v) {
-  if (!VISTAS[v]) v = 'hoy'
+/** La ruta abierta entera («arquetipo/12»): la vista va en «vista» y lo que sigue a la barra, en «vistaParam». */
+let rutaActual = ''
+let vistaParam = null
+/** Un link a una página con dirección (#arquetipo/12, #hojas/Cuaderno Rojo). */
+const rutaA = (v, param) => `#${v}${param != null && param !== '' ? `/${encodeURIComponent(param)}` : ''}`
+
+function irA(ruta) {
+  const [base, ...resto] = String(ruta ?? '').split('/')
+  let v = base
+  let param = resto.length ? (() => { try { return decodeURIComponent(resto.join('/')) } catch { return resto.join('/') } })() : null
+  if (!VISTAS[v]) { v = 'hoy'; param = null }
   vista = v
+  vistaParam = param
+  rutaActual = rutaA(v, param).slice(1)
   firmasVista[v] = firmaDeVista(v) // recién montada: está al día
-  if (location.hash.slice(1) !== v) history.replaceState(null, '', `#${v}`) // un link directo a cada vista
+  if (location.hash.slice(1) !== rutaActual) history.replaceState(null, '', `#${rutaActual}`) // un link directo a cada vista (y a cada página)
   document.body.classList.toggle('en-maquina', VISTAS_MAQUINA.has(v))
   if (E) renderHud()
   $('#principal').classList.toggle('lleno', v === 'chat' || v === 'hoy' || v === 'grafo')
@@ -219,7 +239,7 @@ function irA(v) {
   // Lo que pida en sus primeros segundos se aprende (y la próxima vez llega antes); n: qué montaje es (si se va o la
   // vuelve a abrir antes de que llegue lo pedido, eso ya no se entrega).
   montando = { vista: v, desde: Date.now(), n: (montando?.n ?? 0) + 1 }
-  VISTAS[v].montar()
+  VISTAS[v].montar(param)
   $('#principal').scrollTop = 0
   api('/uso', { vista: v }).catch(() => {}) // qué usa de verdad (para rankear con datos)
   setTimeout(() => precargarVecinas(v), 1500)
@@ -405,7 +425,7 @@ async function iniciar() {
   pintarIndicadorDirecto()
   irA(location.hash.slice(1) || 'hoy')
   precargarArchivos()
-  window.addEventListener('hashchange', () => { if (location.hash.slice(1) !== vista) irA(location.hash.slice(1)) })
+  window.addEventListener('hashchange', () => { if (location.hash.slice(1) !== rutaActual) irA(location.hash.slice(1)) })
   // Su hora, no la del servidor: la zona del navegador viaja una vez (o cuando cambia, si viaja).
   try {
     const z = Intl.DateTimeFormat().resolvedOptions().timeZone

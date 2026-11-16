@@ -120,7 +120,7 @@ async function pintarDominio(id) {
   const d = r.dominio
   const hechas = r.sesiones.filter((s) => s.estado === 'hecha')
   cont.innerHTML = `<div class="aca-dominio">
-    <header class="aca-dom-cab"><button class="btn btn-chico" id="aca-volver">←</button><div class="f1"><h2>${esc(d.tema)}</h2>${d.porQue ? `<small class="tenue">${esc(d.porQue)}</small>` : ''}</div><span class="chip">Nivel ${d.tutorNivel} · ${esc(d.nivelNombre)}</span></header>
+    <header class="aca-dom-cab"><button class="btn btn-chico" id="aca-volver">←</button><div class="f1"><h2>${esc(d.tema)}</h2>${d.porQue ? `<small class="tenue">${esc(d.porQue)}</small>` : ''}</div><span class="chip">Nivel ${d.tutorNivel} · ${esc(d.nivelNombre)}</span><a class="btn btn-chico" href="#dominio/${d.id}" title="La página propia del dominio: crece sola y la moldeás con instrucciones">Su página</a></header>
     ${escalera(d.tutorNivel)}
     ${r.ritmo ? `<p class="aca-ritmo ${r.ritmo.estado}">🎯 ${esc(r.ritmo.texto)}</p>` : ''}
     <div class="fila aca-acciones">

@@ -2313,6 +2313,7 @@ const RUTINAS_SISTEMA = [
   { id: 'mentor', nombre: 'El Mentor recomienda qué leer o ver', hora: '08:05', dias: '1', accion: 'mentor' },
   { id: 'puentes', nombre: 'Puentes con tu gente', hora: '11:00', dias: '0', accion: 'puentes' },
   { id: 'temporada', nombre: 'Cierre de temporada de la liga', hora: '07:30', dias: '1', accion: 'temporada' },
+  { id: 'paginas', nombre: 'Las páginas propias (arquetipos y dominios) se construyen solas con lo que cambió', hora: '04:30', dias: '0123456', accion: 'paginas' },
   { id: 'destilar', nombre: 'Destilar unas piezas tuyas en espera', hora: '10:15', dias: '0123456', accion: 'destilar' },
   { id: 'autocritica', nombre: 'Mastropiero revisa lo que se rompió y propone arreglos', hora: '02:30', dias: '0123456', accion: 'autocritica' },
   { id: 'fragua', nombre: 'La Fragua forja las propuestas abiertas', hora: '03:00', dias: '0123456', accion: 'fragua' },

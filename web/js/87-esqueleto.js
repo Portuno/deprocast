@@ -132,7 +132,7 @@ function modalCeldaEsqueleto(n) {
     ${!os.length && !cs.length ? '<p class="tenue">Celda vacía: hay geometría, no hay acto.</p>' : ''}
     ${os.length ? `<div class="esq-fichas esq-fichas-modal">${os.map(fichaOrgano).join('')}</div>` : ''}
     ${cs.length ? `<h3 class="sub">Cartas de la liga</h3><div class="mazo">${cs.map(cartaHTML).join('')}</div>` : ''}
-    <div class="fila mt-4"><button class="btn" id="esq-forjar-aqui">⚒ Forjar un agente en esta celda</button></div>`)
+    <div class="fila mt-4"><a class="btn btn-primario" href="#arquetipo/${n}">Abrir su página</a><button class="btn" id="esq-forjar-aqui">⚒ Forjar un agente en esta celda</button></div>`)
   $('#modal').classList.add('modal-ancho')
   conectarFichas($('#modal'))
   $$('#modal [data-agente]').forEach((a) => (a.onclick = () => modalAgente(a.dataset.agente)))

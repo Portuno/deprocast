@@ -3479,3 +3479,75 @@ i.esq-pin.propuesto { border: 1px dashed var(--acento); }
 .prueba.confirmada { border-color: var(--ok); }
 .prueba.refutada { opacity: .75; }
 .prueba-tabla { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: var(--t-2); }
+
+/* Páginas propias y el Menú general (91-paginas.js) */
+.menu-paginas { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--e-3); margin-bottom: var(--e-5); }
+.menu-pagina { display: flex; gap: var(--e-3); align-items: center; padding: var(--e-3) var(--e-4); background: var(--panel-2); border: 1px solid var(--linea); border-radius: var(--r-l); color: var(--texto); text-decoration: none; }
+.menu-pagina:hover { border-color: var(--acento); }
+.menu-pagina span { display: flex; flex-direction: column; min-width: 0; }
+.menu-pagina small { color: var(--tenue); font-size: var(--t-2); }
+.menu-espacios { columns: 3 300px; column-gap: var(--e-4); }
+.menu-espacio { break-inside: avoid; margin-bottom: var(--e-4); background: var(--panel); border: 1px solid var(--linea); border-radius: var(--r-l); padding: var(--e-3) var(--e-3) var(--e-2); }
+.menu-espacio h2 { display: flex; align-items: center; gap: var(--e-2); font-size: var(--t-5); margin: 0 0 var(--e-2); }
+.menu-espacio h2 kbd { margin-left: auto; font: 500 var(--t-1) var(--mono); color: var(--debil); }
+.menu-espacio ul { list-style: none; margin: 0; padding: 0; }
+.menu-espacio a { display: flex; align-items: center; gap: var(--e-2); padding: var(--e-2); border-radius: var(--r-m); color: var(--texto); text-decoration: none; }
+.menu-espacio a:hover { background: var(--hover); }
+.menu-espacio a span { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.menu-espacio a small { color: var(--tenue); font-size: var(--t-2); line-height: 1.35; }
+.menu-n { font: 600 var(--t-3) var(--mono); color: var(--tenue); }
+.menu-entradas ul { padding-left: var(--e-4); line-height: 1.6; }
+.grilla-tarjetas { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: var(--e-3); }
+.tarjeta-link { color: var(--texto); text-decoration: none; }
+.tarjeta-link:hover { border-color: var(--acento); }
+.chip-chico { font-size: var(--t-1); padding: 0 6px; vertical-align: middle; }
+button.link { background: none; border: 0; padding: 0; color: var(--acento-texto); cursor: pointer; font: inherit; text-align: left; }
+button.link:hover { text-decoration: underline; }
+a.arq-celda { color: var(--texto); text-decoration: none; }
+.pagina-propia { container-type: inline-size; }
+/* Con la crónica abierta (La máquina) el lienzo se angosta: el costado pasa abajo según el ancho real, no el de la ventana. */
+@container (max-width: 860px) {
+  .pagina-propia .pag-cuerpo { grid-template-columns: minmax(0, 1fr); }
+  .pagina-propia .pag-lado { position: static; }
+}
+.pag-titulo { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--e-3); }
+.pag-cuerpo { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: var(--e-5); align-items: start; }
+.pag-seccion { margin-bottom: var(--e-4); }
+.pag-seccion h2 { display: flex; align-items: center; gap: var(--e-2); }
+.pag-seccion h2 .btn { margin-left: auto; opacity: .6; }
+.pag-seccion h2 .btn:hover { opacity: 1; }
+.pag-instruir { margin: var(--e-4) 0 var(--e-3); padding: var(--e-3); border: 1px dashed var(--linea-2); border-radius: var(--r-l); }
+.pag-instruir label { display: block; margin-bottom: var(--e-2); }
+.pag-instruir textarea { flex: 1; min-width: 0; resize: vertical; }
+.pag-instrucciones ul { list-style: none; padding: 0; margin: var(--e-2) 0; }
+.pag-instrucciones li { padding: 4px 0; }
+.pag-instrucciones li.pendiente { color: var(--aviso); }
+.pag-lado { position: sticky; top: var(--e-3); display: flex; flex-direction: column; gap: var(--e-3); }
+.pag-lado section { background: var(--panel); border: 1px solid var(--linea); border-radius: var(--r-l); padding: var(--e-3); }
+.pag-lado h3 { margin: 0 0 var(--e-2); font-size: var(--t-4); }
+.pag-lista { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--e-2); }
+.pag-lista li { display: flex; flex-direction: column; gap: 2px; }
+.pag-lista small { font-size: var(--t-2); color: var(--tenue); line-height: 1.35; }
+.hoja-a-mano { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: var(--e-4); padding: var(--e-4) 0; border-bottom: 1px solid var(--linea); }
+.hoja-img { display: flex; align-items: center; justify-content: center; background: var(--panel); border: 1px solid var(--linea); border-radius: var(--r-m); min-height: 120px; overflow: hidden; }
+.hoja-img img { width: 100%; height: auto; display: block; }
+.hoja-img > span { display: none; font-size: var(--t-2); }
+.hoja-img.sin-imagen > span { display: block; }
+.hoja-texto { display: flex; flex-direction: column; gap: var(--e-2); min-width: 0; }
+.compras-sumar { margin-bottom: var(--e-4); }
+.compras-sumar input { flex: 1; min-width: 0; }
+.compras-lista { list-style: none; padding: 0; margin: 0 0 var(--e-3); max-width: 720px; }
+.compra { display: flex; align-items: center; gap: var(--e-2); padding: var(--e-2) 0; border-bottom: 1px solid var(--linea); }
+.compra label { display: flex; gap: var(--e-3); align-items: center; flex: 1; cursor: pointer; min-height: var(--toque); }
+.compra.comprado b, .compra.descartado b { text-decoration: line-through; color: var(--tenue); font-weight: 400; }
+@media (max-width: 1000px) {
+  .menu-paginas { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pag-cuerpo { grid-template-columns: minmax(0, 1fr); }
+  .pag-lado { position: static; }
+  .hoja-a-mano { grid-template-columns: 180px minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  .menu-paginas { grid-template-columns: minmax(0, 1fr); }
+  .hoja-a-mano { grid-template-columns: minmax(0, 1fr); }
+  .pag-titulo { flex-direction: column; }
+}

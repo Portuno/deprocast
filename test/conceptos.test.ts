@@ -90,7 +90,7 @@ test('La clase elige sola (la frontera), intercala repaso de otros dominios y ca
   assert.equal(co.frontera(db, d.id, 1, T)!.nombre, 'Corriente')
   // Todo el nivel sabido: el examen se habilita aunque no haya dos clases seguidas.
   db.prepare('UPDATE conceptos SET dominio = 0.9, vence_en = ? WHERE aprendizaje_id = ? AND nivel = 1').run(T + 9 * DIA, d.id)
-  assert.equal(ac.examenHabilitado(db, d.id), true)
+  assert.equal(ac.examenHabilitado(db, d.id, T), true)
 })
 
 test('El diagnóstico ubica: el nivel de la última bien antes del segundo error, y lo de abajo queda sabido a medias', async () => {
