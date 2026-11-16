@@ -27,6 +27,7 @@ const QUE_ES_VISTA = {
   salud: ['Comidas, ejercicio, sueño y peso contra tus metas.', 'salud'],
   tudia: ['Tu día en el mapa y en números.'],
   personas: ['La gente de tu vida: fichas, relaciones y puentes.', 'personas'],
+  escalas: ['Tu vida por escalas: cada día desde sus piezas, y la semana, el mes… hasta el lustro.'],
   compras: ['La lista de compras: lo que mandás para comprar, junto y tachable.', 'compras'],
   capsulas: ['Cápsulas del tiempo: mensajes para tu yo futuro.'],
   jugador: ['Tu personaje: nivel, inventario e historia.'],
@@ -279,5 +280,45 @@ async function pintarCompras() {
     const b = e.currentTarget
     b.disabled = true; b.textContent = 'Leyendo tus mensajes…'
     try { const r = await api('/compras/importar', {}); toast(`Revisé ${r.revisados} mensajes: ${r.nuevos} ítems nuevos de ${r.mensajes} listas.`, 'suave'); pintarCompras() } catch (x) { error(x); b.disabled = false }
+  }
+}
+
+// ─── Diario por escalas (Fragua #286) ───────────────────────────────────
+
+const ESCALAS_VISTA = [['dia', 'Día'], ['semana', 'Semana'], ['mes', 'Mes'], ['trimestre', 'Trimestre'], ['cuatrimestre', 'Cuatrimestre'], ['semestre', 'Semestre'], ['año', 'Año'], ['lustro', 'Lustro']]
+
+/** #escalas o #escalas/semana:2026-11-16 (la escala y una fecha adentro del período). */
+async function montarEscalas(param) {
+  const [escala, fecha] = String(param ?? '').split(':')
+  const e = ESCALAS_VISTA.some(([x]) => x === escala) ? escala : 'dia'
+  const f = fecha || hoyISO()
+  $('#principal').innerHTML = `<div class="titulo"><h1>Diario por escalas</h1>
+    <p>Cada pieza tuya (un audio, una foto, una nota, una hoja) cae sola en su día. El día se resume desde sus piezas; la semana, desde sus días; el mes, desde sus semanas… hasta el lustro. Se arma de noche.</p></div>
+    <div class="chips">${ESCALAS_VISTA.map(([x, n]) => `<a class="chip ${x === e ? 'on' : ''}" href="${rutaA('escalas', x + ':' + f)}">${n}</a>`).join('')}</div>
+    <div id="esc"><p class="tenue">Trayendo…</p></div>`
+  let r
+  try { r = await api('/escalas?escala=' + encodeURIComponent(e) + '&fecha=' + encodeURIComponent(f)) } catch (x) { return error(x) }
+  const nombreDe = (x) => ESCALAS_VISTA.find(([k]) => k === x)?.[1] ?? x
+  const rango = r.desde === r.hasta ? '' : `${esc(r.desde)} → ${esc(r.hasta)}`
+  const cuerpo = r.texto
+    ? `<section class="pag-seccion"><div class="md">${md(r.texto)}</div><p class="tenue chico">${r.piezas} pieza${r.piezas === 1 ? '' : 's'} · armado ${haceCuanto(r.hechoEn)}</p></section>`
+    : `<div class="vacio"><h2>Todavía no está armado</h2><p>${e === 'dia' ? 'Se arma de noche si ese día dejaste piezas o actividad.' : 'Se arma desde los resúmenes de sus partes.'}</p></div>`
+  const partes = r.partes.length
+    ? `<h3 class="sub">Sus partes (${esc(nombreDe(r.de)).toLowerCase()})</h3><div class="grilla-tarjetas">${r.partes.map((p) => `<a class="tarjeta tarjeta-link" href="${rutaA('escalas', r.de + ':' + p.desde)}"><div class="tarjeta-cab">${esc(p.clave)}</div>${p.texto ? `<p class="recorte">${esc(p.texto)}</p>` : '<p class="tenue">sin armar</p>'}</a>`).join('')}</div>`
+    : ''
+  const piezas = r.piezasDelDia.length
+    ? `<h3 class="sub">Sus piezas</h3><ul class="pag-lista">${r.piezasDelDia.map((p) => `<li><button class="link" data-pieza="${p.id}">${esc(p.titulo)}</button><small>${esc(p.fuente)}</small></li>`).join('')}</ul>`
+    : ''
+  $('#esc').innerHTML = `<div class="fila esc-nav"><a class="btn btn-chico" href="${rutaA('escalas', e + ':' + r.anterior)}">←</a><h2 class="sub">${esc(nombreDe(e))} ${esc(r.clave)} <small class="tenue">${rango}</small></h2><a class="btn btn-chico" href="${rutaA('escalas', e + ':' + r.siguiente)}">→</a><button class="btn btn-chico" data-armar title="Armarlo ahora (y lo que lo contiene)">${ico('refresh-cw')} Armar</button></div>${cuerpo}${partes}${piezas}`
+  $$('#esc [data-pieza]').forEach((a) => (a.onclick = () => modalPieza(Number(a.dataset.pieza))))
+  $('#esc [data-armar]').onclick = async (ev) => {
+    const b = ev.currentTarget
+    b.disabled = true
+    b.textContent = 'Armando…'
+    try {
+      const x = await api('/escalas/armar', { fecha: r.desde })
+      toast(x.hechas.length ? `Armé: ${esc(x.hechas.join(', '))}` : 'No había nada nuevo para armar', 'suave')
+      montarEscalas(e + ':' + r.desde)
+    } catch (y) { error(y); b.disabled = false }
   }
 }

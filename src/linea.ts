@@ -96,6 +96,27 @@ export type EventoLinea = { id: number; piezaId: number; pieza: string; titulo: 
 
 const deFila = (r: any): EventoLinea => ({ id: r.id, piezaId: r.pieza_id, pieza: r.pieza, titulo: r.titulo, fecha: r.fecha, precision: r.precision, hora: r.hora, fin: r.fin, tipo: r.tipo, lugar: r.lugar, personas: json(r.personas, []) ?? [], estado: r.estado })
 
+/**
+ * Los eventos repetidos, juntos (Fragua #280): el mismo tema el mismo día salía nueve veces («Construcción de la técnica
+ * de medición…» el 13/11) y se comía el día. Queda uno por tema y fecha, con cuántas menciones tuvo y las piezas que lo
+ * sostienen. Se queda el primero (el más completo: con hora o lugar si alguno los tiene).
+ */
+export function agruparEventos<T extends { id: number; fecha: string; titulo: string; hora?: string | null; lugar?: string | null; piezaId?: number; pieza_id?: number }>(xs: T[]): (T & { menciones: number; piezas: number[]; ids: number[] })[] {
+  const grupos = new Map<string, (T & { menciones: number; piezas: number[]; ids: number[] })>()
+  for (const e of xs) {
+    const k = `${e.fecha}|${clave(e.titulo)}`
+    const pieza = e.piezaId ?? e.pieza_id ?? null
+    const g = grupos.get(k)
+    if (!g) { grupos.set(k, { ...e, menciones: 1, piezas: pieza != null ? [pieza] : [], ids: [e.id] }); continue }
+    g.menciones++
+    g.ids.push(e.id)
+    if (pieza != null && !g.piezas.includes(pieza)) g.piezas.push(pieza)
+    if (!g.hora && e.hora) g.hora = e.hora
+    if (!g.lugar && e.lugar) g.lugar = e.lugar
+  }
+  return [...grupos.values()]
+}
+
 /** Eventos por rango, persona, proyecto o lugar (una entidad), o tema; y las crónicas de los meses que tocan. */
 export function lineaTemporal(db: Db, f: { desde?: string; hasta?: string; entidad?: number; tema?: string; tipo?: string; limite?: number } = {}, ahora = Date.now()) {
   const cond = [`e.estado != 'descartado'`]
@@ -108,14 +129,15 @@ export function lineaTemporal(db: Db, f: { desde?: string; hasta?: string; entid
     args.push(f.entidad, f.entidad, f.entidad)
   }
   if (f.tema) cond.push('e.pieza_id IN (SELECT pieza_id FROM temas_pulso WHERE clave = ?)'), args.push(clave(f.tema))
-  const eventos = (db.prepare(`SELECT e.*, c.titulo AS pieza FROM eventos e JOIN corpus c ON c.id = e.pieza_id WHERE ${cond.join(' AND ')} ORDER BY e.fecha DESC, e.hora DESC LIMIT ?`).all(...args, f.limite ?? 400) as any[]).map(deFila)
+  const eventos = (db.prepare(`SELECT e.*, c.titulo AS pieza FROM eventos e JOIN corpus c ON c.id = e.pieza_id WHERE ${cond.join(' AND ')} ORDER BY e.fecha DESC, e.hora DESC LIMIT ?`).all(...args, (f.limite ?? 400) * 3) as any[]).map(deFila)
+  const eventosJuntos = agruparEventos(eventos).slice(0, f.limite ?? 400)
   const hoy = fechaLocal(ahora)
   const futuros = (db.prepare(`SELECT e.*, c.titulo AS pieza FROM eventos e JOIN corpus c ON c.id = e.pieza_id WHERE e.tipo = 'futuro' AND e.estado = 'visto' AND e.fecha >= ? ORDER BY e.fecha LIMIT 30`).all(hoy.slice(0, 7)) as any[])
     .map(deFila).filter((e) => e.fecha >= (e.precision === 'mes' ? hoy.slice(0, 7) : hoy))
-  const meses = [...new Set(eventos.map((e) => e.fecha.slice(0, 7)))]
+  const meses = [...new Set(eventosJuntos.map((e) => e.fecha.slice(0, 7)))]
   const cronicas = meses.length ? (db.prepare(`SELECT id, titulo, contenido, origen_id FROM corpus WHERE origen_id IN (${meses.map(() => '?').join(',')})`).all(...meses.map((m) => `linea:mes:${m}`)) as any[])
     .map((c) => ({ mes: String(c.origen_id).slice(-7), id: c.id, titulo: c.titulo, extracto: String(c.contenido).slice(0, 600) })) : []
-  return { eventos, futuros, cronicas }
+  return { eventos: eventosJuntos, futuros: agruparEventos(futuros), cronicas }
 }
 
 /** Un evento futuro que encontró en el archivo pasa a ser una side quest con fecha; o se descarta. */
@@ -218,7 +240,7 @@ export async function cronicaDelMes(db: Db, mes: string, ahora = Date.now()): Pr
 export function lineaParaHerramienta(db: Db, f: Parameters<typeof lineaTemporal>[1]) {
   const l = lineaTemporal(db, { ...f, limite: Math.min(f?.limite ?? 60, 150) })
   return {
-    eventos: l.eventos.map((e) => ({ id: e.id, fecha: e.fecha, hora: e.hora ?? undefined, tipo: e.tipo, titulo: e.titulo, lugar: e.lugar ?? undefined, personas: e.personas.length ? e.personas.map((p) => p.nombre) : undefined, pieza: e.piezaId })),
+    eventos: l.eventos.map((e) => ({ id: e.id, fecha: e.fecha, hora: e.hora ?? undefined, tipo: e.tipo, titulo: e.titulo, lugar: e.lugar ?? undefined, personas: e.personas.length ? e.personas.map((p) => p.nombre) : undefined, pieza: e.piezaId, menciones: e.menciones > 1 ? e.menciones : undefined, piezas: e.piezas.length > 1 ? e.piezas : undefined })),
     cronicas: l.cronicas.map((c) => ({ mes: c.mes, pieza: c.id, titulo: c.titulo })),
     por_venir: l.futuros.map((e) => ({ id: e.id, fecha: e.fecha, titulo: e.titulo, pieza: e.piezaId })),
   }

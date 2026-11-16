@@ -1405,6 +1405,10 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/paginas\/(arquetipo|dominio)\/(\d+)\/nombre$/, async (b, [t, c]) => (await import('./paginas.ts')).nombrarPagina(db, t as any, c, b.nombre ?? null)],
   ['POST', /^\/api\/paginas\/(arquetipo|dominio)\/(\d+)\/seccion$/, async (b, [t, c]) => (await import('./paginas.ts')).escribirSeccion(db, t as any, c, { id: b.id ?? null, titulo: String(b.titulo ?? ''), cuerpo: b.cuerpo ?? null })],
 
+  // El diario por escalas (Fragua #286)
+  ['GET', /^\/api\/escalas$/, async (_, __, q) => (await import('./escalas.ts')).verEscala(db, (q.get('escala') as any) || 'dia', q.get('fecha') || '')],
+  ['POST', /^\/api\/escalas\/armar$/, async (b) => ({ hechas: await (await import('./escalas.ts')).armarHaciaArriba(db, String(b.fecha ?? '')) })],
+
   // La lista de compras
   ['GET', /^\/api\/compras$/, async (_, __, q) => (await import('./compras.ts')).listarCompras(db, { estado: (q.get('estado') as any) || 'todas' })],
   ['POST', /^\/api\/compras$/, async (b) => {

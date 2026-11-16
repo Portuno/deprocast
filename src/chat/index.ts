@@ -4,6 +4,7 @@
  * Todo se guarda mensaje a mensaje, así la pantalla ve el avance mientras el turno corre.
  */
 import { leccionesPara } from '../devoluciones.ts'
+import { esJugada, instruccionDelJuego } from './juego.ts'
 import { ahoraEnPalabras, calendarioCorto } from '../zona.ts'
 import { horarioParaPrompt } from '../horario.ts'
 import { yoParaPrompt } from '../yo.ts'
@@ -547,6 +548,11 @@ export async function enviar(db: Db, cid: number, texto: string, o: OpcionesEnvi
   if (!texto.trim()) throw new Error('Mensaje vacío')
   const id = guardar(db, cid, { rol: 'operador', texto: texto.trim(), via: o.via ?? null })
   if (o.via !== 'encargo') alRecibir(db, cid, c, texto)
+  // Una respuesta con consecuencia (un mail con precio, una negociación): primero el tablero del juego (Fragua #288).
+  if (c.con === MASTROPIERO && o.via !== 'encargo') {
+    // Import estático: un await acá, antes de marcar la conversación como «pensando», desordenaba los turnos.
+    if (esJugada(texto)) o = { ...o, extra: [o.extra, instruccionDelJuego(db)].filter(Boolean).join('\n\n') }
+  }
   // El carril rápido (plan v37): «ya la hice» / «sacala» sobre algo que le sugirió se resuelve en el acto, aunque haya un
   // turno largo en curso, y no entra a ese turno. Lo que no se sabe resolver sin modelo sigue el camino de siempre.
   if (c.con === MASTROPIERO && o.via !== 'encargo') {

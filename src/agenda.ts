@@ -73,8 +73,10 @@ export async function itemsDelCalendario(db: Db, desde: string, hasta: string, c
     }
   }
   if (capas.has('linea')) {
-    for (const e of db.prepare(`SELECT e.*, c.titulo AS pieza FROM eventos e JOIN corpus c ON c.id = e.pieza_id WHERE length(e.fecha) = 10 AND e.fecha BETWEEN ? AND ? AND e.estado != 'descartado' AND (e.tipo = 'futuro' OR e.estado = 'agendado') ORDER BY e.fecha, e.hora`).all(desde, hasta) as any[]) {
-      items.push({ id: `evento:${e.id}`, capa: 'linea', titulo: e.titulo, fecha: e.fecha, hora: e.hora, fin: e.fin, todoElDia: !e.hora, lugar: e.lugar, detalle: `De «${e.pieza}»`, url: null, ref: { tipo: 'pieza', id: e.pieza_id }, google: enGoogle('evento', e.id), editable: false, llevable: true })
+    // Un evento por tema y día, con cuántas veces apareció (Fragua #280: el mismo salía nueve veces y se comía el día).
+    const { agruparEventos } = await import('./linea.ts')
+    for (const e of agruparEventos(db.prepare(`SELECT e.*, c.titulo AS pieza FROM eventos e JOIN corpus c ON c.id = e.pieza_id WHERE length(e.fecha) = 10 AND e.fecha BETWEEN ? AND ? AND e.estado != 'descartado' AND (e.tipo = 'futuro' OR e.estado = 'agendado') ORDER BY e.fecha, e.hora`).all(desde, hasta) as any[])) {
+      items.push({ id: `evento:${e.id}`, capa: 'linea', titulo: e.titulo, fecha: e.fecha, hora: e.hora, fin: e.fin, todoElDia: !e.hora, lugar: e.lugar, detalle: `De «${e.pieza}»${e.menciones > 1 ? ` y ${e.menciones - 1} pieza${e.menciones === 2 ? '' : 's'} más (${e.menciones} menciones)` : ''}`, url: null, ref: { tipo: 'pieza', id: e.pieza_id }, google: enGoogle('evento', e.id), editable: false, llevable: true })
     }
   }
   if (capas.has('radar')) {

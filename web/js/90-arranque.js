@@ -61,6 +61,7 @@ const VISTAS = {
   dominio: { montar: montarDominio, refrescar: () => {} },
   hojas: { montar: montarHojas, refrescar: () => {} },
   compras: { montar: montarCompras, refrescar: () => {} },
+  escalas: { montar: montarEscalas, refrescar: () => {} },
 }
 
 /**
@@ -98,7 +99,7 @@ const ESPACIOS = [
   { id: 'hoy', nombre: 'Hoy', ico: 'sun', tecla: 'h', vistas: [['hoy', 'Hoy'], ['correo', 'Correo'], ['informe', 'Informe'], ['directo', 'Directo']] },
   { id: 'chat', nombre: 'Chat', ico: 'message-circle', tecla: 'c', vistas: [['chat', 'Chat']] },
   { id: 'plan', nombre: 'Plan', ico: 'target', tecla: 'p', vistas: [['misiones', 'Misiones'], ['calendario', 'Calendario'], ['linea', 'Línea'], ['mapa', 'Mapa']] },
-  { id: 'vida', nombre: 'Vida', ico: 'heart-pulse', tecla: 'v', vistas: [['salud', 'Salud'], ['tudia', 'Tu día'], ['personas', 'Personas'], ['compras', 'Compras'], ['capsulas', 'Cápsulas'], ['jugador', 'Jugador'], ['suenos', 'Sueños']] },
+  { id: 'vida', nombre: 'Vida', ico: 'heart-pulse', tecla: 'v', vistas: [['salud', 'Salud'], ['tudia', 'Tu día'], ['personas', 'Personas'], ['escalas', 'Diario por escalas'], ['compras', 'Compras'], ['capsulas', 'Cápsulas'], ['jugador', 'Jugador'], ['suenos', 'Sueños']] },
   { id: 'aprender', nombre: 'Aprender', ico: 'graduation-cap', tecla: 'a', vistas: [['aprender', 'Academia'], ['dominios', 'Dominios'], ['idiomas', 'Idiomas'], ['criba72', 'Criba del 72'], ['criba', 'Criba lúdica']] },
   { id: 'grafo', nombre: 'Grafo', ico: 'waypoints', tecla: 'r', vistas: [['grafo', 'Grafo'], ['grafos', 'Mis grafos'], ['grafosalud', 'Salud']] },
   { id: 'agentes', nombre: 'Agentes', ico: 'bot', tecla: 'e', vistas: [['agsala', 'Sala'], ['agmisiones', 'Misiones'], ['programados', 'Programados'], ['agpistas', 'Pistas'], ['agtemporada', 'Temporada'], ['liga', 'Roster'], ['forja', 'Forja'], ['encargos', 'Encargos'], ['cementerio', 'Cementerio']] },

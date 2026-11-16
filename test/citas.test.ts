@@ -49,3 +49,26 @@ test('#289: el extracto de una búsqueda dice que es solo el comienzo y cuánto 
   const p = (r.resultado as any).piezas.find((x: any) => x.id === id)
   assert.match(p.extractoDe, new RegExp(`solo el comienzo: la pieza entera tiene ${largo.length.toLocaleString('es-AR')} caracteres \\(leela con leer_pieza ${id}\\)`))
 })
+
+test('#280: crear un evento siempre se confirma, y una reunión sin hora pregunta la hora una vez', async () => {
+  const db = abrir(':memory:')
+  const llamar = async (a: Record<string, unknown>) => (await ejecutarHerramienta(HERRAMIENTAS, 'crear_evento_calendario', JSON.stringify(a), { db, conversacionId: null })).resultado as any
+  const sinHora = await llamar({ titulo: 'Reunión del Plan de Igualdad', fecha: '2026-11-20' })
+  assert.match(sinHora.mensaje, /es una reunión o cita: preguntale a qué hora/)
+  const conHoraEnTitulo = await llamar({ titulo: 'Reunión del Plan de Igualdad a las 15:00', fecha: '2026-11-20', lugar: 'Oficina' })
+  assert.equal(conHoraEnTitulo.requiere_confirmacion, true)
+  assert.match(conHoraEnTitulo.mensaje, /«Reunión del Plan de Igualdad» el .*20.* a las 15:00, 60 min, en Oficina/)
+  assert.match((await llamar({ titulo: 'Cumpleaños de Ana', fecha: '20/11' })).error, /YYYY-MM-DD/)
+})
+
+test('#280: los eventos repetidos de la Línea van en uno por tema y día, con sus menciones', async () => {
+  const { agruparEventos } = await import('../src/linea.ts')
+  const titulo = 'Construcción de la técnica de medición de pantalla para Wildianopolis'
+  const xs = Array.from({ length: 9 }, (_, i) => ({ id: i + 1, fecha: '2026-11-13', titulo: i % 2 ? titulo.toUpperCase() : `${titulo}.`, hora: i === 4 ? '10:00' : null, lugar: null, piezaId: 100 + (i % 3) }))
+  xs.push({ id: 10, fecha: '2026-11-14', titulo, hora: null, lugar: null, piezaId: 200 })
+  const g = agruparEventos(xs)
+  assert.equal(g.length, 2, 'uno por día')
+  assert.equal(g[0].menciones, 9)
+  assert.deepEqual(g[0].piezas, [100, 101, 102])
+  assert.equal(g[0].hora, '10:00', 'se queda con la hora si alguna la tenía')
+})

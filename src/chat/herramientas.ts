@@ -553,6 +553,16 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `anotó ${Array.isArray(a.items) ? a.items.length : 0} compras`,
   },
   {
+    nombre: 'ver_escala', familia: 'lectura',
+    descripcion: 'Su diario por escalas: el resumen de un día, una semana, un mes, un trimestre, un cuatrimestre, un semestre, un año o un lustro, armado desde sus piezas de verdad (cada audio, foto o nota cae en su día solo). Usalo para «qué hice la semana pasada», «cómo fue octubre», «qué pasó el 15/11».',
+    parametros: S({ escala: str('Cuál', { enum: ['dia', 'semana', 'mes', 'trimestre', 'cuatrimestre', 'semestre', 'año', 'lustro'] }), fecha: str('Una fecha adentro del período, YYYY-MM-DD (vacío: hoy)') }, ['escala']),
+    ejecutar: async (a, { db }) => {
+      const e = await import('../escalas.ts')
+      const r = e.verEscala(db, a.escala, String(a.fecha ?? ''))
+      return { ...r, partes: r.partes.map((p) => ({ clave: p.clave, texto: p.texto ? recorte(p.texto, 600) : null })), nota: r.texto ? undefined : 'Todavía no está armado: se arma de noche (o con «armar» desde la pantalla Diario por escalas).' }
+    },
+  },
+  {
     nombre: 'ver_compras', familia: 'lectura',
     descripcion: 'Su lista de compras: lo pendiente (o lo ya comprado).',
     parametros: S({ estado: str('Cuáles', { enum: ['pendiente', 'comprado', 'descartado', 'todas'] }) }),
@@ -1925,9 +1935,22 @@ ${a.detalle ?? ''}`)
   },
   {
     nombre: 'crear_evento_calendario', familia: 'accion',
-    descripcion: 'Crea un evento en su Google Calendar. Sin hora = todo el día. Confirmá con él la fecha y la hora si las dijo con palabras («el viernes»).',
-    parametros: S({ titulo: str('Título'), fecha: str('YYYY-MM-DD'), hora: str('HH:MM; vacío = todo el día'), duracion_min: int('Duración en minutos (60 por defecto)'), lugar: str('Dónde'), descripcion: str('Nota') }, ['titulo', 'fecha']),
-    ejecutar: async (a) => ({ creado: await (await import('../agenda.ts')).crearEvento({ titulo: a.titulo, fecha: a.fecha, hora: a.hora || null, duracionMin: a.duracion_min || null, lugar: a.lugar || null, descripcion: a.descripcion || null }) }),
+    descripcion: 'Crea un evento en su Google Calendar. Una reunión o cita va con hora, duración y lugar; sin hora es de todo el día. Siempre se confirma antes: la primera llamada devuelve el resumen para que él lo confirme (fecha absoluta, hora, duración, lugar) y recién con confirmado=true se agenda.',
+    parametros: S({ titulo: str('Título (sin la hora: la hora va en «hora»)'), fecha: str('YYYY-MM-DD'), hora: str('HH:MM; vacío = todo el día'), duracion_min: int('Duración en minutos (60 por defecto)'), lugar: str('Dónde'), descripcion: str('Nota'), todo_el_dia: bool('true si es de todo el día a propósito'), confirmado: bool('true solo si el operador confirmó fecha, hora y lugar') }, ['titulo', 'fecha']),
+    ejecutar: async (a) => {
+      // Fragua #280: nada se agenda sin confirmar la fecha absoluta y la hora (las citas fantasma salían de fechas dichas
+      // en palabras y de horas pegadas al título). Una reunión sin hora se pregunta una sola vez.
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(a.fecha ?? ''))) return { error: 'La fecha va como YYYY-MM-DD (calculala desde hoy y confirmala con él).' }
+      const { sinHoraEnTitulo } = await import('../misiones.ts')
+      const sh = sinHoraEnTitulo(String(a.titulo ?? ''))
+      const hora = a.hora || sh.hora || null
+      const esCita = /(?<!\p{L})(reuni[oó]n|cita|llamada|videollamada|meet|entrevista|turno|call)(?!\p{L})/iu.test(String(a.titulo ?? ''))
+      if (esCita && !hora && a.todo_el_dia !== true) return { requiere_confirmacion: true, mensaje: `«${sh.titulo}» es una reunión o cita: preguntale a qué hora (y cuánto dura y dónde) una sola vez. Si es de todo el día, volvé a llamar con todo_el_dia=true.` }
+      const { diaSemana } = await import('../zona.ts')
+      const resumen = `«${sh.titulo}» el ${diaSemana(a.fecha)}${hora ? ` a las ${hora}, ${a.duracion_min || 60} min` : ', todo el día'}${a.lugar ? `, en ${a.lugar}` : ''}`
+      if (a.confirmado !== true) return { requiere_confirmacion: true, mensaje: `Antes de agendar, confirmá con él: ${resumen}. Si dice que sí (o corrige algo), volvé a llamar con confirmado=true.` }
+      return { creado: await (await import('../agenda.ts')).crearEvento({ titulo: sh.titulo, fecha: a.fecha, hora, duracionMin: a.duracion_min || null, lugar: a.lugar || null, descripcion: a.descripcion || null }), resumen }
+    },
     resumen: (a) => `agendó «${recorte(a.titulo ?? '', 40)}» el ${a.fecha}${a.hora ? ` a las ${a.hora}` : ''}`,
   },
   {
@@ -2414,7 +2437,7 @@ export const GRUPOS: Record<string, string[]> = {
   liga: ['ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'ver_banco_de_pruebas', 'correr_banco_de_pruebas', 'comparar_motores', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['al_diario', 'ver_diario', 'crear_dominio', 'retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_criterios', 'fijar_criterio', 'ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['ficha_empresa', 'responder_pregunta', 'votar_criba', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'crear_dominio', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_hipotesis', 'probar_hipotesis', 'ver_recorrido', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ver_compras', 'marcar_compras'],
+  vida: ['ficha_empresa', 'responder_pregunta', 'votar_criba', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'crear_dominio', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_hipotesis', 'probar_hipotesis', 'ver_recorrido', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ver_compras', 'marcar_compras', 'ver_escala'],
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado', 'borrar_programado'],
   correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'marcar_correo_atendido', 'buscar_contacto'],
   drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'borrar_de_drive', 'barrer_documentos_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],
@@ -2432,7 +2455,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox|misi[oó]n|pista|me respondi|reuni[oó]n con|claude code|bit[aá]cora de desarrollo|benchmark|banco de pruebas|comparar motores|qu[eé] motor|qu[eé] modelo conviene/.test(t)) g.push('liga')
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|retir[aá]|pieza|historia de|mal generad|est[aá] mal|correg[ií] (la|esa|esta) (pieza|historia)|\[confirmado\]|\[inferido\]|prensa|peri[oó]dico|noticias? de|el diario de hoy/.test(t)) g.push('corpus')
   if (/primaria|reporte|informe|ayudante|principal|north star|inventario|personaje|run |criterio|la urgente|el ambicioso|la medidora|el entusiasta|la curiosa|el deudor/.test(t)) g.push('misiones')
-  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|hip[oó]tesis|recorrido|d[oó]nde estuve|por d[oó]nde|ubicaci[oó]n|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend|criba|empresa|compa[ñn][ií]a|cif\b|raz[oó]n social|p[aá]gina|arquetipo|matriz 72|compra|s[uú]per\b|mercadona/.test(t)) g.push('vida')
+  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|hip[oó]tesis|recorrido|d[oó]nde estuve|por d[oó]nde|ubicaci[oó]n|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend|criba|empresa|compa[ñn][ií]a|cif\b|raz[oó]n social|p[aá]gina|arquetipo|matriz 72|compra|s[uú]per\b|mercadona|qu[eé] hice|la semana pasada|el mes pasado|c[oó]mo fue (mi |el |la )?(d[ií]a|semana|mes|a[ñn]o)|trimestre|semestre|lustro/.test(t)) g.push('vida')
   if (/\bcada (lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|d[ií]a|ma[ñn]ana|noche|semana|mes|\d+ horas|hora)|todos los (d[ií]as|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bados|domingos)|todas las (ma[ñn]anas|noches)|program[aá]|encargo programado|de lunes a viernes/.test(t)) g.push('programados')
   if (/\bmails?\b|correo|gmail|bandeja|inbox|borrador|me escribi[oó]|contest(ar|[aá]le) a/.test(t)) g.push('correo')
   if (/drive|planilla|sheets?\b|hoja de c[aá]lculo|spreadsheet|excel|docs\.google/.test(t)) g.push('drive')

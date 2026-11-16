@@ -233,6 +233,12 @@ export const ACCIONES: Acciones = {
     return `🌉 Puentes para esta semana:\n${ps.map((p) => `• ${p.tipo === 'presentar' ? `Presentar a ${p.personas.map((x) => x.nombre).join(' y ')}` : `Retomar con ${p.personas[0]?.nombre}`}: ${p.motivo}`).join('\n')}\nEn Personas tenés el borrador de cada uno.`
   },
   /** Lunes temprano: cierra la temporada de la semana que terminó (la liga se arregla sola). Queda en la crónica. */
+  /** Cada noche (Fragua #286): el día de ayer y de hoy en su diario, hacia arriba hasta el lustro, y 14 días del pasado. */
+  async escalas(db, _fecha, ahora) {
+    const r = await (await import('./escalas.ts')).pasadaNocturna(db, ahora)
+    if (r.fallas.length) console.error('  escalas:', r.fallas.join(' · '))
+    return null
+  },
   /** Cada noche: las páginas de los arquetipos y los dominios donde algo cambió (o con instrucciones sin aplicar) se rehacen. */
   async paginas(db, _fecha, ahora) {
     const r = await (await import('./paginas.ts')).construirPendientes(db, ahora)

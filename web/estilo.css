@@ -3552,3 +3552,4 @@ a.arq-celda { color: var(--texto); text-decoration: none; }
   .pag-titulo { flex-direction: column; }
 }
 .cu-fuente small.mal { color: var(--mal); }
+.esc-nav h2 { flex: 1; margin: 0; }
