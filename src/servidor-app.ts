@@ -1778,7 +1778,7 @@ async function vozDeDispositivo(req: http.IncomingMessage, url: URL, disp: impor
     return { codigo: 202, cuerpo: { texto: '', destino: 'rescate' } }
   }
   const r = await d.recibirVoz(db, disp, audio, url.searchParams.get('nombre') || 'voz.m4a', {
-    modo, inicio: n('inicio'), fin: n('fin'), ruidoDb: n('ruidoDb'), proximidad: url.searchParams.get('proximidad') === '1', caminando: url.searchParams.get('caminando') === '1',
+    modo, inicio: n('inicio'), fin: n('fin'), ruidoDb: n('ruidoDb'), proximidad: url.searchParams.get('proximidad') === '1', caminando: url.searchParams.get('caminando') === '1', lat: n('lat'), lon: n('lon'),
   })
   return { codigo: 201, cuerpo: r }
 }

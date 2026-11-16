@@ -44,7 +44,8 @@ test('La voz: el audio se transcribe y se descarta; dictado va al chat de Hoy, p
   const pieza = db.prepare('SELECT titulo, contenido FROM corpus WHERE id = ?').get(nota.piezaId!) as any
   assert.match(pieza.titulo, /^Voz · .*caminando$/)
   assert.equal(pieza.contenido, 'Recordame llamar a la imprenta mañana')
-  await assert.rejects(d.recibirVoz(db, dispositivo, Buffer.from('ab'), 'b.m4a', { modo: 'dictado' }, T), /no tenía voz/)
+  // Sin voz no es un error (el teléfono no lo reintenta): no deja nada (Fragua #278).
+  assert.deepEqual(await d.recibirVoz(db, dispositivo, Buffer.from('ab'), 'b.m4a', { modo: 'dictado' }, T), { texto: '', destino: 'nada' })
   const segs = db.prepare('SELECT modo, destino, texto FROM voz_segmentos').all() as any[]
   assert.deepEqual(segs.map((s) => [s.modo, s.destino]), [['pasivo', 'nota']])
   assert.ok(!JSON.stringify(db.prepare('SELECT * FROM voz_segmentos').all()).includes('audio pasivo'), 'el audio no se guarda en ningún lado')

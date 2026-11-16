@@ -15,6 +15,7 @@
     "expo-network": "~58.0.5",
     "expo-secure-store": "~58.0.3",
     "expo-sensors": "~58.0.5",
+    "expo-speech": "~58.0.4",
     "expo-sqlite": "~58.0.17",
     "expo-status-bar": "~58.0.5",
     "expo-task-manager": "~58.0.14",

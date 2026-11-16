@@ -64,13 +64,13 @@ export const traerHoy = (c: Credenciales) => pedir<PaqueteHoy>(c, 'hoy')
 export const traerMarca = (c: Credenciales) => pedir<{ marca: string; servidorEn: number }>(c, 'cambio')
 
 /** id: la clave del tramo (el servidor no lo procesa dos veces si el teléfono reintenta). inicio y fin: hora del teléfono. */
-export type MetaVoz = { modo: 'dictado' | 'pasivo' | 'conversacion'; inicio: number; fin: number; caminando: boolean; id?: string; recuperado?: boolean }
+export type MetaVoz = { modo: 'dictado' | 'pasivo' | 'conversacion'; inicio: number; fin: number; caminando: boolean; id?: string; recuperado?: boolean; lat?: number; lon?: number }
 export type Hablante = { id: number; etiqueta: string; entidadId: number | null; nombre: string | null; tramos: number }
 export type Turno = { id: number; hablante: Hablante | null; texto: string; inicio: number; fin: number | null; modo: string }
 /** Un tramo de tu voz (WAV): Deprocast lo transcribe y lo descarta. Devuelve el texto y a dónde fue. */
-export async function subirVoz(c: Credenciales, uri: string, m: MetaVoz): Promise<{ texto: string; destino: 'chat' | 'nota' | 'conversacion'; hablante?: Hablante | null }> {
+export async function subirVoz(c: Credenciales, uri: string, m: MetaVoz): Promise<{ texto: string; destino: 'chat' | 'nota' | 'conversacion' | 'nada'; hablante?: Hablante | null }> {
   const { File } = await import('expo-file-system')
-  const q = new URLSearchParams({ modo: m.modo, inicio: String(m.inicio), fin: String(m.fin), caminando: m.caminando ? '1' : '0', nombre: 'voz.wav', ...(m.id ? { id: m.id } : {}) })
+  const q = new URLSearchParams({ modo: m.modo, inicio: String(m.inicio), fin: String(m.fin), caminando: m.caminando ? '1' : '0', nombre: 'voz.wav', ...(m.id ? { id: m.id } : {}), ...(m.lat != null && m.lon != null ? { lat: String(m.lat), lon: String(m.lon) } : {}) })
   const r = await conTiempo(`${servidorSeguro(c.servidor)}/api/dispositivo/voz?${q}`, { method: 'POST', headers: { authorization: `Bearer ${c.token}`, 'content-type': 'audio/wav' }, body: new File(uri) }, 120_000)
   const j = await r.json().catch(() => ({}))
   if (!r.ok) throw new ErrorApi(j.error ?? `Deprocast respondió ${r.status}`, r.status)

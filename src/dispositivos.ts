@@ -14,7 +14,7 @@ import type { Db } from './db.ts'
 export type Dispositivo = { id: number; nombre: string; plataforma: string; tipo: string; estado: string; prefijo: string; creadoEn: number; ultimaVez: number | null; revocadoEn: number | null }
 export const TIPOS_DISPOSITIVO = ['telefono', 'tableta', 'reloj', 'compu', 'otro'] as const
 export type ModoVoz = 'dictado' | 'pasivo' | 'conversacion'
-export type MetaVoz = { modo: ModoVoz; inicio?: number; fin?: number; proximidad?: boolean; ruidoDb?: number; caminando?: boolean }
+export type MetaVoz = { modo: ModoVoz; inicio?: number; fin?: number; proximidad?: boolean; ruidoDb?: number; caminando?: boolean; lat?: number; lon?: number }
 
 const CODIGO_MS = 10 * 60_000
 const INTENTOS = 5
@@ -74,10 +74,11 @@ export function autenticarDispositivo(db: Db, autorizacion: string | undefined, 
  * Un segmento de voz: se transcribe (el audio no se guarda) y va a donde corresponde según el modo. Devuelve el texto y
  * a dónde fue.
  */
-export async function recibirVoz(db: Db, d: Dispositivo, audio: Buffer, nombre: string, meta: MetaVoz, ahora = Date.now()): Promise<{ texto: string; destino: 'chat' | 'nota' | 'conversacion'; piezaId?: number; hablante?: import('./hablantes.ts').Hablante | null }> {
+export async function recibirVoz(db: Db, d: Dispositivo, audio: Buffer, nombre: string, meta: MetaVoz, ahora = Date.now()): Promise<{ texto: string; destino: 'chat' | 'nota' | 'conversacion' | 'nada'; piezaId?: number; hablante?: import('./hablantes.ts').Hablante | null }> {
   if (!audio.length) throw new Error('El audio vino vacío')
   const texto = (await transcribir(db, audio, nombre || 'voz.m4a')).trim()
-  if (!texto) throw new Error('El audio no tenía voz que transcribir')
+  // Un tramo sin voz (ruido, el bolsillo) no es un error: no deja nada y el teléfono no lo reintenta (Fragua #278).
+  if (!texto) return { texto: '', destino: 'nada' }
   if (meta.modo !== 'conversacion') void import('./google/drive.ts').then((d) => d.alDrive(db, { datos: audio, nombre: nombre || 'voz.m4a', tipo: 'audio', origen: 'teléfono', descripcion: texto })).catch(() => {})
   const datos = JSON.stringify({ ...meta, dispositivo: d.nombre })
   // Quién habló: la huella de la voz (si el audio es un WAV que se entiende) contra los hablantes conocidos.
@@ -97,7 +98,12 @@ export async function recibirVoz(db: Db, d: Dispositivo, audio: Buffer, nombre: 
   }
   if (meta.modo === 'dictado') {
     const { conversacionHoy, enviar } = await import('./chat/index.ts')
-    void enviar(db, conversacionHoy(db).id, texto).catch((e) => console.error('  voz → chat:', e instanceof Error ? e.message : e))
+    // Dictado desde la escucha (Fragua #285): entra a Hoy como voz, con su hora y su lugar, para que la charla en vivo
+    // sepa desde dónde le hablan (y lo que se decida ahí quede ubicado).
+    const cuando = new Date(meta.inicio ?? ahora).toTimeString().slice(0, 5)
+    const lugar = meta.lat != null && meta.lon != null ? ` en ${meta.lat.toFixed(5)},${meta.lon.toFixed(5)}` : ''
+    const extra = `(Dictado desde ${d.nombre} a las ${cuando}${lugar}${meta.caminando ? ', caminando' : ''}. Es una charla en vivo mientras camina: contestá corto y para escuchar, de a una cosa; si pide una lista para pensar, dala de a un ítem por vez. Lo que decida, anotalo en el momento.)`
+    void enviar(db, conversacionHoy(db).id, texto, { via: 'voz', extra }).catch((e) => console.error('  voz → chat:', e instanceof Error ? e.message : e))
     db.prepare('INSERT INTO voz_segmentos (dispositivo_id, modo, texto, meta, destino, creado_en) VALUES (?, ?, ?, ?, ?, ?)').run(d.id, meta.modo, texto, datos, 'chat', ahora)
     return { texto, destino: 'chat' }
   }

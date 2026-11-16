@@ -42,6 +42,39 @@ TaskManager.defineTask(TAREA, async ({ data, error }) => {
   await guardarPuntosLocales(locations.map((l) => ({ en: Math.round(l.timestamp), lat: l.coords.latitude, lon: l.coords.longitude, precision: l.coords.accuracy ?? null }))).catch(() => {})
 })
 
+/**
+ * El aviso fijo de la escucha (Mobile 1.1, Fragua #283): para que el micrófono siga con la pantalla apagada o en otra
+ * app, Android necesita un servicio en primer plano con su aviso en la barra. Se monta sobre la ubicación aproximada
+ * (cada 2 minutos o 100 m): el aviso dice «Deprocast está escuchando». Esos puntos no se guardan ni se suben: solo
+ * dejan el último lugar en memoria, para ubicar lo que dictás (si la ubicación está prendida en Captura y permisos).
+ * Si el recorrido ya está prendido, su aviso alcanza y no se abre otro.
+ */
+export const TAREA_ESCUCHA = 'deprocast-escucha'
+TaskManager.defineTask(TAREA_ESCUCHA, async ({ data, error }) => {
+  if (error || !data) return
+  const l = (data as { locations?: { timestamp: number; coords: { latitude: number; longitude: number; accuracy: number | null } }[] }).locations?.at(-1)
+  if (l) ultimo = { en: Math.round(l.timestamp), lat: l.coords.latitude, lon: l.coords.longitude, precision: l.coords.accuracy ?? null }
+})
+
+/** Prende el aviso fijo de la escucha. Devuelve si quedó un servicio fijo (propio o el del recorrido). */
+export async function prenderAvisoEscucha(): Promise<boolean> {
+  try {
+    if (await recorridoPrendido()) return true
+    const L = await import('expo-location')
+    if (!(await L.getForegroundPermissionsAsync()).granted && !(await L.requestForegroundPermissionsAsync()).granted) return false
+    if (await L.hasStartedLocationUpdatesAsync(TAREA_ESCUCHA)) return true
+    await L.startLocationUpdatesAsync(TAREA_ESCUCHA, {
+      accuracy: L.Accuracy.Low, timeInterval: 120_000, distanceInterval: 100, deferredUpdatesInterval: 0,
+      foregroundService: { notificationTitle: 'Deprocast está escuchando', notificationBody: 'Tocá para ver qué escucha y a dónde va. Se apaga desde la escucha.', killServiceOnDestroy: true },
+    })
+    return true
+  } catch { return false }
+}
+
+export async function apagarAvisoEscucha() {
+  try { const L = await import('expo-location'); if (await L.hasStartedLocationUpdatesAsync(TAREA_ESCUCHA)) await L.stopLocationUpdatesAsync(TAREA_ESCUCHA) } catch { /* ya estaba apagado */ }
+}
+
 export async function recorridoPrendido(): Promise<boolean> {
   try { return await (await import('expo-location')).hasStartedLocationUpdatesAsync(TAREA) } catch { return false }
 }

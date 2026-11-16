@@ -1,5 +1,6 @@
 /**
- * Deprocast en el teléfono (plan v33, paso 2). Sin vincular: la pantalla de Vincular. Vinculado: Hoy (el chat,
+ * Deprocast en el teléfono (plan v33, paso 2). Desde Mobile 1.1 la escucha es de la app (EscuchaGlobal): sigue viva al cambiar de pestaña.
+ * Sin vincular: la pantalla de Vincular. Vinculado: Hoy (el chat,
  * local-first), Escucha (la conciencia acústica) y Mapa (el recorrido, aparte de la escucha desde 1.0.1). El menú ⋯: Captura y permisos (Mobile 1.0) y Desvincular (borra el token
  * y todo lo guardado en el teléfono).
  */
@@ -19,6 +20,7 @@ import { registrarRecorrido } from './src/recorrido'
 import { Vincular } from './src/pantallas/Vincular'
 import { Hoy } from './src/pantallas/Hoy'
 import { Escucha } from './src/pantallas/Escucha'
+import { EscuchaGlobal } from './src/escuchaGlobal'
 import { Rescate } from './src/pantallas/Rescate'
 import { ESP, LETRA, TOQUE, useTema } from './src/tema'
 
@@ -63,7 +65,7 @@ export default function App() {
     <SafeAreaView edges={['top', 'bottom', 'left', 'right']} style={[s.raiz, { backgroundColor: t.fondo }]}>
       <StatusBar style="auto" />
       {!c ? <Vincular alVincular={(x) => { setC(x); setRescate(true) }} /> : rescate ? <Rescate c={c} alTerminar={() => setRescate(false)} /> : verCaptura ? <Captura cerrar={() => setVerCaptura(false)} /> : (
-        <>
+        <EscuchaGlobal c={c}>
           <View style={[s.barra, { borderColor: t.linea }]}>
             {(['hoy', 'escucha', 'mapa'] as const).map((p) => (
               <Pressable key={p} onPress={() => setPestana(p)} style={[s.pestana, pestana === p && { borderColor: t.acento }]} accessibilityRole="tab" accessibilityState={{ selected: pestana === p }}>
@@ -72,8 +74,8 @@ export default function App() {
             ))}
             <Pressable onPress={menu} style={s.menu} accessibilityLabel="Menú: captura y permisos, desvincular"><Text style={[LETRA.chica, { color: t.tenue }]} numberOfLines={1}>{c.nombre} ⋯</Text></Pressable>
           </View>
-          {pestana === 'hoy' ? <Hoy c={c} /> : pestana === 'escucha' ? <Escucha c={c} /> : <Mapa c={c} />}
-        </>
+          {pestana === 'hoy' ? <Hoy c={c} irAEscucha={() => setPestana('escucha')} /> : pestana === 'escucha' ? <Escucha c={c} /> : <Mapa c={c} />}
+        </EscuchaGlobal>
       )}
     </SafeAreaView>
     </SafeAreaProvider>

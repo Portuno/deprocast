@@ -12,7 +12,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
 import { destinoDe, type Estado } from '../conciencia/acustica'
 import { buscarPersonas, olvidarHablante, traerTurnos, vincularHablante, type Credenciales, type Hablante, type Turno } from '../api'
-import { useEscucha } from '../escucha'
+import { useEscuchaGlobal } from '../escuchaGlobal'
 import { AREA_EXTRA, ESP, LETRA, TOQUE, useTema } from '../tema'
 
 const NOMBRE: Record<Estado, string> = { dictado: 'dictado', escucha: 'pensar en voz alta', silencio_intencional: 'silencio', ruido: 'ruido' }
@@ -22,11 +22,15 @@ const hora = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
 
 export function Escucha({ c }: { c: Credenciales }) {
   const t = useTema()
-  const { activa, lectura: l, enCola, enviadosHoy, grabando, error, empezar, parar, conversacion, setConversacion, ultimo } = useEscucha(c)
+  const { activa, lectura: l, enCola, enviadosHoy, grabando, error, empezar, parar, conversacion, setConversacion, ultimo, sesion, cierre, retorno, cerrarRetorno, conAviso } = useEscuchaGlobal()
   const [detalles, setDetalles] = useState(false)
   const [, setTic] = useState(0)
   // Mientras graba, el contador de segundos avanza (una vez por segundo, no más).
-  useEffect(() => { if (!grabando) return; const x = setInterval(() => setTic((n) => n + 1), 1000); return () => clearInterval(x) }, [grabando])
+  // Prendida sin grabar, «hace cuánto» avanza cada 15 s.
+  useEffect(() => { if (!activa) return; const x = setInterval(() => setTic((n) => n + 1), grabando ? 1000 : 15_000); return () => clearInterval(x) }, [grabando, activa])
+  const minutosDe = (ms: number) => Math.max(0, Math.round((Date.now() - ms) / 60_000))
+  // La señal del micrófono: si llegó una lectura hace poco, hay señal (Fragua #284: «no entiendo si está escuchando»).
+  const conSenal = activa && !!l
   const [turnos, setTurnos] = useState<Turno[]>([])
   const [elegido, setElegido] = useState<Hablante | null>(null)
 
@@ -47,8 +51,15 @@ export function Escucha({ c }: { c: Credenciales }) {
               ? (grabando.conv ? 'Grabo la conversación y separo quién dice qué. Avisales a los demás.' : l?.estado === 'dictado' ? 'Te oigo cerca: lo que digas va al chat de Hoy como mensaje.' : 'Pensás en voz alta: queda como nota de voz.')
               : conversacion ? 'Grabo cuando alguien habla; el silencio y el ruido no se guardan.' : 'No guarda nada hasta que hables cerca del teléfono. El ruido y las voces de otros se ignoran.'}
         </Text>
-        <Text style={[s.dato, { color: t.tenue }]} numberOfLines={1}>
-          {`Hoy: ${enviadosHoy} tramo${enviadosHoy === 1 ? '' : 's'} enviado${enviadosHoy === 1 ? '' : 's'}${enCola ? ` · ${enCola} esperando en el teléfono` : ''}`}
+        {activa && sesion ? (
+          <Text style={[s.dato, { color: t.tenue }]} numberOfLines={2}>
+            {`Desde las ${hora(sesion.desde)} (hace ${minutosDe(sesion.desde)} min) · micrófono ${conSenal ? 'con señal' : 'sin señal todavía'} · ${conAviso ? 'aviso fijo en la barra' : 'sin aviso fijo: con la pantalla apagada puede cortarse'}`}
+          </Text>
+        ) : null}
+        <Text style={[s.dato, { color: t.tenue }]} numberOfLines={2}>
+          {activa && sesion
+            ? `Esta vez: ${sesion.dictados} al chat de Hoy · ${sesion.notas} nota${sesion.notas === 1 ? '' : 's'} al corpus${sesion.charlas ? ` · ${sesion.charlas} de charla` : ''}${sesion.descartados ? ` · ${sesion.descartados} ruido${sesion.descartados === 1 ? '' : 's'} descartado${sesion.descartados === 1 ? '' : 's'}` : ''}${enCola ? ` · ${enCola} esperando subir` : ''}`
+            : `Hoy: ${enviadosHoy} tramo${enviadosHoy === 1 ? '' : 's'} enviado${enviadosHoy === 1 ? '' : 's'}${enCola ? ` · ${enCola} esperando en el teléfono` : ''}`}
         </Text>
         {activa ? (
           <Pressable onPress={() => setDetalles((x) => !x)} style={s.detallesBoton} hitSlop={AREA_EXTRA} accessibilityRole="button">
@@ -68,6 +79,18 @@ export function Escucha({ c }: { c: Credenciales }) {
         </View>
         <Switch value={conversacion} onValueChange={setConversacion} trackColor={{ true: t.acento }} />
       </View>
+      {retorno ? (
+        <Pressable onPress={cerrarRetorno} style={[s.aviso, { borderColor: t.acento }]} accessibilityRole="button" accessibilityLabel="Cerrar el aviso">
+          <Text style={[s.texto, { color: t.texto }]}>{retorno}</Text>
+          <Text style={[s.dato, { color: t.tenue }]}>Tocá para cerrar</Text>
+        </Pressable>
+      ) : null}
+      {!activa && cierre ? (
+        <View style={[s.aviso, { borderColor: t.linea }]}>
+          <Text style={[s.dato, { color: t.tenue }]}>La última escucha</Text>
+          <Text style={[s.texto, { color: t.texto }]}>{cierre}</Text>
+        </View>
+      ) : null}
       {error ? <Text style={[s.texto, { color: t.mal }]}>{error}</Text> : null}
       <Pressable onPress={activa ? parar : empezar} style={[s.boton, { backgroundColor: activa ? t.panel : t.acento, borderColor: t.linea }]} accessibilityRole="button">
         <Text style={[LETRA.cuerpo, { color: activa ? t.texto : t.sobreAcento, fontWeight: '700' }]}>{activa ? '■ Dejar de escuchar' : '● Escuchar'}</Text>
@@ -128,9 +151,10 @@ const s = StyleSheet.create({
   titulo: { ...LETRA.titulo, fontWeight: '700' },
   texto: { ...LETRA.cuerpo },
   sub: { ...LETRA.chica, marginTop: ESP(2) },
-  tarjeta: { borderWidth: 1, borderRadius: 14, padding: ESP(4), gap: ESP(2), minHeight: 188 },
+  tarjeta: { borderWidth: 1, borderRadius: 14, padding: ESP(4), gap: ESP(2), minHeight: 224 },
   estado: { ...LETRA.grande, fontWeight: '700' },
   detallesBoton: { alignSelf: 'flex-start', paddingVertical: ESP(1) },
+  aviso: { borderWidth: 1, borderRadius: 12, padding: ESP(3), gap: ESP(1), minHeight: TOQUE },
   fijo: { fontVariant: ['tabular-nums'] },
   dato: { ...LETRA.chica },
   fila: { flexDirection: 'row', alignItems: 'center', gap: ESP(3), borderWidth: 1, borderRadius: 12, padding: ESP(3), minHeight: TOQUE },

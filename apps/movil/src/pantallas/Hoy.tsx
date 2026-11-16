@@ -5,7 +5,7 @@
  * Estados explícitos (Mobile 1.0): cargando la primera vez, vacío, y el error con «Reintentar» (nunca un spinner eterno).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native'
+import { FlatList, Pressable, RefreshControl, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAltoTeclado } from '../teclado'
 import type { Credenciales } from '../api'
@@ -13,11 +13,51 @@ import { encolar, estadoSincro, leerChat, type EstadoSincro, type MensajeLocal }
 import { alCambiar, sincronizar } from '../sincronizar'
 import { VIEJO_MS } from '../logica/sincro'
 import { AREA_EXTRA, ESP, LETRA, TOQUE, useTema } from '../tema'
+import { useEscuchaGlobal } from '../escuchaGlobal'
+import { callar, decir } from '../voz'
 
 const hora = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
 
-export function Hoy({ c }: { c: Credenciales }) {
+/**
+ * La charla en vivo (Mobile 1.1, Fragua #285): con la escucha prendida, lo que decís cerca del teléfono entra acá como
+ * mensaje (con su hora y su lugar) y, con «Contestar en voz», lo que responde Mastropiero se dice en voz alta. Así se
+ * charla caminando sin mirar la pantalla: pedís «seis cosas para pensar» y te las va dando de a una.
+ */
+function BarraEscucha({ irAEscucha, enVoz, setEnVoz }: { irAEscucha: () => void; enVoz: boolean; setEnVoz: (v: boolean) => void }) {
   const t = useTema()
+  const e = useEscuchaGlobal()
+  const prender = async () => { setEnVoz(true); await e.empezar() }
+  return (
+    <View style={[s.escucha, { borderColor: e.activa ? t.acento : t.linea }]}>
+      {e.activa ? (
+        <>
+          <Pressable onPress={irAEscucha} style={s.verEscucha} accessibilityRole="button" accessibilityLabel="Ver la escucha">
+            <Text style={[LETRA.chica, { color: e.grabando ? t.mal : t.acento, fontWeight: '700' }]} numberOfLines={1}>{e.grabando ? '● Te escucho…' : '● Escuchando · charla en vivo'}</Text>
+            <Text style={[LETRA.chica, { color: t.tenue }]} numberOfLines={1}>Lo que digas cerca entra acá{e.sesion ? ` · desde las ${hora(e.sesion.desde)}` : ''}</Text>
+          </Pressable>
+          <Text style={[LETRA.chica, { color: t.tenue }]}>Voz</Text>
+          <Switch value={enVoz} onValueChange={(v) => { setEnVoz(v); if (!v) callar() }} trackColor={{ true: t.acento }} accessibilityLabel="Contestar en voz alta" />
+        </>
+      ) : (
+        <Pressable onPress={prender} style={s.prender} accessibilityRole="button" accessibilityLabel="Charlar en vivo con la escucha">
+          <Text style={[LETRA.cuerpo, { color: t.acento, fontWeight: '700' }]}>🎙 Charlar en vivo</Text>
+          <Text style={[LETRA.chica, { color: t.tenue }]}>Hablás caminando y te contesto en voz.</Text>
+        </Pressable>
+      )}
+    </View>
+  )
+}
+
+export function Hoy({ c, irAEscucha }: { c: Credenciales; irAEscucha: () => void }) {
+  const t = useTema()
+  const escucha = useEscuchaGlobal()
+  const [enVoz, setEnVoz] = useState(false)
+  // Lo que ya estaba al abrir no se lee: solo lo que llega de acá en más.
+  const leidos = useRef<Set<string> | null>(null)
+  const vozRef = useRef(false)
+  useEffect(() => { vozRef.current = enVoz && escucha.activa; if (!vozRef.current) callar() }, [enVoz, escucha.activa])
+  const escuchaRef = useRef(escucha.silenciar)
+  useEffect(() => { escuchaRef.current = escucha.silenciar }, [escucha.silenciar])
   const [mensajes, setMensajes] = useState<MensajeLocal[] | null>(null)
   const [paraValidar, setParaValidar] = useState(0)
   const [texto, setTexto] = useState('')
@@ -32,6 +72,10 @@ export function Hoy({ c }: { c: Credenciales }) {
 
   const pintar = useCallback(async () => {
     const l = await leerChat()
+    // Las respuestas nuevas de Mastropiero, en voz (si está la charla en vivo con «Voz» prendida).
+    const nuevas = leidos.current ? l.mensajes.filter((m) => m.rol === 'asistente' && !leidos.current!.has(m.id)) : []
+    leidos.current = new Set(l.mensajes.map((m) => m.id))
+    if (vozRef.current) for (const m of nuevas) void decir(m.texto, escuchaRef.current)
     setMensajes(l.mensajes)
     setParaValidar(l.paraValidar)
     setSincro(await estadoSincro())
@@ -71,6 +115,12 @@ export function Hoy({ c }: { c: Credenciales }) {
           {sincro.error ? <Pressable onPress={actualizar} style={s.reintentar} hitSlop={AREA_EXTRA} accessibilityRole="button" accessibilityLabel="Reintentar"><Text style={[LETRA.cuerpo, { color: t.acento, fontWeight: '700' }]}>Reintentar</Text></Pressable> : null}
         </View>
       ) : null}
+      <BarraEscucha irAEscucha={irAEscucha} enVoz={enVoz} setEnVoz={setEnVoz} />
+      {escucha.retorno ? (
+        <Pressable onPress={escucha.cerrarRetorno} style={[s.aviso, { borderColor: t.linea }]} accessibilityRole="button" accessibilityLabel="Cerrar el aviso de la escucha">
+          <Text style={[s.avisoTexto, { color: t.texto }]}>{escucha.retorno}</Text>
+        </Pressable>
+      ) : null}
       {paraValidar ? <Text style={[s.avisoTexto, s.validar, { color: t.acento, borderColor: t.linea }]}>📥 {paraValidar} esperan tu ok (se validan en la compu)</Text> : null}
       <FlatList
         ref={lista}
@@ -103,7 +153,7 @@ export function Hoy({ c }: { c: Credenciales }) {
 
 const s = StyleSheet.create({
   raiz: { flex: 1 },
-  aviso: { flexDirection: 'row', alignItems: 'center', gap: ESP(2), paddingHorizontal: ESP(4), borderBottomWidth: 1 },
+  aviso: { flexDirection: 'row', alignItems: 'center', gap: ESP(2), paddingHorizontal: ESP(4), borderBottomWidth: 1, minHeight: TOQUE },
   avisoTexto: { ...LETRA.chica, flex: 1, paddingVertical: ESP(2) },
   validar: { paddingHorizontal: ESP(4), borderBottomWidth: 1 },
   reintentar: { minHeight: TOQUE, justifyContent: 'center', paddingHorizontal: ESP(2) },
@@ -117,4 +167,7 @@ const s = StyleSheet.create({
   compositor: { flexDirection: 'row', alignItems: 'flex-end', gap: ESP(2), margin: ESP(3), borderWidth: 1, borderRadius: 14, padding: ESP(2) },
   entrada: { ...LETRA.cuerpo, flex: 1, maxHeight: 140, minHeight: TOQUE, paddingHorizontal: ESP(2), paddingVertical: ESP(2) },
   enviar: { minHeight: TOQUE, justifyContent: 'center', borderRadius: 10, paddingHorizontal: ESP(4) },
+  escucha: { flexDirection: 'row', alignItems: 'center', gap: ESP(2), marginHorizontal: ESP(3), marginTop: ESP(2), borderWidth: 1, borderRadius: 12, paddingHorizontal: ESP(3), minHeight: TOQUE + ESP(2) },
+  prender: { flex: 1, minHeight: TOQUE, justifyContent: 'center', paddingVertical: ESP(1) },
+  verEscucha: { flex: 1, minHeight: TOQUE, justifyContent: 'center' },
 })

@@ -10,22 +10,53 @@ import { traerMapa, type Credenciales, type DiaMapa } from '../api'
 import { apagarRecorrido, prenderRecorrido, puntosEnCola, recorridoPrendido } from '../recorrido'
 import { alCambiar, sincronizar } from '../sincronizar'
 import { ESP, LETRA, TOQUE, useTema, type Tema } from '../tema'
+import { simplificar, tramosPorHora } from '../logica/mapa'
 
 const hora = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
 const fechaDe = (desplazamiento: number) => { const d = new Date(Date.now() + desplazamiento * 86_400_000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 
-/** La página del mapa (Leaflet + OpenStreetMap), con los datos adentro. */
+/**
+ * La página del mapa (Leaflet + OpenStreetMap), con los datos adentro. Mobile 1.1 (Fragua #287), un pase de diseño:
+ * - el trazo va simplificado (sin la nube de puntos de cuando estabas quieto) y en cinco tramos que se encienden de la
+ *   mañana a la noche: se lee el orden del día sin tocar nada;
+ * - salida y llegada marcadas con su hora; las paradas numeradas (las mismas de la lista de abajo);
+ * - de cerca (zoom 15 o más) cada parada muestra su hora y su lugar; de lejos, solo el número;
+ * - una leyenda chica con el sentido del color, las paradas y los km.
+ */
 function paginaDelMapa(d: DiaMapa, t: Tema): string {
-  const datos = JSON.stringify({ puntos: d.puntos.map((p) => [p.lat, p.lon]), paradas: d.paradas.map((p) => ({ lat: p.lat, lon: p.lon, txt: `${hora(p.desde)}–${hora(p.hasta)} · ${p.minutos} min${p.lugar ? ` · ${p.lugar}` : ''}` })), ultimo: d.ultimo ? [d.ultimo.lat, d.ultimo.lon] : null }).replace(/</g, '\\u003c')
+  const trazo = simplificar([...d.puntos].sort((a, b) => a.en - b.en), 12)
+  const tramos = tramosPorHora(trazo, 5).map((x) => x.map((p) => [p.lat, p.lon]))
+  const datos = JSON.stringify({
+    tramos,
+    salida: trazo[0] ? { p: [trazo[0].lat, trazo[0].lon], h: hora(trazo[0].en) } : null,
+    llegada: trazo.length > 1 ? { p: [trazo.at(-1)!.lat, trazo.at(-1)!.lon], h: hora(trazo.at(-1)!.en) } : null,
+    paradas: d.paradas.map((p, i) => ({ n: i + 1, lat: p.lat, lon: p.lon, txt: `${hora(p.desde)}–${hora(p.hasta)} · ${p.minutos} min${p.lugar ? ` · ${p.lugar}` : ''}` })),
+    resumen: `${d.paradas.length} parada${d.paradas.length === 1 ? '' : 's'} · ${d.distanciaKm} km`,
+    todos: trazo.map((p) => [p.lat, p.lon]),
+  }).replace(/</g, '\\u003c')
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<style>html,body,#m{height:100%;margin:0;background:${t.fondo}}.leaflet-popup-content{font:14px system-ui}</style></head>
+<style>html,body,#m{height:100%;margin:0;background:${t.fondo};font:13px system-ui}
+.n{display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:${t.acento};color:${t.sobreAcento};font-weight:700;border:2px solid ${t.fondo}}
+.etq{background:${t.panel};color:${t.texto};border:1px solid ${t.linea};border-radius:8px;padding:2px 6px;box-shadow:none}
+.etq:before{display:none}
+.ley{background:${t.panel};color:${t.texto};border:1px solid ${t.linea};border-radius:10px;padding:6px 8px;line-height:1.4}
+.bar{height:6px;width:96px;border-radius:3px;background:linear-gradient(90deg,${t.acento}55,${t.acento});margin:3px 0}</style></head>
 <body><div id="m"></div><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>
-const d=${datos};const m=L.map('m');
+const d=${datos};const m=L.map('m',{zoomControl:false});
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(m);
-if(d.puntos.length){L.polyline(d.puntos,{color:'${t.acento}',weight:4,opacity:.85}).addTo(m);m.fitBounds(L.latLngBounds(d.puntos).pad(0.25),{maxZoom:17})}else{m.setView([40.2,-3.6],5)}
-d.paradas.forEach(p=>L.circleMarker([p.lat,p.lon],{radius:9,color:'${t.acento}',weight:2,fillOpacity:.55}).addTo(m).bindPopup(p.txt));
-if(d.ultimo)L.circleMarker(d.ultimo,{radius:7,color:'#ffffff',weight:2,fillColor:'#2b7bd6',fillOpacity:1}).addTo(m).bindPopup('Último punto');
+const op=[.35,.5,.65,.8,1];
+d.tramos.forEach((x,i)=>L.polyline(x,{color:'${t.acento}',weight:5,opacity:op[Math.round(i*(op.length-1)/Math.max(1,d.tramos.length-1))],lineCap:'round',lineJoin:'round'}).addTo(m));
+const etiqueta=(mk,txt)=>mk.bindTooltip(txt,{permanent:true,direction:'right',offset:[10,0],className:'etq'});
+if(d.salida)etiqueta(L.circleMarker(d.salida.p,{radius:6,color:'${t.fondo}',weight:2,fillColor:'${t.ok}',fillOpacity:1}).addTo(m),'Salida '+d.salida.h);
+if(d.llegada)etiqueta(L.circleMarker(d.llegada.p,{radius:7,color:'${t.fondo}',weight:2,fillColor:'${t.texto}',fillOpacity:1}).addTo(m),'Último '+d.llegada.h);
+const conTexto=[];
+d.paradas.forEach(p=>{const mk=L.marker([p.lat,p.lon],{icon:L.divIcon({className:'',html:'<div class="n">'+p.n+'</div>',iconSize:[24,24],iconAnchor:[12,12]})}).addTo(m).bindPopup(p.n+'. '+p.txt);conTexto.push([mk,p])});
+const nivel=()=>{const cerca=m.getZoom()>=15;conTexto.forEach(([mk,p])=>{if(cerca&&!mk.getTooltip())mk.bindTooltip(p.txt,{permanent:true,direction:'right',offset:[14,0],className:'etq'}).openTooltip();if(!cerca&&mk.getTooltip())mk.unbindTooltip()})};
+m.on('zoomend',nivel);
+const ley=L.control({position:'bottomleft'});ley.onAdd=()=>{const e=L.DomUtil.create('div','ley');e.innerHTML='<b>'+d.resumen+'</b><div class="bar"></div><span>más temprano → más tarde</span>';return e};ley.addTo(m);
+if(d.todos.length){m.fitBounds(L.latLngBounds(d.todos).pad(0.2),{maxZoom:17})}else{m.setView([40.2,-3.6],5)}
+nivel();
 </script></body></html>`
 }
 
@@ -100,7 +131,7 @@ export function Mapa({ c }: { c: Credenciales }) {
       <Text style={[LETRA.cuerpo, { color: t.texto, fontWeight: '700' }]}>Paradas</Text>
       {datos?.paradas.length ? datos.paradas.map((p, i) => (
         <View key={i} style={[s.parada, { borderColor: t.linea }]}>
-          <Text style={[LETRA.cuerpo, { color: t.texto }]}>{hora(p.desde)}–{hora(p.hasta)} · {p.minutos} min</Text>
+          <Text style={[LETRA.cuerpo, { color: t.texto }]}><Text style={{ color: t.acento, fontWeight: '700' }}>{i + 1}.</Text> {hora(p.desde)}–{hora(p.hasta)} · {p.minutos} min</Text>
           <Text style={[LETRA.chica, { color: t.tenue }]}>{p.lugar ?? `${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`}</Text>
         </View>
       )) : <Text style={[LETRA.chica, { color: t.tenue }]}>{datos?.puntos.length ? 'Todavía ninguna (una parada es quedarte 5 minutos o más en un lugar).' : 'Sin recorrido este día. Prendé «Anotar mi recorrido» arriba.'}</Text>}

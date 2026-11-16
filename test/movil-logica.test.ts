@@ -183,3 +183,53 @@ test('Mobile 1.0.1: el teclado ya no tapa lo que escribís; la ubicación va apa
   assert.match(pantalla, /detalles \? '▾ Detalles' : '▸ Detalles'/, 'lo técnico, plegado')
   assert.match(pantalla, /numberOfLines=\{1\}>\s*\{l \?/, 'los datos técnicos en una línea fija')
 })
+
+test('Mobile 1.1 · el vigía: un hueco de más de 5 s es un corte; al volver dice si siguió, con cortes, o si sigue cortada', async () => {
+  const v = await deLaApp('vigia')
+  const T = Date.UTC(2026, 10, 16, 15, 0)
+  assert.equal(v.corteEntre(null, T), null)
+  assert.equal(v.corteEntre(T, T + 4000), null)
+  assert.deepEqual(v.corteEntre(T, T + 60_000), { desde: T, hasta: T + 60_000 })
+  // Un vistazo a otra app no merece aviso.
+  assert.equal(v.resumenRetorno({ fueraDesde: T, vuelta: T + 10_000, ultimoCuadro: T + 9_900, cortes: [] }), null)
+  // Siguió los 20 minutos.
+  const siguio = v.resumenRetorno({ fueraDesde: T, vuelta: T + 20 * 60_000, ultimoCuadro: T + 20 * 60_000 - 100, cortes: [] })
+  assert.equal(siguio.siguio, true)
+  assert.match(siguio.texto, /Siguió escuchando los 20 min/)
+  // Con un corte en el medio.
+  const corte = v.resumenRetorno({ fueraDesde: T, vuelta: T + 30 * 60_000, ultimoCuadro: T + 30 * 60_000 - 100, cortes: [{ desde: T + 5 * 60_000, hasta: T + 12 * 60_000 }] })
+  assert.equal(corte.siguio, false)
+  assert.match(corte.texto, /con un corte: \d\d:\d\d–\d\d:\d\d \(7 min sin escuchar\)/)
+  // Sigue cortada: desde el último cuadro.
+  const cortada = v.resumenRetorno({ fueraDesde: T, vuelta: T + 25 * 60_000, ultimoCuadro: T + 3 * 60_000, cortes: [] })
+  assert.equal(cortada.cortadaAhora, true)
+  assert.match(cortada.texto, /se cortó a las \d\d:\d\d y estuvo 22 min sin escuchar/)
+  // El cierre dice qué guardó y dónde.
+  const s = { ...v.sesionNueva(T), dictados: 3, notas: 1, descartados: 2, cortes: [{ desde: T, hasta: T + 120_000 }] }
+  assert.match(v.textoDeCierre(s, T + 40 * 60_000), /Escuchó 40 min .* Guardó 3 dictados al chat de Hoy, 1 nota de voz al corpus\. Descartó 2 ruidos sueltos\. Tuvo un corte \(2 min sin escuchar\)\./)
+  assert.match(v.textoDeCierre(v.sesionNueva(T), T + 60_000), /No guardó nada: no hubo voz tuya cerca/)
+})
+
+test('Mobile 1.1 · el mapa: el trazo se simplifica sin perder las vueltas, y se corta en tramos en orden', async () => {
+  const m = await deLaApp('mapa')
+  // Una L: 50 puntos por una calle y 50 por la otra, con ruido de 2 m; quedan las esquinas.
+  const ps = [] as { en: number; lat: number; lon: number }[]
+  for (let i = 0; i < 50; i++) ps.push({ en: i, lat: 39.47 + i * 0.0001 + (i % 2 ? 0.00002 : 0), lon: -0.376 })
+  for (let i = 0; i < 50; i++) ps.push({ en: 50 + i, lat: 39.47 + 49 * 0.0001, lon: -0.376 + i * 0.0001 })
+  const s = m.simplificar(ps, 12)
+  assert.ok(s.length <= 5, `quedan pocos puntos (${s.length})`)
+  assert.deepEqual([s[0].en, s.at(-1).en], [0, 99], 'el primero y el último siempre')
+  assert.ok(s.some((p: any) => p.en === 49 || p.en === 50), 'la esquina queda')
+  assert.ok(Math.abs(m.metros({ lat: 39.47, lon: -0.376 }, { lat: 39.471, lon: -0.376 }) - 111) < 2, '0,001° de latitud ≈ 111 m')
+  const t = m.tramosPorHora(ps, 5)
+  assert.equal(t.length, 5)
+  assert.deepEqual(t[0][0], ps[0])
+  assert.deepEqual(t.at(-1).at(-1), ps.at(-1))
+  assert.deepEqual(t[1][0], t[0].at(-1), 'los tramos se tocan (sin huecos en el trazo)')
+  assert.deepEqual(m.tramosPorHora([], 5), [])
+})
+
+test('Mobile 1.1 · contestar en voz: se dice el texto, sin Markdown, links ni citas', async () => {
+  const d = await deLaApp('decir')
+  assert.equal(d.paraDecir('**Uno**: pensá en [esto](https://x.org) [#41, #42]\n- dos\n- tres https://y.org'), 'Uno: pensá en esto dos tres')
+})

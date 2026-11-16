@@ -29,8 +29,9 @@ import { archivoParaTramo } from './tramos'
 import { claveNueva } from './logica/sincro'
 import { debeCerrar } from './logica/tramos'
 import { capta } from './logica/captura'
-import { ultimoPunto } from './recorrido'
+import { apagarAvisoEscucha, prenderAvisoEscucha, ultimoPunto } from './recorrido'
 import { ajustesCaptura } from './captura'
+import { corteEntre, resumenRetorno, sesionNueva, textoDeCierre, type Sesion } from './logica/vigia'
 
 export type Envio = { en: number; modo: string; texto: string | null; error?: string }
 const CUADRO_MS = 100
@@ -57,7 +58,15 @@ export function useEscucha(c: Credenciales | null) {
   const [envios, setEnvios] = useState<Envio[]>([])
   const [enCola, setEnCola] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  // Mobile 1.1: la sesión (desde cuándo, qué guardó), el cierre en palabras, lo que pasó mientras no mirabas y el aviso fijo.
+  const [sesion, setSesion] = useState<Sesion | null>(null)
+  const [cierre, setCierre] = useState<string | null>(null)
+  const [retorno, setRetorno] = useState<string | null>(null)
+  const [conAviso, setConAviso] = useState(false)
   const estado = useRef({
+    sesion: null as Sesion | null, ultimoCuadro: null as number | null, fueraDesde: null as number | null,
+    // Mientras Mastropiero habla (contestar en voz), no se graba: si no, se escucharía a sí mismo.
+    silenciada: false, conUbicacion: false,
     conciencia: crearConciencia(), rasgos: null as ReturnType<typeof crearRasgos> | null, mov: crearMovimiento(),
     pendiente: new Float32Array(0), sr: 16000, caminando: false as boolean | null, levantado: false,
     tramo: null as Tramo | null,
@@ -81,7 +90,7 @@ export function useEscucha(c: Credenciales | null) {
     const a = e.acum
     e.acum = nuevoMinuto(t, e.pasos)
     if (!a) return
-    const p = ultimoPunto()
+    const p = e.conUbicacion ? ultimoPunto() : null
     const u = p && t - p.en < 15 * 60_000 ? p : null
     const seg = (n: number) => Math.min(60, Math.round(n / 10)) // cuadros de 100 ms → segundos
     const m: MinutoCapa = {
@@ -104,12 +113,18 @@ export function useEscucha(c: Credenciales | null) {
     const dur = tramo.ultimaVoz - tramo.inicio
     const modo = tramo.conv ? 'conversacion' as const : tramo.dictado >= tramo.escucha ? 'dictado' as const : 'pasivo' as const
     const poca = tramo.conv ? tramo.voz < 4 : tramo.dictado + tramo.escucha < 4
+    const ses = e.sesion
     if (dur < MIN_MS || poca || !c) {
       try { new File(tramo.uri).delete() } catch { /* ya no está */ }
       await cerrarTramoEnDisco(tramo.id, null)
+      if (ses) { ses.descartados++; setSesion({ ...ses }) }
       return
     }
-    await cerrarTramoEnDisco(tramo.id, { uri: tramo.uri, meta: { id: tramo.id, modo, inicio: tramo.inicio, fin: tramo.ultimaVoz, caminando: tramo.caminando } })
+    // Dónde se dijo (Fragua #285): el último lugar conocido, si la ubicación está prendida en Captura y permisos.
+    const p = e.conUbicacion ? ultimoPunto() : null
+    const lugar = p && tramo.inicio - p.en < 15 * 60_000 ? { lat: p.lat, lon: p.lon } : {}
+    await cerrarTramoEnDisco(tramo.id, { uri: tramo.uri, meta: { id: tramo.id, modo, inicio: tramo.inicio, fin: tramo.ultimaVoz, caminando: tramo.caminando, ...lugar } })
+    if (ses) { if (modo === 'dictado') ses.dictados++; else if (modo === 'pasivo') ses.notas++; else ses.charlas++; setSesion({ ...ses }) }
     setEnCola((n) => n + 1)
     void sincronizar(c) // a disco primero; a la red, en cuanto se pueda
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -119,6 +134,10 @@ export function useEscucha(c: Credenciales | null) {
     const e = estado.current
     if (!e.rasgos) return
     const t = Date.now()
+    // El vigía (Fragua #283): un hueco de más de 5 s entre cuadros es un corte, y queda anotado en la sesión.
+    const corte = corteEntre(e.ultimoCuadro, t)
+    if (corte && e.sesion) e.sesion.cortes.push(corte)
+    e.ultimoCuadro = t
     const r = e.rasgos.cuadro(x)
     const l = e.conciencia.cuadro({ t, db: r.db, voz: r.voz, cerca: null, caminando: e.caminando, levantado: e.levantado })
     if (t - e.pintadoEn >= 500 || l.estado !== e.estadoPintado) { e.pintadoEn = t; e.estadoPintado = l.estado; setLectura(l) }
@@ -132,6 +151,7 @@ export function useEscucha(c: Credenciales | null) {
     a.piso += l.piso; a.pisoN++
     if (e.caminando) a.caminando++
     if (e.ocupado) return
+    if (e.silenciada && !e.tramo) return // Mastropiero está hablando: no se empieza a grabar
     // En conversación vale cualquier voz (la tuya y la de los demás); si no, solo tu voz directa.
     const conv = modoConv.current
     const hayVoz = conv ? r.voz >= 0.6 && l.snr >= 3 : l.fuente === 'voz_directa'
@@ -192,14 +212,35 @@ export function useEscucha(c: Credenciales | null) {
   }, [activa])
 
   // Al cambiar de app (o bloquear la pantalla), el tramo en curso se cierra: queda entero en la cola y la escucha sigue.
+  // Al volver (Fragua #283): se dice si siguió o desde qué minuto se cortó; si sigue cortada, se retoma (no a ciegas).
   useEffect(() => {
     if (!activa) return
+    let reloj: ReturnType<typeof setTimeout> | null = null
     const app = AppState.addEventListener('change', (s) => {
       const e = estado.current
-      if (s !== 'active' && e.tramo && !e.ocupado) { e.ocupado = true; void cerrarTramo().finally(() => { e.ocupado = false }) }
+      if (s !== 'active') {
+        e.fueraDesde ??= Date.now()
+        if (e.tramo && !e.ocupado) { e.ocupado = true; void cerrarTramo().finally(() => { e.ocupado = false }) }
+        return
+      }
+      const fueraDesde = e.fueraDesde
+      e.fueraDesde = null
+      if (fueraDesde == null) return
+      // Un momento para que, si el micrófono siguió, llegue un cuadro fresco.
+      reloj = setTimeout(async () => {
+        const r = resumenRetorno({ fueraDesde, vuelta: Date.now(), ultimoCuadro: e.ultimoCuadro, cortes: e.sesion?.cortes ?? [] })
+        if (!r) return
+        if (r.cortadaAhora) {
+          if (e.sesion) e.sesion.cortes.push({ desde: Math.max(e.ultimoCuadro ?? fueraDesde, fueraDesde), hasta: Date.now() })
+          e.ultimoCuadro = null
+          try { stream.stop() } catch { /* ya estaba parado */ }
+          try { await stream.start() } catch (err) { setError(`No pude retomar la escucha: ${err instanceof Error ? err.message : String(err)}. Tocá «Dejar de escuchar» y volvé a prender.`) }
+        }
+        setRetorno(r.texto)
+      }, 2500)
     })
-    return () => app.remove()
-  }, [activa, cerrarTramo])
+    return () => { app.remove(); if (reloj) clearTimeout(reloj) }
+  }, [activa, cerrarTramo, stream])
 
   const empezar = useCallback(async () => {
     setError(null)
@@ -213,7 +254,17 @@ export function useEscucha(c: Credenciales | null) {
     e.rasgos = null
     e.pendiente = new Float32Array(0)
     e.acum = null
+    e.conUbicacion = capta(aj, 'ubicacion')
     try { await stream.start(); setActiva(true) } catch (err) { return setError(err instanceof Error ? err.message : String(err)) }
+    const ses = sesionNueva(Date.now())
+    e.sesion = ses
+    e.ultimoCuadro = null
+    e.fueraDesde = null
+    setSesion({ ...ses })
+    setCierre(null)
+    setRetorno(null)
+    // El aviso fijo en la barra: sin él, Android corta el micrófono con la pantalla apagada (Fragua #283).
+    setConAviso(await prenderAvisoEscucha())
     // Los pasos por el sensor del teléfono (no por GPS), si está y diste el permiso; si no, el acelerómetro.
     e.pasosSensor = null
     if (capta(aj, 'pasos')) {
@@ -233,8 +284,22 @@ export function useEscucha(c: Credenciales | null) {
     setActiva(false)
     setLectura(null)
     setGrabando(null)
+    // El cierre (Fragua #284): qué guardó y dónde, en palabras.
+    if (e.sesion) setCierre(textoDeCierre(e.sesion, Date.now()))
+    e.sesion = null
+    setSesion(null)
+    setRetorno(null)
+    void apagarAvisoEscucha()
+    setConAviso(false)
     if (c) void sincronizar(c)
   }, [stream, cerrarTramo, cerrarMinuto, c])
 
-  return { activa, lectura, envios, enCola, enviadosHoy, grabando, error, empezar, parar, conversacion, setConversacion, ultimo }
+  /** Mientras Mastropiero habla, no se empieza a grabar (y lo que se estaba grabando se cierra). */
+  const silenciar = useCallback((si: boolean) => {
+    const e = estado.current
+    e.silenciada = si
+    if (si && e.tramo && !e.ocupado) { e.ocupado = true; void cerrarTramo().finally(() => { e.ocupado = false }) }
+  }, [cerrarTramo])
+
+  return { activa, lectura, envios, enCola, enviadosHoy, grabando, error, empezar, parar, conversacion, setConversacion, ultimo, sesion, cierre, retorno, cerrarRetorno: () => setRetorno(null), conAviso, silenciar }
 }
