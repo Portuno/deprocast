@@ -167,6 +167,14 @@ export const ORGANOS: Organo[] = [
     cuando: 'De noche, o cuando él forja una propuesta',
     actividad: [{ sql: `SELECT COUNT(*) AS n FROM fragua WHERE creada_en >= ?`, etiqueta: 'forjas' }],
   },
+  {
+    id: 'sonador', nombre: 'El Soñador', glifo: '☾', celda: c(MEMORIA, 4), tipo: 'organo', cadena: { clase: 'mastropiero', agenteId: 'sonador' },
+    funcion: 'El turno de noche de la memoria: poda lo que ya no tiene pieza viva detrás, junta lo que dice lo mismo y tiende puentes entre zonas de tu voz que casi no se tocan.',
+    virtudes: ['Nunca sella, nunca borra, nunca escribe en el corpus: todo espera tu ok', 'Un puente sin una cita de cada lado se descarta solo', 'Aprende de lo que descartás: no repite puentes entre las mismas zonas'],
+    hace: ['Poda: proto sin pieza viva, viejos y sin peso', 'Junta los repetidos en uno con todas sus evidencias', 'Un puente por hueco abierto del grafo de tu voz'],
+    cuando: 'De madrugada (03:50), después del grafo',
+    actividad: [{ sql: `SELECT COUNT(*) AS n FROM suenos_noche WHERE creada_en >= ?`, etiqueta: 'propuestas' }, { sql: `SELECT COUNT(*) AS n FROM suenos_noche WHERE estado = 'aceptada' AND resuelta_en >= ?`, etiqueta: 'aceptadas' }],
+  },
   // ─── Territorio: dónde y cuándo
   {
     id: 'brujula', nombre: 'La Brújula', glifo: '🧭', celda: c(TERRITORIO, 3), tipo: 'organo', vista: 'hoy', cadena: { clase: 'mastropiero', agenteId: 'brujula' },

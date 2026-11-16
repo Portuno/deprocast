@@ -1988,6 +1988,21 @@ CREATE TABLE IF NOT EXISTS grafo_huecos (
   actualizado_en INTEGER NOT NULL,
   UNIQUE (grafo_id, firma)
 );
+-- Lo que propone El Soñador de noche (Fragua #275 y #276): podas, fusiones y puentes, esperando su ok.
+CREATE TABLE IF NOT EXISTS suenos_noche (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tipo TEXT NOT NULL,
+  estado TEXT NOT NULL DEFAULT 'pendiente',
+  quantomos TEXT NOT NULL DEFAULT '[]',
+  texto TEXT,
+  evidencias TEXT NOT NULL DEFAULT '[]',
+  hueco_id INTEGER,
+  terminos TEXT NOT NULL DEFAULT '[]',
+  motivo TEXT,
+  firma TEXT NOT NULL UNIQUE,
+  creada_en INTEGER NOT NULL,
+  resuelta_en INTEGER
+);
 -- De qué va cada zona de su memoria (plan v25, el patrón GraphRAG): un resumen por comunidad, cacheado por la huella de
 -- sus conceptos top (si la comunidad no cambió, no se vuelve a pedir).
 CREATE TABLE IF NOT EXISTS grafo_resumenes (
@@ -2313,6 +2328,7 @@ const RUTINAS_SISTEMA = [
   { id: 'mentor', nombre: 'El Mentor recomienda qué leer o ver', hora: '08:05', dias: '1', accion: 'mentor' },
   { id: 'puentes', nombre: 'Puentes con tu gente', hora: '11:00', dias: '0', accion: 'puentes' },
   { id: 'temporada', nombre: 'Cierre de temporada de la liga', hora: '07:30', dias: '1', accion: 'temporada' },
+  { id: 'sonador', nombre: 'El Soñador: poda, junta lo repetido y tiende puentes en tu memoria (todo a Para validar)', hora: '03:50', dias: '0123456', accion: 'sonador' },
   { id: 'escalas', nombre: 'El diario por escalas: el día de ayer, lo que lo contiene y un poco del pasado', hora: '04:10', dias: '0123456', accion: 'escalas' },
   { id: 'paginas', nombre: 'Las páginas propias (arquetipos y dominios) se construyen solas con lo que cambió', hora: '04:30', dias: '0123456', accion: 'paginas' },
   { id: 'destilar', nombre: 'Destilar unas piezas tuyas en espera', hora: '10:15', dias: '0123456', accion: 'destilar' },

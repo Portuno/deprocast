@@ -4,6 +4,7 @@
  * con las excepciones y, si algún tipo acierta casi siempre, la oferta de hacerlo solo (con tu ok).
  */
 import { ajuste, fechaLocal, fijarAjuste, json, type Db } from './db.ts'
+import { suenosParaBandeja } from './sonador.ts'
 import { CLAVES_TIPO, TIPOS, aciertoDe, anotar, estadoSombra, fijarModo, hechoSolo, leerDecision, modoDe } from './decisiones.ts'
 import { deshacerCaptura } from './captura.ts'
 import { resolverSugerido, sugeridos } from './finanzas.ts'
@@ -115,6 +116,11 @@ export function bandeja(db: Db, ahora = Date.now()) {
     const om = require_obras(db)
     if (om.n) g.push({ tipo: 'obra', nombre: 'Para tu Librería (lo que mencionaste)', n: om.n, peso: 1, ir: null, acciones: [['aceptar', '✓ Sumar'], ['descartar', '✕']], items: om.items })
   } catch { /* sin la tabla todavía */ }
+  // Lo que soñó de noche (El Soñador, Fragua #275 y #276): podas, fusiones y puentes, para aceptar o descartar.
+  try {
+    const sn = suenosParaBandeja(db)
+    if (sn.n) g.push({ tipo: 'sueno', nombre: 'Lo que soñó de noche (El Soñador)', n: sn.n, peso: 1, ir: null, acciones: [['aceptar', '✓'], ['descartar', '✕']], items: sn.items })
+  } catch { /* sin la tabla todavía */ }
   g.push({ tipo: 'nombre', nombre: 'Nombres del archivo', n: n(db, `SELECT COUNT(*) AS n FROM takeout_nombres WHERE estado = 'propuesta'`), peso: 0.5, items: [], acciones: null, ir: 'takeout' })
   // Las de La Fragua que todavía no decidió (aceptar la deja abierta con prioridad alta, para construirla: ya no se pregunta).
   const sinDecidir = `estado = 'abierta' AND CAST(id AS TEXT) NOT IN (SELECT ref FROM decisiones WHERE tipo = 'propuesta')`
@@ -168,6 +174,7 @@ export async function resolverBandeja(db: Db, tipo: string, id: number | string,
   if (tipo === 'obra') return (await import('./obras-menciones.ts')).resolverPropuestaObra(db, id, accion, ahora)
   if (tipo === 'delegar') return (await import('./delegar.ts')).resolverEncargoSugerido(db, id, accion, {}, ahora)
   if (tipo === 'recuerdo') return accion === 'aceptar' ? revisar(db, id) : archivar(db, id)
+  if (tipo === 'sueno') return (await import('./sonador.ts')).resolverSueno(db, id, accion, ahora)
   if (tipo === 'aprender') {
     const ac = await import('./academia.ts')
     return accion === 'aceptar' ? ac.aceptarSugerencia(db, id, ahora) : ac.descartarSugerencia(db, id)
