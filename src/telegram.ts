@@ -643,6 +643,31 @@ function cartaMano(db: Db, previo = ''): { texto: string; botones?: Botones } {
 
 /** mensaje de Telegram → id de la pregunta, para que responder «a ese mensaje» la conteste. */
 const preguntasEnviadas = new Map<number, number>()
+
+// ─── el feed, para puntuar desde el teléfono (Fragua #253) ─────────────
+
+/** Los ítems del feed que se mandaron: el mensaje → el ítem (para responder citándolo), y el último (para un número suelto). */
+const feedEnviados = new Map<number, number>()
+let ultimoFeed: { item: number; en: number } | null = null
+async function mandarFeed(db: Db) {
+  const { siguientePendiente } = await import('./feed.ts')
+  const it = siguientePendiente(db)
+  if (!it) return decir('📰 No queda nada pendiente en tu feed. Mañana hay más.')
+  const botones: Botones = [[1, 2, 3].map((n) => ({ texto: String(n), dato: `f:${it.id}:${n}` })), [4, 5, 6].map((n) => ({ texto: String(n), dato: `f:${it.id}:${n}` }))]
+  const id = await decir(`📰 ${it.titulo}${it.autor ? ` — ${it.autor}` : ''}${it.texto && it.texto !== it.titulo ? `\n${it.texto.slice(0, 500)}` : ''}\n${it.url}\n\n_Puntualo del 1 al 6 (o respondé «5 #ia por qué»)._`, botones)
+  if (id) feedEnviados.set(id, it.id)
+  ultimoFeed = { item: it.id, en: Date.now() }
+}
+async function puntuarDesdeCanal(db: Db, item: number, texto: string): Promise<boolean> {
+  const { leerPuntaje, puntuarItem } = await import('./feed.ts')
+  const p = leerPuntaje(texto)
+  if (!p) return false
+  const it = await puntuarItem(db, item, p.puntaje, { categoria: p.categoria, razon: p.razon })
+  ultimoFeed = null
+  await decir(`✓ ${p.puntaje}/6 a «${it.titulo.slice(0, 60)}»${p.categoria ? ` · #${p.categoria}` : ''}${p.razon ? ' · con tu razón' : ''}.`)
+  await mandarFeed(db)
+  return true
+}
 async function mandarPregunta(db: Db) {
   const q = siguientePregunta(db)
   if (!q) return decir('No tengo preguntas pendientes por ahora.')
@@ -656,7 +681,7 @@ async function mandarPregunta(db: Db) {
 export const COMANDOS = [
   ['hoy', 'Cómo viene el día'], ['run', 'La banda que toca ahora (o arrancar la propuesta)'], ['gasto', 'Anotar un gasto: /gasto 12,5 súper'],
   ['ingreso', 'Anotar un ingreso: /ingreso 800 freelance'], ['nota', 'Guardar algo sin charlar'], ['bitacora', 'Escribir en tu bitácora (privada)'],
-  ['brujula', 'El tridente del día'], ['mentor', 'Qué leer o ver ahora'], ['buscar', 'Buscar en tu corpus'], ['criba', 'Pesar piezas con botones'], ['mano', 'Jugar tus afirmaciones sin pesar, de a una'], ['pregunta', 'Que Mastropiero te pregunte algo'], ['idioma', 'Practicar un idioma ahora: /idioma inglés (/idioma fin la cierra)'], ['tarjetas', 'Repasar las tarjetas que tocan hoy'], ['sueno', 'Anotar un sueño: /sueno y lo contás (o mandá un audio que empiece con «soñé…»)'], ['voz', 'Respuestas también en audio: sí / no'], ['ayuda', 'Qué sé hacer'],
+  ['brujula', 'El tridente del día'], ['mentor', 'Qué leer o ver ahora'], ['buscar', 'Buscar en tu corpus'], ['criba', 'Pesar piezas con botones'], ['mano', 'Jugar tus afirmaciones sin pesar, de a una'], ['pregunta', 'Que Mastropiero te pregunte algo'], ['idioma', 'Practicar un idioma ahora: /idioma inglés (/idioma fin la cierra)'], ['tarjetas', 'Repasar las tarjetas que tocan hoy'], ['sueno', 'Anotar un sueño: /sueno y lo contás (o mandá un audio que empiece con «soñé…»)'], ['voz', 'Respuestas también en audio: sí / no'], ['feed', 'Puntuar tu feed del 1 al 6, de a uno'], ['ayuda', 'Qué sé hacer'],
 ] as const
 
 function resumenHoy(db: Db): string {
@@ -684,6 +709,7 @@ async function comando(db: Db, cmd: string, resto: string) {
     case '/start': case '/ayuda': case '/help':
       return decir(`Acá estoy. Escribime, mandame audios, fotos, links o archivos (un chat de WhatsApp exportado, el CSV del banco).\n\n${COMANDOS.map(([c, d]) => `/${c} — ${d}`).join('\n')}`)
     case '/hoy': return decir(resumenHoy(db))
+    case '/feed': return mandarFeed(db)
     case '/run': case '/banda': case '/ahora': return bandaActual(db)
     case '/gasto': case '/ingreso': {
       const m = /^(-?[\d.,]+)\s*(?:€|eur|euros)?\s*(.*)$/i.exec(resto)
@@ -751,6 +777,11 @@ async function boton(db: Db, q: any) {
     deshacerCaptura(db, TABLA[a] ?? 'salud', b)
     if (mensajeId) capturasEnviadas.delete(mensajeId)
     return mensajeId ? editar(mensajeId, '↩ Deshecho: no quedó anotado.') : decir('↩ Deshecho.')
+  }
+  if (k === 'f') {
+    if (mensajeId) feedEnviados.delete(mensajeId)
+    await puntuarDesdeCanal(db, Number(a), b)
+    return
   }
   if (k === 'z') {
     const r = registrarSalud(db, { tipo: 'sueno', datos: a === 'h' ? { horas: Number(b) } : { calidad: Number(b) }, fuente: 'telegram' })
@@ -949,6 +980,12 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
   if (aCaptura && texto) {
     capturasEnviadas.delete(msg.reply_to_message.message_id)
     return corregirCaptura(db, aCaptura, texto)
+  }
+  // Responder a un ítem del feed (citándolo, o con un número suelto al rato de recibirlo): lo puntúa.
+  const aFeed = msg.reply_to_message ? feedEnviados.get(msg.reply_to_message.message_id) : ultimoFeed && Date.now() - ultimoFeed.en < 10 * 60_000 && texto && texto.length <= 300 && /^\s*[1-6](\s*$|\s+#|\s*[-–:.,]\s)/.test(texto) ? ultimoFeed.item : undefined
+  if (aFeed && texto && (await puntuarDesdeCanal(db, aFeed, texto))) {
+    if (msg.reply_to_message) feedEnviados.delete(msg.reply_to_message.message_id)
+    return
   }
   // Responder a una pregunta que mandó: la contesta.
   const aPregunta = msg.reply_to_message ? preguntasEnviadas.get(msg.reply_to_message.message_id) : undefined

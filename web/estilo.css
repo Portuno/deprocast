@@ -3573,3 +3573,8 @@ a.arq-celda { color: var(--texto); text-decoration: none; }
 .mon-ajustes input[type=number] { width: 72px; }
 [data-atribuir] input { flex: 1; min-width: 160px; }
 @media (max-width: 720px) { .mon-cabeza { grid-template-columns: minmax(0, 1fr); } }
+
+/* El feed puntuado del 1 al 6 (Fragua, propuesta 253) */
+.feed-puntaje .btn { min-width: 32px; }
+.feed-razon { margin-top: var(--e-1); }
+.feed-ranking li { gap: 2px; }

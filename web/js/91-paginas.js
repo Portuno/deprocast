@@ -311,8 +311,18 @@ async function montarEscalas(param) {
   const piezas = r.piezasDelDia.length
     ? `<h3 class="sub">Sus piezas</h3><ul class="pag-lista">${r.piezasDelDia.map((p) => `<li><button class="link" data-pieza="${p.id}">${esc(p.titulo)}</button><small>${esc(p.fuente)}</small></li>`).join('')}</ul>`
     : ''
-  $('#esc').innerHTML = `<div class="fila esc-nav"><a class="btn btn-chico" href="${rutaA('escalas', e + ':' + r.anterior)}">←</a><h2 class="sub">${esc(nombreDe(e))} ${esc(r.clave)} <small class="tenue">${rango}</small></h2><a class="btn btn-chico" href="${rutaA('escalas', e + ':' + r.siguiente)}">→</a><button class="btn btn-chico" data-armar title="Armarlo ahora (y lo que lo contiene)">${ico('refresh-cw')} Armar</button></div>${cuerpo}${partes}${piezas}`
+  $('#esc').innerHTML = `<div class="fila esc-nav"><a class="btn btn-chico" href="${rutaA('escalas', e + ':' + r.anterior)}">←</a><h2 class="sub">${esc(nombreDe(e))} ${esc(r.clave)} <small class="tenue">${rango}</small></h2><a class="btn btn-chico" href="${rutaA('escalas', e + ':' + r.siguiente)}">→</a><button class="btn btn-chico" data-armar title="Armarlo ahora (y lo que lo contiene)">${ico('refresh-cw')} Armar</button>${e === 'dia' ? '<button class="btn btn-chico btn-primario" data-cargar title="Trae lo de Drive y la cola, guarda la charla del día y arma el diario">Cargar este día</button>' : ''}</div>${cuerpo}${partes}${piezas}`
   $$('#esc [data-pieza]').forEach((a) => (a.onclick = () => modalPieza(Number(a.dataset.pieza))))
+  const cargar = $('#esc [data-cargar]')
+  if (cargar) cargar.onclick = async () => {
+    cargar.disabled = true
+    cargar.textContent = 'Cargando…'
+    try {
+      const x = await api('/cargar-dia', { fecha: r.desde })
+      toast(`Cargué ${x.piezas.length} pieza${x.piezas.length === 1 ? '' : 's'} del ${esc(x.fecha)}${x.charla ? ' (con la charla del día)' : ''}${x.avisos.length ? `<small>${esc(x.avisos.join(' · '))}</small>` : ''}`, 'suave')
+      montarEscalas('dia:' + r.desde)
+    } catch (y) { error(y); cargar.disabled = false }
+  }
   $('#esc [data-armar]').onclick = async (ev) => {
     const b = ev.currentTarget
     b.disabled = true

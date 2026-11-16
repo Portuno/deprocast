@@ -627,6 +627,23 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `ajustó el Monedero (${a.que})`,
   },
   {
+    nombre: 'cargar_dia', familia: 'accion',
+    descripcion: '«Cargá lo de ayer» (o de hoy, o de una fecha): en una sola orden trae lo que dejó en sus carpetas de Drive, procesa la cola de audios y hojas, guarda la charla del día como pieza suya (con sus entidades), arma el diario de ese día y devuelve cada pieza del día con su origen (archivo, link o canal).',
+    parametros: S({ fecha: str('«ayer» (por defecto), «hoy», «anteayer» o YYYY-MM-DD') }),
+    ejecutar: async (a, { db }) => {
+      const c = await import('../cargar-dia.ts')
+      const r = await c.cargarDia(db, a.fecha ?? 'ayer')
+      return { ...r, texto: c.textoDeCarga(r) }
+    },
+    resumen: (a) => `cargó lo del día (${a.fecha ?? 'ayer'})`,
+  },
+  {
+    nombre: 'ver_ranking_feed', familia: 'lectura',
+    descripcion: 'El cribado de su feed: el ranking de sus cuentas (X, Reddit, YouTube) por el puntaje que les da (1 a 6), esta semana contra la anterior, y las que conviene silenciar porque caen siempre abajo. Para puntuar desde el teléfono: /feed.',
+    parametros: S({}),
+    ejecutar: async (_, { db }) => (await import('../feed.ts')).rankingCuentas(db).slice(0, 40),
+  },
+  {
     nombre: 'ver_compras', familia: 'lectura',
     descripcion: 'Su lista de compras: lo pendiente (o lo ya comprado).',
     parametros: S({ estado: str('Cuáles', { enum: ['pendiente', 'comprado', 'descartado', 'todas'] }) }),
@@ -2493,7 +2510,7 @@ ${a.detalle ?? ''}`)
  * (pedir_herramientas) o cuando el mensaje ya lo anuncia. Así cada respuesta no carga las 110 herramientas.
  */
 export const NUCLEO = [
-  'abrir_ficha_idea', 'pedir_herramientas', 'que_puede_deprocast', 'ver_dia', 'ver_agenda', 'ver_linea', 'fijar_horario', 'ver_uso', 'buscar_corpus', 'leer_pieza', 'buscar_en_hilo', 'anotar_compras', 'leer_memoria', 'recordar',
+  'abrir_ficha_idea', 'pedir_herramientas', 'que_puede_deprocast', 'ver_dia', 'ver_agenda', 'ver_linea', 'fijar_horario', 'ver_uso', 'buscar_corpus', 'leer_pieza', 'buscar_en_hilo', 'anotar_compras', 'cargar_dia', 'leer_memoria', 'recordar',
   'corregir_memoria', 'listar_entidades', 'ver_entidad', 'ver_misiones', 'crear_mision', 'actualizar_mision', 'anotar_side_quest', 'ver_run', 'preparar_run',
   'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'proponer_mejora', 'deshacer_ultima_accion', 'ver_para_validar', 'validar', 'arrancar_bloque', 'terminar_bloque',
 ]
@@ -2505,7 +2522,7 @@ export const GRUPOS: Record<string, string[]> = {
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado', 'borrar_programado'],
   correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'marcar_correo_atendido', 'buscar_contacto'],
   drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'borrar_de_drive', 'barrer_documentos_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],
-  web: ['ver_censo_canal', 'aprobar_censo_canal', 'seguir_en_feed', 'ver_feed', 'buscar_web', 'buscar_en', 'explorar', 'usar_alexandria', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
+  web: ['ver_ranking_feed', 'ver_censo_canal', 'aprobar_censo_canal', 'seguir_en_feed', 'ver_feed', 'buscar_web', 'buscar_en', 'explorar', 'usar_alexandria', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus', 'ver_suenos_noche'],
   mapamundi: ['ver_mapamundi', 'disputar'],
   observatorio: ['seguir_tema', 'ver_observatorio', 'crear_campana', 'armar_campana'],

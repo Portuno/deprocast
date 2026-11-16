@@ -36,3 +36,40 @@ test('el feed con tope (plan v38, fase 5): fuentes que elige, X entra al corpus,
   assert.equal((db.prepare(`SELECT COUNT(*) AS n FROM corpus WHERE fuente = 'reddit'`).get() as any).n, 2, 'lo de Reddit que importa entra al corpus')
   assert.equal(x.plataforma, 'x')
 })
+
+test('#253: cada post se puntúa del 1 al 6 con categoría y razón; ranking de cuentas por semana y sugerencia de silenciar', async () => {
+  const { leerPuntaje, puntuarItem, rankingCuentas, siguientePendiente, sugerido } = await import('../src/feed.ts')
+  const db = abrir(':memory:')
+  const buena = sumarFuente(db, '@buena')
+  const mala = sumarFuente(db, '@mala')
+  _probarFeed(async (_db, f) => Array.from({ length: 6 }, (_, i) => ({ url: `https://x.com/${f.ref}/status/${i}`, titulo: `${f.ref} ${i}`, texto: `${f.ref} ${i}` })))
+  await recolectar(db)
+  const items = (f: number) => (db.prepare('SELECT id FROM feed_items WHERE fuente_id = ? ORDER BY id').all(f) as { id: number }[]).map((r) => r.id)
+  const semana = 7 * 86_400_000
+  const ahora = Date.now()
+  // La buena: 6 y 5 esta semana, 3 la anterior. La mala: siempre 1 o 2.
+  await puntuarItem(db, items(buena.id)[0], 6, { categoria: 'ia', razon: 'muy claro' }, ahora)
+  await puntuarItem(db, items(buena.id)[1], 5, {}, ahora)
+  await puntuarItem(db, items(buena.id)[2], 3, {}, ahora - semana - 1000)
+  for (const [i, id] of items(mala.id).slice(0, 5).entries()) await puntuarItem(db, id, i % 2 ? 2 : 1, {}, ahora)
+  const it = db.prepare('SELECT voto, puntaje, categoria, razon FROM feed_items WHERE id = ?').get(items(buena.id)[0]) as any
+  assert.deepEqual({ ...it }, { voto: 1, puntaje: 6, categoria: 'ia', razon: 'muy claro' }, 'del 4 al 6 importa')
+  assert.equal((db.prepare('SELECT voto FROM feed_items WHERE id = ?').get(items(mala.id)[0]) as any).voto, 0)
+  await assert.rejects(puntuarItem(db, items(buena.id)[3], 7), /del 1 al 6/)
+
+  const r = rankingCuentas(db, ahora)
+  assert.deepEqual(r.map((x) => [x.cuenta, x.votos]), [['@buena', 3], ['@mala', 5]])
+  assert.equal(r[0].estaSemana, 5.5)
+  assert.equal(r[0].semanaPasada, 3)
+  assert.equal(r[1].silenciar, true, 'cae siempre abajo con 5 votos o más')
+  assert.equal(r[0].silenciar, false)
+  assert.ok(sugerido(db, buena.id) > sugerido(db, mala.id), 'lo que viene se ordena por cuánto le importa')
+  assert.equal(siguientePendiente(db)!.fuenteId, buena.id, 'lo próximo para puntuar es lo más probable de importarle')
+
+  // Desde el teléfono: «5», «2 #ruido», «6 - muy bueno»; un texto cualquiera no es un puntaje.
+  assert.deepEqual(leerPuntaje('5'), { puntaje: 5, categoria: null, razon: null })
+  assert.deepEqual(leerPuntaje('2 #ruido repetido'), { puntaje: 2, categoria: 'ruido', razon: 'repetido' })
+  assert.deepEqual(leerPuntaje('6 - muy bueno'), { puntaje: 6, categoria: null, razon: 'muy bueno' })
+  assert.equal(leerPuntaje('hola'), null)
+  assert.equal(leerPuntaje('12 cosas'), null)
+})

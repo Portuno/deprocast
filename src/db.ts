@@ -2240,6 +2240,8 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   ],
   // ¿Idea nueva o repetida? Contra los quántomos de antes, por sentido.
   quantomos: [['novedad', 'TEXT'], ['novedad_de', 'INTEGER'], ['novedad_sim', 'REAL']],
+  // El cribado del feed (Fragua #253): puntaje 1 a 6, categoría y razón de cada voto.
+  feed_items: [['puntaje', 'INTEGER'], ['categoria', 'TEXT'], ['razon', 'TEXT']],
   // La Mano: a qué Pesquisa pertenece cada jugada (si había una abierta).
   mano_jugadas: [['pesquisa_id', 'INTEGER'], ['prediccion', 'REAL'], ['resultado', 'INTEGER']],
   // Idiomas por sesiones: el temario, lo personal mínimo y a qué sesión pertenece cada vuelta.
