@@ -2,7 +2,8 @@
  * Avisos en el teléfono (Mobile 1.3), sin Firebase: el teléfono pregunta cada ~15 minutos (y al abrir) qué viene, y lo
  * programa como aviso local a su hora exacta. Así suena aunque esté sin red en ese momento.
  * - los eventos de tu calendario de las próximas 36 horas, unos minutos antes (ajuste aviso_evento_min, 10 por defecto);
- * - los recordatorios que le pedís a Mastropiero («recordame a las 18 que llame a…»).
+ * - los recordatorios que le pedís a Mastropiero («recordame a las 18 que llame a…»);
+ * - las bandas de la run de hoy, cada una un minuto antes de su hora (Fragua #290).
  * Lo nuevo de Mastropiero en Hoy y lo que espera tu ok lo avisa el teléfono solo, comparando con lo último que vio.
  */
 import { ajuste, fechaLocal, type Db } from './db.ts'
@@ -49,10 +50,37 @@ export function recordatorios(db: Db, ahora = Date.now()) {
     .map((r) => ({ id: r.id, texto: r.texto, en: r.para_en }))
 }
 
+/**
+ * Las bandas de la run de hoy (Fragua #290): cada una suena en el teléfono un minuto antes de su hora, como por Telegram.
+ * La run en curso, o la propuesta de hoy si arranca sola (ajuste run_autoarranque). Si la run se corre o se rehace, la
+ * próxima pasada reprograma (las claves cambian y las viejas se cancelan).
+ */
+function bandasDeLaRun(db: Db, ahora: number): Aviso[] {
+  try {
+    const { runActual, misionesDeRun } = requireMisiones()
+    const run = runActual(db, ahora)
+    if (!run || run.fecha !== fechaLocal(ahora)) return []
+    if (run.estado !== 'en_curso' && !(run.estado === 'propuesta' && ajuste(db, 'run_autoarranque') !== '0')) return []
+    const aMin = (h: string) => { const [a, b] = h.split(':').map(Number); return a * 60 + (b || 0) }
+    const base = new Date(`${run.fecha}T00:00:00`).getTime()
+    const bandas = misionesDeRun(db, run.id).filter((m) => m.inicio && m.fin).sort((a, b) => aMin(a.inicio!) - aMin(b.inicio!))
+    return bandas.flatMap((m, i) => {
+      const en = base + (aMin(m.inicio!) - 1) * 60_000
+      if (en <= ahora || (m.estado !== 'activa' && m.estado !== 'sugerida')) return []
+      return [{ clave: `ev:banda:${m.id}:${m.inicio}`, titulo: `⏱ #${i + 1} · ${m.inicio}–${m.fin} · ${m.titulo}`, cuerpo: (m.detalle ?? '').replace(/\s+/g, ' ').slice(0, 300) || 'Tu banda de la run.', en }]
+    })
+  } catch { return [] }
+}
+let misionesMod: typeof import('./misiones.ts') | null = null
+/** misiones.ts se carga una vez (al primer pedido): es pesado y avisos-movil se importa seguido. */
+const requireMisiones = () => { if (!misionesMod) throw new Error('sin cargar'); return misionesMod }
+export async function cargarMisiones() { misionesMod ??= await import('./misiones.ts') }
+
 let cache: { en: number; eventos: { titulo: string; inicio: number; lugar: string | null; todoElDia: boolean }[] } | null = null
 
 /** Lo que el teléfono tiene que programar: eventos (unos minutos antes) y recordatorios, de ahora a 36 horas. */
 export async function proximosAvisos(db: Db, ahora = Date.now()): Promise<{ minutosAntes: number; avisos: Aviso[] }> {
+  await cargarMisiones().catch(() => {})
   const antes = Math.max(0, Math.min(120, Number(ajuste(db, 'aviso_evento_min') ?? 10) || 0))
   const hasta = ahora + 36 * 3_600_000
   // El calendario se pregunta como mucho cada 10 minutos (el teléfono pregunta seguido).
@@ -75,5 +103,6 @@ export async function proximosAvisos(db: Db, ahora = Date.now()): Promise<{ minu
     avisos.push({ clave, titulo: `📅 ${e.titulo}`, cuerpo: `${antes ? `En ${antes} min` : 'Ahora'} (${hm(e.inicio)})${e.lugar ? ` · ${e.lugar}` : ''}`, en })
   }
   for (const r of recordatorios(db, ahora)) if (r.en <= hasta) avisos.push({ clave: `rec:${r.id}`, titulo: '⏰ Recordatorio', cuerpo: r.texto, en: Math.max(r.en, ahora + 5_000) })
-  return { minutosAntes: antes, avisos: avisos.sort((a, b) => a.en - b.en).slice(0, 40) }
+  avisos.push(...bandasDeLaRun(db, ahora))
+  return { minutosAntes: antes, avisos: avisos.sort((a, b) => a.en - b.en).slice(0, 60) }
 }

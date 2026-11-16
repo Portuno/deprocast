@@ -17,8 +17,8 @@ import { ajuste, fechaLocal, fijarAjuste, type Db } from './db.ts'
 import { conversacionHoy, enviar, estaPensando, mensajeDeMastropiero, mensajes } from './chat/index.ts'
 import { HERRAMIENTAS as herramientasLista } from './chat/herramientas.ts'
 import { nanTranscribir } from './nan.ts'
-import { arrancarRun, conAvance, enCurso, listarMisiones, listarRuns, marcarSecundaria, misionesDeRun, runActual, semanaDe } from './misiones.ts'
-import { progreso } from './jornada.ts'
+import { arrancarRun, arranqueDeRun, conAvance, descartarRun, enCurso, listarMisiones, listarRuns, marcarSecundaria, misionesDeRun, runActual, semanaDe } from './misiones.ts'
+import { aHora, progreso } from './jornada.ts'
 import { ingerir } from './mastropiero.ts'
 import { registrarMovimiento, resumenMes, importarCSV } from './finanzas.ts'
 import { escribir } from './bitacora.ts'
@@ -307,9 +307,21 @@ async function bandaActual(db: Db) {
     if (prop) return decir(`No hay una run en curso. Tenés una propuesta para hoy: **${prop.inicio}–${prop.fin}**, ${misionesDeRun(db, prop.id).length} bandas.`, [[{ texto: '▶ Arrancarla', dato: `r:${prop.id}:arrancar` }]])
     return decir('No hay una run en curso. Pedime una («armame una run de dos horas para…»).')
   }
-  if (!v.actual) return decir(`Run ${v.run.inicio}–${v.run.fin}: estás entre bandas.${v.siguientes[0] ? ` Lo que sigue: ${v.siguientes[0].inicio} ${v.siguientes[0].titulo}` : ''}`)
-  const sigue = v.siguientes[0] ? `\n_Después: ${v.siguientes[0].inicio} ${v.siguientes[0].titulo}_` : ''
-  return decir(`**${v.actual.inicio}–${v.actual.fin} · ${v.actual.titulo}**${v.actual.detalle ? `\n${v.actual.detalle}` : ''}\nTe quedan ${v.restan} min.${sigue}`, botonesBanda(v.actual.id))
+  // Nunca por adelantado (Fragua #290): entre bandas, solo a qué hora sale la próxima, no qué es.
+  if (!v.actual) return decir(`Run ${v.run.inicio}–${v.run.fin}: estás entre bandas.${v.siguientes[0] ? ` La próxima sale a las ${aHora(aMinutos(v.siguientes[0].inicio!) - 1)}.` : ''}`)
+  return decir(`**${v.actual.inicio}–${v.actual.fin} · ${v.actual.titulo}**${v.actual.detalle ? `\n${v.actual.detalle}` : ''}\nTe quedan ${v.restan} min.`, botonesBanda(v.actual.id))
+}
+
+/** El arranque de la run (Fragua #290): lo dice una vez por Telegram, WhatsApp y Hoy, con botones si hay que decidir. */
+async function arranqueDeLaRun(db: Db, ahora: number) {
+  const a = arranqueDeRun(db, ahora)
+  if (!a) return
+  const botones: Botones | undefined = a.tipo === 'tarde'
+    ? [[{ texto: '▶ Correrla a ahora', dato: `r:${a.run.id}:arrancar` }, { texto: '⏭ Desde la de ahora', dato: `r:${a.run.id}:desde` }], [{ texto: '✕ Descartarla', dato: `r:${a.run.id}:descartar` }]]
+    : a.tipo === 'sin_arrancar' ? [[{ texto: '▶ Arrancarla', dato: `r:${a.run.id}:desde` }]] : undefined
+  try { if (telegramActivo() && suChat()) await decir(a.texto, botones) } catch { /* sin Telegram */ }
+  try { await (await import('./whatsapp.ts')).decirPorWhatsapp(db, a.texto, ahora, botones) } catch { /* sin WhatsApp */ }
+  mensajeDeMastropiero(db, conversacionHoy(db).id, a.tipo === 'arranco' ? a.texto : `${a.texto} (Decime «correla», «desde ahora» o «descartala».)`)
 }
 
 /** Cada minuto: si arrancó una banda nueva, se la manda sola (con botones). */
@@ -329,19 +341,24 @@ const aMinutos = (hhmm: string) => { const [h, m] = hhmm.split(':').map(Number);
  */
 export async function avisarBandas(db: Db, ahora = Date.now()): Promise<number> {
   if (ajuste(db, 'telegram_bandas') === '0') return 0
+  // Fragua #290: la run propuesta de hoy arranca sola un minuto antes de su primera banda; si ya pasó, pregunta una vez.
+  await arranqueDeLaRun(db, ahora)
   const run = runActual(db, ahora)
   if (!run || run.estado !== 'en_curso' || run.fecha !== fechaLocal(ahora)) return 0
   const d = new Date(ahora)
   const min = d.getHours() * 60 + d.getMinutes()
   const ms = misionesDeRun(db, run.id).filter((m) => m.inicio && m.fin).sort((a, b) => aMinutos(a.inicio!) - aMinutos(b.inicio!))
+  // De a una (Fragua #290): si dos quedaron a tiro (una que falló y la siguiente), sale solo la más nueva; la vieja no
+  // se manda tarde ni en bloque.
+  const aTiro = ms.filter((m) => (m.estado === 'activa' || m.estado === 'sugerida') && min >= aMinutos(m.inicio!) - 1 && min < aMinutos(m.fin!))
+    .filter((m) => !(db.prepare('SELECT avisada_en FROM misiones WHERE id = ?').get(m.id) as { avisada_en: number | null }).avisada_en)
+  for (const viejo of aTiro.slice(0, -1)) db.prepare('UPDATE misiones SET avisada_en = ? WHERE id = ?').run(ahora, viejo.id)
   let mandadas = 0
-  for (const [i, m] of ms.entries()) {
-    if (m.estado !== 'activa' && m.estado !== 'sugerida') continue
-    if (!(min >= aMinutos(m.inicio!) - 1 && min < aMinutos(m.fin!))) continue
+  for (const m of aTiro.slice(-1)) {
+    const i = ms.indexOf(m)
     const fila = db.prepare('SELECT avisada_en, avisos_fallidos FROM misiones WHERE id = ?').get(m.id) as { avisada_en: number | null; avisos_fallidos: number }
-    if (fila.avisada_en) continue
-    const sigue = ms[i + 1] ? `\n_Después: ${ms[i + 1].inicio} ${ms[i + 1].titulo}_` : ''
-    const texto = `**#${i + 1} · ${m.inicio}–${m.fin} · ${m.titulo}**${m.detalle ? `\n${m.detalle}` : ''}${sigue}`
+    // Nunca por adelantado: ni siquiera el título de la que sigue.
+    const texto = `**#${i + 1} · ${m.inicio}–${m.fin} · ${m.titulo}**${m.detalle ? `\n${m.detalle}` : ''}`
     const fallas: string[] = []
     let llego = false
     if (telegramActivo() && suChat()) {
@@ -791,10 +808,15 @@ async function boton(db: Db, q: any) {
     const m = marcarSecundaria(db, Number(a), b as any)
     return decir(`Marcada «${m.titulo}» como ${b === 'parcial' ? 'a medias' : b}.`)
   }
-  if (k === 'r' && b === 'arrancar') {
-    arrancarRun(db, Number(a))
-    await decir('▶ Arrancó la run.')
+  if (k === 'r' && (b === 'arrancar' || b === 'desde')) {
+    // arrancar: toda la run se corre a ahora; desde: queda con sus horas y sigue por la banda que toca (Fragua #290).
+    const r = arrancarRun(db, Number(a), Date.now(), { correr: b === 'arrancar' })
+    await decir(b === 'arrancar' ? `▶ Arrancó la run, corrida a ahora: ${r.inicio}–${r.fin}.` : `▶ Arrancó la run ${r.inicio}–${r.fin}: sigo desde la banda que toca ahora; las que pasaron quedan sin entregar.`)
     return avisarBandas(db)
+  }
+  if (k === 'r' && b === 'descartar') {
+    descartarRun(db, Number(a))
+    return decir('Descartada la run.')
   }
   if (k === 'c') {
     if (b === 's') salteadas.push(Number(a))

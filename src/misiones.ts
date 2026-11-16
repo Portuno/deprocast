@@ -8,7 +8,7 @@
 import { aprenderPesos, criterioValido, criteriosParaPrompt } from './criterios.ts'
 import { diaSemana } from './zona.ts'
 import { bloquesDelDia } from './horario.ts'
-import { ajuste, fechaLocal, json, type Db } from './db.ts'
+import { ajuste, fechaLocal, fijarAjuste, json, type Db } from './db.ts'
 import { anotar } from './decisiones.ts'
 import { CLASES } from './clases.ts'
 import { agendaDelDia, type Evento } from './calendario.ts'
@@ -934,7 +934,12 @@ export async function rehacerRun(db: Db, id: number, cambio: string | null, o: {
 }
 
 /** Arranca una propuesta: «arrancar» es ahora, así que la run entera se corre a este minuto (antes o después de lo previsto). */
-export function arrancarRun(db: Db, id: number, ahora = Date.now()): Run {
+/**
+ * Arranca una run propuesta. correr (por defecto): si se arranca tarde o temprano, toda la run se corre a ahora. Sin
+ * correr (Fragua #290: el arranque solo, o «seguir desde la de ahora»), queda con sus horas: las bandas que ya pasaron
+ * no se entregan.
+ */
+export function arrancarRun(db: Db, id: number, ahora = Date.now(), o: { correr?: boolean } = {}): Run {
   const run = leerRun(db, id)
   if (!run) throw new Error(`No existe la run ${id}`)
   if (run.estado !== 'propuesta') throw new Error('Solo se arranca una run propuesta')
@@ -942,7 +947,7 @@ export function arrancarRun(db: Db, id: number, ahora = Date.now()): Run {
   if (otra) throw new Error('Ya hay una run en curso: cerrala antes de arrancar otra')
   const d = new Date(ahora)
   const ahoraMin = d.getHours() * 60 + d.getMinutes()
-  const delta = ahoraMin - aMin(run.inicio)
+  const delta = o.correr === false ? 0 : ahoraMin - aMin(run.inicio)
   const mover = (h: string) => aHora(Math.max(0, Math.min(24 * 60 - 1, aMin(h) + delta)))
   if (delta !== 0 || run.fecha !== fechaLocal(ahora)) {
     for (const m of misionesDeRun(db, id)) db.prepare('UPDATE misiones SET inicio = ?, fin = ? WHERE id = ?').run(mover(m.inicio!), mover(m.fin!), m.id)
@@ -1041,6 +1046,66 @@ export function pasarASiguiente(db: Db, runId: number, ahora = Date.now()): Misi
     if (nuevoFin > min) db.prepare('UPDATE runs SET fin = ? WHERE id = ?').run(aHora(nuevoFin), run.id)
   }
   return misionesDeRun(db, run.id)
+}
+
+/**
+ * El arranque de una run propuesta para hoy (Fragua #290). Un minuto antes de su primera banda:
+ * - si llega a tiempo (hasta 2 minutos tarde), arranca sola con sus horas (ajuste run_autoarranque = '0' lo apaga);
+ * - si ya pasó (se armó tarde, o el servidor estuvo caído), NO arranca ni entrega nada de golpe: pregunta UNA vez qué
+ *   hacer (correrla a ahora, seguir desde la banda que toca, o descartarla);
+ * - con el arranque solo apagado, avisa una vez al llegar la primera banda.
+ * Devuelve qué decir (o null). Cada pregunta o aviso sale una sola vez por run.
+ */
+export function arranqueDeRun(db: Db, ahora = Date.now()): { tipo: 'arranco' | 'tarde' | 'sin_arrancar'; run: Run; texto: string; pasadas: number } | null {
+  if (db.prepare(`SELECT 1 FROM runs WHERE estado = 'en_curso'`).get()) return null
+  const run = listarRuns(db, { fecha: fechaLocal(ahora), estados: ['propuesta'], limite: 1 })[0]
+  if (!run) return null
+  const bandas = misionesDeRun(db, run.id).filter((m) => m.inicio && m.fin).sort((a, b) => aMin(a.inicio!) - aMin(b.inicio!))
+  if (!bandas.length) return null
+  const d = new Date(ahora)
+  const min = d.getHours() * 60 + d.getMinutes()
+  const primera = aMin(bandas[0].inicio!)
+  if (min < primera - 1) return null
+  const marca = `run_arranque_${run.id}`
+  if (ajuste(db, marca)) return null
+  const pasadas = bandas.filter((m) => aMin(m.fin!) <= min).length
+  const auto = ajuste(db, 'run_autoarranque') !== '0'
+  if (auto && min <= primera + 2) {
+    const r = arrancarRun(db, run.id, ahora, { correr: false })
+    fijarAjuste(db, marca, 'arranco')
+    return { tipo: 'arranco', run: r, pasadas: 0, texto: `▶ Arranqué tu run ${r.inicio}–${r.fin} (${bandas.length} bandas). Te mando cada una sola, un minuto antes de su hora.` }
+  }
+  fijarAjuste(db, marca, auto ? 'tarde' : 'aviso')
+  if (!auto && min <= primera + 2) return { tipo: 'sin_arrancar', run, pasadas: 0, texto: `⏱ Tu run ${run.inicio}–${run.fin} empieza ahora y no la arrancaste. ¿La arranco?` }
+  return {
+    tipo: 'tarde', run, pasadas,
+    texto: `⏱ Tu run ${run.inicio}–${run.fin} no arrancó y ya ${pasadas === 1 ? 'pasó 1 banda' : `pasaron ${pasadas} bandas`}. No te las mando de golpe: ¿la corro entera a partir de ahora, sigo desde la banda que toca ahora (las pasadas quedan sin entregar) o la descarto?`,
+  }
+}
+
+/**
+ * Una banda pedida en el chat (Fragua #290): la que toca ahora o la de una hora dada, solo si ya le toca (un minuto
+ * antes de su hora). Nunca una que no empezó, ni varias juntas. Funciona con la run en curso o la propuesta de hoy.
+ * Queda marcada como entregada (no vuelve a salir por Telegram).
+ */
+export function bandaPedida(db: Db, hora: string | null, ahora = Date.now()): { banda: Mision; numero: number; total: number } | { aunNo: string; titulo?: undefined } | { ninguna: string } {
+  const run = runActual(db, ahora)
+  if (!run || run.fecha !== fechaLocal(ahora)) return { ninguna: 'No hay una run para hoy.' }
+  const bandas = misionesDeRun(db, run.id).filter((m) => m.inicio && m.fin).sort((a, b) => aMin(a.inicio!) - aMin(b.inicio!))
+  const d = new Date(ahora)
+  const min = d.getHours() * 60 + d.getMinutes()
+  let b: Mision | undefined
+  if (hora && /^\d{1,2}:\d{2}$/.test(hora.trim())) {
+    const h = aMin(hora.trim().padStart(5, '0'))
+    b = bandas.find((m) => aMin(m.inicio!) <= h && h < aMin(m.fin!)) ?? bandas.find((m) => aMin(m.inicio!) === h)
+    if (!b) return { ninguna: `No hay una banda a las ${hora}.` }
+  } else {
+    b = [...bandas].reverse().find((m) => aMin(m.inicio!) - 1 <= min)
+    if (!b) return { aunNo: `La primera banda sale a las ${aHora(aMin(bandas[0].inicio!) - 1)} (un minuto antes de las ${bandas[0].inicio}).` }
+  }
+  if (aMin(b.inicio!) - 1 > min) return { aunNo: `La banda de las ${b.inicio} todavía no: sale sola a las ${aHora(aMin(b.inicio!) - 1)}. Nunca por adelantado.` }
+  db.prepare('UPDATE misiones SET avisada_en = COALESCE(avisada_en, ?) WHERE id = ?').run(ahora, b.id)
+  return { banda: b, numero: bandas.indexOf(b) + 1, total: bandas.length }
 }
 
 /** La banda que toca ahora y las que siguen. */

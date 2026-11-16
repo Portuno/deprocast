@@ -25,7 +25,7 @@ import { guardarYo } from '../yo.ts'
 import { archivar, corregir, HORIZONTES, memoriaVigente, recordar, TIPOS_MEMORIA } from '../memoria.ts'
 import { leerJornada, progreso } from '../jornada.ts'
 import {
-  actualizarMision, anotarSideQuest, arrancarRun, asignarMision, avanceDe, cerrarRun, conAvance, crearMision, descartarRun, enCurso, fijarPrincipal,
+  actualizarMision, anotarSideQuest, arrancarRun, bandaPedida, asignarMision, avanceDe, cerrarRun, conAvance, crearMision, descartarRun, enCurso, fijarPrincipal,
   leerRun, listarMisiones, listarPlantillas, listarReportes, marcarSecundaria, misionesDeRun, NIVELES_MISION, prepararRun, principalDe,
   procesarJugador, proponerPrimarias, rehacerRun, reporteSemana, runActual, semanaDe, type Mision,
 } from '../misiones.ts'
@@ -883,7 +883,7 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'ver_run', familia: 'lectura',
-    descripcion: 'La run viva (en curso o propuesta de hoy) o una por id: su pedido, sus bandas con estado y nota, y la que toca ahora.',
+    descripcion: 'La run viva (en curso o propuesta de hoy) o una por id: su pedido, sus bandas con estado y nota, y la que toca ahora. Es para revisar o ajustar la run, NO para entregar bandas: si pide «la banda» o «la de las X», usá traer_banda (nunca le des una banda por adelantado ni varias juntas).',
     parametros: S({ id: int('id de la run; vacío = la viva') }),
     ejecutar: (a, { db }) => {
       const run = a.id ? leerRun(db, a.id) : runActual(db)
@@ -894,6 +894,16 @@ export const HERRAMIENTAS: Herramienta[] = [
         agentes: run.agentes.map((x) => x.nombre), ahora: v?.run.id === run.id ? v.actual?.titulo ?? 'entre bandas' : undefined,
         bandas: misionesDeRun(db, run.id).map((m) => ({ id: m.id, hora: `${m.inicio}–${m.fin}`, titulo: m.titulo, estado: m.estado, nota: m.feedback ?? undefined })),
       }
+    },
+  },
+  {
+    nombre: 'traer_banda', familia: 'lectura',
+    descripcion: '«Traeme la banda», «la de las 9:24»: la banda de la run de hoy que toca ahora, o la de esa hora SOLO si ya le toca (un minuto antes de su hora). Devuelve una sola: nunca una que no empezó ni varias juntas, aunque las pida (regla suya). Funciona aunque la run no esté arrancada. Pasásela entera: número, hora, título y detalle.',
+    parametros: S({ hora: str('HH:MM de la banda (vacío: la que toca ahora)') }),
+    ejecutar: (a, { db }) => {
+      const r = bandaPedida(db, a.hora ?? null)
+      if ('banda' in r) return { numero: r.numero, de: r.total, hora: `${r.banda.inicio}–${r.banda.fin}`, titulo: r.banda.titulo, detalle: r.banda.detalle ?? undefined, id: r.banda.id }
+      return r
     },
   },
   {
@@ -1778,12 +1788,12 @@ ${a.detalle ?? ''}`)
     resumen: () => 'rehízo la run',
   },
   {
-    nombre: 'arrancar_run', familia: 'accion', descripcion: 'Arranca la run propuesta (se corre a ahora si se tardó). Solo cuando él dice que arranca.',
-    parametros: S({ id: int('id; vacío = la propuesta de hoy') }),
+    nombre: 'arrancar_run', familia: 'accion', descripcion: 'Arranca la run propuesta. Por defecto se corre entera a ahora si se tardó («correla»); con desde_ahora queda con sus horas y sigue por la banda que toca (las pasadas no se entregan). Solo cuando él dice que arranca. (La run de hoy ya arranca sola un minuto antes de su primera banda; si llegó tarde, él elige.)',
+    parametros: S({ id: int('id; vacío = la propuesta de hoy'), desde_ahora: bool('true: sin correr las horas, sigue desde la banda de ahora') }),
     ejecutar: (a, { db }) => {
       const id = a.id ?? runActual(db)?.id
       if (!id) return { error: 'No hay run propuesta' }
-      const r = arrancarRun(db, id)
+      const r = arrancarRun(db, id, Date.now(), { correr: !a.desde_ahora })
       return { run: r.id, de: r.inicio, a: r.fin }
     },
     resumen: (_, r) => (r?.run ? `arrancó la run (${r.de}–${r.a})` : 'intentó arrancar la run'),
@@ -2587,7 +2597,7 @@ ${a.detalle ?? ''}`)
  */
 export const NUCLEO = [
   'abrir_ficha_idea', 'pedir_herramientas', 'que_puede_deprocast', 'ver_dia', 'ver_agenda', 'ver_linea', 'fijar_horario', 'ver_uso', 'buscar_corpus', 'leer_pieza', 'buscar_en_hilo', 'anotar_compras', 'cargar_dia', 'leer_memoria', 'recordar',
-  'corregir_memoria', 'listar_entidades', 'ver_entidad', 'ver_misiones', 'crear_mision', 'actualizar_mision', 'anotar_side_quest', 'ver_run', 'preparar_run',
+  'corregir_memoria', 'listar_entidades', 'ver_entidad', 'ver_misiones', 'crear_mision', 'actualizar_mision', 'anotar_side_quest', 'ver_run', 'traer_banda', 'preparar_run',
   'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'proponer_mejora', 'deshacer_ultima_accion', 'ver_para_validar', 'validar', 'arrancar_bloque', 'terminar_bloque',
 ]
 export const GRUPOS: Record<string, string[]> = {
