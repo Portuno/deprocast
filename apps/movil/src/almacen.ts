@@ -27,6 +27,7 @@ async function base(): Promise<SQLite.SQLiteDatabase> {
       CREATE TABLE IF NOT EXISTS capas_cola (minuto INTEGER PRIMARY KEY, datos TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS archivos_cola (id TEXT PRIMARY KEY, uri TEXT NOT NULL, nombre TEXT NOT NULL, tipo TEXT NOT NULL, nota TEXT, en INTEGER, lat REAL, lon REAL, intentos INTEGER NOT NULL DEFAULT 0, error TEXT);
       CREATE TABLE IF NOT EXISTS pasos_dia (fecha TEXT PRIMARY KEY, pasos INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS pasos_hora (hora TEXT PRIMARY KEY, pasos INTEGER NOT NULL DEFAULT 0);
     `)
     // Columnas nuevas (1.0) sobre una base que ya existía: si ya están, el ALTER falla y no pasa nada.
     for (const sql of ['ALTER TABLE cola ADD COLUMN clave TEXT', 'ALTER TABLE voz_cola ADD COLUMN intentos INTEGER NOT NULL DEFAULT 0']) {
@@ -156,7 +157,7 @@ export async function sacarMinutos(minutos: number[]) {
 
 /** Al desvincular: se borra todo lo local. */
 export async function borrarTodo() {
-  await (await base()).execAsync('DELETE FROM mensajes; DELETE FROM cola; DELETE FROM estado; DELETE FROM voz_cola; DELETE FROM tramos_en_curso; DELETE FROM capas_cola;')
+  await (await base()).execAsync('DELETE FROM mensajes; DELETE FROM cola; DELETE FROM estado; DELETE FROM voz_cola; DELETE FROM tramos_en_curso; DELETE FROM capas_cola; DELETE FROM pasos_dia; DELETE FROM pasos_hora;')
 }
 
 // ─── Mobile 1.2: la actividad, la cola de archivos y los pasos ──────────
@@ -179,5 +180,18 @@ export async function sumarPasos(fecha: string, n: number) {
   if (!(n > 0)) return
   await (await base()).runAsync('INSERT INTO pasos_dia (fecha, pasos) VALUES (?, ?) ON CONFLICT (fecha) DO UPDATE SET pasos = pasos + excluded.pasos', fecha, Math.round(n))
 }
+/** Suma lo que contó el contador del teléfono, por hora (Mobile 1.3): cada hora y su día. */
+export async function sumarPasosPorHora(reparto: { hora: string; pasos: number }[]) {
+  if (!reparto.length) return
+  const d = await base()
+  await d.withTransactionAsync(async () => {
+    for (const r of reparto) {
+      if (!(r.pasos > 0)) continue
+      await d.runAsync('INSERT INTO pasos_hora (hora, pasos) VALUES (?, ?) ON CONFLICT (hora) DO UPDATE SET pasos = pasos + excluded.pasos', r.hora, Math.round(r.pasos))
+      await d.runAsync('INSERT INTO pasos_dia (fecha, pasos) VALUES (?, ?) ON CONFLICT (fecha) DO UPDATE SET pasos = pasos + excluded.pasos', r.hora.slice(0, 10), Math.round(r.pasos))
+    }
+  })
+}
+export const pasosPorHora = async (fecha: string) => (await base()).getAllAsync<{ hora: string; pasos: number }>('SELECT hora, pasos FROM pasos_hora WHERE hora LIKE ?', fecha + '%')
 export const pasosDe = async (fecha: string) => ((await (await base()).getFirstAsync<{ pasos: number }>('SELECT pasos FROM pasos_dia WHERE fecha = ?', fecha))?.pasos ?? 0)
 export const pasosRecientes = async (dias = 3) => (await base()).getAllAsync<{ fecha: string; pasos: number }>('SELECT fecha, pasos FROM pasos_dia ORDER BY fecha DESC LIMIT ?', dias)

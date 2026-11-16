@@ -13,7 +13,7 @@ import { useAltoTeclado } from '../teclado'
 import type { Actividad, Credenciales } from '../api'
 import { archivosEnCola, encolar, estadoSincro, leerActividad, leerChat, type EstadoSincro, type MensajeLocal } from '../almacen'
 import { elegirArchivos } from '../archivos'
-import { alCambiarPasos, pasosDeHoy } from '../pasos'
+import { alCambiarPasos, cuentaConLaAppCerrada, horasDeHoy, pasosDeHoy, ultimosDias } from '../pasos'
 import { alCambiar, sincronizar } from '../sincronizar'
 import { VIEJO_MS } from '../logica/sincro'
 import { AREA_EXTRA, ESP, LETRA, TOQUE, useTema } from '../tema'
@@ -69,6 +69,10 @@ export function Hoy({ c, irAEscucha }: { c: Credenciales; irAEscucha: () => void
   const [tirando, setTirando] = useState(false)
   const [actividad, setActividad] = useState<Actividad | null>(null)
   const [pasosLocal, setPasosLocal] = useState(0)
+  // Mobile 1.3: tocando la tarjeta, los pasos de hoy por hora y los últimos 7 días (todo del teléfono, sin red).
+  const [verPasos, setVerPasos] = useState(false)
+  const [horas, setHoras] = useState<number[]>([])
+  const [dias, setDias] = useState<{ fecha: string; pasos: number }[]>([])
   const [subiendo, setSubiendo] = useState(0)
   const [, setAhora] = useState(Date.now())
   const lista = useRef<FlatList<MensajeLocal>>(null)
@@ -94,10 +98,14 @@ export function Hoy({ c, irAEscucha }: { c: Credenciales; irAEscucha: () => void
   useEffect(() => {
     void pintar() // lo guardado, al instante
     const sacar = alCambiar(() => { void pintar() })
-    const sacarPasos = alCambiarPasos(setPasosLocal)
+    const sacarPasos = alCambiarPasos((n) => { setPasosLocal(n); if (verPasosRef.current) void cargarPasos() })
     const reloj = setInterval(() => setAhora(Date.now()), 30_000) // para que «Actualizado» envejezca a la vista
     return () => { sacar(); sacarPasos(); clearInterval(reloj) }
   }, [pintar])
+
+  const verPasosRef = useRef(false)
+  useEffect(() => { verPasosRef.current = verPasos; if (verPasos) void cargarPasos() }, [verPasos])
+  async function cargarPasos() { setHoras(await horasDeHoy()); setDias(await ultimosDias(7)) }
 
   const actualizar = async () => {
     setTirando(true)
@@ -155,11 +163,29 @@ export function Hoy({ c, irAEscucha }: { c: Credenciales; irAEscucha: () => void
         </Pressable>
       ) : null}
       {pasos || deHoy?.km ? (
-        <View style={[s.actividad, { borderColor: t.linea }]} accessibilityLabel={`Hoy: ${pasos} pasos de ${meta}`}>
+        <Pressable onPress={() => setVerPasos((v) => !v)} style={[s.tarjetaPasos, { borderColor: t.linea }]} accessibilityRole="button" accessibilityLabel={`Hoy: ${pasos} pasos de ${meta}. Tocá para ver por hora y los últimos días`}>
+        <View style={s.actividad}>
           <Text style={[LETRA.chica, { color: t.texto, fontWeight: '700' }]}>🚶 {pasos.toLocaleString('es-AR')} pasos</Text>
           <View style={[s.barraPasos, { backgroundColor: t.linea }]}><View style={[s.llenoPasos, { backgroundColor: t.acento, width: `${Math.min(100, Math.round((pasos / meta) * 100))}%` }]} /></View>
           <Text style={[LETRA.chica, { color: t.tenue }]}>{deHoy?.minutosCaminando ? `${deHoy.minutosCaminando} min · ` : ''}{deHoy?.km ? `${deHoy.km} km` : `meta ${meta.toLocaleString('es-AR')}`}</Text>
         </View>
+        {verPasos ? (
+          <View style={s.detallePasos}>
+            <View style={s.horas}>
+              {(horas.length ? horas : Array.from({ length: 24 }, () => 0)).map((n, i, xs) => (
+                <View key={i} style={[s.hora, { backgroundColor: n ? t.acento : t.linea, height: Math.max(ESP(1), Math.round((n / Math.max(1, ...xs)) * ESP(10))) }]} />
+              ))}
+            </View>
+            <View style={s.ejeHoras}>{['0 h', '6 h', '12 h', '18 h', '24 h'].map((x) => <Text key={x} style={[LETRA.chica, { color: t.tenue }]}>{x}</Text>)}</View>
+            {dias.map((x) => (
+              <Text key={x.fecha} style={[LETRA.chica, { color: x.pasos >= meta ? t.acento : t.texto }]}>
+                {new Date(`${x.fecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })} · {x.pasos.toLocaleString('es-AR')} pasos{x.pasos >= meta ? ' ✓' : ''}
+              </Text>
+            ))}
+            <Text style={[LETRA.chica, { color: t.tenue }]}>{cuentaConLaAppCerrada() ? 'Cuenta el teléfono, aunque la app esté cerrada.' : 'Este teléfono cuenta solo con la app abierta (o la escucha o el recorrido prendidos).'}</Text>
+          </View>
+        ) : null}
+        </Pressable>
       ) : null}
       {subiendo ? <Text style={[s.avisoTexto, s.validar, { color: t.tenue, borderColor: t.linea }]}>📎 {subiendo} archivo{subiendo === 1 ? '' : 's'} esperando subir (salen solos con red)</Text> : null}
       {paraValidar ? <Text style={[s.avisoTexto, s.validar, { color: t.acento, borderColor: t.linea }]}>📥 {paraValidar} esperan tu ok (se validan en la compu)</Text> : null}
@@ -211,7 +237,12 @@ const s = StyleSheet.create({
   compositor: { flexDirection: 'row', alignItems: 'flex-end', gap: ESP(2), margin: ESP(3), borderWidth: 1, borderRadius: 14, padding: ESP(2) },
   entrada: { ...LETRA.cuerpo, flex: 1, maxHeight: 140, minHeight: TOQUE, paddingHorizontal: ESP(2), paddingVertical: ESP(2) },
   enviar: { minHeight: TOQUE, justifyContent: 'center', borderRadius: 10, paddingHorizontal: ESP(4) },
-  actividad: { flexDirection: 'row', alignItems: 'center', gap: ESP(2), marginHorizontal: ESP(3), marginTop: ESP(2), paddingHorizontal: ESP(3), paddingVertical: ESP(2), borderWidth: 1, borderRadius: 12 },
+  tarjetaPasos: { marginHorizontal: ESP(3), marginTop: ESP(2), paddingHorizontal: ESP(3), paddingVertical: ESP(2), borderWidth: 1, borderRadius: 12, minHeight: TOQUE, justifyContent: 'center' },
+  actividad: { flexDirection: 'row', alignItems: 'center', gap: ESP(2) },
+  detallePasos: { marginTop: ESP(3), gap: ESP(1) },
+  horas: { flexDirection: 'row', alignItems: 'flex-end', gap: ESP(1), height: ESP(10) },
+  hora: { flex: 1, borderRadius: ESP(1) },
+  ejeHoras: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: ESP(2) },
   barraPasos: { flex: 1, height: ESP(2), borderRadius: ESP(1), overflow: 'hidden' },
   llenoPasos: { height: '100%' },
   clip: { minHeight: TOQUE, minWidth: TOQUE, justifyContent: 'center', alignItems: 'center' },

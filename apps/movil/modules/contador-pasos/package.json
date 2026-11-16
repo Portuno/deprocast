@@ -1,0 +1,8 @@
+{
+  "name": "contador-pasos",
+  "version": "0.1.0",
+  "description": "Lee el contador de pasos de hardware del teléfono (Android), aunque la app haya estado cerrada.",
+  "main": "index.ts",
+  "private": true,
+  "license": "MIT"
+}

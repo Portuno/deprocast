@@ -250,3 +250,33 @@ test('Mobile 1.2 · fotos y videos desde Hoy: nombre y tipo de lo elegido, y qu�
   assert.equal(a.queHacer(503, 2), 'reintentar')
   assert.equal(a.queHacer(503, 7), 'descartar', 'a los 8 intentos se deja')
 })
+
+const pasosL = await deLaApp('pasos')
+
+test('Mobile 1.3 · pasos con la app cerrada: el contador del teléfono, repartido por hora; un reinicio no pierde ni duplica', () => {
+  const T = (h: number, m = 0, dia = 16) => new Date(2026, 10, dia, h, m).getTime()
+  const arranque = T(0, 0, 10)
+  // La primera lectura solo deja la marca.
+  assert.deepEqual(pasosL.contar(null, { total: 50_000, arranque, en: T(9) }), { pasos: 0, reparto: [], reinicio: false })
+  // De 9:30 a 10:30: 1.000 pasos, mitad y mitad.
+  const r = pasosL.contar({ total: 50_000, arranque, en: T(9, 30) }, { total: 51_000, arranque: arranque + 800, en: T(10, 30) })
+  assert.equal(r.pasos, 1000)
+  assert.equal(r.reinicio, false, 'la hora de arranque baila unos ms: no es un reinicio')
+  assert.deepEqual(r.reparto, [{ hora: '2026-11-16T09', pasos: 500 }, { hora: '2026-11-16T10', pasos: 500 }])
+  // Cruza la medianoche: cada día se queda con lo suyo, y la suma da exacto.
+  const n = pasosL.contar({ total: 100, arranque, en: T(23, 50, 15) }, { total: 401, arranque, en: T(0, 20, 16) })
+  assert.deepEqual(n.reparto.map((x: any) => x.hora), ['2026-11-15T23', '2026-11-16T00'])
+  assert.equal(n.reparto.reduce((a: number, x: any) => a + x.pasos, 0), 301)
+  // Reinicio a las 12: el total vuelve a contar desde cero; se cuentan desde el arranque.
+  const z = pasosL.contar({ total: 51_000, arranque, en: T(10, 30) }, { total: 300, arranque: T(12), en: T(12, 30) })
+  assert.equal(z.reinicio, true)
+  assert.deepEqual(z.reparto, [{ hora: '2026-11-16T12', pasos: 300 }])
+  // Un salto absurdo no se suma (queda de marca).
+  assert.equal(pasosL.contar({ total: 0, arranque, en: T(8) }, { total: 90_000, arranque, en: T(9) }).pasos, 0)
+  // Las 24 horas del día.
+  const h = pasosL.horasDelDia('2026-11-16', [{ hora: '2026-11-16T09', pasos: 500 }, { hora: '2026-11-16T23', pasos: 7 }, { hora: '2026-11-15T09', pasos: 99 }])
+  assert.equal(h.length, 24)
+  assert.equal(h[9], 500)
+  assert.equal(h[23], 7)
+  assert.equal(h.reduce((a: number, b: number) => a + b, 0), 507)
+})
