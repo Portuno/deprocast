@@ -2,21 +2,17 @@
  * Los pasos del día. Mobile 1.3: cuentan aunque la app esté cerrada, sin Health Connect. El teléfono lleva su propio
  * contador de pasos (de hardware, casi sin batería) con el total desde que se prendió; la app lo lee al abrirse, cada
  * vez que el sensor avisa que caminaste (con la app abierta, a lo sumo cada 15 s) y cada ~15 minutos en segundo plano
- * (una tarea de Android). Cada lectura suma la diferencia con la anterior, repartida por hora (logica/pasos.ts), y los
+ * (la tarea de fondo, fondo.ts). Cada lectura suma la diferencia con la anterior, repartida por hora (logica/pasos.ts), y los
  * días salen con la sincronización (el servidor se queda con el mayor, así un reintento no suma de más).
  *
  * En una app sin el módulo nativo (o un teléfono sin ese contador) queda lo de 1.2: se cuenta solo mientras la app
  * está viva, con la librería de pasos de Expo.
- *
- * La tarea de fondo tiene que estar definida apenas arranca la app: este archivo se importa desde index.ts.
  */
 import { AppState } from 'react-native'
 import { Pedometer } from 'expo-sensors'
-import * as TaskManager from 'expo-task-manager'
-import * as BackgroundTask from 'expo-background-task'
 import * as Contador from '../modules/contador-pasos'
 import { fijarAjuste, leerAjuste, pasosDe, pasosPorHora, pasosRecientes, sumarPasos, sumarPasosPorHora } from './almacen'
-import { leerCredenciales, mandarPasos, type Credenciales } from './api'
+import { mandarPasos, type Credenciales } from './api'
 import { alSincronizar } from './sincronizar'
 import { ajustesCaptura } from './captura'
 import { capta } from './logica/captura'
@@ -24,7 +20,6 @@ import { contar, horasDelDia, type Lectura } from './logica/pasos'
 
 const hoy = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 
-export const TAREA_PASOS = 'deprocast-pasos'
 const MARCA = 'contador_pasos'
 
 const escuchas = new Set<(pasos: number) => void>()
@@ -62,17 +57,6 @@ export function leerContador(): Promise<number> {
   return leyendo
 }
 
-// La tarea de fondo: Android la despierta cada ~15 minutos (cuando puede), aunque la app esté cerrada.
-TaskManager.defineTask(TAREA_PASOS, async () => {
-  try {
-    if (!capta(await ajustesCaptura(), 'pasos')) return BackgroundTask.BackgroundTaskResult.Success
-    await leerContador()
-    const c = await leerCredenciales()
-    if (c) await subirPasos(c).catch(() => {})
-    return BackgroundTask.BackgroundTaskResult.Success
-  } catch { return BackgroundTask.BackgroundTaskResult.Failed }
-})
-
 let sub: { remove: () => void } | null = null
 let ultimo: number | null = null
 let ultimaLectura = 0
@@ -97,25 +81,18 @@ async function suscribir() {
 let registrado = false
 /** Prende el contador (si la captura de pasos está prendida y hay sensor y permiso). Devuelve un aviso o null. */
 export async function registrarPasos(): Promise<string | null> {
-  if (!capta(await ajustesCaptura(), 'pasos')) { await apagarFondo(); return null }
+  if (!capta(await ajustesCaptura(), 'pasos')) return null
   try {
     if (!(await Pedometer.isAvailableAsync()) && !Contador.disponible()) return 'Este teléfono no tiene sensor de pasos.'
     if (!(await Pedometer.requestPermissionsAsync()).granted) return 'Sin el permiso de actividad física no puedo contar pasos.'
   } catch { return null }
   await suscribir()
-  if (Contador.disponible()) {
-    try { if (!(await TaskManager.isTaskRegisteredAsync(TAREA_PASOS))) await BackgroundTask.registerTaskAsync(TAREA_PASOS, { minimumInterval: 15 }) } catch { /* sin tareas de fondo: cuenta al abrir */ }
-  }
   if (registrado) return null
   registrado = true
   // Al volver a la app, el contador se relee y el sensor se rearma (Android lo puede haber pausado).
   AppState.addEventListener('change', (s) => { if (s === 'active') void suscribir() })
   alSincronizar(subirPasos)
   return null
-}
-
-async function apagarFondo() {
-  try { if (await TaskManager.isTaskRegisteredAsync(TAREA_PASOS)) await BackgroundTask.unregisterTaskAsync(TAREA_PASOS) } catch { /* ya estaba */ }
 }
 
 export async function subirPasos(c: Credenciales) {

@@ -1420,6 +1420,10 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/recorrido\/exportar$/, async (_, __, q) => (await import('./territorio.ts')).exportarRango(db, q.get('desde') || fechaLocal(), q.get('hasta') || fechaLocal())],
   ['GET', /^\/api\/recorrido\/privacidad$/, async () => { const t = await import('./territorio.ts'); return { ...t.leerPrivacidad(db), frecuentes: t.paradasFrecuentes(db) } }],
   ['POST', /^\/api\/recorrido\/privacidad$/, async (b) => (await import('./territorio.ts')).fijarPrivacidad(db, b)],
+  // Mobile 1.3: tu tiempo en el teléfono (un día o los últimos n) y qué cuenta como distracción; los recordatorios.
+  ['GET', /^\/api\/uso$/, async (_, __, q) => { const u = await import('./uso-telefono.ts'); return q.get('dias') ? u.usoDeDias(db, Number(q.get('dias')) || 7) : u.usoDelDia(db, q.get('fecha') || undefined) }],
+  ['POST', /^\/api\/uso\/distracciones$/, async (req) => { const b = JSON.parse((await leerCrudo(req, 64 * 1024)).toString('utf8') || '{}'); return { distracciones: (await import('./uso-telefono.ts')).fijarDistracciones(db, Array.isArray(b.distracciones) ? b.distracciones : []) } }],
+  ['GET', /^\/api\/recordatorios$/, async () => ({ recordatorios: (await import('./avisos-movil.ts')).recordatorios(db) })],
   ['GET', /^\/api\/actividad$/, async (_, __, q) => { const t = await import('./territorio.ts'); return q.get('semana') ? t.actividadSemana(db) : t.actividadDelDia(db, q.get('fecha') || undefined) }],
 
   // «Cargá lo de ayer» (Fragua #241)
@@ -1843,6 +1847,13 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
       for (const x of (Array.isArray(b.dias) ? b.dias : [b]).slice(0, 31)) if (x?.fecha && x?.pasos != null) t.anotarPasos(db, `disp:${disp.id}`, String(x.fecha), Number(x.pasos))
       return responder(200, t.actividadDelDia(db))
     }
+    // Mobile 1.3: tu tiempo en el teléfono (pantalla, desbloqueos y cada app, por día) y los avisos que el teléfono programa.
+    if (ruta === 'uso' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 512 * 1024)).toString('utf8') || '{}')
+      const u = await import('./uso-telefono.ts')
+      return responder(200, { guardados: u.recibirUso(db, `disp:${disp.id}`, b.dias), hoy: u.usoDelDia(db) })
+    }
+    if (ruta === 'avisos' && req.method === 'GET') return responder(200, await (await import('./avisos-movil.ts')).proximosAvisos(db))
     // Los lugares: los frecuentes sin nombre (para nombrarlos) y guardar uno.
     if (ruta === 'lugares' && req.method === 'GET') { const t = await import('./territorio.ts'); return responder(200, { frecuentes: t.paradasFrecuentes(db), lugares: t.lugaresConCoordenadas(db) }) }
     if (ruta === 'lugares' && req.method === 'POST') {

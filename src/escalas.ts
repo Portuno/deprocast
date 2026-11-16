@@ -141,14 +141,16 @@ export async function armarDia(db: Db, f: string, ahora = Date.now()): Promise<b
   const piezas = piezasDelDia(db, f)
   const act = actividadDelDia(db, f)
   if (!piezas.length && !act.mensajes && !act.misionesHechas.length && !act.salud.length) return false
-  const firma = firmaDe({ p: piezas.map((p) => p.id), act })
+  // Mobile 1.3: el tiempo en el teléfono de ese día (pantalla, distracción), si lo mandó (cambia la firma solo si hay).
+  const telefono = await import('./uso-telefono.ts').then((u) => u.lineaDelDia(db, f)).catch(() => null)
+  const firma = firmaDe(telefono ? { p: piezas.map((p) => p.id), act, telefono } : { p: piezas.map((p) => p.id), act })
   if (leerEscala(db, 'dia', f)?.firma === firma) return false
   const usuario = [
     `Día: ${f}.`,
     piezas.length ? `Sus piezas de ese día:\n${piezas.map((p) => `- [#${p.id}] ${p.titulo}: ${p.extracto.replace(/\s+/g, ' ')}`).join('\n')}` : 'No dejó piezas ese día.',
     `Actividad: ${act.mensajes} mensajes suyos${act.misionesHechas.length ? `; misiones cerradas: ${act.misionesHechas.join('; ')}` : ''}${act.salud.length ? `; salud: ${act.salud.join('; ')}` : ''}${act.gastos ? `; ${act.gastos} movimientos de plata` : ''}.`,
   ].join('\n\n')
-  const texto = await escribir(db, SISTEMA_DIA, usuario.slice(0, 30_000))
+  const texto = await escribir(db, SISTEMA_DIA, (telefono ? `${usuario}\n\nEn el teléfono: ${telefono}.` : usuario).slice(0, 30_000))
   if (!texto) return false
   guardar(db, 'dia', periodo('dia', f), texto, piezas.length, firma, ahora)
   return true

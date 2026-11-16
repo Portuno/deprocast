@@ -4,6 +4,11 @@
  * - una foto que es un registro (un plato, un ticket, la balanza) se anota sola y Mastropiero te lo dice en Hoy;
  * - cualquier otra foto se lee entera (texto, estructura, lo ilegible), queda como pieza tuya y la charlan en Hoy;
  * - un video: se guarda, se le saca el audio (se transcribe) y un cuadro (se lee), queda como pieza tuya y va a Hoy.
+ * Mobile 1.3 (Compartir → Deprocast desde cualquier app), además:
+ * - un audio (una nota de voz reenviada de WhatsApp, una grabación): se transcribe, va a Hoy y, si es largo, queda como
+ *   nota de voz (una que ya estaba no entra dos veces);
+ * - un documento (PDF, Word, el chat de WhatsApp exportado, el CSV del banco): se carga como si lo subieras en Corpus →
+ *   Ingerir (lo compartiste a propósito: no pide confirmación) y Mastropiero te dice qué entró.
  * Todo queda con el lugar donde estabas (si lo mandó el teléfono) y va a tu Drive si está conectado. Responde enseguida
  * y procesa de fondo: lo que resulta aparece en Hoy.
  */
@@ -42,13 +47,60 @@ export function _probarArchivosMovil(o: Partial<typeof externos>) { externos = {
 const lugarDe = (m: MetaArchivo) => (m.lat != null && m.lon != null && Number.isFinite(m.lat) && Number.isFinite(m.lon) ? { lat: Math.round(m.lat * 1e5) / 1e5, lon: Math.round(m.lon * 1e5) / 1e5 } : null)
 
 /** Recibe el archivo: lo valida, lo deja en disco y lo procesa de fondo. Devuelve qué es. */
-export function recibirArchivoMovil(db: Db, datos: Buffer, m: MetaArchivo): { tipo: 'imagen' | 'video'; bytes: number; trabajo: Promise<void> } {
+export type TipoArchivo = 'imagen' | 'video' | 'audio' | 'documento'
+export function tipoDeArchivo(nombre: string, mime: string): TipoArchivo {
+  if (/^image\//.test(mime) || /\.(jpe?g|png|webp|heic)$/i.test(nombre)) return 'imagen'
+  if (/^video\//.test(mime) || /\.(mp4|mov|3gp|webm|mkv)$/i.test(nombre)) return 'video'
+  if (/^audio\//.test(mime) || /\.(ogg|opus|m4a|mp3|wav|aac|amr|flac)$/i.test(nombre)) return 'audio'
+  return 'documento'
+}
+const NOMBRE_TIPO: Record<TipoArchivo, string> = { imagen: 'la foto', video: 'el video', audio: 'el audio', documento: 'el archivo' }
+
+export function recibirArchivoMovil(db: Db, datos: Buffer, m: MetaArchivo): { tipo: TipoArchivo; bytes: number; trabajo: Promise<void> } {
   if (!datos.length) throw new Error('El archivo vino vacío')
-  const tipo = /^image\//.test(m.mime) || /\.(jpe?g|png|webp|heic)$/i.test(m.nombre) ? 'imagen' : /^video\//.test(m.mime) || /\.(mp4|mov|3gp|webm|mkv)$/i.test(m.nombre) ? 'video' : null
-  if (!tipo) throw new Error('Por ahora desde Hoy entran fotos y videos')
-  const trabajo = (tipo === 'imagen' ? procesarFoto(db, datos, m) : procesarVideo(db, datos, m))
-    .catch((e) => externos.avisar(db, `⚠ No pude procesar ${tipo === 'imagen' ? 'la foto' : 'el video'} «${m.nombre}»: ${e instanceof Error ? e.message : e}. Quedó guardado: mandalo de nuevo en un rato.`).catch(() => {}))
+  const tipo = tipoDeArchivo(m.nombre, m.mime)
+  if (tipo === 'documento' && datos.length > 60 * 1024 * 1024) throw new Error('El archivo pesa más de 60 MB: subilo desde Corpus → Ingerir')
+  if (tipo === 'audio' && datos.length > 25 * 1024 * 1024) throw new Error('El audio pesa más de 25 MB')
+  const trabajo = (tipo === 'imagen' ? procesarFoto(db, datos, m) : tipo === 'video' ? procesarVideo(db, datos, m) : tipo === 'audio' ? procesarAudio(db, datos, m) : procesarDocumento(db, datos, m))
+    .catch((e) => externos.avisar(db, `⚠ No pude procesar ${NOMBRE_TIPO[tipo]} «${m.nombre}»: ${e instanceof Error ? e.message : e}. Mandalo de nuevo en un rato.`).catch(() => {}))
   return { tipo, bytes: datos.length, trabajo }
+}
+
+async function procesarAudio(db: Db, datos: Buffer, m: MetaArchivo) {
+  const texto = (await externos.transcribir(db, datos, m.nombre)).trim()
+  if (!texto) { await externos.avisar(db, `🎧 El audio «${m.nombre}» no tiene voz que pueda transcribir.`); return }
+  // Uno largo queda como nota de voz (con su huella: el mismo audio reenviado no entra dos veces).
+  let pieza: number | null = null, repetida: { id: number; fecha: string | null } | null = null
+  if (texto.length >= 400) {
+    const r = (await import('./telegram.ts')).guardarNotaDeVoz(db, texto, null, null)
+    pieza = r.pieza; repetida = r.repetida
+    const lugar = lugarDe(m)
+    if (pieza && lugar) db.prepare(`UPDATE corpus SET meta = json_set(COALESCE(meta, '{}'), '$.lugar', json(?)) WHERE id = ?`).run(JSON.stringify(lugar), pieza)
+  }
+  const donde = pieza ? `, guardado como nota de voz [#${pieza}]` : repetida ? `, que ya estaba (#${repetida.id}${repetida.fecha ? `, del ${repetida.fecha}` : ''})` : ''
+  await externos.charlar(db, `(Te compartí un audio desde ${m.dispositivo} («${m.nombre}»${donde}). Lo que dice:\n${texto.slice(0, 12_000)})${m.nota ? `\n${m.nota}` : ''}`)
+}
+
+/** Para las pruebas: la carga de un documento. */
+let cargarDocumento = async (db: Db, nombre: string, datos: Buffer): Promise<string> => {
+  const { subir, ejecutar, leerCarga } = await import('./cargas/index.ts')
+  let carga
+  try { carga = subir(db, nombre, datos) } catch (e) {
+    if (!/\.csv$/i.test(nombre)) throw e
+    const utf = datos.toString('utf8')
+    const r = (await import('./finanzas.ts')).importarCSV(db, utf.includes('�') ? datos.toString('latin1') : utf)
+    return `💶 Lo leí como extracto del banco: ${r.nuevos} movimientos nuevos, ${r.repetidos} ya estaban.`
+  }
+  const a = leerCarga(db, carga.id)?.analisis
+  const c = ejecutar(db, carga.id, {})
+  return `📄 Cargué «${a?.titulo ?? nombre}»: ${c.resumen?.piezas ?? 0} piezas nuevas${c.resumen?.repetidas ? ` (${c.resumen.repetidas} ya estaban)` : ''}${c.resumen?.entidades ? `, ${c.resumen.entidades} entidades` : ''}.${a?.descripcion ? ` ${a.descripcion}` : ''}`
+}
+export function _probarDocumentos(f: typeof cargarDocumento) { cargarDocumento = f }
+
+async function procesarDocumento(db: Db, datos: Buffer, m: MetaArchivo) {
+  const r = await cargarDocumento(db, m.nombre, datos)
+  await externos.avisar(db, `${r}${m.nota ? ` (con tu nota: «${m.nota}»)` : ''}`)
+  if (m.nota) await externos.charlar(db, `(Te compartí «${m.nombre}» desde ${m.dispositivo}; ya está cargado en tu corpus.)\n${m.nota}`)
 }
 
 async function procesarFoto(db: Db, datos: Buffer, m: MetaArchivo) {

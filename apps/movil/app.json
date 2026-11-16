@@ -27,7 +27,9 @@
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "android.permission.FOREGROUND_SERVICE_MICROPHONE",
-        "android.permission.ACTIVITY_RECOGNITION"
+        "android.permission.ACTIVITY_RECOGNITION",
+        "android.permission.SCHEDULE_EXACT_ALARM",
+        "android.permission.USE_EXACT_ALARM"
       ],
       "blockedPermissions": [
         "android.permission.READ_CONTACTS",
@@ -75,7 +77,34 @@
           "microphonePermission": "Deprocast graba el sonido de los videos que sacás con la cámara, para transcribir lo que se dice."
         }
       ],
-      "expo-background-task"
+      "expo-background-task",
+      [
+        "expo-sharing",
+        {
+          "android": {
+            "enabled": true,
+            "singleShareMimeTypes": [
+              "text/*",
+              "image/*",
+              "video/*",
+              "audio/*",
+              "application/*"
+            ],
+            "multipleShareMimeTypes": [
+              "image/*",
+              "video/*",
+              "audio/*",
+              "application/*"
+            ]
+          }
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#0f1012"
+        }
+      ]
     ],
     "scheme": "deprocast",
     "extra": {

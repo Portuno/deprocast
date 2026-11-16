@@ -10,9 +10,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Alert, FlatList, Pressable, RefreshControl, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useAltoTeclado } from '../teclado'
-import type { Actividad, Credenciales } from '../api'
-import { archivosEnCola, encolar, estadoSincro, leerActividad, leerChat, type EstadoSincro, type MensajeLocal } from '../almacen'
+import type { Actividad, Credenciales, UsoHoy } from '../api'
+import { archivosEnCola, encolar, estadoSincro, leerActividad, leerChat, leerUso, type EstadoSincro, type MensajeLocal } from '../almacen'
 import { elegirArchivos } from '../archivos'
+import { horasYMinutos } from '../logica/uso'
 import { alCambiarPasos, cuentaConLaAppCerrada, horasDeHoy, pasosDeHoy, ultimosDias } from '../pasos'
 import { alCambiar, sincronizar } from '../sincronizar'
 import { VIEJO_MS } from '../logica/sincro'
@@ -69,6 +70,7 @@ export function Hoy({ c, irAEscucha }: { c: Credenciales; irAEscucha: () => void
   const [tirando, setTirando] = useState(false)
   const [actividad, setActividad] = useState<Actividad | null>(null)
   const [pasosLocal, setPasosLocal] = useState(0)
+  const [uso, setUso] = useState<UsoHoy | null>(null)
   // Mobile 1.3: tocando la tarjeta, los pasos de hoy por hora y los últimos 7 días (todo del teléfono, sin red).
   const [verPasos, setVerPasos] = useState(false)
   const [horas, setHoras] = useState<number[]>([])
@@ -91,6 +93,7 @@ export function Hoy({ c, irAEscucha }: { c: Credenciales; irAEscucha: () => void
     setParaValidar(l.paraValidar)
     setSincro(await estadoSincro())
     setActividad(await leerActividad())
+    setUso(await leerUso())
     setPasosLocal(await pasosDeHoy())
     setSubiendo((await archivosEnCola()).length)
   }, [])
@@ -162,15 +165,21 @@ export function Hoy({ c, irAEscucha }: { c: Credenciales; irAEscucha: () => void
           <Text style={[s.avisoTexto, { color: t.texto }]}>{escucha.retorno}</Text>
         </Pressable>
       ) : null}
-      {pasos || deHoy?.km ? (
+      {pasos || deHoy?.km || uso ? (
         <Pressable onPress={() => setVerPasos((v) => !v)} style={[s.tarjetaPasos, { borderColor: t.linea }]} accessibilityRole="button" accessibilityLabel={`Hoy: ${pasos} pasos de ${meta}. Tocá para ver por hora y los últimos días`}>
         <View style={s.actividad}>
           <Text style={[LETRA.chica, { color: t.texto, fontWeight: '700' }]}>🚶 {pasos.toLocaleString('es-AR')} pasos</Text>
           <View style={[s.barraPasos, { backgroundColor: t.linea }]}><View style={[s.llenoPasos, { backgroundColor: t.acento, width: `${Math.min(100, Math.round((pasos / meta) * 100))}%` }]} /></View>
           <Text style={[LETRA.chica, { color: t.tenue }]}>{deHoy?.minutosCaminando ? `${deHoy.minutosCaminando} min · ` : ''}{deHoy?.km ? `${deHoy.km} km` : `meta ${meta.toLocaleString('es-AR')}`}</Text>
         </View>
+        {uso ? (
+          <Text style={[LETRA.chica, { color: t.tenue, marginTop: ESP(1) }]}>📱 {horasYMinutos(uso.pantallaMin)} de pantalla{uso.distraccionMin ? ` · ${horasYMinutos(uso.distraccionMin)} en distracción` : ''} · {uso.desbloqueos} desbloqueos</Text>
+        ) : null}
         {verPasos ? (
           <View style={s.detallePasos}>
+            {uso?.apps.length ? uso.apps.map((a) => (
+              <Text key={a.nombre} style={[LETRA.chica, { color: a.distraccion ? t.mal : t.texto }]}>{a.nombre} · {horasYMinutos(a.min)}{a.distraccion ? ' (distracción)' : ''}</Text>
+            )) : null}
             <View style={s.horas}>
               {(horas.length ? horas : Array.from({ length: 24 }, () => 0)).map((n, i, xs) => (
                 <View key={i} style={[s.hora, { backgroundColor: n ? t.acento : t.linea, height: Math.max(ESP(1), Math.round((n / Math.max(1, ...xs)) * ESP(10))) }]} />

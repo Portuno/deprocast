@@ -656,6 +656,33 @@ export const HERRAMIENTAS: Herramienta[] = [
     ejecutar: async (a, { db }) => { const t = await import('../territorio.ts'); return a.semana ? t.actividadSemana(db) : t.actividadDelDia(db, a.fecha || undefined) },
   },
   {
+    nombre: 'ver_uso_telefono', familia: 'lectura',
+    descripcion: 'Su tiempo en el teléfono (lo manda la app con el permiso «Acceso a uso»): pantalla, desbloqueos, minutos y aperturas por app, cuánto fue distracción (redes, video, juegos y lo que él marcó) y por categoría. Un día, o los últimos n días con el promedio y las apps que más se llevaron. Solo tiempos: nunca qué hizo adentro.',
+    parametros: S({ fecha: str('YYYY-MM-DD (vacío: hoy)'), dias: int('Los últimos n días (7 para la semana)') }),
+    ejecutar: async (a, { db }) => { const u = await import('../uso-telefono.ts'); return a.dias ? u.usoDeDias(db, Number(a.dias)) : u.usoDelDia(db, a.fecha || undefined) },
+  },
+  {
+    nombre: 'marcar_distracciones', familia: 'accion',
+    descripcion: 'Qué apps cuentan como distracción además de redes, video y juegos (por nombre o paquete, como aparecen en ver_uso_telefono). Reemplaza la lista: pasá la lista completa. Vacía: solo las categorías.',
+    parametros: S({ distracciones: { type: 'array', items: { type: 'string' }, description: 'Nombres o paquetes' } }, ['distracciones']),
+    ejecutar: async (a, { db }) => ({ distracciones: (await import('../uso-telefono.ts')).fijarDistracciones(db, Array.isArray(a.distracciones) ? a.distracciones : []) }),
+    resumen: () => 'cambió qué cuenta como distracción',
+  },
+  {
+    nombre: 'recordar_en_telefono', familia: 'accion',
+    descripcion: '«Recordame a las 18 que llame a…», «avisame en 20 minutos»: un aviso en su teléfono a esa hora (suena aunque esté sin red). También ver los pendientes o borrar uno. Los eventos del calendario ya avisan solos unos minutos antes: no hace falta un recordatorio para eso.',
+    parametros: S({ que: str('Qué', { enum: ['crear', 'ver', 'borrar'] }), texto: str('Crear: qué recordarle (corto, en sus palabras)'), cuando: str('Crear: «YYYY-MM-DD HH:MM» o «HH:MM» (hoy, o mañana si ya pasó)'), minutos: int('Crear: en cuántos minutos (en vez de la hora)'), id: int('Borrar: cuál') }, ['que']),
+    ejecutar: async (a, { db }) => {
+      const r = await import('../avisos-movil.ts')
+      if (a.que === 'ver') return { recordatorios: r.recordatorios(db) }
+      if (a.que === 'borrar') return { borrado: r.borrarRecordatorio(db, Number(a.id)) }
+      const en = r.cuandoDe({ cuando: a.cuando ?? null, minutos: a.minutos ?? null })
+      if (en == null) throw new Error('No entendí la hora: pasá «HH:MM», «YYYY-MM-DD HH:MM» o minutos')
+      return { ...r.crearRecordatorio(db, String(a.texto ?? ''), en), nota: 'Le llega al teléfono en la próxima pasada (al abrir la app o en hasta ~15 minutos) y suena a esa hora.' }
+    },
+    resumen: (a) => (a.que === 'crear' ? `le programó un recordatorio: «${a.texto}»` : a.que === 'borrar' ? 'borró un recordatorio' : 'miró sus recordatorios'),
+  },
+  {
     nombre: 'guardar_lugar', familia: 'accion',
     descripcion: 'Guarda un lugar suyo con nombre y coordenadas (como entidad): una parada frecuente sin nombre («ese es el gimnasio»), su casa, la oficina. Si no tenés las coordenadas, usá las de una parada (ver_recorrido o los frecuentes) o su ubicación actual.',
     parametros: S({ nombre: str('Cómo se llama'), lat: { type: 'number', description: 'Latitud' }, lon: { type: 'number', description: 'Longitud' }, direccion: str('La dirección, si la sabés') }, ['nombre', 'lat', 'lon']),
@@ -2567,7 +2594,7 @@ export const GRUPOS: Record<string, string[]> = {
   liga: ['ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'ver_banco_de_pruebas', 'correr_banco_de_pruebas', 'comparar_motores', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['ver_suenos_noche', 'al_diario', 'ver_diario', 'crear_dominio', 'retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_criterios', 'fijar_criterio', 'ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['ficha_empresa', 'responder_pregunta', 'votar_criba', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'crear_dominio', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_hipotesis', 'probar_hipotesis', 'ver_recorrido', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ver_compras', 'marcar_compras', 'ver_escala', 'ver_monedero', 'asentar_en_monedero', 'atribuir_ingreso', 'ajustar_monedero', 'buscar_por_lugar', 'ver_actividad', 'guardar_lugar', 'privacidad_recorrido', 'recorrido_rango'],
+  vida: ['ficha_empresa', 'responder_pregunta', 'votar_criba', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'crear_dominio', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_hipotesis', 'probar_hipotesis', 'ver_recorrido', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ver_compras', 'marcar_compras', 'ver_escala', 'ver_monedero', 'asentar_en_monedero', 'atribuir_ingreso', 'ajustar_monedero', 'buscar_por_lugar', 'ver_actividad', 'ver_uso_telefono', 'marcar_distracciones', 'recordar_en_telefono', 'guardar_lugar', 'privacidad_recorrido', 'recorrido_rango'],
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado', 'borrar_programado'],
   correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'marcar_correo_atendido', 'buscar_contacto'],
   drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'borrar_de_drive', 'barrer_documentos_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],

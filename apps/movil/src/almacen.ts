@@ -77,6 +77,7 @@ export async function guardarPaquete(p: PaqueteHoy, ahora = Date.now()): Promise
     if (p.servidorEn) await d.runAsync(`INSERT OR REPLACE INTO estado (clave, valor) VALUES ('servidorEn', ?)`, String(p.servidorEn))
     if (p.marca) await d.runAsync(`INSERT OR REPLACE INTO estado (clave, valor) VALUES ('marca', ?)`, p.marca)
     if (p.actividad) await d.runAsync(`INSERT OR REPLACE INTO estado (clave, valor) VALUES ('actividad', ?)`, JSON.stringify(p.actividad))
+    if (p.uso !== undefined) await d.runAsync(`INSERT OR REPLACE INTO estado (clave, valor) VALUES ('uso', ?)`, JSON.stringify(p.uso))
     await d.runAsync(`INSERT OR REPLACE INTO estado (clave, valor) VALUES ('sincronizadoEn', ?)`, String(ahora))
   })
   return true
@@ -162,6 +163,10 @@ export async function borrarTodo() {
 
 // ─── Mobile 1.2: la actividad, la cola de archivos y los pasos ──────────
 
+/** El uso del teléfono que trajo el último paquete de Hoy (o null). */
+export async function leerUso(): Promise<import('./api').UsoHoy | null> {
+  try { return JSON.parse((await leerEstado('uso')) ?? 'null') } catch { return null }
+}
 /** La actividad que trajo el último paquete de Hoy (o null). */
 export async function leerActividad(): Promise<import('./api').Actividad | null> {
   try { return JSON.parse((await leerEstado('actividad')) ?? 'null') } catch { return null }

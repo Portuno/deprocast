@@ -3,11 +3,14 @@
  * Sin vincular: la pantalla de Vincular. Vinculado: Hoy (el chat,
  * local-first), Escucha (la conciencia acústica) y Mapa (el recorrido, aparte de la escucha desde 1.0.1). El menú ⋯: Captura y permisos (Mobile 1.0) y Desvincular (borra el token
  * y todo lo guardado en el teléfono).
+ * Mobile 1.3: «Compartir → Deprocast» desde cualquier app abre la pantalla Compartir; al abrir se registran la tarea de
+ * fondo (pasos, uso del teléfono y avisos) y los avisos.
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
+import { useIncomingShare } from 'expo-sharing'
 import { estadoRescate, leerCredenciales, olvidarCredenciales, type Credenciales } from './src/api'
 import { borrarTodo, cuantoEnCola } from './src/almacen'
 import { sincronizar, useSincronizacion } from './src/sincronizar'
@@ -19,6 +22,10 @@ import { Mapa } from './src/pantallas/Mapa'
 import { registrarRecorrido } from './src/recorrido'
 import { registrarArchivos } from './src/archivos'
 import { registrarPasos } from './src/pasos'
+import { registrarFondo } from './src/fondo'
+import { registrarAvisos } from './src/avisos'
+import { subirUsoTelefono } from './src/uso'
+import { Compartir } from './src/pantallas/Compartir'
 import { Vincular } from './src/pantallas/Vincular'
 import { Hoy } from './src/pantallas/Hoy'
 import { Escucha } from './src/pantallas/Escucha'
@@ -35,6 +42,9 @@ export default function App() {
   const [pestana, setPestana] = useState<Pestana>('hoy')
   const [rescate, setRescate] = useState(false)
   const [verCaptura, setVerCaptura] = useState(false)
+  // Lo que llega por «Compartir → Deprocast» (con los archivos ya copiados a la caché de la app).
+  const compartido = useIncomingShare()
+  const items = compartido.resolvedSharedPayloads.length ? compartido.resolvedSharedPayloads : compartido.sharedPayloads
   useEffect(() => { void leerCredenciales().then(setC) }, [])
   // Un teléfono recién vinculado (o que quedó a mitad) pasa primero por el rescate. Sin red, se sigue y se pregunta después.
   useEffect(() => { if (c) void estadoRescate(c).then((r) => setRescate(r.estado === 'rescate')).catch(() => {}) }, [c])
@@ -48,7 +58,9 @@ export default function App() {
     registrarCaptura()
     registrarRecorrido()
     registrarArchivos()
-    void registrarPasos()
+    void registrarPasos().then(() => registrarFondo())
+    void registrarAvisos(c).catch(() => {})
+    void subirUsoTelefono(c).catch(() => null)
     void recuperarTramos().then((n) => { if (n) void sincronizar(c) }).catch(() => {})
   }, [c])
 
@@ -68,7 +80,9 @@ export default function App() {
     <SafeAreaProvider>
     <SafeAreaView edges={['top', 'bottom', 'left', 'right']} style={[s.raiz, { backgroundColor: t.fondo }]}>
       <StatusBar style="auto" />
-      {!c ? <Vincular alVincular={(x) => { setC(x); setRescate(true) }} /> : rescate ? <Rescate c={c} alTerminar={() => setRescate(false)} /> : verCaptura ? <Captura cerrar={() => setVerCaptura(false)} /> : (
+      {!c ? <Vincular alVincular={(x) => { setC(x); setRescate(true) }} /> : rescate ? <Rescate c={c} alTerminar={() => setRescate(false)} /> : items.length ? (
+        <Compartir c={c} items={items} resolviendo={compartido.isResolving} listo={(m) => { compartido.clearSharedPayloads(); setPestana('hoy'); if (m) Alert.alert('Deprocast', m) }} />
+      ) : verCaptura ? <Captura cerrar={() => { setVerCaptura(false); void registrarFondo(); if (c) void registrarAvisos(c).catch(() => {}) }} /> : (
         <EscuchaGlobal c={c}>
           <View style={[s.barra, { borderColor: t.linea }]}>
             {(['hoy', 'escucha', 'mapa'] as const).map((p) => (

@@ -113,5 +113,5 @@ test('Mobile 1.2 · fotos y videos desde Hoy: un registro se anota solo; otra fo
   assert.match(pieza.titulo, /^Video · .* · Cartel$/)
   assert.match(pieza.contenido, /## Lo que se dice\nAcá estoy en la parada/)
   assert.match(charlas.at(-1)!, /Te mandé un video .* Lo que se ve: Un cartel/)
-  assert.throws(() => recibirArchivoMovil(db, Buffer.from('x'), { nombre: 'a.pdf', mime: 'application/pdf', dispositivo: 'Teléfono' }), /fotos y videos/)
+  assert.throws(() => recibirArchivoMovil(db, Buffer.alloc(0), { nombre: 'a.pdf', mime: 'application/pdf', dispositivo: 'Teléfono' }), /vacío/)
 })

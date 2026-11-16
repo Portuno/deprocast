@@ -101,7 +101,7 @@ const captura = await deLaApp('captura')
 
 test('Mobile 1.0 · bloque 4: un interruptor por función y uno que apaga todo; el audio espera sin red o con la batería baja', () => {
   const a = captura.leerAjustes(null)
-  assert.deepEqual(a, { todo: true, audio: true, ubicacion: true, soloParadas: false, pasos: true })
+  assert.deepEqual(a, { todo: true, audio: true, ubicacion: true, soloParadas: false, pasos: true, uso: true, avisos: true })
   assert.equal(captura.capta({ ...a, ubicacion: false }, 'ubicacion'), false)
   assert.equal(captura.capta({ ...a, todo: false }, 'audio'), false, 'el general manda')
   assert.deepEqual(captura.leerAjustes('{roto'), a, 'un ajuste roto vuelve a los iniciales')
@@ -279,4 +279,53 @@ test('Mobile 1.3 · pasos con la app cerrada: el contador del teléfono, reparti
   assert.equal(h[9], 500)
   assert.equal(h[23], 7)
   assert.equal(h.reduce((a: number, b: number) => a + b, 0), 507)
+})
+
+const usoL = await deLaApp('uso')
+const avisosL = await deLaApp('avisos')
+const archivosL = await deLaApp('archivos')
+
+test('Mobile 1.3 · uso del teléfono: se resume por día en minutos, sin el lanzador; avisos: qué se programa, qué se cancela y qué se avisa', () => {
+  const [a, b] = usoL.rangoDelDia('2026-11-16', new Date(2026, 10, 16, 15).getTime())
+  assert.equal(a, new Date(2026, 10, 16).getTime())
+  assert.equal(b, new Date(2026, 10, 16, 15).getTime(), 'hoy: hasta ahora')
+  const d = usoL.resumirUso('2026-11-16', { pantallaMs: 30 * 60_000, desbloqueos: 12, apps: [
+    { paquete: 'com.instagram.android', nombre: 'Instagram', ms: 25 * 60_000, aperturas: 6 },
+    { paquete: 'com.google.android.apps.nexuslauncher', nombre: 'Launcher', ms: 9 * 60_000, aperturas: 20 },
+    { paquete: 'com.whatsapp', nombre: 'WhatsApp', ms: 20 * 60_000, aperturas: 9 },
+    { paquete: 'com.x.chiquita', nombre: 'Chiquita', ms: 20_000, aperturas: 1 },
+  ] })
+  assert.deepEqual(d.apps.map((x: any) => [x.nombre, x.min]), [['Instagram', 25], ['WhatsApp', 20]])
+  assert.equal(d.pantallaMin, 45, 'sin el dato de pantalla completo, al menos lo de las apps')
+  assert.equal(usoL.horasYMinutos(190), '3 h 10 min')
+  assert.equal(usoL.horasYMinutos(120), '2 h')
+
+  const T = 1_000_000
+  const p = avisosL.planDeAvisos(['ev:1:viejo', 'rec:3', 'otro-local'], [{ clave: 'rec:3', titulo: '', cuerpo: '', en: T + 10 }, { clave: 'ev:9:x', titulo: '', cuerpo: '', en: T - 10 }], T)
+  assert.deepEqual(p.cancelar, ['ev:1:viejo'], 'lo que ya no está; lo local no se toca')
+  assert.deepEqual(p.programar.map((x: any) => x.clave), ['rec:3'], 'lo que ya pasó no se programa')
+  const ms = [{ id: 5, rol: 'operador', texto: 'hola' }, { id: 6, rol: 'asistente', texto: 'Uno' }, { id: 7, rol: 'asistente', texto: '**Listo**: cargué el ticket.' }]
+  assert.deepEqual(avisosL.nuevosDeMastropiero(ms, null), { aviso: null, ultimo: 7 }, 'la primera vez solo marca')
+  assert.deepEqual(avisosL.nuevosDeMastropiero(ms, 5), { aviso: { titulo: 'Mastropiero (2)', cuerpo: 'Listo: cargué el ticket.' }, ultimo: 7 })
+  assert.equal(avisosL.nuevosDeMastropiero(ms, 7).aviso, null)
+  assert.equal(avisosL.masParaValidar(null, 3), null)
+  assert.equal(avisosL.masParaValidar(3, 2), null)
+  assert.match(avisosL.masParaValidar(2, 3).cuerpo, /3 cosas para validar \(1 nueva\)/)
+})
+
+test('Mobile 1.3 · compartir: textos y links van juntos como mensaje (con la nota), los archivos aparte; el tipo de un audio o un PDF', () => {
+  const a = archivosL.armarCompartido([
+    { shareType: 'url', value: 'https://youtu.be/abc' },
+    { shareType: 'text', value: 'mirá esto' },
+    { shareType: 'image', value: 'content://x/1', contentUri: 'file:///cache/1.jpg', contentMimeType: 'image/jpeg', originalName: '1.jpg' },
+  ], 'para el finde')
+  assert.equal(a.mensaje, 'para el finde\n\nhttps://youtu.be/abc\n\nmirá esto')
+  assert.deepEqual(a.archivos, [{ uri: 'file:///cache/1.jpg', nombre: '1.jpg', mime: 'image/jpeg' }])
+  assert.equal(archivosL.armarCompartido([{ shareType: 'audio', contentUri: 'file:///c/PTT.opus' }], 'ojo').mensaje, null, 'solo archivos: la nota va con ellos')
+  assert.equal(archivosL.armarCompartido([], 'solo nota').mensaje, 'solo nota')
+  assert.deepEqual(archivosL.nombreYTipo({ uri: 'file:///c/PTT-2026.opus', type: 'file' }), { nombre: 'PTT-2026.opus', tipo: 'audio/ogg', esVideo: false })
+  assert.equal(archivosL.nombreYTipo({ uri: 'file:///c/informe.pdf', mimeType: '*/*', type: 'file' }).tipo, 'application/pdf')
+  assert.equal(archivosL.nombreYTipo({ uri: 'content://raro/77', type: 'file' }).tipo, 'application/octet-stream')
+  assert.equal(captura.capta({ ...captura.leerAjustes(null), uso: false }, 'uso'), false)
+  assert.equal(captura.avisa({ ...captura.leerAjustes(null), todo: false }), true, 'los avisos no son captura')
 })

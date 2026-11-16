@@ -1,5 +1,5 @@
 /**
- * Fotos y videos desde Hoy (Mobile 1.2). Elegís de la galería (varios a la vez) o sacás con la cámara; cada uno se copia
+ * Fotos y videos desde Hoy (Mobile 1.2), y lo que se comparte desde otras apps (1.3). Elegís de la galería (varios a la vez) o sacás con la cámara; cada uno se copia
  * a la carpeta de documentos de la app (la de caché la borra el sistema) y queda en la cola en disco con su nota, la
  * hora y el último lugar conocido. Sale con la sincronización de la app, con su clave (un reintento no lo duplica); sin
  * red, espera. Lo que hace Deprocast con cada uno (leerlo, anotarlo, transcribir el video) aparece en Hoy.
@@ -46,6 +46,27 @@ export async function elegirArchivos(c: Credenciales, o: { camara: boolean; nota
   }
   if (n) void sincronizar(c)
   return { encolados: n, aviso: n < r.assets.length ? `${r.assets.length - n} no se pudieron copiar.` : null }
+}
+
+/**
+ * Lo que llegó por «Compartir → Deprocast» (Mobile 1.3): fotos, videos, audios o documentos. Se copian (la copia que deja
+ * el sistema está en la caché y se borra) y quedan en la misma cola que lo de 📎, con la nota.
+ */
+export async function encolarCompartidos(c: Credenciales, archivos: { uri: string; nombre: string | null; mime: string | null }[], nota: string | null): Promise<number> {
+  const conLugar = capta(await ajustesCaptura(), 'ubicacion')
+  const p = conLugar ? ultimoPunto() : null
+  const lugar = p && Date.now() - p.en < 15 * 60_000 ? { lat: p.lat, lon: p.lon } : { lat: null, lon: null }
+  let n = 0
+  for (const a of archivos) {
+    const { nombre, tipo } = nombreYTipo({ uri: a.uri, fileName: a.nombre, mimeType: a.mime, type: 'file' })
+    const id = claveNueva()
+    const destino = new File(carpeta(), `${id}-${nombre}`)
+    try { new File(a.uri).copy(destino) } catch { continue }
+    await encolarArchivo({ id, uri: destino.uri, nombre, tipo, nota: nota?.trim() || null, en: Date.now(), ...lugar })
+    n++
+  }
+  if (n) void sincronizar(c)
+  return n
 }
 
 /** Sube lo que espera (de a uno, en orden). Lo subido sale de la cola y su copia se borra. */

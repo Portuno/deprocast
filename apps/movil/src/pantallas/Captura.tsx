@@ -2,20 +2,23 @@
  * Captura y permisos (Mobile 1.0, bloque 4): qué capta el teléfono y para qué, un permiso por función (con su estado y
  * un botón para darlo), un interruptor por función y uno que apaga todo de una. Abajo, lo que NO capta y lo que todavía
  * no puede (necesita módulos nativos que no entran en 1.0).
+ * Mobile 1.3: el uso del teléfono (con «Acceso a uso», que se da en los ajustes de Android) y los avisos.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
+import { AppState, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
+import { abrirPermisoUso, hayModuloUso, tienePermisoUso } from '../uso'
 import { ajustesCaptura, energiaYRed, guardarAjustesCaptura } from '../captura'
 import { AJUSTES_INICIALES, type Ajustes } from '../logica/captura'
 import { ESP, LETRA, TOQUE, useTema } from '../tema'
 
 type Permiso = 'concedido' | 'pendiente' | 'negado' | 'no hace falta'
-type Funcion = { clave: 'audio' | 'ubicacion' | 'pasos'; titulo: string; capta: string; para: string; permiso: string }
+type Funcion = { clave: 'audio' | 'ubicacion' | 'pasos' | 'uso'; titulo: string; capta: string; para: string; permiso: string }
 
 const FUNCIONES: Funcion[] = [
   { clave: 'audio', titulo: 'Micrófono', capta: 'Tu voz, en tramos cortos (se cortan al dejar de hablar, al cambiar de app o al minuto), también con la pantalla apagada.', para: 'El dictado (va al chat de Hoy) y la escucha (notas de voz). El audio se sube, se transcribe y se borra del teléfono.', permiso: 'Micrófono' },
   { clave: 'ubicacion', titulo: 'Ubicación', capta: 'Tu recorrido, aparte de la escucha (se prende en la pestaña Mapa y sigue con la app cerrada): quieto casi no marca; caminando, cada 30 s. O solo las paradas.', para: 'El mapa de tu día, que Mastropiero lo analice («¿por dónde anduve?») y cruzar lo que dijiste con dónde estabas.', permiso: 'Ubicación (todo el tiempo, para que siga con la app cerrada)' },
-  { clave: 'pasos', titulo: 'Pasos', capta: 'Los pasos y si caminás, por el sensor del teléfono (no por GPS).', para: 'Cruzar lo que dijiste con cómo te movías.', permiso: 'Actividad física' },
+  { clave: 'pasos', titulo: 'Pasos', capta: 'Los pasos y si caminás, por el sensor del teléfono (no por GPS), también con la app cerrada (el contador del teléfono, cada ~15 minutos).', para: 'Cruzar lo que dijiste con cómo te movías.', permiso: 'Actividad física' },
+  { clave: 'uso', titulo: 'Tiempo en el teléfono', capta: 'Cuánto estuvo prendida la pantalla, cuántas veces lo desbloqueaste y cuánto pasaste en cada app. Nunca lo que hay adentro de cada app.', para: 'Medir la procrastinación de verdad: cuánto se fue en redes y video, y cruzarlo con tus días y tus metas.', permiso: 'Acceso a uso (se da una vez en los ajustes de Android)' },
 ]
 
 export function Captura({ cerrar }: { cerrar: () => void }) {
@@ -30,6 +33,8 @@ export function Captura({ cerrar }: { cerrar: () => void }) {
     try { p.audio = de(await (await import('expo-audio')).getRecordingPermissionsAsync()) } catch { p.audio = 'pendiente' }
     try { p.ubicacion = de(await (await import('expo-location')).getForegroundPermissionsAsync()) } catch { p.ubicacion = 'pendiente' }
     try { const { Pedometer } = await import('expo-sensors'); p.pasos = (await Pedometer.isAvailableAsync()) ? de(await Pedometer.getPermissionsAsync()) : 'no hace falta' } catch { p.pasos = 'pendiente' }
+    p.uso = !hayModuloUso() ? 'no hace falta' : tienePermisoUso() ? 'concedido' : 'pendiente'
+    try { p.avisos = de(await (await import('expo-notifications')).getPermissionsAsync()) } catch { p.avisos = 'pendiente' }
     setPermisos(p)
   }, [])
 
@@ -38,14 +43,18 @@ export function Captura({ cerrar }: { cerrar: () => void }) {
     void leerPermisos()
     void energiaYRed().then((e) => setEnergia(`${e.nivel != null && e.nivel >= 0 ? `Batería ${Math.round(e.nivel * 100)} %${e.cargando ? ' (cargando)' : ''}` : 'Batería: sin dato'} · ${e.conectado === false ? 'sin conexión' : e.tipo ? `red: ${e.tipo.toLowerCase()}` : 'red: sin dato'}`))
   }, [leerPermisos])
+  // Al volver de los ajustes de Android (el «Acceso a uso» se da allá), se releen los permisos.
+  useEffect(() => { const x = AppState.addEventListener('change', (e) => { if (e === 'active') void leerPermisos() }); return () => x.remove() }, [leerPermisos])
 
   const cambiar = async (x: Partial<Ajustes>) => { const n = { ...a, ...x }; setA(n); await guardarAjustesCaptura(n) }
-  const pedir = async (clave: Funcion['clave']) => {
+  const pedir = async (clave: Funcion['clave'] | 'avisos') => {
+    if (clave === 'uso') return void abrirPermisoUso()
     if (permisos[clave] === 'negado') return void Linking.openSettings()
     try {
       if (clave === 'audio') await (await import('expo-audio')).requestRecordingPermissionsAsync()
       if (clave === 'ubicacion') await (await import('expo-location')).requestForegroundPermissionsAsync()
       if (clave === 'pasos') await (await import('expo-sensors')).Pedometer.requestPermissionsAsync()
+      if (clave === 'avisos') await (await import('expo-notifications')).requestPermissionsAsync()
     } catch { /* sin el módulo */ }
     await leerPermisos()
   }
@@ -92,6 +101,20 @@ export function Captura({ cerrar }: { cerrar: () => void }) {
       })}
 
       <View style={[s.tarjeta, { backgroundColor: t.panel, borderColor: t.linea }]}>
+        <View style={s.fila}>
+          <Text style={[LETRA.cuerpo, { color: t.texto, fontWeight: '700', flex: 1 }]}>Avisos</Text>
+          <Switch value={a.avisos} onValueChange={(v) => cambiar({ avisos: v })} trackColor={{ true: t.acento }} accessibilityLabel="Avisos" />
+        </View>
+        <Text style={[LETRA.chica, { color: t.texto }]}>Te avisa: tus eventos del calendario unos minutos antes, los recordatorios que le pedís a Mastropiero («recordame a las 18…»), lo nuevo que te escribió y lo que espera tu ok. No es captura: el interruptor de arriba no los apaga.</Text>
+        <View style={s.fila}>
+          <Text style={[LETRA.chica, { color: permisos.avisos === 'concedido' ? t.ok : permisos.avisos === 'negado' ? t.mal : t.tenue, flex: 1 }]}>Permiso «Notificaciones»: {permisos.avisos ?? '…'}</Text>
+          {permisos.avisos && permisos.avisos !== 'concedido' ? (
+            <Pressable onPress={() => pedir('avisos')} style={s.boton} accessibilityRole="button"><Text style={[LETRA.chica, { color: t.acento, fontWeight: '700' }]}>{permisos.avisos === 'negado' ? 'Abrir ajustes' : 'Dar permiso'}</Text></Pressable>
+          ) : null}
+        </View>
+      </View>
+
+      <View style={[s.tarjeta, { backgroundColor: t.panel, borderColor: t.linea }]}>
         <Text style={[LETRA.cuerpo, { color: t.texto, fontWeight: '700' }]}>Batería y red</Text>
         <Text style={[LETRA.chica, { color: t.tenue }]}>Sin permiso. Para decidir cuándo subir: sin conexión, el audio espera en el teléfono; con la batería por debajo del 15 % y sin cargar, el audio espera a que cargues (los textos salen igual).</Text>
         {energia ? <Text style={[LETRA.chica, { color: t.texto }]}>Ahora: {energia}</Text> : null}
@@ -102,8 +125,8 @@ export function Captura({ cerrar }: { cerrar: () => void }) {
         <Text style={[LETRA.chica, { color: t.tenue }]}>El teclado, tus contactos, el contenido de otras apps ni capturas de pantalla.</Text>
         <Text style={[LETRA.cuerpo, { color: t.texto, fontWeight: '700' }]}>Cómo viaja y cuánto queda</Text>
         <Text style={[LETRA.chica, { color: t.tenue }]}>Solo por conexión cifrada (https). Cada registro lleva la hora del teléfono y la del servidor. El audio queda en el espacio privado de la app (que el sistema del teléfono cifra) y se borra apenas el servidor confirma que lo recibió; el servidor lo transcribe, deja una copia en tu Drive (si está conectado) y no lo conserva en Deprocast.</Text>
-        <Text style={[LETRA.cuerpo, { color: t.texto, fontWeight: '700' }]}>Todavía no (no entra en 1.0)</Text>
-        <Text style={[LETRA.chica, { color: t.tenue }]}>La app en primer plano y su título, y el pulso y el sueño (Health Connect): necesitan módulos nativos que no entran en esta versión de estabilidad.</Text>
+        <Text style={[LETRA.cuerpo, { color: t.texto, fontWeight: '700' }]}>Todavía no</Text>
+        <Text style={[LETRA.chica, { color: t.tenue }]}>El pulso y el sueño de un reloj o un anillo (Health Connect).</Text>
       </View>
     </ScrollView>
   )

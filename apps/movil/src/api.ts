@@ -10,7 +10,9 @@ export type Credenciales = { servidor: string; token: string; nombre: string }
 export type MensajeRemoto = { id: number; rol: 'operador' | 'asistente'; texto: string; en: number }
 /** La actividad del día (Mobile 1.2): pasos, minutos caminando, km y la meta. */
 export type Actividad = { fecha: string; pasos: number; meta: number; avance: number; minutosCaminando: number; km: number; fuente: string }
-export type PaqueteHoy = { dispositivo: string; estado?: string; conversacion: number; mensajes: MensajeRemoto[]; paraValidar: number; servidorEn?: number; marca?: string; actividad?: Actividad | null }
+export type PaqueteHoy = { dispositivo: string; estado?: string; conversacion: number; mensajes: MensajeRemoto[]; paraValidar: number; servidorEn?: number; marca?: string; actividad?: Actividad | null; uso?: UsoHoy | null }
+/** Mobile 1.3: el uso del teléfono de hoy (lo que ya sabe el servidor). */
+export type UsoHoy = { pantallaMin: number; distraccionMin: number; desbloqueos: number; apps: { nombre: string; min: number; distraccion: boolean }[] }
 
 /** Un error de Deprocast con su código (null = no hubo respuesta: sin red o se cortó por tiempo). */
 export class ErrorApi extends Error {
@@ -136,3 +138,9 @@ export const traerLugares = (c: Credenciales) => pedir<{ frecuentes: Frecuente[]
 export const guardarLugar = (c: Credenciales, l: { nombre: string; lat: number; lon: number }) => pedir<{ id: number; nombre: string }>(c, 'lugares', { method: 'POST', body: JSON.stringify(l) })
 /** El recorrido de varios días (la semana, el mes). */
 export const traerMapaRango = (c: Credenciales, desde: string, hasta: string) => pedir<DiaMapa & { desde: string; hasta: string; total: number }>(c, `mapa?desde=${desde}&hasta=${hasta}`)
+
+// ─── Mobile 1.3: el uso del teléfono y los avisos ──────────────────────
+export type DiaUsoApi = { fecha: string; pantallaMin: number; desbloqueos: number; apps: { paquete: string; nombre: string; min: number; aperturas: number }[] }
+export const subirUso = (c: Credenciales, dias: DiaUsoApi[]) => pedir<{ guardados: number }>(c, 'uso', { method: 'POST', body: JSON.stringify({ dias }) })
+export type AvisoApi = { clave: string; titulo: string; cuerpo: string; en: number }
+export const traerAvisos = (c: Credenciales) => pedir<{ minutosAntes: number; avisos: AvisoApi[] }>(c, 'avisos')
