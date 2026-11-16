@@ -1988,6 +1988,44 @@ CREATE TABLE IF NOT EXISTS grafo_huecos (
   actualizado_en INTEGER NOT NULL,
   UNIQUE (grafo_id, firma)
 );
+-- El Monedero del Tesorero (Fragua #255 y #261): cuentas, asientos de adentro y metas de patrimonio.
+CREATE TABLE IF NOT EXISTS tesoro_cuentas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  clave TEXT NOT NULL UNIQUE,
+  tipo TEXT NOT NULL,
+  nombre TEXT NOT NULL,
+  moneda TEXT NOT NULL DEFAULT 'EUR',
+  saldo_inicial REAL NOT NULL DEFAULT 0,
+  desde TEXT,
+  tasa REAL,
+  riesgo TEXT,
+  frenada INTEGER NOT NULL DEFAULT 0,
+  creada_en INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tesoro_asientos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  fecha TEXT NOT NULL,
+  desde TEXT NOT NULL,
+  hacia TEXT NOT NULL,
+  monto REAL NOT NULL,
+  moneda TEXT NOT NULL DEFAULT 'EUR',
+  motivo TEXT NOT NULL DEFAULT '',
+  tipo TEXT NOT NULL,
+  movimiento_id INTEGER,
+  estado TEXT NOT NULL DEFAULT 'firmado',
+  firmado_por TEXT,
+  creado_en INTEGER NOT NULL,
+  firmado_en INTEGER
+);
+CREATE INDEX IF NOT EXISTS tesoro_asientos_mov ON tesoro_asientos (movimiento_id, tipo);
+CREATE TABLE IF NOT EXISTS tesoro_metas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  monto REAL NOT NULL,
+  fecha TEXT NOT NULL,
+  nota TEXT,
+  estado TEXT NOT NULL DEFAULT 'activa',
+  creada_en INTEGER NOT NULL
+);
 -- Lo que propone El Soñador de noche (Fragua #275 y #276): podas, fusiones y puentes, esperando su ok.
 CREATE TABLE IF NOT EXISTS suenos_noche (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2328,6 +2366,7 @@ const RUTINAS_SISTEMA = [
   { id: 'mentor', nombre: 'El Mentor recomienda qué leer o ver', hora: '08:05', dias: '1', accion: 'mentor' },
   { id: 'puentes', nombre: 'Puentes con tu gente', hora: '11:00', dias: '0', accion: 'puentes' },
   { id: 'temporada', nombre: 'Cierre de temporada de la liga', hora: '07:30', dias: '1', accion: 'temporada' },
+  { id: 'tesoro', nombre: 'El Tesorero reparte los ingresos nuevos (a tu firma) y el día 1 deja el parte del mes', hora: '06:05', dias: '0123456', accion: 'tesoro' },
   { id: 'sonador', nombre: 'El Soñador: poda, junta lo repetido y tiende puentes en tu memoria (todo a Para validar)', hora: '03:50', dias: '0123456', accion: 'sonador' },
   { id: 'escalas', nombre: 'El diario por escalas: el día de ayer, lo que lo contiene y un poco del pasado', hora: '04:10', dias: '0123456', accion: 'escalas' },
   { id: 'paginas', nombre: 'Las páginas propias (arquetipos y dominios) se construyen solas con lo que cambió', hora: '04:30', dias: '0123456', accion: 'paginas' },

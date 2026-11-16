@@ -200,6 +200,14 @@ export const ORGANOS: Organo[] = [
     actividad: [{ sql: `SELECT COUNT(*) AS n FROM movimientos WHERE creado_en >= ?`, etiqueta: 'movimientos' }],
   },
   {
+    id: 'monedero', nombre: 'El Monedero', glifo: '⛁', celda: c(FINANZAS, 3), tipo: 'organo', vista: 'monedero',
+    funcion: 'El libro del Tesorero sobre las cuentas de siempre: cada cuenta con su saldo (la caja, los bancos, Belo, la reserva, la inversión) y las arcas de cada agente, arquetipo y proyecto, que crecen con lo que generan.',
+    virtudes: ['Un solo libro: lo de afuera viene de Finanzas, adentro solo se asienta', 'Propone y firma: no mueve plata ni invierte solo', 'Freno de mano por cuenta y tope por asiento'],
+    hace: ['Patrimonio a la fecha y la serie de 12 meses (avisa si cae dos seguidos)', 'Reparte cada ingreso a reserva e inversión (con su firma)', 'Lo que generó cada uno y el parte del mes'],
+    cuando: 'Cada mañana (repartos) y el día 1 (el parte)',
+    actividad: [{ sql: `SELECT COUNT(*) AS n FROM tesoro_asientos WHERE creado_en >= ?`, etiqueta: 'asientos' }],
+  },
+  {
     id: 'benchmark', nombre: 'El Benchmarkeador', glifo: '📊', celda: c(FINANZAS, 4), tipo: 'organo', cadena: { clase: 'mastropiero', agenteId: 'benchmark:codigo' },
     funcion: 'Prueba los modelos de NaN con su banco de pruebas (corpus, clasificación, redacción, extracción, código) y recomienda a cuál rotar cada tarea por acierto, precio y velocidad.',
     virtudes: ['Trampas que castigan el dato viejo y el invento', 'Si todos aciertan, dice que la prueba no distingue', 'Solo recomienda: rotar es decisión suya'],

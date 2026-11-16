@@ -233,6 +233,17 @@ export const ACCIONES: Acciones = {
     return `🌉 Puentes para esta semana:\n${ps.map((p) => `• ${p.tipo === 'presentar' ? `Presentar a ${p.personas.map((x) => x.nombre).join(' y ')}` : `Retomar con ${p.personas[0]?.nombre}`}: ${p.motivo}`).join('\n')}\nEn Personas tenés el borrador de cada uno.`
   },
   /** Lunes temprano: cierra la temporada de la semana que terminó (la liga se arregla sola). Queda en la crónica. */
+  /** Cada mañana (Fragua #255 y #261): los repartos de los ingresos nuevos esperan su firma; el día 1, el parte del mes; la alerta si el patrimonio cae. */
+  async tesoro(db, fecha, ahora) {
+    const t = await import('./tesoro.ts')
+    const repartos = t.proponerRepartos(db, ahora)
+    const partes: string[] = []
+    if (fecha.endsWith('-01')) partes.push(t.parteMensual(db, ahora))
+    else if (repartos.length) partes.push(`💰 El Tesorero propone repartir ${repartos.length} ingreso${repartos.length === 1 ? '' : 's'} a reserva e inversión: esperan tu firma en Para validar.`)
+    const alerta = t.serieMensual(db, 3, ahora).alerta
+    if (alerta && ajuste(db, 'tesoro_alerta_mes') !== fecha.slice(0, 7)) { const { fijarAjuste } = await import('./db.ts'); fijarAjuste(db, 'tesoro_alerta_mes', fecha.slice(0, 7)); partes.push(`⚠ ${alerta}`) }
+    return partes.length ? partes.join('\n\n') : null
+  },
   /** De madrugada (Fragua #275 y #276): El Soñador poda, consolida y tiende puentes; todo queda en Para validar. */
   async sonador(db, _fecha, ahora) {
     const r = await (await import('./sonador.ts')).sonar(db, ahora)

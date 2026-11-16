@@ -74,13 +74,16 @@ function guardar(db: Db, p: Pagina, ahora: number) {
 export async function datosArquetipo(db: Db, n: number, ahora = Date.now()) {
   const c = celdaDe(n)
   const { verEsqueleto } = await import('./esqueleto.ts')
+  const t = await import('./tesoro.ts')
   const organos = verEsqueleto(db, ahora).organos.filter((o) => o.celda === n)
     .map((o) => ({ nombre: o.nombre, tipo: o.tipo, funcion: o.funcion, hace: o.hace, virtudes: o.virtudes, semana: o.semana, erroresSemana: o.erroresSemana, vista: o.vista ?? null }))
   const agentes = (db.prepare('SELECT id, nombre, clase, estado, exitos, fallos, xp FROM agentes WHERE celda = ? ORDER BY xp DESC').all(n) as any[])
-    .map((a) => ({ ...a, monedero: contar(db, 'SELECT COALESCE(ROUND(SUM(monto), 2), 0) AS n FROM monedero WHERE agente_id = ?', a.id) }))
+    .map((a) => ({ ...a, monedero: contar(db, 'SELECT COALESCE(ROUND(SUM(monto), 2), 0) AS n FROM monedero WHERE agente_id = ?', a.id), arcas: t.saldoSiExiste(db, `agente:${a.id}`) }))
   const vecinas = [n - 9, n + 9].filter((x) => x >= 1 && x <= 72).map((x) => ({ n: x, nombre: leerPagina(db, 'arquetipo', String(x)).nombre }))
   return {
     celda: { numero: n, etiqueta: c.etiqueta, dominio: c.dominio, ipo: c.ipo, cma: c.cma, oficio: c.oficio },
+    // Sus arcas en euros (el Monedero del Tesorero): lo que generaron y les quedó, y cuánto generó cada uno.
+    arcas: { arquetipo: t.saldoSiExiste(db, `arquetipo:${n}`), agentes: Math.round(agentes.reduce((s, a) => s + a.arcas, 0) * 100) / 100, generado: t.generado(db).filter((g) => g.clave === `arquetipo:${n}` || agentes.some((a) => g.clave === `agente:${a.id}`)) },
     organos, agentes, monederoTotal: Math.round(agentes.reduce((s, a) => s + a.monedero, 0) * 100) / 100, vecinas,
   }
 }

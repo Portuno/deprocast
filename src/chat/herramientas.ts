@@ -569,6 +569,64 @@ export const HERRAMIENTAS: Herramienta[] = [
     ejecutar: async (a, { db }) => (await import('../sonador.ts')).listarSuenos(db, a.estado ?? 'pendiente', 30).map((s) => ({ id: s.id, tipo: s.tipo, texto: s.texto ?? s.motivo, evidencias: s.evidencias.map((e) => `${e.lado ? `${e.lado}: ` : ''}#${e.piezaId} ${e.titulo}`), quantomos: s.quantomos.length })),
   },
   {
+    nombre: 'ver_monedero', familia: 'lectura',
+    descripcion: 'El Monedero del Tesorero: su patrimonio a hoy (por cuenta y moneda), la serie de 12 meses y la alerta si cae, las arcas de cada agente, arquetipo y proyecto, lo que generó cada uno (este mes y en total), las metas de patrimonio, la regla de reparto, lo que espera su firma, los ingresos del mes sin atribuir y la proyección a interés compuesto. El Tesorero calcula y propone: no mueve plata.',
+    parametros: S({}),
+    ejecutar: async (_, { db }) => {
+      const v = (await import('../tesoro.ts')).verMonedero(db)
+      return { ...v, ultimos: v.ultimos.slice(0, 10), serie: v.serie.map((x) => `${x.mes}: ${x.total}`) }
+    },
+  },
+  {
+    nombre: 'asentar_en_monedero', familia: 'accion',
+    descripcion: 'Pasa plata de una cuenta a otra dentro del Monedero (asignarle a un agente o arquetipo, mandar a reserva o a inversión). Es un asiento del libro: la plata real no se mueve. Lo que sale de las arcas de un agente o arquetipo queda propuesto hasta su firma. Confirmá antes con él (monto, desde, hacia).',
+    parametros: S({ desde: str('De qué cuenta («caja», «Belo», «reserva»…)'), hacia: str('A qué cuenta: un agente (id o nombre), un arquetipo («celda 12» o su nombre), un proyecto, «reserva», «inversion»'), monto: { type: 'number', description: 'En euros (o la moneda de la cuenta)' }, motivo: str('Para qué'), confirmado: bool('true solo si él confirmó') }, ['hacia', 'monto']),
+    ejecutar: async (a, { db }) => {
+      const t = await import('../tesoro.ts')
+      const desde = t.resolverCuenta(db, String(a.desde ?? 'caja')), hacia = t.resolverCuenta(db, String(a.hacia ?? ''))
+      if (!desde || !hacia) return { error: `No encuentro ${!desde ? `la cuenta «${a.desde}»` : `«${a.hacia}»`}. Las cuentas: ${t.cuentasConSaldo(db).map((c) => c.nombre).join(', ')}.` }
+      const c = exigirConfirmacion(a, `asienta ${a.monto} de «${desde}» a «${hacia}» en el Monedero`)
+      if (c) return c
+      const x = t.asentar(db, { desde, hacia, monto: Number(a.monto), motivo: a.motivo ?? '', tipo: 'asignacion', por: 'operador' })
+      return { asiento: x, saldoDestino: t.saldo(db, hacia) }
+    },
+    resumen: (a) => `asentó ${a.monto} hacia ${a.hacia}`,
+  },
+  {
+    nombre: 'atribuir_ingreso', familia: 'accion',
+    descripcion: 'Dice quién generó un ingreso (un agente, un arquetipo o un proyecto): esa plata va a sus arcas y cuenta como «generado» (Fragua #223). Solo con lo que él diga: no lo infieras. El id del movimiento sale de ver_monedero (sinAtribuir) o ver_finanzas.',
+    parametros: S({ movimiento: int('id del movimiento (un ingreso)'), quien: str('Agente, arquetipo («celda 12», «el Modista») o proyecto') }, ['movimiento', 'quien']),
+    ejecutar: async (a, { db }) => {
+      const t = await import('../tesoro.ts')
+      const hacia = t.resolverCuenta(db, String(a.quien ?? ''))
+      if (!hacia || !/^(agente|arquetipo|proyecto):/.test(hacia)) return { error: `No encuentro un agente, arquetipo o proyecto «${a.quien}».` }
+      const x = t.atribuirIngreso(db, Number(a.movimiento), hacia)
+      return { atribuido: x, arcas: t.saldo(db, hacia) }
+    },
+    resumen: (a) => `atribuyó el ingreso #${a.movimiento} a ${a.quien}`,
+  },
+  {
+    nombre: 'ajustar_monedero', familia: 'accion',
+    descripcion: 'Ajusta el Monedero: la regla de reparto (% a reserva y a inversión de cada ingreso), el saldo inicial de una cuenta (con su fecha), la tasa anual y el riesgo de una cuenta (para la proyección), una deuda (cuenta tipo deuda con saldo negativo), el freno de mano de una cuenta, o una meta de patrimonio con fecha.',
+    parametros: S({
+      que: str('Qué ajustar', { enum: ['reparto', 'cuenta', 'meta', 'freno'] }),
+      reserva: int('Reparto: % a reserva'), inversion: int('Reparto: % a inversión'),
+      cuenta: str('La cuenta («caja», «Belo», «reserva», un agente…)'), saldo_inicial: { type: 'number', description: 'Saldo a la fecha «desde» (negativo para una deuda)' }, desde: str('YYYY-MM-DD'),
+      tasa: { type: 'number', description: 'Tasa anual en % (para la proyección)' }, riesgo: str('El riesgo, dicho al lado'), tipo: str('Para una cuenta nueva', { enum: ['banco', 'deuda', 'reserva', 'inversion'] }), frenada: bool('Freno de mano'),
+      monto: { type: 'number', description: 'Meta: el patrimonio a alcanzar' }, fecha: str('Meta: para cuándo, YYYY-MM-DD'), nota: str('Meta: para qué'),
+    }, ['que']),
+    ejecutar: async (a, { db }) => {
+      const t = await import('../tesoro.ts')
+      if (a.que === 'reparto') return t.fijarReparto(db, { reserva: a.reserva ?? 0, inversion: a.inversion ?? 0 })
+      if (a.que === 'meta') return t.fijarMeta(db, Number(a.monto), String(a.fecha ?? ''), a.nota ?? null)
+      const clave = t.resolverCuenta(db, String(a.cuenta ?? '')) ?? (a.cuenta && a.tipo ? `${a.tipo}:${String(a.cuenta)}` : null)
+      if (!clave) return { error: `No encuentro la cuenta «${a.cuenta}» (para una nueva, decí también su tipo).` }
+      const c = t.cambiarCuenta(db, clave, { saldoInicial: a.saldo_inicial, desde: a.desde, tasa: a.tasa, riesgo: a.riesgo, frenada: a.que === 'freno' ? a.frenada !== false : a.frenada, tipo: a.tipo, nombre: a.tipo && !t.resolverCuenta(db, String(a.cuenta)) ? String(a.cuenta) : undefined })
+      return { cuenta: c, saldo: t.saldo(db, c.clave) }
+    },
+    resumen: (a) => `ajustó el Monedero (${a.que})`,
+  },
+  {
     nombre: 'ver_compras', familia: 'lectura',
     descripcion: 'Su lista de compras: lo pendiente (o lo ya comprado).',
     parametros: S({ estado: str('Cuáles', { enum: ['pendiente', 'comprado', 'descartado', 'todas'] }) }),
@@ -2443,7 +2501,7 @@ export const GRUPOS: Record<string, string[]> = {
   liga: ['ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'ver_banco_de_pruebas', 'correr_banco_de_pruebas', 'comparar_motores', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['ver_suenos_noche', 'al_diario', 'ver_diario', 'crear_dominio', 'retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_criterios', 'fijar_criterio', 'ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['ficha_empresa', 'responder_pregunta', 'votar_criba', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'crear_dominio', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_hipotesis', 'probar_hipotesis', 'ver_recorrido', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ver_compras', 'marcar_compras', 'ver_escala'],
+  vida: ['ficha_empresa', 'responder_pregunta', 'votar_criba', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'crear_dominio', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_hipotesis', 'probar_hipotesis', 'ver_recorrido', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ver_compras', 'marcar_compras', 'ver_escala', 'ver_monedero', 'asentar_en_monedero', 'atribuir_ingreso', 'ajustar_monedero'],
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado', 'borrar_programado'],
   correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'marcar_correo_atendido', 'buscar_contacto'],
   drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'borrar_de_drive', 'barrer_documentos_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],
@@ -2461,7 +2519,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox|misi[oó]n|pista|me respondi|reuni[oó]n con|claude code|bit[aá]cora de desarrollo|benchmark|banco de pruebas|comparar motores|qu[eé] motor|qu[eé] modelo conviene/.test(t)) g.push('liga')
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|retir[aá]|pieza|historia de|mal generad|est[aá] mal|correg[ií] (la|esa|esta) (pieza|historia)|\[confirmado\]|\[inferido\]|prensa|peri[oó]dico|noticias? de|el diario de hoy/.test(t)) g.push('corpus')
   if (/primaria|reporte|informe|ayudante|principal|north star|inventario|personaje|run |criterio|la urgente|el ambicioso|la medidora|el entusiasta|la curiosa|el deudor/.test(t)) g.push('misiones')
-  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|hip[oó]tesis|recorrido|d[oó]nde estuve|por d[oó]nde|ubicaci[oó]n|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend|criba|empresa|compa[ñn][ií]a|cif\b|raz[oó]n social|p[aá]gina|arquetipo|matriz 72|compra|s[uú]per\b|mercadona|qu[eé] hice|la semana pasada|el mes pasado|c[oó]mo fue (mi |el |la )?(d[ií]a|semana|mes|a[ñn]o)|trimestre|semestre|lustro/.test(t)) g.push('vida')
+  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|hip[oó]tesis|recorrido|d[oó]nde estuve|por d[oó]nde|ubicaci[oó]n|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend|criba|empresa|compa[ñn][ií]a|cif\b|raz[oó]n social|p[aá]gina|arquetipo|matriz 72|compra|s[uú]per\b|mercadona|qu[eé] hice|la semana pasada|el mes pasado|c[oó]mo fue (mi |el |la )?(d[ií]a|semana|mes|a[ñn]o)|trimestre|semestre|lustro|monedero|patrimonio|tesorero|arcas|reserva|reparto|gener[oó] (el|la)|atribu/.test(t)) g.push('vida')
   if (/\bcada (lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|d[ií]a|ma[ñn]ana|noche|semana|mes|\d+ horas|hora)|todos los (d[ií]as|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bados|domingos)|todas las (ma[ñn]anas|noches)|program[aá]|encargo programado|de lunes a viernes/.test(t)) g.push('programados')
   if (/\bmails?\b|correo|gmail|bandeja|inbox|borrador|me escribi[oó]|contest(ar|[aá]le) a/.test(t)) g.push('correo')
   if (/drive|planilla|sheets?\b|hoja de c[aá]lculo|spreadsheet|excel|docs\.google/.test(t)) g.push('drive')

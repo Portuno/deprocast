@@ -1405,6 +1405,15 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/paginas\/(arquetipo|dominio)\/(\d+)\/nombre$/, async (b, [t, c]) => (await import('./paginas.ts')).nombrarPagina(db, t as any, c, b.nombre ?? null)],
   ['POST', /^\/api\/paginas\/(arquetipo|dominio)\/(\d+)\/seccion$/, async (b, [t, c]) => (await import('./paginas.ts')).escribirSeccion(db, t as any, c, { id: b.id ?? null, titulo: String(b.titulo ?? ''), cuerpo: b.cuerpo ?? null })],
 
+  // El Monedero del Tesorero (Fragua #255 y #261)
+  ['GET', /^\/api\/monedero$/, async () => (await import('./tesoro.ts')).verMonedero(db)],
+  ['POST', /^\/api\/monedero\/firmar$/, async (b) => (await import('./tesoro.ts')).firmar(db, Number(b.id), b.si !== false)],
+  ['POST', /^\/api\/monedero\/asentar$/, async (b) => { const t = await import('./tesoro.ts'); const desde = t.resolverCuenta(db, String(b.desde ?? 'caja')), hacia = t.resolverCuenta(db, String(b.hacia ?? '')); if (!desde || !hacia) throw new Error('No encuentro una de las cuentas'); return t.asentar(db, { desde, hacia, monto: Number(b.monto), motivo: b.motivo ?? '', tipo: 'asignacion', por: 'operador' }) }],
+  ['POST', /^\/api\/monedero\/atribuir$/, async (b) => { const t = await import('./tesoro.ts'); const hacia = t.resolverCuenta(db, String(b.hacia ?? '')); if (!hacia) throw new Error('No encuentro a quién atribuirlo'); return t.atribuirIngreso(db, Number(b.movimiento), hacia) }],
+  ['POST', /^\/api\/monedero\/reparto$/, async (b) => (await import('./tesoro.ts')).fijarReparto(db, { reserva: Number(b.reserva), inversion: Number(b.inversion) })],
+  ['POST', /^\/api\/monedero\/cuenta$/, async (b) => { const t = await import('./tesoro.ts'); const clave = t.resolverCuenta(db, String(b.cuenta ?? '')) ?? (b.nueva ? `${b.tipo ?? 'banco'}:${String(b.cuenta)}` : null); if (!clave) throw new Error('No encuentro esa cuenta'); return t.cambiarCuenta(db, clave, { saldoInicial: b.saldoInicial != null ? Number(b.saldoInicial) : undefined, desde: b.desde ?? undefined, tasa: b.tasa !== undefined ? (b.tasa === null ? null : Number(b.tasa)) : undefined, riesgo: b.riesgo, frenada: b.frenada, nombre: b.nombre, tipo: b.tipo }) }],
+  ['POST', /^\/api\/monedero\/meta$/, async (b) => (await import('./tesoro.ts')).fijarMeta(db, Number(b.monto), String(b.fecha ?? ''), b.nota ?? null)],
+
   // El diario por escalas (Fragua #286)
   ['GET', /^\/api\/escalas$/, async (_, __, q) => (await import('./escalas.ts')).verEscala(db, (q.get('escala') as any) || 'dia', q.get('fecha') || '')],
   ['POST', /^\/api\/escalas\/armar$/, async (b) => ({ hechas: await (await import('./escalas.ts')).armarHaciaArriba(db, String(b.fecha ?? '')) })],

@@ -5,6 +5,7 @@
  */
 import { ajuste, fechaLocal, fijarAjuste, json, type Db } from './db.ts'
 import { suenosParaBandeja } from './sonador.ts'
+import { propuestosParaBandeja } from './tesoro.ts'
 import { CLAVES_TIPO, TIPOS, aciertoDe, anotar, estadoSombra, fijarModo, hechoSolo, leerDecision, modoDe } from './decisiones.ts'
 import { deshacerCaptura } from './captura.ts'
 import { resolverSugerido, sugeridos } from './finanzas.ts'
@@ -116,6 +117,11 @@ export function bandeja(db: Db, ahora = Date.now()) {
     const om = require_obras(db)
     if (om.n) g.push({ tipo: 'obra', nombre: 'Para tu Librería (lo que mencionaste)', n: om.n, peso: 1, ir: null, acciones: [['aceptar', '✓ Sumar'], ['descartar', '✕']], items: om.items })
   } catch { /* sin la tabla todavía */ }
+  // Lo que propone el Tesorero (repartos): espera su firma (Fragua #255 y #261).
+  try {
+    const tp = propuestosParaBandeja(db)
+    if (tp.n) g.push({ tipo: 'tesoro', nombre: 'El Tesorero propone (tu firma)', n: tp.n, peso: 2, ir: null, acciones: [['aceptar', '✓ Firmar'], ['descartar', '✕']], items: tp.items })
+  } catch { /* sin las tablas todavía */ }
   // Lo que soñó de noche (El Soñador, Fragua #275 y #276): podas, fusiones y puentes, para aceptar o descartar.
   try {
     const sn = suenosParaBandeja(db)
@@ -174,6 +180,7 @@ export async function resolverBandeja(db: Db, tipo: string, id: number | string,
   if (tipo === 'obra') return (await import('./obras-menciones.ts')).resolverPropuestaObra(db, id, accion, ahora)
   if (tipo === 'delegar') return (await import('./delegar.ts')).resolverEncargoSugerido(db, id, accion, {}, ahora)
   if (tipo === 'recuerdo') return accion === 'aceptar' ? revisar(db, id) : archivar(db, id)
+  if (tipo === 'tesoro') return (await import('./tesoro.ts')).firmar(db, id, accion === 'aceptar', ahora)
   if (tipo === 'sueno') return (await import('./sonador.ts')).resolverSueno(db, id, accion, ahora)
   if (tipo === 'aprender') {
     const ac = await import('./academia.ts')

@@ -28,6 +28,7 @@ const QUE_ES_VISTA = {
   tudia: ['Tu día en el mapa y en números.'],
   personas: ['La gente de tu vida: fichas, relaciones y puentes.', 'personas'],
   escalas: ['Tu vida por escalas: cada día desde sus piezas, y la semana, el mes… hasta el lustro.'],
+  monedero: ['El Monedero del Tesorero: patrimonio, cuentas, arcas de cada agente y arquetipo, y lo que espera tu firma.'],
   compras: ['La lista de compras: lo que mandás para comprar, junto y tachable.', 'compras'],
   capsulas: ['Cápsulas del tiempo: mensajes para tu yo futuro.'],
   jugador: ['Tu personaje: nivel, inventario e historia.'],
@@ -161,7 +162,8 @@ function pintarPaginaPropia(tipo, clave, p, d) {
 
   const lado = esArq ? `
     <section><h3>Lo que trabaja acá</h3>${d.organos.length ? `<ul class="pag-lista">${d.organos.map((o) => `<li><b>${esc(o.nombre)}</b>${o.tipo === 'propuesto' ? ' <span class="chip chip-chico">propuesto</span>' : ''}<small>${esc(o.funcion)}</small>${o.semana?.length ? `<small class="tenue">${o.semana.map((s) => `${s.n ?? '—'} ${esc(s.etiqueta)}`).join(' · ')} esta semana</small>` : ''}</li>`).join('')}</ul>` : '<p class="tenue">Ningún órgano del sistema en esta celda.</p>'}</section>
-    <section><h3>Agentes</h3>${d.agentes.length ? `<ul class="pag-lista">${d.agentes.map((a) => `<li><button class="link" data-agente="${esc(a.id)}">${esc(a.nombre || a.id)}</button><small>${esc(a.clase)} · ${esc(a.estado)} · ${a.exitos}✓ ${a.fallos}✗ · monedero ${a.monedero}</small></li>`).join('')}</ul><p class="tenue">Arcas de la celda: <b>${d.monederoTotal}</b></p>` : '<p class="tenue">Ningún agente con esta celda todavía (se asigna al forjarlo).</p>'}</section>
+    <section><h3>Agentes</h3>${d.agentes.length ? `<ul class="pag-lista">${d.agentes.map((a) => `<li><button class="link" data-agente="${esc(a.id)}">${esc(a.nombre || a.id)}</button><small>${esc(a.clase)} · ${esc(a.estado)} · ${a.exitos}✓ ${a.fallos}✗ · puntos de liga ${a.monedero} · arcas ${a.arcas} €</small></li>`).join('')}</ul>` : '<p class="tenue">Ningún agente con esta celda todavía (se asigna al forjarlo).</p>'}</section>
+    <section><h3>Sus arcas</h3><p>El arquetipo: <b>${d.arcas.arquetipo} €</b> · sus agentes: <b>${d.arcas.agentes} €</b></p>${d.arcas.generado.length ? `<ul class="pag-lista">${d.arcas.generado.map((g) => `<li><b>${esc(g.nombre)}</b><small>generó ${g.total} € en ${g.ingresos} ingreso${g.ingresos === 1 ? '' : 's'}</small></li>`).join('')}</ul>` : '<p class="tenue">Todavía no generó nada (un ingreso se le atribuye desde el Monedero o diciendo «este ingreso lo generó…»).</p>'}<a class="btn btn-chico" href="${rutaA('monedero')}">Abrir el Monedero</a></section>
     <section><h3>Vecinos</h3><div class="fila">${n > 1 ? `<a class="btn btn-chico" href="${rutaA('arquetipo', n - 1)}">← ${String(n - 1).padStart(2, '0')}</a>` : ''}${n < 72 ? `<a class="btn btn-chico" href="${rutaA('arquetipo', n + 1)}">${String(n + 1).padStart(2, '0')} →</a>` : ''}<a class="btn btn-chico" href="${rutaA('arquetipos')}">Los 72</a></div></section>`
     : `
     <section><h3>En la Academia</h3><p>${d.dominio.temaSiguiente ? `Sigue: <b>${esc(d.dominio.temaSiguiente)}</b><br>` : ''}${d.dominio.clases} clases hechas · ${d.dominio.tarjetasHoy} tarjetas para hoy${d.dominio.examen ? ' · <b>examen habilitado</b>' : ''}</p><a class="btn btn-chico" href="${rutaA('aprender')}">Abrir la Academia</a></section>
@@ -320,5 +322,67 @@ async function montarEscalas(param) {
       toast(x.hechas.length ? `Armé: ${esc(x.hechas.join(', '))}` : 'No había nada nuevo para armar', 'suave')
       montarEscalas(e + ':' + r.desde)
     } catch (y) { error(y); b.disabled = false }
+  }
+}
+
+// ─── El Monedero del Tesorero (Fragua #255 y #261) ──────────────────────
+
+const euros = (n, moneda = 'EUR') => `${Number(n ?? 0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ${moneda === 'EUR' ? '€' : moneda}`
+const NOMBRE_TIPO_CUENTA = { caja: 'Caja', banco: 'Cuenta', reserva: 'Reserva', inversion: 'Inversión', deuda: 'Deuda', arquetipo: 'Arquetipo', agente: 'Agente', proyecto: 'Proyecto' }
+
+async function montarMonedero() {
+  $('#principal').innerHTML = `<div class="titulo"><h1>Monedero</h1>
+    <p>El libro del Tesorero sobre tus cuentas de siempre: lo que entra y sale de verdad viene de Finanzas; acá se ve tu patrimonio, cada cuenta, las arcas de tus agentes y arquetipos (lo que generan, que crece) y lo que espera tu firma. El Tesorero calcula y propone: no mueve plata.</p></div>
+    <div id="mon"><p class="tenue">Contando…</p></div>`
+  await pintarMonedero()
+}
+
+async function pintarMonedero() {
+  let v
+  try { v = await api('/monedero') } catch (e) { return error(e) }
+  const p = v.patrimonio
+  const max = Math.max(1, ...v.serie.map((x) => Math.abs(x.total)))
+  const barras = v.serie.map((x) => `<div class="mon-barra" title="${esc(x.mes)}: ${esc(euros(x.total))}"><i class="mon-alto-${Math.max(1, Math.round((Math.abs(x.total) / max) * 10))} ${x.total < 0 ? 'neg' : ''}"></i><small>${esc(x.mes.slice(5))}</small></div>`).join('')
+  const otras = Object.entries(p.porMoneda).filter(([m]) => m !== 'EUR')
+  const cuenta = (c) => `<div class="tarjeta"><div class="tarjeta-cab">${esc(NOMBRE_TIPO_CUENTA[c.tipo] ?? c.tipo)}${c.frenada ? ' · ⛔ frenada' : ''}${c.tasa != null ? ` · ${c.tasa} % anual` : ''}</div><h4>${esc(c.nombre)}</h4><p><b>${esc(euros(c.saldo, c.moneda))}</b>${c.riesgo ? ` · riesgo: ${esc(c.riesgo)}` : ''}</p></div>`
+  const nombreDe = (clave) => [...p.cuentas, ...p.arcas].find((c) => c.clave === clave)?.nombre ?? clave
+  $('#mon').innerHTML = `
+    ${v.alerta ? `<div class="mon-alerta">⚠ ${esc(v.alerta)}</div>` : ''}
+    ${v.sinSaldoInicial.length ? `<div class="mon-alerta">Falta el saldo inicial de ${esc(v.sinSaldoInicial.join(', '))}: sin él, el patrimonio solo suma lo que entró y salió. Decile a Mastropiero cuánto tenía cada una y desde cuándo («la caja tenía 3.200 € el 1/11»).</div>` : ''}
+    <section class="mon-cabeza">
+      <div><small class="tenue">Patrimonio hoy</small><div class="mon-total">${esc(euros(p.total))}</div><small class="tenue">activos ${esc(euros(p.activos))} · pasivos ${esc(euros(p.pasivos))}${otras.length ? ` · además ${otras.map(([m, n]) => esc(euros(n, m))).join(', ')}` : ''}</small></div>
+      <div class="mon-serie" aria-label="Patrimonio de los últimos 12 meses">${barras}</div>
+    </section>
+    ${v.propuestos.length ? `<h2 class="sub">Esperan tu firma</h2><ul class="pag-lista mon-firmas">${v.propuestos.map((a) => `<li><span><b>${esc(euros(a.monto, a.moneda))}</b> ${esc(nombreDe(a.desde))} → ${esc(nombreDe(a.hacia))}${a.monto > v.tope ? ' <span class="chip chip-chico">pasa el tope</span>' : ''}<small>${esc(a.motivo)}</small></span><span class="fila"><button class="btn btn-chico btn-primario" data-firmar="${a.id}">✓ Firmar</button><button class="btn btn-chico" data-rechazar="${a.id}">✕</button></span></li>`).join('')}</ul>` : ''}
+    <h2 class="sub">Tus cuentas</h2><div class="grilla-tarjetas">${p.cuentas.map(cuenta).join('')}</div>
+    <h2 class="sub">Arcas de tus agentes, arquetipos y proyectos</h2>
+    ${p.arcas.length ? `<div class="grilla-tarjetas">${p.arcas.map(cuenta).join('')}</div>` : '<p class="tenue">Todavía ninguna tiene plata: un ingreso que generó un agente o un arquetipo se le atribuye abajo, y crece en sus arcas.</p>'}
+    ${v.generadoTotal.length ? `<h3 class="sub">Lo que generó cada uno</h3><ul class="pag-lista">${v.generadoTotal.map((g) => `<li><b>${esc(g.nombre)}</b><small>${esc(euros(g.total))} en ${g.ingresos} ingreso${g.ingresos === 1 ? '' : 's'}${v.generadoMes.find((x) => x.clave === g.clave) ? ` · este mes ${esc(euros(v.generadoMes.find((x) => x.clave === g.clave).total))}` : ''}</small></li>`).join('')}</ul>` : ''}
+    ${v.sinAtribuir.length ? `<h3 class="sub">Ingresos del mes sin atribuir</h3><ul class="pag-lista">${v.sinAtribuir.map((m) => `<li><span><b>${esc(euros(m.monto, m.moneda))}</b> ${esc(m.descripcion)} <small>${esc(m.fecha)}</small></span><form class="fila" data-atribuir="${m.id}"><input placeholder="¿Quién lo generó? (agente, celda 12, proyecto)" aria-label="Quién lo generó"><button class="btn btn-chico">Atribuir</button></form></li>`).join('')}</ul>` : ''}
+    <div class="mon-ajustes">
+      <section><h3>Reparto de cada ingreso</h3><p class="tenue chico">El Tesorero propone, vos firmás. Lo que queda es para gastar.</p>
+        <form class="fila" id="mon-reparto"><label>Reserva <input type="number" min="0" max="100" value="${v.reparto?.reserva ?? 0}" name="reserva"> %</label><label>Inversión <input type="number" min="0" max="100" value="${v.reparto?.inversion ?? 0}" name="inversion"> %</label><button class="btn btn-chico">Guardar</button></form></section>
+      <section><h3>Metas de patrimonio</h3>${v.metas.length ? `<ul class="pag-lista">${v.metas.map((m) => `<li><b>${esc(euros(m.monto))} al ${esc(m.fecha)}</b><small>${m.avance} % · faltan ${esc(euros(m.falta))} (${esc(euros(m.porMes))} por mes)${m.nota ? ` · ${esc(m.nota)}` : ''}</small></li>`).join('')}</ul>` : '<p class="tenue chico">Sin metas todavía.</p>'}
+        <form class="fila" id="mon-meta"><input type="number" min="1" name="monto" placeholder="Monto" aria-label="Monto de la meta"><input type="date" name="fecha" aria-label="Para cuándo"><button class="btn btn-chico">Fijar</button></form></section>
+      ${v.proyeccion.length ? `<section><h3>A interés compuesto (12 meses)</h3><ul class="pag-lista">${v.proyeccion.map((x) => `<li><b>${esc(x.cuenta)}: ${esc(euros(x.seria))}</b><small>+${esc(euros(x.ganancia))} al ${x.tasaAnual} % · riesgo: ${esc(x.riesgo)}</small></li>`).join('')}</ul></section>` : ''}
+    </div>
+    <p class="tenue chico">Para cargar Belo o el banco: importá su CSV en Finanzas con el nombre de la cuenta; aparece sola acá. El saldo inicial de cada cuenta, la tasa, una deuda o el freno de mano: pedíselo a Mastropiero («la caja tenía 3.200 € el 1/11»).</p>`
+  $$('[data-firmar]').forEach((b) => (b.onclick = async () => { try { await api('/monedero/firmar', { id: Number(b.dataset.firmar), si: true }); pintarMonedero() } catch (e) { error(e) } }))
+  $$('[data-rechazar]').forEach((b) => (b.onclick = async () => { try { await api('/monedero/firmar', { id: Number(b.dataset.rechazar), si: false }); pintarMonedero() } catch (e) { error(e) } }))
+  $$('[data-atribuir]').forEach((f) => (f.onsubmit = async (e) => {
+    e.preventDefault()
+    const hacia = $('input', f).value.trim()
+    if (!hacia) return $('input', f).focus()
+    try { await api('/monedero/atribuir', { movimiento: Number(f.dataset.atribuir), hacia }); toast('Atribuido: va a sus arcas', 'suave'); pintarMonedero() } catch (x) { error(x) }
+  }))
+  $('#mon-reparto').onsubmit = async (e) => {
+    e.preventDefault()
+    const f = e.currentTarget
+    try { await api('/monedero/reparto', { reserva: Number(f.reserva.value), inversion: Number(f.inversion.value) }); toast('Reparto guardado: desde hoy, cada ingreso se propone repartido', 'suave'); pintarMonedero() } catch (x) { error(x) }
+  }
+  $('#mon-meta').onsubmit = async (e) => {
+    e.preventDefault()
+    const f = e.currentTarget
+    try { await api('/monedero/meta', { monto: Number(f.monto.value), fecha: f.fecha.value }); pintarMonedero() } catch (x) { error(x) }
   }
 }
