@@ -8,7 +8,9 @@ import { servidorSeguro } from './logica/captura'
 
 export type Credenciales = { servidor: string; token: string; nombre: string }
 export type MensajeRemoto = { id: number; rol: 'operador' | 'asistente'; texto: string; en: number }
-export type PaqueteHoy = { dispositivo: string; estado?: string; conversacion: number; mensajes: MensajeRemoto[]; paraValidar: number; servidorEn?: number; marca?: string }
+/** La actividad del día (Mobile 1.2): pasos, minutos caminando, km y la meta. */
+export type Actividad = { fecha: string; pasos: number; meta: number; avance: number; minutosCaminando: number; km: number; fuente: string }
+export type PaqueteHoy = { dispositivo: string; estado?: string; conversacion: number; mensajes: MensajeRemoto[]; paraValidar: number; servidorEn?: number; marca?: string; actividad?: Actividad | null }
 
 /** Un error de Deprocast con su código (null = no hubo respuesta: sin red o se cortó por tiempo). */
 export class ErrorApi extends Error {
@@ -114,3 +116,23 @@ export type ParadaMapa = { lat: number; lon: number; desde: number; hasta: numbe
 export type DiaMapa = { fecha: string; puntos: PuntoMapa[]; paradas: ParadaMapa[]; distanciaKm: number; fuentes: string[]; ultimo: PuntoMapa | null }
 export const subirPuntos = (c: Credenciales, puntos: PuntoMapa[]) => pedir<{ guardados: number }>(c, 'puntos', { method: 'POST', body: JSON.stringify({ puntos }) })
 export const traerMapa = (c: Credenciales, dia?: string) => pedir<DiaMapa>(c, `mapa${dia ? `?dia=${dia}` : ''}`)
+
+// ─── Mobile 1.2: archivos, actividad, lugares y el mapa de un rango ─────
+
+export type MetaArchivo = { id: string; nombre: string; tipo: string; nota?: string | null; en?: number | null; lat?: number | null; lon?: number | null }
+/** Una foto o un video (crudo): Deprocast lo procesa de fondo y lo que resulta aparece en Hoy. Un reintento no lo duplica. */
+export async function subirArchivo(c: Credenciales, uri: string, m: MetaArchivo): Promise<{ tipo: string; procesando?: boolean; repetido?: boolean }> {
+  const { File } = await import('expo-file-system')
+  const q = new URLSearchParams({ id: m.id, nombre: m.nombre, tipo: m.tipo, ...(m.nota ? { nota: m.nota } : {}), ...(m.en ? { en: String(m.en) } : {}), ...(m.lat != null && m.lon != null ? { lat: String(m.lat), lon: String(m.lon) } : {}) })
+  const r = await conTiempo(`${servidorSeguro(c.servidor)}/api/dispositivo/archivo?${q}`, { method: 'POST', headers: { authorization: `Bearer ${c.token}`, 'content-type': m.tipo || 'application/octet-stream' }, body: new File(uri) }, 10 * 60_000)
+  const j = await r.json().catch(() => ({}))
+  if (!r.ok) throw new ErrorApi(j.error ?? `Deprocast respondió ${r.status}`, r.status)
+  return j
+}
+/** Los pasos que contó el teléfono, por día (el servidor se queda con el mayor). Devuelve la actividad de hoy. */
+export const mandarPasos = (c: Credenciales, dias: { fecha: string; pasos: number }[]) => pedir<Actividad>(c, 'actividad', { method: 'POST', body: JSON.stringify({ dias }) })
+export type Frecuente = { lat: number; lon: number; dias: number; horas: number }
+export const traerLugares = (c: Credenciales) => pedir<{ frecuentes: Frecuente[]; lugares: { id: number; nombre: string; lat: number; lon: number }[] }>(c, 'lugares')
+export const guardarLugar = (c: Credenciales, l: { nombre: string; lat: number; lon: number }) => pedir<{ id: number; nombre: string }>(c, 'lugares', { method: 'POST', body: JSON.stringify(l) })
+/** El recorrido de varios días (la semana, el mes). */
+export const traerMapaRango = (c: Credenciales, desde: string, hasta: string) => pedir<DiaMapa & { desde: string; hasta: string; total: number }>(c, `mapa?desde=${desde}&hasta=${hasta}`)

@@ -25,6 +25,8 @@ async function base(): Promise<SQLite.SQLiteDatabase> {
       CREATE TABLE IF NOT EXISTS voz_cola (id INTEGER PRIMARY KEY AUTOINCREMENT, uri TEXT NOT NULL, meta TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS tramos_en_curso (id TEXT PRIMARY KEY, uri TEXT NOT NULL, inicio INTEGER NOT NULL, meta TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS capas_cola (minuto INTEGER PRIMARY KEY, datos TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS archivos_cola (id TEXT PRIMARY KEY, uri TEXT NOT NULL, nombre TEXT NOT NULL, tipo TEXT NOT NULL, nota TEXT, en INTEGER, lat REAL, lon REAL, intentos INTEGER NOT NULL DEFAULT 0, error TEXT);
+      CREATE TABLE IF NOT EXISTS pasos_dia (fecha TEXT PRIMARY KEY, pasos INTEGER NOT NULL DEFAULT 0);
     `)
     // Columnas nuevas (1.0) sobre una base que ya existía: si ya están, el ALTER falla y no pasa nada.
     for (const sql of ['ALTER TABLE cola ADD COLUMN clave TEXT', 'ALTER TABLE voz_cola ADD COLUMN intentos INTEGER NOT NULL DEFAULT 0']) {
@@ -73,6 +75,7 @@ export async function guardarPaquete(p: PaqueteHoy, ahora = Date.now()): Promise
     await d.runAsync(`INSERT OR REPLACE INTO estado (clave, valor) VALUES ('paraValidar', ?)`, String(p.paraValidar))
     if (p.servidorEn) await d.runAsync(`INSERT OR REPLACE INTO estado (clave, valor) VALUES ('servidorEn', ?)`, String(p.servidorEn))
     if (p.marca) await d.runAsync(`INSERT OR REPLACE INTO estado (clave, valor) VALUES ('marca', ?)`, p.marca)
+    if (p.actividad) await d.runAsync(`INSERT OR REPLACE INTO estado (clave, valor) VALUES ('actividad', ?)`, JSON.stringify(p.actividad))
     await d.runAsync(`INSERT OR REPLACE INTO estado (clave, valor) VALUES ('sincronizadoEn', ?)`, String(ahora))
   })
   return true
@@ -155,3 +158,26 @@ export async function sacarMinutos(minutos: number[]) {
 export async function borrarTodo() {
   await (await base()).execAsync('DELETE FROM mensajes; DELETE FROM cola; DELETE FROM estado; DELETE FROM voz_cola; DELETE FROM tramos_en_curso; DELETE FROM capas_cola;')
 }
+
+// ─── Mobile 1.2: la actividad, la cola de archivos y los pasos ──────────
+
+/** La actividad que trajo el último paquete de Hoy (o null). */
+export async function leerActividad(): Promise<import('./api').Actividad | null> {
+  try { return JSON.parse((await leerEstado('actividad')) ?? 'null') } catch { return null }
+}
+
+export type ArchivoEnCola = { id: string; uri: string; nombre: string; tipo: string; nota: string | null; en: number | null; lat: number | null; lon: number | null; intentos: number; error: string | null }
+export async function encolarArchivo(a: Omit<ArchivoEnCola, 'intentos' | 'error'>) {
+  await (await base()).runAsync('INSERT OR IGNORE INTO archivos_cola (id, uri, nombre, tipo, nota, en, lat, lon) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', a.id, a.uri, a.nombre, a.tipo, a.nota, a.en, a.lat, a.lon)
+}
+export const archivosEnCola = async (): Promise<ArchivoEnCola[]> => (await base()).getAllAsync<ArchivoEnCola>('SELECT * FROM archivos_cola ORDER BY en')
+export async function sacarArchivo(id: string) { await (await base()).runAsync('DELETE FROM archivos_cola WHERE id = ?', id) }
+export async function fallaArchivo(id: string, error: string) { await (await base()).runAsync('UPDATE archivos_cola SET intentos = intentos + 1, error = ? WHERE id = ?', error.slice(0, 200), id) }
+
+/** Suma pasos al día (el contador del teléfono da deltas). */
+export async function sumarPasos(fecha: string, n: number) {
+  if (!(n > 0)) return
+  await (await base()).runAsync('INSERT INTO pasos_dia (fecha, pasos) VALUES (?, ?) ON CONFLICT (fecha) DO UPDATE SET pasos = pasos + excluded.pasos', fecha, Math.round(n))
+}
+export const pasosDe = async (fecha: string) => ((await (await base()).getFirstAsync<{ pasos: number }>('SELECT pasos FROM pasos_dia WHERE fecha = ?', fecha))?.pasos ?? 0)
+export const pasosRecientes = async (dias = 3) => (await base()).getAllAsync<{ fecha: string; pasos: number }>('SELECT fecha, pasos FROM pasos_dia ORDER BY fecha DESC LIMIT ?', dias)
