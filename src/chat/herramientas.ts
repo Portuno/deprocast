@@ -98,10 +98,14 @@ function agenteCorto(db: Db, f: Ficha) {
 }
 
 function piezaCorta(p: Pieza, largo = 280) {
+  const total = (p.contenido ?? '').length
   return {
     id: p.id, nivel: `${NIVELES[p.nivel].numero} ${NIVELES[p.nivel].nombre}`, fuente: p.fuente, tipo: p.tipo, titulo: p.titulo,
     autor: p.autor ?? undefined, fecha: p.fecha?.slice(0, 10) ?? undefined, url: p.url ?? undefined, peso: p.peso ?? undefined,
     etiquetas: p.etiquetas.length ? p.etiquetas.slice(0, 8) : undefined, extracto: recorte(p.contenido, largo),
+    // Fragua #289: un extracto cortado se tomó por una pieza cortada («quedó guardada hasta "[esquema d"»). Se dice que
+    // es solo el comienzo y cuánto mide la pieza entera.
+    ...(total > largo ? { extractoDe: `solo el comienzo: la pieza entera tiene ${total.toLocaleString('es-AR')} caracteres (leela con leer_pieza ${p.id})` } : {}),
   }
 }
 

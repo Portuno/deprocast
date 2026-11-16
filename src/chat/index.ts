@@ -778,6 +778,12 @@ ${vozPara('ceremonia')}` : ''}`, hs, previos, clase: 'mastropiero', agenteId: o.
       registrarEvento(db, cid, g.aviso)
       void import('../fallos.ts').then((f) => f.registrarFallo(db, { origen: 'chat:guardia-horas', mensaje: `Nombró una reunión a las ${g.horas.map((h) => `${h.hora}:${String(h.minuto).padStart(2, '0')}`).join(', ')} sin fecha ni agenda que la respalde`, salida: g.horas[0].frase, recuperado: true })).catch(() => {})
     }
+    // Y con fecha: una reunión «del 13/11 a las 15:00» que el calendario no tiene es una cita fantasma (Fragua #280).
+    const gf = await (await import('./guardia-horas.ts')).verificarHorasConFecha(db, final).catch(() => null)
+    if (gf) {
+      registrarEvento(db, cid, gf.aviso)
+      void import('../fallos.ts').then((f) => f.registrarFallo(db, { origen: 'chat:guardia-horas', mensaje: `Nombró una reunión del ${gf.horas[0].fecha} a las ${gf.horas.map((h) => `${h.hora}:${String(h.minuto).padStart(2, '0')}`).join(', ')} que no está en el calendario`, salida: gf.horas[0].frase, recuperado: true })).catch(() => {})
+    }
   }
 }
 

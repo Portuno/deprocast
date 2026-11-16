@@ -3551,3 +3551,4 @@ a.arq-celda { color: var(--texto); text-decoration: none; }
   .hoja-a-mano { grid-template-columns: minmax(0, 1fr); }
   .pag-titulo { flex-direction: column; }
 }
+.cu-fuente small.mal { color: var(--mal); }

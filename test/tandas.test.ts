@@ -154,3 +154,17 @@ test('las voces de una nota (Fragua #205): un vlog de fondo se marca y no queda 
   _probarModelo(async () => ({ texto: JSON.stringify({ titulo: 'x', voces: 1, operador: 'A', nombres: {}, frases: Array(5).fill('A') }), llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }))
   assert.equal(await vocesDeNota(db, frases.join(' ')), null)
 })
+
+test('#278: un audio sin voz no es un fallo: la tanda termina sin pieza y sigue con el próximo', async () => {
+  const db = abrir(':memory:')
+  _probarTandas({ transcribir: async () => ({ texto: '', palabras: [] }) })
+  const a = encolar(db, { nombre: '20261112_221230.m4a', datos: Buffer.from('silencio-1') })
+  const b = encolar(db, { nombre: '20261112_205544.m4a', datos: Buffer.from('silencio-2') })
+  assert.equal(await procesarTandas(db), 2, 'las dos cuentan como hechas')
+  for (const t of [a, b]) {
+    const x = leerTanda(db, t.tanda.id)!
+    assert.equal(x.estado, 'hecha')
+    assert.equal(x.piezaId, null)
+    assert.match(x.error ?? '', /Sin voz/)
+  }
+})

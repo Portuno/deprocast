@@ -54,8 +54,17 @@ async function gh<T = any>(metodo: string, ruta: string, cuerpo?: unknown): Prom
   else if (r.ok) vencidoVisto = false
   const texto = await r.text()
   const j = texto ? (() => { try { return JSON.parse(texto) } catch { return texto } })() : null
+  // Fragua #277: un 403 «Resource not accessible» es un permiso que le falta al token, no un error del cambio: se dice cuál.
+  if (r.status === 403 && /not accessible/i.test(String(j?.message ?? texto))) throw Object.assign(new Error(faltaPermiso(metodo, ruta)), { status: 403, permiso: true })
   if (!r.ok) throw Object.assign(new Error(`GitHub ${r.status}: ${j?.message ?? String(texto).slice(0, 200)}`), { status: r.status })
   return j as T
+}
+
+/** Qué permiso del token fine-grained hace falta para esa llamada, dicho para que él lo arregle en GitHub. */
+export function faltaPermiso(metodo: string, ruta: string): string {
+  const cual = /^\/pulls/.test(ruta) ? (/\/merge$/.test(ruta) ? '«Pull requests» y «Contents» en Read and write' : '«Pull requests» en Read and write')
+    : /^\/git\//.test(ruta) || metodo !== 'GET' ? '«Contents» en Read and write' : '«Contents» y «Metadata» en Read'
+  return `El token de La Fragua no tiene permiso para esto (GitHub 403 en ${metodo} ${ruta}). En GitHub → Settings → Developer settings → Fine-grained tokens → el token de Deprocast → Repository permissions, dale ${cual}. No hace falta cambiarlo en NaN: el mismo token sirve apenas guardás el permiso.`
 }
 
 /**

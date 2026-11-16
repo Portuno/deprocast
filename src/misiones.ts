@@ -116,8 +116,27 @@ function insertarMision(db: Db, m: NuevaMision, ahora: number): Mision {
 }
 
 /** Alta general. Las principales pasan por sus reglas; las primarias sin semana caen en la actual. */
+/**
+ * La hora no vive en el título de una misión (Fragua #280): «Preparar la reunión del Plan de Igualdad de las 15:00» hacía
+ * que el chat afirmara una cita que no estaba en el calendario. Se saca del título («a las 15», «15:00», «(15:30 h)») y
+ * queda dicha en el detalle como lo que es: una hora mencionada, no una cita. Los números que no son hora no se tocan.
+ */
+export function sinHoraEnTitulo(titulo: string): { titulo: string; hora: string | null } {
+  let hora: string | null = null
+  const anotar = (h: string, m?: string) => { if (!hora && Number(h) <= 23 && Number(m ?? 0) <= 59) hora = `${h.padStart(2, '0')}:${(m ?? '00').padStart(2, '0')}`; return '' }
+  const limpio = titulo
+    .replace(/\s*\(?\s*(?<!\p{L})(?:a|de|desde|para)\s+las\s+(\d{1,2})(?:[:.](\d{2}))?\s*(?:h|hs|horas)?\s*\)?/giu, (_, h, m) => anotar(h, m))
+    .replace(/\s*\(?\s*(?<![\d/])(\d{1,2})[:.](\d{2})\s*(?:h|hs)?(?!\d)\s*\)?/g, (todo, h, m) => (Number(h) <= 23 && Number(m) <= 59 ? anotar(h, m) : todo))
+    .replace(/\s{2,}/g, ' ').replace(/\s+([,.;:])/g, '$1').replace(/[\s,;:·–-]+$/, '').trim()
+  return hora && limpio.length >= 3 ? { titulo: limpio, hora } : { titulo, hora: null }
+}
+const conHoraAparte = (detalle: string | null | undefined, hora: string) =>
+  `${detalle ? `${detalle}\n\n` : ''}Hora mencionada: ${hora} (no es una cita: si es una reunión, va al calendario con su lugar y duración).`
+
 export function crearMision(db: Db, m: NuevaMision, o: { por?: string; ahora?: number } = {}): Mision {
   const ahora = o.ahora ?? Date.now()
+  const sh = sinHoraEnTitulo(m.titulo)
+  if (sh.hora) m = { ...m, titulo: sh.titulo, detalle: conHoraAparte(m.detalle, sh.hora) }
   const ms = menciones(db, `${m.titulo} ${m.detalle ?? ''}`)
   if (ms.length) {
     m = { ...m, titulo: sinArrobas(m.titulo, ms), detalle: m.detalle ? sinArrobas(m.detalle, ms) : m.detalle }
@@ -172,6 +191,10 @@ export function actualizarMision(db: Db, id: number, c: CambiosMision, o: { por?
   if (!m) throw new Error(`No existe la misión ${id}`)
   const por = o.por ?? 'operador'
   const ahora = o.ahora ?? Date.now()
+  if (c.titulo) {
+    const sh = sinHoraEnTitulo(c.titulo)
+    if (sh.hora) c = { ...c, titulo: sh.titulo, detalle: conHoraAparte(c.detalle !== undefined ? c.detalle : m.detalle, sh.hora) }
+  }
   if (m.nivel === 'principal') {
     if (m.personaje.startsWith('agente:') && m.estado !== 'sugerida') throw new Error('La misión principal de un agente es la razón por la que nació: no cambia')
     if (m.personaje === 'jugador' && por !== 'operador') throw new Error('La misión principal del jugador solo la cambia él')

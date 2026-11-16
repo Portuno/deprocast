@@ -64,3 +64,52 @@ export async function verificarHoras(db: Db, texto: string, ahora = Date.now()):
   const vacia = deHoy && !deHoy.eventos.length ? ' (hoy no tiene eventos en la agenda)' : ''
   return { aviso: `Ojo con la hora: hoy, ${dmy(hoy)}, no hay ninguna reunión a esa hora${vacia}: ${malas.join('; ')}. Lo que dije no estaba verificado.`, horas }
 }
+
+// ─── las horas con fecha (Fragua #280) ───────────────────────────────────
+
+const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+/** La fecha absoluta que trae una frase («13/11», «13 de noviembre», «jueves 13»), como YYYY-MM-DD, o null. */
+export function fechaDeFrase(frase: string, ahora = Date.now()): string | null {
+  const hoy = fechaLocal(ahora)
+  const [anio, mesHoy] = hoy.split('-').map(Number)
+  const armar = (d: number, m: number) => (d >= 1 && d <= 31 && m >= 1 && m <= 12 ? `${anio}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}` : null)
+  const barra = /(?<![\d/])(\d{1,2})\/(\d{1,2})(?![\d])/.exec(frase)
+  if (barra) return armar(Number(barra[1]), Number(barra[2]))
+  const larga = /(\d{1,2})\s+de\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)/i.exec(frase)
+  if (larga) return armar(Number(larga[1]), MESES.indexOf(larga[2].toLowerCase().replace('setiembre', 'septiembre')) + 1)
+  const dia = /(?<!\p{L})(?:lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\s+(\d{1,2})(?!\d)/iu.exec(frase)
+  return dia ? armar(Number(dia[1]), mesHoy) : null
+}
+
+/** Las frases que nombran una reunión con hora Y con fecha: esa fecha y esa hora tienen que estar en el calendario. */
+export function horasConFecha(texto: string, ahora = Date.now()): (HoraSinFecha & { fecha: string })[] {
+  const out: (HoraSinFecha & { fecha: string })[] = []
+  for (const frase of texto.split(/(?<=[.!?;])\s+|\n+/)) {
+    if (!REUNION.test(frase) || !FECHA.test(frase)) continue
+    const fecha = fechaDeFrase(frase, ahora)
+    if (!fecha) continue
+    for (const m of frase.matchAll(HORA)) {
+      const hora = Number(m[1] ?? m[3] ?? m[5]), minuto = Number(m[2] ?? m[4] ?? 0)
+      if (hora > 23 || minuto > 59) continue
+      if (!out.some((x) => x.fecha === fecha && x.hora === hora && x.minuto === minuto)) out.push({ hora, minuto, frase: frase.trim().slice(0, 200), fecha })
+    }
+  }
+  return out
+}
+
+/**
+ * Una reunión con fecha y hora que el calendario no tiene es una cita fantasma (Fragua #280: «la reunión de las 15:00» del
+ * Plan de Igualdad venía del título de una misión). Devuelve el aviso, o null si todas están en el calendario.
+ */
+export async function verificarHorasConFecha(db: Db, texto: string, ahora = Date.now()): Promise<{ aviso: string; horas: (HoraSinFecha & { fecha: string })[] } | null> {
+  const horas = horasConFecha(texto, ahora)
+  if (!horas.length) return null
+  const empieza = (rango: string, h: number) => new RegExp(`^0?${h}:`).test(rango)
+  const malas: string[] = []
+  for (const x of horas) {
+    const [d] = await agenda(db, x.fecha, x.fecha)
+    if (d?.eventos.some((e) => empieza(e.hora, x.hora))) continue
+    malas.push(`el ${dmy(x.fecha)} no hay nada a las ${hhmm(x.hora, x.minuto)} en tu calendario${d?.eventos.length ? ` (ese día: ${d.eventos.map((e) => `${e.hora} ${e.titulo}`).join(' · ')})` : ''}`)
+  }
+  return malas.length ? { aviso: `Ojo con la hora: ${malas.join('; ')}. Lo que dije no salió del calendario: no lo tomes como una cita.`, horas } : null
+}

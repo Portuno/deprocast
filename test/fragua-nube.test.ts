@@ -6,7 +6,7 @@ import path from 'node:path'
 import { abrir } from '../src/db.ts'
 import { _probarModelo } from '../src/modelo.ts'
 import { aprobarForja, forjarMejora, porQueNoSePuedeForjar, propuestasParaForjar, revertirForja } from '../src/fragua.ts'
-import { _probarGithub, correrNode, diffDe, pruebaDeHumo, vigilarAprobadas } from '../src/fragua-nube.ts'
+import { _probarGithub, abrirPullRequest, correrNode, diffDe, faltaPermiso, pruebaDeHumo, vigilarAprobadas } from '../src/fragua-nube.ts'
 
 /** Un GitHub falso: guarda lo que se le pide y contesta lo justo. */
 function githubFalso() {
@@ -172,4 +172,21 @@ test('la forja corre el typecheck y la suite sin trabar el servidor (antes, 330 
   assert.ok(latidos >= 5, `el servidor siguió latiendo mientras tanto (${latidos})`)
   const corta = await correrNode(['-e', 'setTimeout(() => {}, 60000)'], { cwd: os.tmpdir(), timeoutMs: 200 })
   assert.notEqual(corta.status, 0, 'el tope de tiempo la corta')
+})
+
+test('#277: si el token no puede abrir el pull request, se dice qué permiso darle (no un 403 crudo)', async () => {
+  process.env.GITHUB_FRAGUA_TOKEN = process.env.GITHUB_FRAGUA_TOKEN ?? 'falso'
+  process.env.MASTRO_REPO = process.env.MASTRO_REPO ?? 'operador/repo'
+  _probarGithub((async (u: string, init: RequestInit = {}) => {
+    const ruta = new URL(u).pathname.replace(/^\/repos\/[^/]+\/[^/]+/, '')
+    const j = (x: unknown, status = 200) => new Response(JSON.stringify(x), { status })
+    if (ruta === '/pulls') return j({ message: 'Resource not accessible by personal access token' }, 403)
+    if (ruta === '/commits/main') return j({ sha: 'base' })
+    if (ruta.startsWith('/git/commits/')) return j({ tree: { sha: 'arbol' } })
+    return j({ sha: 'x', ref: 'r' })
+    void init
+  }) as typeof fetch)
+  await assert.rejects(abrirPullRequest({ id: 22, titulo: 't', cuerpo: 'c', archivos: [{ ruta: 'src/a.ts', contenido: 'x' }] }), /«Pull requests» en Read and write/)
+  assert.match(faltaPermiso('POST', '/git/blobs'), /«Contents» en Read and write/)
+  assert.match(faltaPermiso('PUT', '/pulls/7/merge'), /«Pull requests» y «Contents»/)
 })

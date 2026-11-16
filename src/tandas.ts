@@ -177,7 +177,10 @@ export async function separarVoces(db: Db, texto: string, nombreOperador: string
   }
 }
 
-async function procesarAudio(db: Db, t: Tanda, ruta: string): Promise<number> {
+/** Un audio sin voz (bolsillo, silencio) no es un fallo: termina sin pieza (Fragua #278). */
+export const SIN_VOZ = 'Sin voz: no había nada que transcribir'
+
+async function procesarAudio(db: Db, t: Tanda, ruta: string): Promise<number | null> {
   const partes = tramos(ruta, t.bytes)
   const textos: string[] = []
   const palabras: Palabra[] = []
@@ -191,7 +194,7 @@ async function procesarAudio(db: Db, t: Tanda, ruta: string): Promise<number> {
   }
   if (partes[0] !== ruta) fs.rmSync(path.dirname(partes[0]), { recursive: true, force: true })
   const texto = textos.filter(Boolean).join('\n')
-  if (!texto) throw new Error('No había voz que transcribir')
+  if (!texto) return null
   const yo = personaje(db, 'jugador').nombre
   // Con varios tramos los tiempos son aproximados: la pista acústica solo se usa con el audio entero.
   const v = await separarVoces(db, texto, yo, { palabras: partes.length === 1 ? palabras : [], ruta: partes.length === 1 ? ruta : undefined })
@@ -309,7 +312,8 @@ export async function procesarTandas(db: Db, o: { max?: number } = {}): Promise<
       db.prepare(`UPDATE tandas SET estado = 'procesando' WHERE id = ?`).run(t.id)
       try {
         const pieza = t.tipo === 'audio' ? await procesarAudio(db, t, fila.ruta) : await procesarPagina(db, t, fila.ruta)
-        db.prepare(`UPDATE tandas SET estado = 'hecha', pieza_id = ?, error = NULL, hecha_en = ? WHERE id = ?`).run(pieza, Date.now(), t.id)
+        // Sin pieza (un audio sin voz): hecha igual, con la nota de por qué no dejó nada; la tanda sigue.
+        db.prepare(`UPDATE tandas SET estado = 'hecha', pieza_id = ?, error = ?, hecha_en = ? WHERE id = ?`).run(pieza, pieza == null ? SIN_VOZ : null, Date.now(), t.id)
         hechas++
       } catch (e) {
         db.prepare(`UPDATE tandas SET estado = 'fallo', error = ? WHERE id = ?`).run(e instanceof Error ? e.message : String(e), t.id)
