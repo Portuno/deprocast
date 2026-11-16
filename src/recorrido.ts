@@ -9,6 +9,7 @@
  */
 import { fechaLocal, type Db } from './db.ts'
 import { metros } from './ubicacion.ts'
+import { esPrivado, leerPrivacidad } from './territorio.ts'
 
 export type PuntoRecorrido = { en: number; lat: number; lon: number; precision: number | null; fuente: string }
 export type Parada = { lat: number; lon: number; desde: number; hasta: number; minutos: number; puntos: number; lugar: string | null; lugarMetros: number | null }
@@ -22,10 +23,13 @@ export function guardarPuntos(db: Db, fuente: string, puntos: unknown, ahora = D
   const ins = db.prepare('INSERT OR IGNORE INTO recorrido_puntos (fuente, en, lat, lon, precision, recibido) VALUES (?, ?, ?, ?, ?, ?)')
   let guardados = 0
   let ultimo: PuntoRecorrido | null = null
+  // Lo que él marcó como privado (una zona, una franja horaria, una pausa) no se registra (Fragua #259).
+  const priv = leerPrivacidad(db)
   for (const p of puntos.slice(0, 5000) as any[]) {
     const lat = Number(p?.lat), lon = Number(p?.lon), en = Math.round(Number(p?.en))
     if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) continue
     if (!Number.isFinite(en) || en <= 0 || en > ahora + 120_000) continue
+    if (esPrivado(priv, { lat, lon, en })) continue
     const precision = p?.precision == null || !Number.isFinite(Number(p.precision)) ? null : Math.round(Number(p.precision))
     guardados += Number(ins.run(fuente.slice(0, 40), en, lat, lon, precision, ahora).changes)
     if (!ultimo || en > ultimo.en) ultimo = { en, lat, lon, precision, fuente }

@@ -644,6 +644,55 @@ export const HERRAMIENTAS: Herramienta[] = [
     ejecutar: async (_, { db }) => (await import('../feed.ts')).rankingCuentas(db).slice(0, 40),
   },
   {
+    nombre: 'buscar_por_lugar', familia: 'lectura',
+    descripcion: '«Lo que hablé en Xàtiva», «qué hice en la oficina»: busca por lugar (uno suyo por nombre o cualquiera del mapa) las veces que estuvo ahí (por su recorrido) y sus piezas de ahí (audios, fotos, notas, la charla). Con radio en metros (1500 por defecto; para un edificio, 150).',
+    parametros: S({ lugar: str('El lugar («Xàtiva», «la oficina», una dirección)'), radio: int('Metros alrededor'), desde: str('YYYY-MM-DD'), hasta: str('YYYY-MM-DD') }, ['lugar']),
+    ejecutar: async (a, { db }) => (await import('../territorio.ts')).buscarPorLugar(db, String(a.lugar ?? ''), { radio: a.radio, desde: a.desde ?? null, hasta: a.hasta ?? null }),
+  },
+  {
+    nombre: 'ver_actividad', familia: 'lectura',
+    descripcion: 'Su actividad física: pasos (del contador del teléfono o de la escucha), minutos caminando y km del día, contra su meta de pasos; o la semana entera con el promedio.',
+    parametros: S({ fecha: str('YYYY-MM-DD (vacío: hoy)'), semana: bool('true: los últimos 7 días') }),
+    ejecutar: async (a, { db }) => { const t = await import('../territorio.ts'); return a.semana ? t.actividadSemana(db) : t.actividadDelDia(db, a.fecha || undefined) },
+  },
+  {
+    nombre: 'guardar_lugar', familia: 'accion',
+    descripcion: 'Guarda un lugar suyo con nombre y coordenadas (como entidad): una parada frecuente sin nombre («ese es el gimnasio»), su casa, la oficina. Si no tenés las coordenadas, usá las de una parada (ver_recorrido o los frecuentes) o su ubicación actual.',
+    parametros: S({ nombre: str('Cómo se llama'), lat: { type: 'number', description: 'Latitud' }, lon: { type: 'number', description: 'Longitud' }, direccion: str('La dirección, si la sabés') }, ['nombre', 'lat', 'lon']),
+    ejecutar: async (a, { db }) => (await import('../territorio.ts')).guardarLugar(db, { nombre: String(a.nombre ?? ''), lat: Number(a.lat), lon: Number(a.lon), direccion: a.direccion ?? null }),
+    resumen: (a) => `guardó el lugar «${a.nombre}»`,
+  },
+  {
+    nombre: 'privacidad_recorrido', familia: 'accion',
+    descripcion: 'La privacidad del recorrido: zonas que no se registran (un lugar y un radio: «no registres mi casa»), franjas horarias sin registro («de 22 a 7»), pausar el registro por un rato, o ver cómo está. También los lugares frecuentes sin nombre.',
+    parametros: S({ que: str('Qué', { enum: ['ver', 'zona', 'quitar_zona', 'franja', 'quitar_franjas', 'pausar', 'reanudar'] }), nombre: str('Zona: cómo se llama'), lat: { type: 'number', description: 'Zona: latitud' }, lon: { type: 'number', description: 'Zona: longitud' }, radio: int('Zona: metros (200 por defecto)'), desde: str('Franja: HH:MM'), hasta: str('Franja: HH:MM'), minutos: int('Pausa: por cuántos minutos') }, ['que']),
+    ejecutar: async (a, { db }) => {
+      const t = await import('../territorio.ts')
+      const p = t.leerPrivacidad(db)
+      if (a.que === 'zona') return t.fijarPrivacidad(db, { zonas: [...p.zonas, { nombre: a.nombre ?? 'Zona', lat: Number(a.lat), lon: Number(a.lon), radio: a.radio ?? 200 }] })
+      if (a.que === 'quitar_zona') return t.fijarPrivacidad(db, { zonas: p.zonas.filter((z) => z.nombre.toLowerCase() !== String(a.nombre ?? '').toLowerCase()) })
+      if (a.que === 'franja') return t.fijarPrivacidad(db, { franjas: [...p.franjas, { desde: String(a.desde), hasta: String(a.hasta) }] })
+      if (a.que === 'quitar_franjas') return t.fijarPrivacidad(db, { franjas: [] })
+      if (a.que === 'pausar') return t.fijarPrivacidad(db, { pausadoHasta: Date.now() + (a.minutos ?? 60) * 60_000 })
+      if (a.que === 'reanudar') return t.fijarPrivacidad(db, { pausadoHasta: null })
+      return { ...p, frecuentesSinNombre: t.paradasFrecuentes(db) }
+    },
+    resumen: (a) => `ajustó la privacidad del recorrido (${a.que})`,
+  },
+  {
+    nombre: 'recorrido_rango', familia: 'destructiva',
+    descripcion: 'Exporta (GeoJSON, para llevárselo) o borra su recorrido de un rango de fechas. Borrar no se deshace: mostrale el rango y pedile confirmación antes.',
+    parametros: S({ accion: str('Qué', { enum: ['exportar', 'borrar'] }), desde: str('YYYY-MM-DD'), hasta: str('YYYY-MM-DD'), confirmado: bool('true solo si él confirmó el borrado') }, ['accion', 'desde', 'hasta']),
+    ejecutar: async (a, { db }) => {
+      const t = await import('../territorio.ts')
+      if (a.accion === 'exportar') { const g = await t.exportarRango(db, a.desde, a.hasta); return { features: g.features.length, link: `/api/recorrido/exportar?desde=${a.desde}&hasta=${a.hasta}` } }
+      const c = exigirConfirmacion(a, `borra tu recorrido del ${a.desde} al ${a.hasta} (no se deshace)`)
+      if (c) return c
+      return t.borrarRango(db, a.desde, a.hasta)
+    },
+    resumen: (a) => `${a.accion === 'borrar' ? 'borró' : 'exportó'} el recorrido del ${a.desde} al ${a.hasta}`,
+  },
+  {
     nombre: 'ver_compras', familia: 'lectura',
     descripcion: 'Su lista de compras: lo pendiente (o lo ya comprado).',
     parametros: S({ estado: str('Cuáles', { enum: ['pendiente', 'comprado', 'descartado', 'todas'] }) }),
@@ -2518,7 +2567,7 @@ export const GRUPOS: Record<string, string[]> = {
   liga: ['ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'ver_banco_de_pruebas', 'correr_banco_de_pruebas', 'comparar_motores', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['ver_suenos_noche', 'al_diario', 'ver_diario', 'crear_dominio', 'retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_criterios', 'fijar_criterio', 'ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['ficha_empresa', 'responder_pregunta', 'votar_criba', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'crear_dominio', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_hipotesis', 'probar_hipotesis', 'ver_recorrido', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ver_compras', 'marcar_compras', 'ver_escala', 'ver_monedero', 'asentar_en_monedero', 'atribuir_ingreso', 'ajustar_monedero'],
+  vida: ['ficha_empresa', 'responder_pregunta', 'votar_criba', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'crear_dominio', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_hipotesis', 'probar_hipotesis', 'ver_recorrido', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ver_compras', 'marcar_compras', 'ver_escala', 'ver_monedero', 'asentar_en_monedero', 'atribuir_ingreso', 'ajustar_monedero', 'buscar_por_lugar', 'ver_actividad', 'guardar_lugar', 'privacidad_recorrido', 'recorrido_rango'],
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado', 'borrar_programado'],
   correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'marcar_correo_atendido', 'buscar_contacto'],
   drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'borrar_de_drive', 'barrer_documentos_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],
@@ -2536,7 +2585,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/agente|liga|forj|encargo|tick|gerente|fragua|propuesta|proyecto|sandbox|misi[oó]n|pista|me respondi|reuni[oó]n con|claude code|bit[aá]cora de desarrollo|benchmark|banco de pruebas|comparar motores|qu[eé] motor|qu[eé] modelo conviene/.test(t)) g.push('liga')
   if (/fuente|carga|quántomo|quantomo|entidad|duplicad|ingeri|corpus|takeout|anotacion|retir[aá]|pieza|historia de|mal generad|est[aá] mal|correg[ií] (la|esa|esta) (pieza|historia)|\[confirmado\]|\[inferido\]|prensa|peri[oó]dico|noticias? de|el diario de hoy/.test(t)) g.push('corpus')
   if (/primaria|reporte|informe|ayudante|principal|north star|inventario|personaje|run |criterio|la urgente|el ambicioso|la medidora|el entusiasta|la curiosa|el deudor/.test(t)) g.push('misiones')
-  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|hip[oó]tesis|recorrido|d[oó]nde estuve|por d[oó]nde|ubicaci[oó]n|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend|criba|empresa|compa[ñn][ií]a|cif\b|raz[oó]n social|p[aá]gina|arquetipo|matriz 72|compra|s[uú]per\b|mercadona|qu[eé] hice|la semana pasada|el mes pasado|c[oó]mo fue (mi |el |la )?(d[ií]a|semana|mes|a[ñn]o)|trimestre|semestre|lustro|monedero|patrimonio|tesorero|arcas|reserva|reparto|gener[oó] (el|la)|atribu/.test(t)) g.push('vida')
+  if (/plata|gast|ingres|€|salud|comí|comi |dorm|peso|entren|aprend|practi|idioma|bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|foco|distra|so[ñn][eé]|sueño|cliente|encargo|discovery|as-is|to-be|kpi|transformaci|sue[ñn]os|modelo|qu[eé] har[ií]a|creencia|ingl[eé]s|franc[eé]s|italiano|portugu[eé]s|alem[aá]n|japon[eé]s|tarjeta|bitácora|gemelo|hip[oó]tesis|recorrido|d[oó]nde estuve|por d[oó]nde|ubicaci[oó]n|brújula|brujula|persona|amig|famil|calendario|agenda|reuni[oó]n|turno|cita|agend|criba|empresa|compa[ñn][ií]a|cif\b|raz[oó]n social|p[aá]gina|arquetipo|matriz 72|compra|s[uú]per\b|mercadona|qu[eé] hice|la semana pasada|el mes pasado|c[oó]mo fue (mi |el |la )?(d[ií]a|semana|mes|a[ñn]o)|trimestre|semestre|lustro|monedero|patrimonio|tesorero|arcas|reserva|reparto|gener[oó] (el|la)|atribu|pasos|camin[eé]|actividad f[ií]sica|lugar|en (la|el) (oficina|casa|gimnasio)|habl[eé] en|no registres|privacidad|exportar el recorrido|borrar el recorrido/.test(t)) g.push('vida')
   if (/\bcada (lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|d[ií]a|ma[ñn]ana|noche|semana|mes|\d+ horas|hora)|todos los (d[ií]as|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bados|domingos)|todas las (ma[ñn]anas|noches)|program[aá]|encargo programado|de lunes a viernes/.test(t)) g.push('programados')
   if (/\bmails?\b|correo|gmail|bandeja|inbox|borrador|me escribi[oó]|contest(ar|[aá]le) a/.test(t)) g.push('correo')
   if (/drive|planilla|sheets?\b|hoja de c[aá]lculo|spreadsheet|excel|docs\.google/.test(t)) g.push('drive')

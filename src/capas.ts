@@ -9,6 +9,7 @@
  * referencia de tu nivel; cada 6 dB menos que eso es el doble de distancia (cuadrado inverso).
  */
 import { fechaLocal, type Db } from './db.ts'
+import { esPrivado, leerPrivacidad } from './territorio.ts'
 
 export type MinutoCapa = {
   minuto: number // el comienzo del minuto (ms)
@@ -31,11 +32,13 @@ export function recibirCapas(db: Db, dispositivoId: number, minutos: MinutoCapa[
       voz_db = excluded.voz_db, voz_cerca_db = excluded.voz_cerca_db, piso_db = excluded.piso_db, pasos = excluded.pasos, caminando = excluded.caminando,
       lat = excluded.lat, lon = excluded.lon, precision = excluded.precision, recibido = excluded.recibido`)
   let n = 0
+  const priv = leerPrivacidad(db)
   for (const m of minutos.slice(0, 1440)) {
     const t = Math.floor(Number(m?.minuto) / 60_000) * 60_000
     if (!Number.isFinite(t) || t <= 0 || t > ahora + 120_000) continue
     const lat = num(m.lat), lon = num(m.lon)
-    const conLugar = lat != null && lon != null && Math.abs(lat) <= 90 && Math.abs(lon) <= 180
+    // En una zona o franja privada, el minuto queda (lo que habló, los pasos) pero sin lugar (Fragua #259).
+    const conLugar = lat != null && lon != null && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && !esPrivado(priv, { lat, lon, en: t })
     ins.run(dispositivoId, t, seg(m.hablo), seg(m.escucho), seg(m.ruido), seg(m.silencio), num(m.vozDb), num(m.vozCercaDb), num(m.pisoDb),
       Math.max(0, Math.min(400, Math.round(Number(m.pasos) || 0))), seg(m.caminando), conLugar ? lat : null, conLugar ? lon : null, conLugar ? num(m.precision) : null, ahora)
     n++

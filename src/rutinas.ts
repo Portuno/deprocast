@@ -252,6 +252,8 @@ export const ACCIONES: Acciones = {
   },
   /** Cada noche (Fragua #286): el día de ayer y de hoy en su diario, hacia arriba hasta el lustro, y 14 días del pasado. */
   async escalas(db, _fecha, ahora) {
+    // Primero, cada pieza suya con su lugar (por la hora, contra el recorrido: Fragua #259).
+    try { (await import('./territorio.ts')).ubicarPiezas(db) } catch (e) { console.error('  lugares:', e instanceof Error ? e.message : e) }
     const r = await (await import('./escalas.ts')).pasadaNocturna(db, ahora)
     if (r.fallas.length) console.error('  escalas:', r.fallas.join(' · '))
     return null

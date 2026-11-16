@@ -84,6 +84,9 @@ export async function cargarDia(db: Db, que?: string | null, ahora = Date.now())
     }
   }
 
+  // Cada pieza con el lugar donde estaba (Fragua #259).
+  try { (await import('./territorio.ts')).ubicarPiezas(db, { desde: new Date(`${fecha}T00:00:00`).getTime() - 86_400_000 }) } catch { /* sin recorrido: sigue */ }
+
   // 3. El diario de ese día (y lo que lo contiene).
   let diario: string[] = []
   try { diario = await externos.diario(db, fecha) } catch (e) { avisos.push(`El diario: ${e instanceof Error ? e.message : e}`) }

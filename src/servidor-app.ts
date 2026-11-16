@@ -1415,6 +1415,13 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/monedero\/cuenta$/, async (b) => { const t = await import('./tesoro.ts'); const clave = t.resolverCuenta(db, String(b.cuenta ?? '')) ?? (b.nueva ? `${b.tipo ?? 'banco'}:${String(b.cuenta)}` : null); if (!clave) throw new Error('No encuentro esa cuenta'); return t.cambiarCuenta(db, clave, { saldoInicial: b.saldoInicial != null ? Number(b.saldoInicial) : undefined, desde: b.desde ?? undefined, tasa: b.tasa !== undefined ? (b.tasa === null ? null : Number(b.tasa)) : undefined, riesgo: b.riesgo, frenada: b.frenada, nombre: b.nombre, tipo: b.tipo }) }],
   ['POST', /^\/api\/monedero\/meta$/, async (b) => (await import('./tesoro.ts')).fijarMeta(db, Number(b.monto), String(b.fecha ?? ''), b.nota ?? null)],
 
+  // El mapa propio (Fragua #259): el recorrido de un rango (y por persona o proyecto), exportarlo, la privacidad y la actividad.
+  ['GET', /^\/api\/recorrido$/, async (_, __, q) => (await import('./territorio.ts')).recorridoRango(db, q.get('desde') || fechaLocal(), q.get('hasta') || fechaLocal(), { entidad: q.get('entidad') ? Number(q.get('entidad')) : null })],
+  ['GET', /^\/api\/recorrido\/exportar$/, async (_, __, q) => (await import('./territorio.ts')).exportarRango(db, q.get('desde') || fechaLocal(), q.get('hasta') || fechaLocal())],
+  ['GET', /^\/api\/recorrido\/privacidad$/, async () => { const t = await import('./territorio.ts'); return { ...t.leerPrivacidad(db), frecuentes: t.paradasFrecuentes(db) } }],
+  ['POST', /^\/api\/recorrido\/privacidad$/, async (b) => (await import('./territorio.ts')).fijarPrivacidad(db, b)],
+  ['GET', /^\/api\/actividad$/, async (_, __, q) => { const t = await import('./territorio.ts'); return q.get('semana') ? t.actividadSemana(db) : t.actividadDelDia(db, q.get('fecha') || undefined) }],
+
   // «Cargá lo de ayer» (Fragua #241)
   ['POST', /^\/api\/cargar-dia$/, async (b) => { const c = await import('./cargar-dia.ts'); const r = await c.cargarDia(db, b.fecha ?? 'ayer'); return { ...r, texto: c.textoDeCarga(r) } }],
 
@@ -1824,7 +1831,44 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
     }
     if (ruta === 'mapa' && req.method === 'GET') {
       const dia = url.searchParams.get('dia')
+      // Un rango (la semana, el mes): el recorrido de varios días (Fragua #259).
+      const desde = url.searchParams.get('desde'), hasta = url.searchParams.get('hasta')
+      if (desde && hasta && /^\d{4}-\d{2}-\d{2}$/.test(desde) && /^\d{4}-\d{2}-\d{2}$/.test(hasta)) return responder(200, await (await import('./territorio.ts')).recorridoRango(db, desde, hasta))
       return responder(200, await (await import('./recorrido.ts')).recorridoDelDia(db, dia && /^\d{4}-\d{2}-\d{2}$/.test(dia) ? dia : undefined))
+    }
+    // Mobile 1.2: los pasos del día que cuenta el teléfono, y la actividad (pasos, minutos caminando, km).
+    if (ruta === 'actividad' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 64 * 1024)).toString('utf8') || '{}')
+      const t = await import('./territorio.ts')
+      for (const x of (Array.isArray(b.dias) ? b.dias : [b]).slice(0, 31)) if (x?.fecha && x?.pasos != null) t.anotarPasos(db, `disp:${disp.id}`, String(x.fecha), Number(x.pasos))
+      return responder(200, t.actividadDelDia(db))
+    }
+    // Los lugares: los frecuentes sin nombre (para nombrarlos) y guardar uno.
+    if (ruta === 'lugares' && req.method === 'GET') { const t = await import('./territorio.ts'); return responder(200, { frecuentes: t.paradasFrecuentes(db), lugares: t.lugaresConCoordenadas(db) }) }
+    if (ruta === 'lugares' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 16 * 1024)).toString('utf8') || '{}')
+      return responder(201, await (await import('./territorio.ts')).guardarLugar(db, { nombre: String(b.nombre ?? ''), lat: Number(b.lat), lon: Number(b.lon), direccion: b.direccion ?? null }))
+    }
+    // Mobile 1.2: una foto o un video desde el Hoy del teléfono (galería o cámara). Responde enseguida; lo procesa de fondo.
+    if (ruta === 'archivo' && req.method === 'POST') {
+      const q = url.searchParams
+      const clave = q.get('id') ? `archivo:${q.get('id')}` : null
+      if (clave) {
+        const r = d.reservarEnvio(db, disp.id, clave)
+        if (!r.nuevo) { await leerCrudo(req, 310 * 1024 * 1024).catch(() => null); return responder(200, { ...(r.respuesta as object ?? {}), repetido: true }) }
+      }
+      try {
+        const datos = await leerCrudo(req, 310 * 1024 * 1024)
+        const n = (k: string) => (q.get(k) != null && q.get(k) !== '' && Number.isFinite(Number(q.get(k))) ? Number(q.get(k)) : null)
+        const r = (await import('./archivos-movil.ts')).recibirArchivoMovil(db, datos, { nombre: q.get('nombre') || 'archivo', mime: q.get('tipo') || String(req.headers['content-type'] ?? ''), nota: q.get('nota'), en: n('en'), lat: n('lat'), lon: n('lon'), dispositivo: disp.nombre })
+        const cuerpo = { tipo: r.tipo, bytes: r.bytes, procesando: true }
+        if (clave) d.cerrarEnvio(db, disp.id, clave, cuerpo)
+        return responder(202, cuerpo)
+      } catch (e) {
+        if (clave) d.soltarEnvio(db, disp.id, clave)
+        const m = e instanceof Error ? e.message : String(e)
+        return responder(/vacío|Por ahora|pesa más/i.test(m) ? 422 : 503, { error: m })
+      }
     }
     // Mobile 1.0: la marca barata de «algo cambió en Hoy» (el teléfono la pregunta cada 5 s mientras está abierto).
     if (ruta === 'cambio' && req.method === 'GET') return responder(200, await d.marcaHoy(db))

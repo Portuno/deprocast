@@ -160,5 +160,7 @@ export async function paqueteHoy(db: Db, o: { mensajes?: number } = {}) {
   const paraValidar = bandeja(db).total
   const ultimo = (db.prepare(`SELECT COALESCE(MAX(id), 0) AS n FROM mensajes WHERE conversacion_id = ?`).get(c.id) as { n: number }).n
   // servidorEn: con qué hora del servidor salió (el teléfono no pisa algo más nuevo con algo más viejo); marca: la de marcaHoy.
-  return { conversacion: c.id, mensajes: ms.filter((m) => (m.rol === 'operador' || m.rol === 'asistente') && m.texto).map((m) => ({ id: m.id, rol: m.rol, texto: m.texto, en: m.en })), paraValidar, servidorEn: Date.now(), marca: `${c.id}:${ultimo}:${paraValidar}` }
+  // Mobile 1.2: la actividad del día (pasos, minutos caminando, km) para la tarjeta de Hoy.
+  const actividad = await import('./territorio.ts').then((t) => t.actividadDelDia(db)).catch(() => null)
+  return { conversacion: c.id, mensajes: ms.filter((m) => (m.rol === 'operador' || m.rol === 'asistente') && m.texto).map((m) => ({ id: m.id, rol: m.rol, texto: m.texto, en: m.en })), paraValidar, servidorEn: Date.now(), marca: `${c.id}:${ultimo}:${paraValidar}`, actividad }
 }
