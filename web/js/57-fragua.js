@@ -113,7 +113,7 @@ async function refrescarFragua() {
     </section>` : ''}
     <section class="seccion">
       ${chipsArea}
-      <div class="seccion-cab"><h3>Propuestas abiertas · ${area === 'todas' ? d.propuestas.length : `${sueltas.length} de ${d.propuestas.length}`}</h3><span class="tenue">Las deja Mastropiero cuando ve algo para mejorar (o se las pedís en el chat). Forjar una la convierte en un cambio para revisar. Un commit que dice «Fragua #N» la cierra sola.</span></div>
+      <div class="seccion-cab"><h3>Propuestas abiertas · ${area === 'todas' ? d.propuestas.length : `${sueltas.length} de ${d.propuestas.length}`}</h3>${d.propuestas.length ? `<button class="btn btn-chico btn-primario" data-fr-copiar-todo title="Copia todas las propuestas abiertas, de todas las categorías (título, categoría, prioridad y detalle), para pegarlas en el chat o en Claude Code">📋 Copiar todo</button>` : ''}<span class="tenue">Las deja Mastropiero cuando ve algo para mejorar (o se las pedís en el chat). Forjar una la convierte en un cambio para revisar. Un commit que dice «Fragua #N» la cierra sola.</span></div>
       ${sueltas.length ? `<div class="tarjetas">${sueltas.map(tarjeta).join('')}</div>` : d.propuestas.length ? '<p class="tenue">Nada abierto en esta categoría.</p>' : '<p class="vacio">No hay propuestas abiertas. Pedí una mejora arriba o contale al chat qué cambiarías.</p>'}
     </section>
     ${(d.cerradas ?? []).length ? `<section class="seccion"><details>
@@ -139,6 +139,23 @@ async function refrescarFragua() {
       }).join('') || '<p class="vacio">Nada forjado todavía.</p>'}
     </section>`
   $$('[data-fr-area]', cont).forEach((b) => (b.onclick = () => { frArea = b.dataset.frArea; refrescarFragua() }))
+  // Copiar todo: todas las abiertas (de todas las categorías, aunque haya una elegida), como texto para pegar en el chat o en Claude Code.
+  const copiarTodo = $('[data-fr-copiar-todo]', cont)
+  if (copiarTodo) copiarTodo.onclick = async () => {
+    const nombreArea = (id) => (d.areas ?? []).find((a) => a.id === id)?.nombre ?? id ?? 'sin categoría'
+    const lista = d.propuestas
+    const texto = [
+      `La Fragua de Deprocast · Propuestas abiertas · ${lista.length} (${new Date().toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' })})`,
+      ...lista.map((p) => [
+        `#${p.id} · ${nombreArea(p.area)}${p.prioridad ? ` · ${p.prioridad}` : ''} — ${p.titulo}`,
+        p.forja ? `⚒ Forja #${p.forja.id}: ${p.forja.texto}` : '',
+        p.nota ? `◐ ${p.nota}` : '',
+        p.detalle ?? '',
+      ].filter(Boolean).join('\n')),
+    ].join('\n\n---\n\n')
+    try { await navigator.clipboard.writeText(texto); toast(`${lista.length} propuestas copiadas<small>Pegalas donde quieras.</small>`, 'suave') }
+    catch { abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Propuestas abiertas</h2><p class="tenue">No pude copiar solo: seleccioná el texto y copialo.</p><pre class="fr-copia">${esc(texto)}</pre>`) }
+  }
   $$('[data-prop]', cont).forEach((el) => {
     const id = Number(el.dataset.prop)
     const copiar = $('[data-copiar]', el)
