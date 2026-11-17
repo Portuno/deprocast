@@ -48,3 +48,15 @@ test('Fragua #307 · un commit que no nombra la propuesta pero se le parece la d
   assert.match(p.nota, /^Puede que la haya resuelto abc1234/)
   assert.equal((db.prepare('SELECT nota FROM propuestas WHERE id = ?').get(otra) as any).nota, null)
 })
+
+test('Fragua #303 · el chat no espera el archivo para lo del presente; lo espera más cuando se le pide memoria', async () => {
+  const { necesidadDeArchivo } = await import('../src/chat/index.ts')
+  assert.equal(necesidadDeArchivo('¿Qué tengo hoy?'), 'no')
+  assert.equal(necesidadDeArchivo('recordame a las 18 que llame al banco'), 'no')
+  assert.equal(necesidadDeArchivo('¿cuántos pasos llevo?'), 'no')
+  assert.equal(necesidadDeArchivo('reservame en un restaurante para el sábado'), 'no')
+  assert.equal(necesidadDeArchivo('¿te acordás lo que hablamos del documental?'), 'larga')
+  assert.equal(necesidadDeArchivo('¿qué sé de la productora?'), 'larga')
+  assert.equal(necesidadDeArchivo('¿Qué tengo hoy con lo que hablamos ayer?'), 'larga', 'pedir memoria manda')
+  assert.equal(necesidadDeArchivo('Pensemos una estrategia para el lanzamiento'), 'corta')
+})

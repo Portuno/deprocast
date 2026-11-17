@@ -301,6 +301,25 @@ export function tipoDeTurno(texto: string): TipoTurno {
   return 'completo'
 }
 
+/**
+ * ¿Cuánto archivo necesita este mensaje? (Fragua #303, primer paso: el turno típico esperaba ~29 s la búsqueda en su
+ * archivo, aunque no hiciera falta.)
+ * - 'no': algo del presente (la agenda, la run, un recordatorio, pasos, sueño, reservas, compras, plata) sin pedir
+ *   memoria: no se busca en el archivo (las herramientas traen lo de hoy);
+ * - 'larga': pide memoria («¿te acordás…?», «¿qué sé de…?», «lo que hablamos»): se espera el archivo (hasta 40 s);
+ * - 'corta': lo demás: se busca, pero si tarda más de 10 s se contesta sin él.
+ */
+export type NecesidadArchivo = 'no' | 'corta' | 'larga'
+const PIDE_MEMORIA = /\b(te acordas|acordas|recordas|te dije|me dijiste|dijimos|hablamos|habiamos|conte|cont[ée]|alguna vez|cuando fue|la ultima vez|historia|el ano pasado|hace (un|una|dos|tres|unos|unas|mucho|poco)|que se de|que sabes de|que hay de|archivo|corpus|busca|buscame|mis notas|escribi|anote|guard[eé]|lei|vi un)\b/
+const DEL_PRESENTE = /\b(que tengo|tengo (hoy|manana|que)|agenda|calendario|reunion|evento|turno con|la run|una run|banda|recordame|avisame|recordatorio|pasos|camine|dormi|sueno|pantalla|uso del telefono|reserv\w*|compras?|lista de compras|anota\w*|agendame|que hora|que dia|clima|cuanto gaste|saldo|monedero|mis gastos)\b/
+export function necesidadDeArchivo(texto: string): NecesidadArchivo {
+  const t = texto.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  if (PIDE_MEMORIA.test(t)) return 'larga'
+  if (DEL_PRESENTE.test(t) && t.length < 300) return 'no'
+  return 'corta'
+}
+const ESPERA_ARCHIVO: Record<NecesidadArchivo, number> = { no: 0, corta: 10_000, larga: 40_000 }
+
 /** El prompt de un turno breve: quién sos, cómo hablás, la hora y el día. Nada más. */
 export function promptBreve(db: Db): string {
   const yo = db.prepare(`SELECT nombre FROM entidades WHERE tipo = 'persona' AND json_extract(meta, '$.operador') = 1 LIMIT 1`).get() as { nombre: string } | undefined
@@ -678,9 +697,20 @@ async function turno(db: Db, cid: number, c: Conversacion, texto: string, o: Opc
     const conMastro = c.con === MASTROPIERO && c.modo !== 'diario'
     tipo = conMastro && !o.extra && o.via !== 'copiloto' ? tipoDeTurno(texto) : 'completo'
     const tHist = Date.now()
-    const archivoP: Promise<{ texto: string; vec: Float32Array | null }> = conMastro && tipo === 'completo' ? archivoRelevante(db, comoTexto(texto)).catch(() => ({ texto: '', vec: null })) : Promise.resolve({ texto: '', vec: null })
+    // Fragua #303: sin archivo para lo del presente; con un tope de espera para lo demás (si tarda, se contesta sin él).
+    const necesidad = conMastro && tipo === 'completo' ? necesidadDeArchivo(comoTexto(texto)) : 'no'
     const tArch = Date.now()
-    archivoP.then(() => { etapas.archivo = Date.now() - tArch }, () => {})
+    const vacio = { texto: '', vec: null as Float32Array | null }
+    const buscando = necesidad === 'no' ? null : archivoRelevante(db, comoTexto(texto)).catch(() => vacio)
+    let llegoArchivo = false
+    buscando?.then(() => { llegoArchivo = true; etapas.archivo = Date.now() - tArch }, () => {})
+    const archivoP: Promise<{ texto: string; vec: Float32Array | null }> = !buscando ? Promise.resolve(vacio)
+      : Promise.race([buscando, new Promise<typeof vacio>((ok) => {
+        const reloj = setTimeout(() => { if (!llegoArchivo) etapas.archivoCortado = Date.now() - tArch; ok(vacio) }, ESPERA_ARCHIVO[necesidad])
+        reloj.unref?.()
+        void buscando.then(() => clearTimeout(reloj), () => clearTimeout(reloj))
+      })])
+    etapas[`archivo_${necesidad}`] = 1
     const previos = await armarHistorial(db, historial, { cid, resumirViejo: !(c.con === MASTROPIERO && c.modo === 'diario'), verImagenes: true })
     etapas.historial = Date.now() - tHist
     const alGuardar = (m: Partial<Mensaje> & { rol: Mensaje['rol'] }) => {
