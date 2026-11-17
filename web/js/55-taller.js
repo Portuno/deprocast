@@ -62,7 +62,7 @@ function abrirMesa(tipo, o = {}) {
       <div class="tl-op"><span>Estilo</span>${segmentado('estilo', [['', 'Libre'], ...Object.entries(d.estilos)], '')}</div>
       <div class="tl-op"><span>Cuántas</span>${segmentado('variantes', [['1', '1'], ['2', '2'], ['3', '3'], ['4', '4']], '1')}<span>Calidad</span>${segmentado('modelo', [['flux-2-klein', 'Rápida'], ['qwen-image-2.1', 'Detallada']], 'flux-2-klein')}</div>`,
     voz: () => `<div class="tl-op"><span>Qué</span>${segmentado('modo', [['leer', 'Leer un texto'], ['charla', 'Charla a dos voces']], o.modo ?? 'leer')}</div>
-      <div class="tl-op" id="tl-voces"></div>`,
+      <div class="tl-voces" id="tl-voces"></div>`,
     personaje: () => `<div class="tl-op">${campoEntidad('Que salga de alguien o algo de tu mundo (opcional)')}</div>`,
     video: () => `<div class="tl-op"><span>Formato</span>${segmentado('formato', [['16:9', 'Apaisado 16:9'], ['9:16', 'Vertical 9:16'], ['1:1', 'Cuadrado 1:1']], o.formato ?? '16:9')}</div>
       <div class="tl-op"><span>Escenas</span>${segmentado('escenas', [['', 'Que decida'], ['3', '3'], ['5', '5'], ['8', '8']], '')}<label class="tenue chico"><input type="checkbox" id="tl-mov" checked> movimiento (acercamiento suave)</label></div>
@@ -84,10 +84,17 @@ function abrirMesa(tipo, o = {}) {
     const c = $('#tl-voces')
     if (!c) return
     const charla = valorSeg('modo') === 'charla'
+    // Cada cosa en su renglón: las voces, el largo y (con minutos) el contexto a todo el ancho.
     c.innerHTML = charla
-      ? `<span>Voces</span><select class="campo-suelto" id="tl-va">${opcionesVoz('em_alex')}</select><select class="campo-suelto" id="tl-vb">${opcionesVoz('ef_dora')}</select>`
-      : `<span>Voz</span><select class="campo-suelto" id="tl-voz">${opcionesVoz('em_alex')}</select>`
-    $('#tl-pedido').placeholder = charla ? 'El tema de la charla (sale de lo que hay en tu archivo sobre eso).' : x.ayuda
+      ? `<div class="tl-op"><span>Voces</span><select class="campo-suelto" id="tl-va">${opcionesVoz('em_alex')}</select><select class="campo-suelto" id="tl-vb">${opcionesVoz('ef_dora')}</select></div>
+        <div class="tl-op"><span>Largo</span>${segmentado('minutos', [['', 'Corta'], ['5', '5 min'], ['8', '8 min'], ['15', '15 min'], ['25', '25 min']], '')}</div>
+        <div class="tl-podcast" id="tl-podcast" hidden><textarea class="campo-suelto" id="tl-contexto" rows="3" placeholder="Contexto (opcional): datos, enfoque, para quién es. El guion sale de esto y de los temas, en capítulos."></textarea>
+        <label class="tenue chico"><input type="checkbox" id="tl-archivo" checked> usar también lo de mi archivo</label></div>`
+      : `<div class="tl-op"><span>Voz</span><select class="campo-suelto" id="tl-voz">${opcionesVoz('em_alex')}</select></div>`
+    // El largo (Fragua #312): con minutos es un episodio; se ve el contexto y cambia la ayuda.
+    const largo = () => { const p = $('#tl-podcast'); const min = valorSeg('minutos'); if (p) p.hidden = !min; $('#tl-pedido').placeholder = !charla ? x.ayuda : min ? `Los temas del episodio (${min} minutos, a dos voces).` : 'El tema de la charla (sale de lo que hay en tu archivo sobre eso).' }
+    $$('[data-seg="minutos"] button', c).forEach((b) => (b.onclick = () => { $$('[data-seg="minutos"] button', c).forEach((y) => y.classList.toggle('on', y === b)); largo() }))
+    largo()
   }
   pintarVoces()
   const ent = $('#tl-ent')
@@ -116,6 +123,7 @@ function abrirMesa(tipo, o = {}) {
       tipo, pedido, entidadId: tl.entidad?.id ?? null, personajeId: $('#tl-pj')?.value || null, voz: $('#tl-voz')?.value,
       aspecto: valorSeg('aspecto'), estilo: valorSeg('estilo') || null, variantes: Number(valorSeg('variantes') ?? 1), modelo: valorSeg('modelo'),
       modo: valorSeg('modo'), voces: $('#tl-va') ? [$('#tl-va').value, $('#tl-vb').value] : undefined,
+      minutos: valorSeg('minutos') || null, contexto: $('#tl-contexto')?.value.trim() || null, usarArchivo: $('#tl-archivo')?.checked ?? true,
       formato: valorSeg('formato'), escenas: valorSeg('escenas') || null, movimiento: $('#tl-mov')?.checked ?? true, clase: valorSeg('clase'),
     }
     try {

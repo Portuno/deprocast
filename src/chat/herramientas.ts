@@ -2640,13 +2640,14 @@ ${a.detalle ?? ''}`)
   },
   {
     nombre: 'crear_en_taller', familia: 'accion',
-    descripcion: `El Taller crea cosas: un juego (HTML jugable), una imagen (con aspecto, estilo y variantes), una voz (texto leído), una charla a dos voces sobre un tema de su archivo, un personaje (ficha + retrato + voz; puede salir de alguien de su mundo), un video corto (guion, imágenes, voz, montaje), o un visual para entender un concepto (diagrama: piezas y relaciones como un circuito; simulacion: algo que se mueve, como una proteína; movimiento: un ejercicio del cuerpo). Todo pasa por la cola del Taller, de a uno: decile que lo va a ver en Taller (o en su clase). Voces: ${Object.entries(VOCES).map(([k, v]) => `${k} (${v})`).join(', ')}.`,
+    descripcion: `El Taller crea cosas: un juego (HTML jugable), una imagen (con aspecto, estilo y variantes), una voz (texto leído), una charla a dos voces (corta, sobre un tema de su archivo; o un podcast con los minutos que pida, desde sus temas y su contexto, en capítulos), un personaje (ficha + retrato + voz; puede salir de alguien de su mundo), un video corto (guion, imágenes, voz, montaje), o un visual para entender un concepto (diagrama: piezas y relaciones como un circuito; simulacion: algo que se mueve, como una proteína; movimiento: un ejercicio del cuerpo). Todo pasa por la cola del Taller, de a uno: decile que lo va a ver en Taller (o en su clase). Voces: ${Object.entries(VOCES).map(([k, v]) => `${k} (${v})`).join(', ')}.`,
     parametros: S({
       tipo: str('Qué crear', { enum: ['juego', 'imagen', 'voz', 'charla', 'personaje', 'video', 'visual'] }), pedido: str('Lo que pide, con todo el detalle que dio (para una charla: el tema; para un visual: qué tiene que mostrar)'), voz: str('Voz (para voz, video)'),
       personaje: int('id de un personaje del Taller (para un video o un juego)'), entidad: int('id de una persona, proyecto o entidad de su mundo (para un personaje o un juego que salga de ahí)'),
       aspecto: str('Imagen: 1:1, 16:9 o 9:16', { enum: ['1:1', '16:9', '9:16'] }), estilo: str('Imagen: estilo', { enum: Object.keys(ESTILOS) }), variantes: int('Imagen: cuántas (1 a 4)'),
       formato: str('Video: 16:9, 9:16 (vertical, para reels) o 1:1', { enum: ['16:9', '9:16', '1:1'] }), escenas: int('Video: cuántas escenas (3 a 8)'),
       clase: str('Visual: qué clase', { enum: Object.keys(CLASES_VISUAL) }), concepto: str('Visual: el concepto, corto («ley de Ohm», «plegado de una proteína», «sentadilla»)'),
+      minutos: int('Charla: cuántos minutos tiene que durar (formato podcast, de 1 a 40). Con esto el guion sale de los temas y el contexto que él da, en capítulos, con el largo respetado'), contexto: str('Charla con minutos: el contexto que dio (datos, enfoque, a quién va dirigido), tal cual'), usar_archivo: bool('Charla con minutos: false si quiere que salga solo de lo que dio, sin su archivo'),
     }, ['tipo', 'pedido']),
     ejecutar: (a, { db }) => {
       if (a.tipo === 'visual') {

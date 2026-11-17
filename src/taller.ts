@@ -228,11 +228,14 @@ export function valorarArtefacto(db: Db, id: number, estrellas: number, nota?: s
 export function crearSegun(db: Db, b: Record<string, any>): Promise<Artefacto> {
   const pedido = String(b.pedido ?? '').trim()
   const n = (v: unknown) => (v == null || v === '' ? null : Number(v))
+  // La charla: con minutos pedidos es un episodio (Fragua #312: brief, capítulos, el largo respetado); sin, la corta de siempre.
+  const voces = Array.isArray(b.voces) ? (b.voces as [string, string]) : undefined
+  const charla = () => (n(b.minutos) ? crearPodcast(db, pedido, { minutos: n(b.minutos)!, contexto: b.contexto ?? null, voces, usarArchivo: b.usarArchivo !== false && b.usar_archivo !== false }) : crearCharla(db, pedido, { voces }))
   const crear = {
     juego: () => crearJuego(db, pedido, { personajeId: n(b.personajeId ?? b.personaje), entidadId: n(b.entidadId ?? b.entidad) }),
     imagen: () => crearImagen(db, pedido, { modelo: b.modelo || undefined, aspecto: b.aspecto || undefined, estilo: b.estilo || null, variantes: n(b.variantes) ?? 1 }),
-    voz: () => (b.modo === 'charla' ? crearCharla(db, pedido, { voces: Array.isArray(b.voces) ? (b.voces as [string, string]) : undefined }) : crearVoz(db, pedido, { voz: b.voz || undefined })),
-    charla: () => crearCharla(db, pedido),
+    voz: () => (b.modo === 'charla' ? charla() : crearVoz(db, pedido, { voz: b.voz || undefined })),
+    charla: () => charla(),
     personaje: () => crearPersonaje(db, pedido, { entidadId: n(b.entidadId ?? b.entidad) }),
     video: () => crearVideo(db, pedido, { personajeId: n(b.personajeId ?? b.personaje), voz: b.voz || undefined, formato: b.formato || undefined, escenas: n(b.escenas) ?? undefined, movimiento: b.movimiento !== false }),
   }[b.tipo as string]
@@ -522,6 +525,80 @@ export async function crearCharla(db: Db, tema: string, o: { voces?: [string, st
   const turnos = (Array.isArray(g.turnos) ? g.turnos : []).filter((t: any) => t?.texto).slice(0, 16).map((t: any) => ({ voz: t.quien === 'B' ? vb : va, texto: String(t.texto).slice(0, 600) }))
   if (!turnos.length) throw new Error('El guion de la charla vino vacío')
   return crearConversacion(db, String(g.titulo ?? tema).slice(0, 80), turnos, { meta: { tema, voces: [va, vb] }, ahora: o.ahora })
+}
+
+// ─── el podcast: la charla con largo fijado (Fragua #312) ───────────────
+
+const SISTEMA_PODCAST_PLAN = `Sos el guionista del Taller de Mastropiero. Armás el plan de un episodio de podcast a dos voces, en castellano rioplatense, sobre los temas y el contexto que él te da (eso manda; su archivo, si viene, es apoyo).
+- Exactamente los capítulos que se piden, en un orden que avance (de lo general a lo concreto, o de la pregunta a la respuesta). El primero abre el episodio; el último cierra con algo que quede.
+- Cada capítulo con 2 a 5 puntos concretos para charlar (ideas, ejemplos, preguntas), no títulos vacíos.
+- No inventes datos sobre él ni cifras que no estén en lo que te dio.
+Forma: {"titulo": string, "capitulos": [{"titulo": string, "puntos": [string]}]}`
+const SISTEMA_PODCAST_TRAMO = `Sos el guionista del Taller de Mastropiero. Escribís UN capítulo de un podcast a dos voces (A y B), en castellano rioplatense, para escuchar: natural, con ideas concretas, ejemplos y algún desacuerdo amable; sin muletillas de locutor, sin leer listas ni decir «capítulo».
+- Turnos alternados; cada turno de 1 a 4 oraciones (alguna réplica corta está bien).
+- El largo importa: el audio tiene que durar lo pedido, así que escribí cerca de las palabras que se piden para este capítulo (ni mucho menos ni mucho más).
+- Seguí desde donde quedó el capítulo anterior (no saludes de nuevo; solo el primer capítulo abre y solo el último despide).
+- No inventes datos sobre él ni cifras que no estén en lo que te dio.
+Forma: {"turnos": [{"quien": "A" | "B", "texto": string}]}`
+
+/**
+ * Un episodio con el largo pedido: él da los temas (el pedido), el contexto y los minutos. El guion sale del brief (y de
+ * su archivo, si suma), se arma por capítulos a ritmo real (140 palabras por minuto), se graba turno por turno con las
+ * voces del Taller y queda un solo mp3 más la transcripción con los capítulos marcados al segundo.
+ */
+export async function crearPodcast(db: Db, temas: string, o: { minutos: number; contexto?: string | null; voces?: [string, string]; usarArchivo?: boolean; ahora?: number }): Promise<Artefacto> {
+  const { planDeLargo, contarPalabras, duracionMp3, transcripcion } = await import('./podcast.ts')
+  const largo = planDeLargo(o.minutos)
+  const [va, vb] = o.voces?.length === 2 && VOCES[o.voces[0]] && VOCES[o.voces[1]] ? o.voces : ['em_alex', 'ef_dora']
+  const nombre = (v: string) => (VOCES[v] ?? v).split(' ')[0]
+  const contexto = String(o.contexto ?? '').trim().slice(0, 12_000)
+  const a = nuevo(db, { tipo: 'voz', titulo: temas.slice(0, 80), pedido: temas, meta: { podcast: true, minutosPedidos: largo.minutos, contexto: contexto || null, voces: [va, vb] } }, o.ahora)
+  try {
+    let archivo = ''
+    if (o.usarArchivo !== false) try { archivo = (await import('./semantica.ts').then((m) => m.archivoRelevante(db, temas))).texto } catch { /* sin vectores */ }
+    const brief = [`Temas: ${temas}`, contexto ? `Contexto que te da él:\n${contexto}` : '', archivo ? `De su archivo (apoyo):\n${archivo}` : '', o.usarArchivo !== false ? `Lo que sabés de él:\n${memoriaParaPrompt(db, 12, temas)}` : ''].filter(Boolean).join('\n\n')
+    avance(db, a.id, 'armando los capítulos')
+    const { datos: plan } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'taller' }, SISTEMA_PODCAST_PLAN, `${brief}\n\nDura ${largo.minutos} minutos: ${largo.capitulos} capítulo${largo.capitulos === 1 ? '' : 's'}.`, { temperatura: 0.7, maxTokens: 2500 })
+    const caps = (Array.isArray(plan.capitulos) ? plan.capitulos : []).filter((c: any) => c?.titulo).slice(0, largo.capitulos).map((c: any) => ({ titulo: String(c.titulo).slice(0, 120), puntos: (Array.isArray(c.puntos) ? c.puntos : []).map(String).slice(0, 6) }))
+    if (!caps.length) throw new Error('El plan del episodio vino vacío')
+    const titulo = String(plan.titulo ?? temas).slice(0, 80)
+    const indice = caps.map((c: any, i: number) => `${i + 1}. ${c.titulo}: ${c.puntos.join('; ')}`).join('\n')
+    const turnos: { voz: string; quien: string; texto: string; capitulo: number; desde?: number }[] = []
+    const objetivo = Math.round(largo.palabras / caps.length)
+    for (const [k, c] of caps.entries()) {
+      avance(db, a.id, `escribiendo el capítulo ${k + 1} de ${caps.length}`)
+      const previo = turnos.slice(-4).map((t) => `${t.quien === nombre(va) ? 'A' : 'B'}: ${t.texto}`).join('\n')
+      const pedir = async (palabras: number, seguir: string) => {
+        const u = `${brief}\n\nEl episodio: «${titulo}», ${largo.minutos} minutos.\n${indice}\n\nAhora: capítulo ${k + 1} de ${caps.length}, «${c.titulo}» (${c.puntos.join('; ')}).${k === 0 ? ' Abre el episodio.' : ''}${k === caps.length - 1 ? ' Cierra el episodio.' : ''}\nCerca de ${palabras} palabras en total.${previo ? `\n\nCómo venía:\n${previo}` : ''}${seguir}`
+        const { datos } = await pedirJson<any>({ db, clase: 'mastropiero', agenteId: 'taller' }, SISTEMA_PODCAST_TRAMO, u, { temperatura: 0.8, maxTokens: Math.max(2000, palabras * 4) })
+        return (Array.isArray(datos.turnos) ? datos.turnos : []).filter((t: any) => t?.texto).map((t: any) => ({ voz: t.quien === 'B' ? vb : va, quien: t.quien === 'B' ? nombre(vb) : nombre(va), texto: String(t.texto).slice(0, 1500), capitulo: k }))
+      }
+      const tramo = await pedir(objetivo, '')
+      // Si quedó corto (menos de 3/4 de lo pedido), una vuelta más que sigue la charla donde quedó.
+      const dichas = contarPalabras(tramo.map((t: any) => t.texto).join(' '))
+      if (dichas < objetivo * 0.75 && tramo.length) {
+        const ultimo = tramo.slice(-3).map((t: any) => `${t.voz === va ? 'A' : 'B'}: ${t.texto}`).join('\n')
+        tramo.push(...await pedir(objetivo - dichas, `\n\nYa está escrito este comienzo del capítulo (no lo repitas):\n${ultimo}\nSeguí desde ahí con unas ${objetivo - dichas} palabras más.`).catch(() => []))
+      }
+      turnos.push(...tramo)
+    }
+    if (!turnos.length) throw new Error('El guion del episodio vino vacío')
+    // La grabación: de a 3 turnos a la vez, en orden.
+    const partes: Buffer[] = new Array(turnos.length)
+    for (let i = 0; i < turnos.length; i += 3) {
+      avance(db, a.id, `grabando ${Math.min(i + 3, turnos.length)} de ${turnos.length}`)
+      await Promise.all(turnos.slice(i, i + 3).map(async (t, j) => { partes[i + j] = await vozNaN(t.texto, t.voz) }))
+    }
+    let t0 = 0
+    turnos.forEach((t, i) => { t.desde = t0; t0 += duracionMp3(partes[i]) })
+    const capitulos = caps.map((c: any, k: number) => ({ titulo: c.titulo, desde: turnos.find((t) => t.capitulo === k)?.desde ?? 0 }))
+    const dir = carpeta(a.id)
+    fs.writeFileSync(path.join(dir, 'podcast.mp3'), await unirMp3(partes))
+    fs.writeFileSync(path.join(dir, 'transcripcion.md'), transcripcion(titulo, capitulos, turnos, t0))
+    db.prepare('UPDATE artefactos SET titulo = ? WHERE id = ?').run(titulo, a.id)
+    terminar(db, a.id, ['podcast.mp3', 'transcripcion.md'], { guion: turnos.map((t) => ({ voz: t.voz, texto: t.texto })), capitulos, duracion: Math.round(t0), palabras: contarPalabras(turnos.map((t) => t.texto).join(' ')) })
+  } catch (e) { fallar(db, a.id, e) }
+  return leerArtefacto(db, a.id)!
 }
 
 // ─── ideas desde su archivo ─────────────────────────────────────────────

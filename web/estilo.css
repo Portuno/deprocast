@@ -1053,6 +1053,9 @@ pre.json { background: var(--panel-2); border-radius: var(--r-m); padding: 12px;
 .tl-op { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
 .tl-op > span { font-size: var(--t-2); color: var(--tenue); min-width: 56px; }
 .tl-op select { width: auto; margin: 0; }
+.tl-voces { display: grid; gap: 10px; }
+.tl-podcast { display: grid; gap: 6px; }
+.tl-podcast[hidden] { display: none; }
 .tl-seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--linea); border-radius: var(--r-pill); overflow: hidden; background: var(--panel-2); }
 .tl-seg button { border: 0; background: none; color: var(--tenue); padding: 5px 12px; font: inherit; font-size: var(--t-3); cursor: pointer; }
 .tl-seg button + button { border-left: 1px solid var(--linea); }
