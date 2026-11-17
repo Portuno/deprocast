@@ -1435,6 +1435,9 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/escalas$/, async (_, __, q) => (await import('./escalas.ts')).verEscala(db, (q.get('escala') as any) || 'dia', q.get('fecha') || '')],
   ['POST', /^\/api\/escalas\/armar$/, async (b) => ({ hechas: await (await import('./escalas.ts')).armarHaciaArriba(db, String(b.fecha ?? '')) })],
 
+  // La hoja citable de una entidad (Fragua #292): la última (GET) o armarla / rehacerla (POST, con forzar).
+  ['GET', /^\/api\/hojas-citables\/(\d+)$/, async (_, [n]) => (await import('./hojas-citables.ts')).leerHoja(db, id(n)) ?? {}],
+  ['POST', /^\/api\/hojas-citables\/(\d+)$/, async (b, [n]) => (await import('./hojas-citables.ts')).hojaCitable(db, id(n), { forzar: !!b.forzar })],
   // Las reservas (Fragua #254): la lista, anotar una, cambiarla y sus textos (mail, WhatsApp, llamada, recordatorio).
   ['GET', /^\/api\/reservas$/, async (_, __, q) => (await import('./reservas.ts')).listarReservas(db, { estado: (q.get('estado') as any) || 'todas' })],
   ['POST', /^\/api\/reservas$/, async (b) => (await import('./reservas.ts')).crearReserva(db, b)],

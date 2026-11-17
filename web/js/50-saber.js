@@ -750,6 +750,23 @@ async function modalDuplicados() {
   } catch (e) { error(e) }
 }
 
+/** La hoja citable (Fragua #292): verla, copiarla o rehacerla. Es privada: publicarla es decisión suya. */
+async function modalHojaCitable(id, nombre) {
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>Hoja citable · ${esc(nombre)}</h2><p class="tenue">Lo que una IA debería citar cuando alguien pregunte. Sale solo de lo que Deprocast sabe (la ficha, el equipo, las piezas): lo que no está, no entra. Es privada; publicarla en el sitio o los perfiles es decisión tuya.</p><div id="hoja-cuerpo"><p class="tenue">Trayéndola…</p></div>`)
+  const pintar = (h) => {
+    $('#hoja-cuerpo').innerHTML = h?.markdown
+      ? `<p class="tenue chico">Versión ${h.version}${h.nueva ? ' (recién armada)' : ''}</p><pre class="fr-copia">${esc(h.markdown)}</pre><div class="fila"><button class="btn btn-primario" data-hoja-copiar>Copiar</button><button class="btn" data-hoja-rehacer>Rehacer</button></div>`
+      : '<p>Todavía no tiene hoja.</p><div class="fila"><button class="btn btn-primario" data-hoja-rehacer>Armarla</button></div>'
+    const c = $('[data-hoja-copiar]')
+    if (c) c.onclick = async () => { try { await navigator.clipboard.writeText(h.markdown); toast('Hoja copiada', 'suave') } catch { toast('No pude copiar: seleccionala a mano', 'error') } }
+    $('[data-hoja-rehacer]').onclick = async (ev) => {
+      ev.currentTarget.disabled = true; ev.currentTarget.textContent = 'Armando (unos segundos)…'
+      try { pintar(await api(`/hojas-citables/${id}`, { forzar: !!h?.markdown })) } catch (x) { error(x); pintar(h) }
+    }
+  }
+  try { pintar(await api(`/hojas-citables/${id}`)) } catch (x) { error(x) }
+}
+
 async function verEntidad(id) {
   filtroEnt.sel = id
   $$('.ent-fila').forEach((el) => el.classList.toggle('sel', Number(el.dataset.ent) === id))
@@ -763,7 +780,7 @@ async function verEntidad(id) {
       <h2>${esc(e.nombre)}</h2>
       ${e.alias.length ? `<div class="tags">${e.alias.map((a) => `<span>${esc(a)}<button type="button" class="quitar-alias" data-quitar-alias="${esc(a)}" title="No es otro nombre de ${esc(e.nombre)}: sacarlo">✕</button></span>`).join('')}</div>` : ''}
       ${e.notas ? `<div class="notas">${esc(e.notas)}</div>` : ''}
-      <div class="fila" style="margin:12px 0 4px"><button class="btn btn-chico btn-primario" id="ent-preguntar">☿ Preguntarle a Mastropiero</button>${e.tipo === 'proyecto' ? '<button class="btn btn-chico" id="ent-espacio" title="Todo el proyecto en un lugar, y su equipo de agentes">🧪 Espacio y sandbox</button>' : ''}<button class="btn btn-chico" id="ent-grafo" title="El grafo de todo lo que tu archivo dice de esto">☍ Su grafo</button><button class="btn btn-chico" id="ent-unir" title="Es la misma que otra entidad: juntarlas en una">Unir con…</button>
+      <div class="fila" style="margin:12px 0 4px"><button class="btn btn-chico btn-primario" id="ent-preguntar">☿ Preguntarle a Mastropiero</button>${e.tipo === 'proyecto' ? '<button class="btn btn-chico" id="ent-espacio" title="Todo el proyecto en un lugar, y su equipo de agentes">🧪 Espacio y sandbox</button>' : ''}<button class="btn btn-chico" id="ent-grafo" title="El grafo de todo lo que tu archivo dice de esto">☍ Su grafo</button>${['proyecto', 'persona', 'empresa'].includes(e.tipo) ? '<button class="btn btn-chico" id="ent-hoja" title="Su fuente canónica: lo que una IA debería citar cuando alguien pregunte (solo con lo que Deprocast sabe de verdad)">📄 Hoja citable</button>' : ''}<button class="btn btn-chico" id="ent-unir" title="Es la misma que otra entidad: juntarlas en una">Unir con…</button>
         ${e.meta?.operador ? '<button class="btn btn-chico" id="ent-ficha-jugador">Tu ficha de jugador</button>' : e.tipo === 'persona' ? '<button class="btn btn-chico" id="ent-soy-yo" title="Marcar esta persona como vos: tu ficha de jugador y la suya pasan a ser una">Soy yo</button>' : ''}</div>
       ${e.tipo === 'empresa' ? '<div id="ent-empresa" class="empresa-ficha"></div>' : ''}
       <div class="tabs chicas" id="ent-tabs">${[['corpus', 'Corpus'], ['ejes', 'Ejes'], ['misiones', 'Misiones'], ['historia', 'Historia'], ['inventario', 'Inventario']].map(([k, n]) => `<button data-etab="${k}" class="${k === entTab ? 'on' : ''}">${n}</button>`).join('')}</div>
@@ -795,6 +812,8 @@ async function verEntidad(id) {
     if (fj) fj.onclick = () => irA('jugador')
     const esp = $('#ent-espacio')
     if (esp) esp.onclick = () => modalEspacio(e.id)
+    const hoja = $('#ent-hoja')
+    if (hoja) hoja.onclick = () => modalHojaCitable(e.id, e.nombre)
     $$('[data-quitar-alias]', det).forEach((b) => (b.onclick = async () => {
       const a = b.dataset.quitarAlias
       if (!(await confirmar(`¿Sacar «${a}» de los alias de ${e.nombre}?`, { detalle: 'Sigue encontrándose por las piezas que lo nombran.', si: 'Sacar el alias' }))) return

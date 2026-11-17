@@ -267,6 +267,8 @@ export const ACCIONES: Acciones = {
   async paginas(db, _fecha, ahora) {
     const r = await (await import('./paginas.ts')).construirPendientes(db, ahora)
     if (r.fallas.length) console.error('  páginas:', r.fallas.join(' · '))
+    // Fragua #292: las hojas citables de los proyectos cuyos datos cambiaron (de a pocos).
+    await (await import('./hojas-citables.ts')).rehacerHojas(db, { ahora }).catch((e) => console.error('  hojas citables:', e instanceof Error ? e.message : e))
     return null // trabajo de fondo: no deja mensaje en Hoy (lo nuevo se ve en cada página)
   },
   async temporada(db, _fecha, ahora) {
