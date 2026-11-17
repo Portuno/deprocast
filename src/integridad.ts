@@ -91,6 +91,56 @@ export function engancharIntegridad(db: Db) {
   }
 }
 
+/**
+ * Las claves foráneas que faltan y valen la pena (Fragua #291, segunda parte), con la decisión propuesta para cada una:
+ * - cascada: lo de abajo no tiene vida propia (el vector de una pieza borrada no sirve para nada);
+ * - vaciar: lo de abajo sigue existiendo sin eso (una misión sin su run);
+ * - impedir: no se deja borrar lo de arriba mientras tenga esto (un movimiento con asientos contables).
+ * Todavía NO se aplican: revisarCandidatas solo cuenta (filas y huérfanos ya presentes) para decidir con él.
+ */
+export type Candidata = { tabla: string; columna: string; padre: string; alBorrar: 'cascada' | 'vaciar' | 'impedir'; porQue: string }
+export const CANDIDATAS: Candidata[] = [
+  { tabla: 'vectores', columna: 'pieza_id', padre: 'corpus', alBorrar: 'cascada', porQue: 'el vector de una pieza borrada no sirve' },
+  { tabla: 'pasajes', columna: 'pieza_id', padre: 'corpus', alBorrar: 'cascada', porQue: 'los pasajes son trozos de la pieza' },
+  { tabla: 'corpus_entidades', columna: 'pieza_id', padre: 'corpus', alBorrar: 'cascada', porQue: 'es el vínculo pieza–entidad' },
+  { tabla: 'corpus_entidades', columna: 'entidad_id', padre: 'entidades', alBorrar: 'cascada', porQue: 'es el vínculo pieza–entidad' },
+  { tabla: 'criba', columna: 'pieza_id', padre: 'corpus', alBorrar: 'cascada', porQue: 'el voto es sobre esa pieza' },
+  { tabla: 'tarjetas_piezas', columna: 'pieza_id', padre: 'corpus', alBorrar: 'cascada', porQue: 'el vínculo tarjeta–pieza' },
+  { tabla: 'takeout_destilado', columna: 'pieza_id', padre: 'corpus', alBorrar: 'cascada', porQue: 'la cola de destilado de esa pieza' },
+  { tabla: 'reproceso_fallos', columna: 'pieza_id', padre: 'corpus', alBorrar: 'cascada', porQue: 'el fallo de reprocesar esa pieza' },
+  { tabla: 'relaciones', columna: 'entidad_id', padre: 'entidades', alBorrar: 'cascada', porQue: 'la ficha de relación de esa persona' },
+  { tabla: 'persona_proyecto', columna: 'persona_id', padre: 'entidades', alBorrar: 'cascada', porQue: 'el vínculo persona–proyecto' },
+  { tabla: 'persona_proyecto', columna: 'proyecto_id', padre: 'entidades', alBorrar: 'cascada', porQue: 'el vínculo persona–proyecto' },
+  { tabla: 'propuestas_areas', columna: 'propuesta_id', padre: 'propuestas', alBorrar: 'cascada', porQue: 'el historial de categoría de esa propuesta' },
+  { tabla: 'bucles_vistos', columna: 'bucle_id', padre: 'bucles', alBorrar: 'cascada', porQue: 'las menciones ya contadas de ese bucle' },
+  { tabla: 'transcripciones', columna: 'audio_id', padre: 'audios', alBorrar: 'cascada', porQue: 'las versiones de ese audio' },
+  { tabla: 'quantomos', columna: 'pieza_id', padre: 'corpus', alBorrar: 'vaciar', porQue: 'un quántomo cribado vale aunque se vaya su pieza' },
+  { tabla: 'memoria', columna: 'pieza_id', padre: 'corpus', alBorrar: 'vaciar', porQue: 'el recuerdo sigue aunque se vaya la pieza' },
+  { tabla: 'misiones', columna: 'run_id', padre: 'runs', alBorrar: 'vaciar', porQue: 'la misión sigue sin su run' },
+  { tabla: 'misiones', columna: 'entidad_id', padre: 'entidades', alBorrar: 'vaciar', porQue: 'la misión sigue sin la entidad' },
+  { tabla: 'movimientos', columna: 'entidad_id', padre: 'entidades', alBorrar: 'vaciar', porQue: 'la plata sigue anotada sin la entidad' },
+  { tabla: 'movimientos', columna: 'mision_id', padre: 'misiones', alBorrar: 'vaciar', porQue: 'la plata sigue anotada sin la misión' },
+  { tabla: 'oportunidades', columna: 'mision_id', padre: 'misiones', alBorrar: 'vaciar', porQue: 'la oportunidad sigue sin la primaria' },
+  { tabla: 'fragua', columna: 'propuesta_id', padre: 'propuestas', alBorrar: 'vaciar', porQue: 'la forja queda como historia' },
+  { tabla: 'eventos', columna: 'lugar_id', padre: 'entidades', alBorrar: 'vaciar', porQue: 'el evento sigue sin el lugar' },
+  { tabla: 'tesoro_asientos', columna: 'movimiento_id', padre: 'movimientos', alBorrar: 'impedir', porQue: 'un asiento contable no puede quedar sin su movimiento' },
+]
+
+/** Cuánto hay y cuánto ya está roto en cada candidata (solo cuenta; de a una, soltando el hilo). */
+export async function revisarCandidatas(db: Db): Promise<(Candidata & { filas: number | null; huerfanas: number | null; nota?: string })[]> {
+  const existe = (t: string) => !!db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(t)
+  const out: (Candidata & { filas: number | null; huerfanas: number | null; nota?: string })[] = []
+  for (const c of CANDIDATAS) {
+    await new Promise((r) => setImmediate(r))
+    if (!existe(c.tabla) || !existe(c.padre)) { out.push({ ...c, filas: null, huerfanas: null, nota: 'la tabla todavía no existe en esta base' }); continue }
+    const pk = clavePrimaria(db, c.padre)
+    const filas = (db.prepare(`SELECT COUNT(*) AS n FROM "${c.tabla}"`).get() as { n: number }).n
+    const huerfanas = (db.prepare(`SELECT COUNT(*) AS n FROM "${c.tabla}" h WHERE h."${c.columna}" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "${c.padre}" p WHERE p."${pk}" = h."${c.columna}")`).get() as { n: number }).n
+    out.push({ ...c, filas, huerfanas })
+  }
+  return out
+}
+
 /** Lo que ya está roto: por tabla, cuántas filas apuntan a algo que no existe (sin borrar nada). Tabla por tabla. */
 export async function huerfanos(db: Db, o: { limitePorTabla?: number } = {}): Promise<{ tabla: string; padre: string; filas: number }[]> {
   const out = new Map<string, { tabla: string; padre: string; filas: number }>()

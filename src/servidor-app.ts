@@ -1428,6 +1428,8 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/uso$/, async (_, __, q) => { const u = await import('./uso-telefono.ts'); return q.get('dias') ? u.usoDeDias(db, Number(q.get('dias')) || 7) : u.usoDelDia(db, q.get('fecha') || undefined) }],
   ['POST', /^\/api\/uso\/distracciones$/, async (req) => { const b = JSON.parse((await leerCrudo(req, 64 * 1024)).toString('utf8') || '{}'); return { distracciones: (await import('./uso-telefono.ts')).fijarDistracciones(db, Array.isArray(b.distracciones) ? b.distracciones : []) } }],
   // Fragua #291: los huérfanos que encontró la revisión del arranque (o, con ?ahora=1, una revisión nueva).
+  // Las claves foráneas que faltan: cuántas filas y cuántos huérfanos tendría cada una (solo cuenta, no cambia nada).
+  ['GET', /^\/api\/integridad\/candidatas$/, async () => ({ candidatas: await (await import('./integridad.ts')).revisarCandidatas(db) })],
   ['GET', /^\/api\/integridad$/, async (_, __, q) => q.get('ahora') ? { en: Date.now(), h: await (await import('./integridad.ts')).huerfanos(db) } : JSON.parse(ajuste(db, 'integridad_huerfanos') ?? '{"h":[]}')],
   ['GET', /^\/api\/recordatorios$/, async () => ({ recordatorios: (await import('./avisos-movil.ts')).recordatorios(db) })],
   ['GET', /^\/api\/actividad$/, async (_, __, q) => { const t = await import('./territorio.ts'); return q.get('semana') ? t.actividadSemana(db) : t.actividadDelDia(db, q.get('fecha') || undefined) }],
