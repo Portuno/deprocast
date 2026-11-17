@@ -79,6 +79,14 @@ export async function recibirVoz(db: Db, d: Dispositivo, audio: Buffer, nombre: 
   const texto = (await transcribir(db, audio, nombre || 'voz.m4a')).trim()
   // Un tramo sin voz (ruido, el bolsillo) no es un error: no deja nada y el teléfono no lo reintenta (Fragua #278).
   if (!texto) return { texto: '', destino: 'nada' }
+  // Fragua #305: lo que el transcriptor inventa sobre el silencio («Gracias.», «Subtítulos por…») o una palabra suelta
+  // repetida en pocos minutos no es habla: no deja turno, ni chat, ni nota. Queda contado (voz_segmentos, destino ruido).
+  const { motivoDeRuido, recientesDe } = await import('./voz-ruido.ts')
+  const ruido = motivoDeRuido(texto, recientesDe(db, d.id, ahora))
+  if (ruido) {
+    db.prepare('INSERT INTO voz_segmentos (dispositivo_id, modo, texto, meta, destino, creado_en) VALUES (?, ?, ?, ?, ?, ?)').run(d.id, meta.modo, texto, JSON.stringify({ ...meta, ruido }), 'ruido', ahora)
+    return { texto: '', destino: 'nada' }
+  }
   if (meta.modo !== 'conversacion') void import('./google/drive.ts').then((d) => d.alDrive(db, { datos: audio, nombre: nombre || 'voz.m4a', tipo: 'audio', origen: 'teléfono', descripcion: texto })).catch(() => {})
   const datos = JSON.stringify({ ...meta, dispositivo: d.nombre })
   // Quién habló: la huella de la voz (si el audio es un WAV que se entiende) contra los hablantes conocidos.

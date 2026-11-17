@@ -68,9 +68,19 @@ export function lento(db: Db, ahora = Date.now(), dias = 7) {
 /** Lo que el operador dijo que anda mal (en el chat, últimos días). */
 const QUEJA = /no anda|no funciona|no me deja|no carga|no aparece|no responde|se rompi|se cuelga|se tild|anda mal|me tira|error|falla|bug|molesta|tarda (mucho|una banda)|lent[oa]|ruta desconocida/i
 
+/**
+ * Cuándo arrancó este servidor (Fragua #308). En la nube arranca con cada actualización: la lentitud de antes es de un
+ * código que ya no corre (un arreglo que se subió después la pudo resolver), así que no cuenta como evidencia.
+ */
+export let arranqueDelServidor = Date.now() - Math.round(process.uptime() * 1000)
+export function _probarArranque(t: number) { arranqueDelServidor = t }
+/** El arranque, si es anterior al momento que se mira (mirando el pasado, no se aplica). */
+const arranqueAntesDe = (ahora: number) => (arranqueDelServidor <= ahora ? arranqueDelServidor : 0)
+
 export function materialDeAutocritica(db: Db, ahora = Date.now(), dias = 2): string {
   const desde = ahora - dias * DIA
-  const errores = db.prepare(`SELECT origen, texto, veces, codigo, accion FROM errores WHERE ultima >= ? AND COALESCE(ajeno, 0) = 0 AND COALESCE(recuperado, 0) = 0 ORDER BY veces DESC, ultima DESC LIMIT 25`).all(desde) as { origen: string; texto: string; veces: number; codigo: string | null; accion: string | null }[]
+  // La lentitud solo cuenta si pasó con el código de ahora (desde el último arranque); los demás errores, los últimos días.
+  const errores = db.prepare(`SELECT origen, texto, veces, codigo, accion FROM errores WHERE ultima >= ? AND (origen != 'lento' OR ultima >= ?) AND COALESCE(ajeno, 0) = 0 AND COALESCE(recuperado, 0) = 0 ORDER BY veces DESC, ultima DESC LIMIT 25`).all(desde, arranqueAntesDe(ahora)) as { origen: string; texto: string; veces: number; codigo: string | null; accion: string | null }[]
   const quejas = (db.prepare(`SELECT m.texto FROM mensajes m JOIN conversaciones c ON c.id = m.conversacion_id WHERE m.rol = 'operador' AND c.con = 'mastropiero' AND m.en >= ? ORDER BY m.id DESC LIMIT 200`).all(desde) as { texto: string }[])
     .map((m) => m.texto).filter((t) => QUEJA.test(t)).slice(0, 12)
   const rutinas = (db.prepare(`SELECT texto FROM mensajes WHERE rol = 'asistente' AND modelo = 'rutina' AND (texto LIKE 'No pude %' OR texto LIKE 'Falló «%') AND en >= ? ORDER BY id DESC LIMIT 10`).all(desde) as { texto: string }[]).map((m) => m.texto)
@@ -165,7 +175,8 @@ const SEMANA = 7 * DIA
  * misma semana suma a la propuesta que ya existe (y dice si mejoró, empeoró o sigue igual), en vez de abrir otra.
  */
 export function propuestaPorBloqueos(db: Db, ahora = Date.now()): { id: number; nueva: boolean } | null {
-  const desde = Math.max(ahora - 3_600_000, Number(ajusteDe(db, 'bloqueos_revisado_hasta') || 0))
+  // Solo los bloqueos con el código de ahora (Fragua #308): los de antes del último arranque no abren ni reabren nada.
+  const desde = Math.max(ahora - 3_600_000, Number(ajusteDe(db, 'bloqueos_revisado_hasta') || 0), arranqueAntesDe(ahora))
   const filas = (db.prepare('SELECT en, ms, durante FROM bloqueos WHERE en > ? AND en <= ? AND ms > 2000 AND ms < 60000').all(desde, ahora) as { en: number; ms: number; durante: string }[])
   if (filas.length <= 3) return null
   fijarAjusteDe(db, 'bloqueos_revisado_hasta', String(ahora))

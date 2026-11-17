@@ -53,13 +53,38 @@ function esDeForja(db: Db, c: CommitRef): boolean {
 
 const json = <T>(s: string | null | undefined, d: T): T => { try { return s ? JSON.parse(s) as T : d } catch { return d } }
 
+const VACIAS = new Set(['sobre', 'desde', 'hasta', 'entre', 'cuando', 'donde', 'porque', 'tiene', 'tienen', 'hacer', 'hace', 'para', 'como', 'todas', 'todos', 'cada', 'otra', 'otro', 'solo', 'sola', 'deprocast'])
+const palabras = (s: string) => new Set(s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9ñ ]+/g, ' ').split(' ').filter((w) => w.length >= 5 && !VACIAS.has(w)))
+
+/**
+ * Un commit que no nombra ninguna propuesta pero cuyo mensaje se parece a una abierta (Fragua #307): no se cierra
+ * (podría estar equivocado), queda con una nota «puede que la haya resuelto…» para que él la confirme con «Ya está».
+ * Se parece: al menos 3 palabras fuertes del título, y el 60 % de ellas, aparecen en el mensaje.
+ */
+export function posiblesDelCommit(db: Db, c: CommitRef): number[] {
+  const m = palabras(c.mensaje)
+  const out: number[] = []
+  for (const p of db.prepare(`SELECT id, titulo, nota FROM propuestas WHERE estado = 'abierta'`).all() as { id: number; titulo: string; nota: string | null }[]) {
+    const t = [...palabras(p.titulo)]
+    if (t.length < 3) continue
+    const hits = t.filter((w) => m.has(w)).length
+    if (hits >= 3 && hits / t.length >= 0.6 && !p.nota) {
+      db.prepare('UPDATE propuestas SET nota = ? WHERE id = ?').run(`Puede que la haya resuelto ${c.sha.slice(0, 7)} («${c.mensaje.split('\n')[0].slice(0, 120)}»), que no la nombra: si es así, ✓ Ya está.`, p.id)
+      out.push(p.id)
+    }
+  }
+  return out
+}
+
 /** Aplica los commits (del más viejo al más nuevo: gana el último). Devuelve qué cambió. */
 export function aplicarCommits(db: Db, commits: CommitRef[]) {
-  const r = { cerradas: [] as number[], parciales: [] as number[], descartadas: [] as number[] }
+  const r = { cerradas: [] as number[], parciales: [] as number[], descartadas: [] as number[], posibles: [] as number[] }
   const orden = [...commits].sort((a, b) => Date.parse(a.fecha) - Date.parse(b.fecha))
   for (const c of orden) {
     if (esDeForja(db, c)) continue
-    for (const ref of referencias(c.mensaje)) {
+    const refs = referencias(c.mensaje)
+    if (!refs.length) { r.posibles.push(...posiblesDelCommit(db, c)); continue }
+    for (const ref of refs) {
       const p = db.prepare('SELECT id, estado, cerrada_por, cierres, deshechos FROM propuestas WHERE id = ?').get(ref.id) as { id: number; estado: string; cerrada_por: string | null; cierres: string | null; deshechos: string | null } | undefined
       if (!p) continue
       if (json<string[]>(p.deshechos, []).includes(c.sha)) continue
