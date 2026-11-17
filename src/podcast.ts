@@ -39,6 +39,8 @@ export function duracionMp3(b: Buffer): number {
     const muestras = version === 3 ? 1152 : 576
     const largo = Math.floor(((version === 3 ? 144 : 72) * kbps * 1000) / hz) + relleno
     if (largo < 4) { i++; continue }
+    // El primer cuadro de un mp3 de encoder suele ser la cabecera Xing/Info/VBRI: no es audio, no suma tiempo.
+    if (!cuadros && /Xing|Info|VBRI/.test(b.toString('latin1', i + 4, Math.min(b.length, i + 4 + 40)))) { i += largo; continue }
     seg += muestras / hz
     cuadros++
     i += largo

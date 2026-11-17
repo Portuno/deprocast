@@ -593,11 +593,12 @@ export async function crearPodcast(db: Db, temas: string, o: { minutos: number; 
     turnos.forEach((t, i) => { t.desde = t0; t0 += duracionMp3(partes[i]) })
     const capitulos = caps.map((c: any, k: number) => ({ titulo: c.titulo, desde: turnos.find((t) => t.capitulo === k)?.desde ?? 0 }))
     const dir = carpeta(a.id)
-    fs.writeFileSync(path.join(dir, 'podcast.mp3'), await unirMp3(partes))
+    const unido = await unirMp3(partes)
+    fs.writeFileSync(path.join(dir, 'podcast.mp3'), unido)
     fs.writeFileSync(path.join(dir, 'transcripcion.md'), transcripcion(titulo, capitulos, turnos, t0))
     db.prepare('UPDATE artefactos SET titulo = ? WHERE id = ?').run(titulo, a.id)
     terminar(db, a.id, ['podcast.mp3', 'transcripcion.md'], { guion: turnos.map((t) => ({ voz: t.voz, texto: t.texto })), capitulos, duracion: Math.round(t0), palabras: contarPalabras(turnos.map((t) => t.texto).join(' ')) })
-    await entregarPodcast(db, a.id, titulo, capitulos, t0)
+    await entregarPodcast(db, a.id, unido, titulo, capitulos, t0)
   } catch (e) { fallar(db, a.id, e) }
   return leerArtefacto(db, a.id)!
 }
@@ -607,21 +608,21 @@ export async function crearPodcast(db: Db, temas: string, o: { minutos: number; 
  * WhatsApp con el índice de capítulos (si la ventana de 24 horas está abierta). Lo que no se pudo queda anotado en el
  * artefacto; nunca hace fallar al podcast, que ya está listo.
  */
-async function entregarPodcast(db: Db, id: number, titulo: string, capitulos: { titulo: string; desde: number }[], duracion: number) {
+async function entregarPodcast(db: Db, id: number, mp3: Buffer, titulo: string, capitulos: { titulo: string; desde: number }[], duracion: number) {
   const { reloj } = await import('./podcast.ts')
   const dir = carpeta(id)
-  const mp3 = fs.readFileSync(path.join(dir, 'podcast.mp3'))
   const indice = capitulos.map((c, i) => `${reloj(c.desde)} · ${i + 1}. ${c.titulo}`).join('\n')
-  const entrega: { drive: boolean; whatsapp: boolean; error?: string } = { drive: false, whatsapp: false }
+  const entrega: { drive: boolean; whatsapp: boolean; errores?: string[] } = { drive: false, whatsapp: false }
+  const fallo = (donde: string, e: unknown) => { (entrega.errores ??= []).push(`${donde}: ${e instanceof Error ? e.message : e}`) }
   try {
     const { alDrive } = await import('./google/drive.ts')
     entrega.drive = alDrive(db, { datos: mp3, nombre: `${titulo}.mp3`, mime: 'audio/mpeg', tipo: 'audio', origen: 'podcast', descripcion: `${titulo}\n\n${indice}` }) != null
     if (entrega.drive) alDrive(db, { datos: fs.readFileSync(path.join(dir, 'transcripcion.md')), nombre: `${titulo} transcripción.md`, mime: 'text/markdown', tipo: 'archivo', origen: 'podcast', descripcion: titulo })
-  } catch (e) { entrega.error = `Drive: ${e instanceof Error ? e.message : e}` }
+  } catch (e) { fallo('Drive', e) }
   try {
     const texto = `Listo el podcast «${titulo}» (${reloj(duracion)}).\n\n${indice}${entrega.drive ? '\n\nLa transcripción y el mp3 quedan en tu Drive.' : ''}`
     entrega.whatsapp = await (await import('./whatsapp.ts')).archivoPorWhatsapp(db, mp3, `${titulo.replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 60) || 'podcast'}.mp3`, { mime: 'audio/mpeg', texto })
-  } catch (e) { entrega.error = `WhatsApp: ${e instanceof Error ? e.message : e}` }
+  } catch (e) { fallo('WhatsApp', e) }
   const a = leerArtefacto(db, id)!
   db.prepare('UPDATE artefactos SET meta = ? WHERE id = ?').run(JSON.stringify({ ...a.meta, entrega }), id)
 }

@@ -85,3 +85,17 @@ test('salud: ver_salud trae ids y el último registro; corregir y borrar (con co
   assert.equal(b.borrado.id, r.id)
   assert.equal(listarSalud(db).length, 0)
 })
+
+test('deshacer: una misión con plata u oportunidades colgadas queda descartada (no se borra ni suelta el vínculo)', async () => {
+  const { aplicarCandidatas } = await import('../src/integridad.ts')
+  const db = abrir(':memory:')
+  await aplicarCandidatas(db)
+  const c = crearConversacion(db)
+  turno([{ nombre: 'crear_mision', argumentos: { nivel: 'secundaria', titulo: 'Cobrar la factura' } }])
+  await enviar(db, c.id, 'anotame cobrar la factura')
+  const mision = (db.prepare('SELECT id FROM misiones').get() as { id: number }).id
+  const mov = Number(db.prepare(`INSERT INTO movimientos (fecha, monto, huella, creado_en, mision_id) VALUES ('2026-11-17', 100, 'h-m', ?, ?)`).run(Date.now(), mision).lastInsertRowid)
+  deshacerAcciones(db, ultimasDeshacibles(db, c.id).map((x) => x.id))
+  assert.equal((db.prepare('SELECT estado FROM misiones WHERE id = ?').get(mision) as any)?.estado, 'descartada')
+  assert.equal((db.prepare('SELECT mision_id FROM movimientos WHERE id = ?').get(mov) as any).mision_id, mision)
+})

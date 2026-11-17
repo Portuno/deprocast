@@ -164,6 +164,20 @@ export async function huerfanos(db: Db, o: { limitePorTabla?: number } = {}): Pr
 
 /** El nombre de un disparador de una candidata (uno por regla). */
 const nombreRegla = (c: Candidata, que: 'borrar' | 'guardar' | 'cambiar') => `fk_${c.tabla}_${c.columna}_${que}`
+
+/**
+ * Saca los disparadores de las candidatas (dentro de la transacción que esté abierta). Para cargar una exportación
+ * entera, que vacía y llena las tablas en orden alfabético con las claves foráneas apagadas: los disparadores no miran
+ * ese pragma. Después, aplicarCandidatas los vuelve a poner. Devuelve cuántos sacó.
+ */
+export function pausarReglas(db: Db): number {
+  let n = 0
+  for (const c of CANDIDATAS) for (const q of ['borrar', 'guardar', 'cambiar'] as const) {
+    const nombre = nombreRegla(c, q)
+    if (db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = ?`).get(nombre)) { db.exec(`DROP TRIGGER "${nombre}"`); n++ }
+  }
+  return n
+}
 /** Lo que dice un disparador cuando frena algo (traducirIntegridad lo reconoce por «integridad:»). */
 const comillas = (s: string) => s.replace(/'/g, "''")
 
@@ -177,12 +191,11 @@ export type ReglaAplicada = { tabla: string; columna: string; padre: string; alB
  * 2. un índice en la columna (así borrar el padre no recorre la tabla entera);
  * 3. los disparadores: al borrar el padre (cascada, vaciar o frenar) y al guardar o cambiar el hijo (si apunta a algo
  *    que no existe, se frena con un mensaje que dice qué y dónde).
- * Es idempotente: lo que ya está no se rehace. Las tablas que todavía no existen (nacen con su módulo) quedan para el
+ * Es idempotente: lo que ya está igual no se rehace (si una regla cambió, sus disparadores se rehacen). Las tablas que todavía no existen (nacen con su módulo) quedan para el
  * próximo arranque.
  */
 export async function aplicarCandidatas(db: Db): Promise<ReglaAplicada[]> {
   const existe = (t: string) => !!db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(t)
-  const hayRegla = (n: string) => !!db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = ?`).get(n)
   const out: ReglaAplicada[] = []
   for (const c of CANDIDATAS) {
     await new Promise((r) => setImmediate(r))
@@ -191,11 +204,21 @@ export async function aplicarCandidatas(db: Db): Promise<ReglaAplicada[]> {
     const col = db.prepare(`SELECT name, "notnull" AS nn FROM pragma_table_info(?) WHERE name = ?`).get(c.tabla, c.columna) as { name: string; nn: number } | undefined
     if (!col) { out.push({ ...base, estado: 'salteada', nota: `«${c.tabla}» no tiene la columna ${c.columna}` }); continue }
     if (c.alBorrar === 'vaciar' && col.nn) { out.push({ ...base, estado: 'salteada', nota: `${c.columna} no admite vacío en «${c.tabla}»: la regla «vaciar» no se puede` }); continue }
-    if ([nombreRegla(c, 'borrar'), nombreRegla(c, 'guardar'), nombreRegla(c, 'cambiar')].every(hayRegla)) { out.push({ ...base, estado: 'ya estaba' }); continue }
     const pk = clavePrimaria(db, c.padre)
     const huerfana = `"${c.columna}" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "${c.padre}" p WHERE p."${pk}" = "${c.tabla}"."${c.columna}")`
     const falta = `NOT EXISTS (SELECT 1 FROM "${c.padre}" WHERE "${pk}" = NEW."${c.columna}")`
     const frenoHijo = comillas(`integridad: no se pudo guardar en «${c.tabla}»: ${c.columna} apunta a «${c.padre}» y esa fila no existe (¿se borró, o el id está mal?).`)
+    const alBorrar = c.alBorrar === 'cascada' ? `DELETE FROM "${c.tabla}" WHERE "${c.columna}" = OLD."${pk}";`
+      : c.alBorrar === 'vaciar' ? `UPDATE "${c.tabla}" SET "${c.columna}" = NULL WHERE "${c.columna}" = OLD."${pk}";`
+        : `SELECT RAISE(ABORT, '${comillas(`integridad: no se pudo borrar en «${c.padre}»: hay filas en «${c.tabla}» (${c.columna}) que dependen de esa. Hay que borrar o mover esas primero.`)}') WHERE EXISTS (SELECT 1 FROM "${c.tabla}" WHERE "${c.columna}" = OLD."${pk}");`
+    // Lo que tiene que haber, tal cual lo guarda SQLite (sin «IF NOT EXISTS»): si cambia la regla, se rehace.
+    const disparadores: [string, string][] = [
+      [nombreRegla(c, 'borrar'), `CREATE TRIGGER "${nombreRegla(c, 'borrar')}" ${c.alBorrar === 'impedir' ? 'BEFORE' : 'AFTER'} DELETE ON "${c.padre}" BEGIN ${alBorrar} END`],
+      [nombreRegla(c, 'guardar'), `CREATE TRIGGER "${nombreRegla(c, 'guardar')}" BEFORE INSERT ON "${c.tabla}" WHEN NEW."${c.columna}" IS NOT NULL AND ${falta} BEGIN SELECT RAISE(ABORT, '${frenoHijo}'); END`],
+      [nombreRegla(c, 'cambiar'), `CREATE TRIGGER "${nombreRegla(c, 'cambiar')}" BEFORE UPDATE OF "${c.columna}" ON "${c.tabla}" WHEN NEW."${c.columna}" IS NOT NULL AND ${falta} BEGIN SELECT RAISE(ABORT, '${frenoHijo.replace('guardar', 'cambiar')}'); END`],
+    ]
+    const actual = (n: string) => (db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?`).get(n) as { sql: string } | undefined)?.sql
+    if (disparadores.every(([n, sql]) => actual(n) === sql)) { out.push({ ...base, estado: 'ya estaba' }); continue }
     let limpiadas = 0, nota: string | undefined
     db.exec('SAVEPOINT fk_regla')
     try {
@@ -207,12 +230,7 @@ export async function aplicarCandidatas(db: Db): Promise<ReglaAplicada[]> {
       }
       const tieneIndice = (db.prepare(`SELECT il.name FROM pragma_index_list(?) il WHERE (SELECT name FROM pragma_index_info(il.name) WHERE seqno = 0) = ?`).all(c.tabla, c.columna) as unknown[]).length > 0
       if (!tieneIndice) db.exec(`CREATE INDEX IF NOT EXISTS "ix_fk_${c.tabla}_${c.columna}" ON "${c.tabla}"("${c.columna}")`)
-      const alBorrar = c.alBorrar === 'cascada' ? `DELETE FROM "${c.tabla}" WHERE "${c.columna}" = OLD."${pk}";`
-        : c.alBorrar === 'vaciar' ? `UPDATE "${c.tabla}" SET "${c.columna}" = NULL WHERE "${c.columna}" = OLD."${pk}";`
-          : `SELECT RAISE(ABORT, '${comillas(`integridad: no se pudo borrar en «${c.padre}»: hay filas en «${c.tabla}» (${c.columna}) que dependen de esa. Hay que borrar o mover esas primero.`)}') WHERE EXISTS (SELECT 1 FROM "${c.tabla}" WHERE "${c.columna}" = OLD."${pk}");`
-      db.exec(`CREATE TRIGGER IF NOT EXISTS "${nombreRegla(c, 'borrar')}" ${c.alBorrar === 'impedir' ? 'BEFORE' : 'AFTER'} DELETE ON "${c.padre}" BEGIN ${alBorrar} END`)
-      db.exec(`CREATE TRIGGER IF NOT EXISTS "${nombreRegla(c, 'guardar')}" BEFORE INSERT ON "${c.tabla}" WHEN NEW."${c.columna}" IS NOT NULL AND ${falta} BEGIN SELECT RAISE(ABORT, '${frenoHijo}'); END`)
-      db.exec(`CREATE TRIGGER IF NOT EXISTS "${nombreRegla(c, 'cambiar')}" BEFORE UPDATE OF "${c.columna}" ON "${c.tabla}" WHEN NEW."${c.columna}" IS NOT NULL AND ${falta} BEGIN SELECT RAISE(ABORT, '${frenoHijo.replace('guardar', 'cambiar')}'); END`)
+      for (const [n, sql] of disparadores) if (actual(n) !== sql) { db.exec(`DROP TRIGGER IF EXISTS "${n}"`); db.exec(sql) }
       db.exec('RELEASE fk_regla')
     } catch (e) {
       db.exec('ROLLBACK TO fk_regla'); db.exec('RELEASE fk_regla')

@@ -21,7 +21,11 @@ function aplicar(db: Db, x: Inversa) {
   } else if (x.tabla === 'movimientos') db.prepare('DELETE FROM movimientos WHERE id = ?').run(x.id)
   else if (x.tabla === 'misiones') {
     // Una misión recién creada se borra; si algo ya cuelga de ella, queda descartada.
-    try { db.prepare('DELETE FROM misiones WHERE id = ?').run(x.id) } catch { db.prepare(`UPDATE misiones SET estado = 'descartada' WHERE id = ?`).run(x.id) }
+    // (Los movimientos y oportunidades la sueltan solos al borrarla —regla «vaciar»—: se miran antes, para no perder el vínculo.)
+    const cuelga = ['movimientos', 'oportunidades'].some((t) => { try { return !!db.prepare(`SELECT 1 FROM "${t}" WHERE mision_id = ? LIMIT 1`).get(x.id) } catch { return false } })
+    const descartar = () => db.prepare(`UPDATE misiones SET estado = 'descartada' WHERE id = ?`).run(x.id)
+    if (cuelga) descartar()
+    else try { db.prepare('DELETE FROM misiones WHERE id = ?').run(x.id) } catch { descartar() }
   } else if (x.tabla === 'memoria') db.prepare(`UPDATE memoria SET estado = 'archivada' WHERE id = ?`).run(x.id)
 }
 

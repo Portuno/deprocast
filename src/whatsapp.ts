@@ -19,6 +19,7 @@ import crypto from 'node:crypto'
 import { ajuste, fijarAjuste, type Db } from './db.ts'
 import { conCanal, procesarActualizacion, type Botones, type Canal } from './telegram.ts'
 import { conversacionHoy, estaPensando } from './chat/index.ts'
+import { vozDelCanal } from './voz-respuesta.ts'
 
 const GRAPH = 'https://graph.facebook.com/v21.0'
 const VENTANA = 24 * 3_600_000
@@ -52,7 +53,7 @@ export function estadoWhatsapp(db: Db) {
     ultimoMensaje: ultimo,
     ventanaAbierta: !!ultimo && Date.now() - ultimo < VENTANA,
     reacciones: reaccionesPrendidas(db),
-    voz: ajuste(db, 'whatsapp_voz') ?? '1',
+    voz: vozDelCanal(db, 'whatsapp'),
     diag: diag(db),
   }
 }
@@ -463,8 +464,9 @@ export async function archivoPorWhatsapp(db: Db, datos: Buffer, nombre: string, 
   const c = cfg(db)
   const ultimo = Number(ajuste(db, 'whatsapp_ultimo_entrante')) || 0
   if (!whatsappConfigurado(db) || !c.suyo || (o.ahora ?? Date.now()) - ultimo >= VENTANA || !datos.length) return false
-  if (o.texto?.trim()) await mandarTexto(db, c.suyo, o.texto.trim())
+  // Primero sube: si falla, no llega un «listo» sin el archivo.
   const id = await subirMedio(db, datos, o.mime, nombre)
+  if (o.texto?.trim()) await mandarTexto(db, c.suyo, o.texto.trim())
   const comoAudio = o.mime.startsWith('audio/') && datos.length <= TOPE_AUDIO_WHATSAPP
   await graph(db, `${c.numeroId}/messages`, { method: 'POST', body: JSON.stringify(comoAudio ? { messaging_product: 'whatsapp', to: c.suyo, type: 'audio', audio: { id } } : { messaging_product: 'whatsapp', to: c.suyo, type: 'document', document: { id, filename: nombre } }) })
   return true

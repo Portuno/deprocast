@@ -31,3 +31,22 @@ test('Fragua #310 · una presentación .pptx de verdad: portada, slides con punt
   assert.ok(s.includes('La Trovada de Prueba'))
   await assert.rejects(armarPresentacion(db, { titulo: 'x', slides: [] }), /Falta el guion/)
 })
+
+test('Fragua #310 · los puntos que llegan como texto (no lista) se cortan por renglón o «;»; las imágenes se pintan a la par', async () => {
+  const db = abrir(':memory:')
+  let enCurso = 0, maximo = 0
+  _probarPresentacion(async () => { enCurso++; maximo = Math.max(maximo, enCurso); await new Promise((r) => setTimeout(r, 20)); enCurso--; return PNG })
+  const r = await armarPresentacion(db, {
+    titulo: 'Texto suelto', generarImagenes: true,
+    slides: [
+      { titulo: 'Uno', puntos: 'Primera idea; Segunda idea\n- Tercera idea', notas: 42 as any, imagen: { prompt: 'a' } },
+      { titulo: 'Sección', tipo: 'seccion', puntos: 'a; b' },
+      ...['b', 'c', 'd'].map((p) => ({ titulo: p, puntos: ['x'], imagen: { prompt: p } })),
+    ],
+  })
+  assert.equal(r.slides, 6)
+  assert.equal(r.imagenes, 4)
+  assert.ok(maximo > 1 && maximo <= 3, `de a 3 como mucho (fueron ${maximo})`)
+  const s = r.datos.toString('utf8')
+  for (const t of ['Primera idea', 'Segunda idea', 'Tercera idea', 'a · b', '42']) assert.ok(s.includes(t), t)
+})

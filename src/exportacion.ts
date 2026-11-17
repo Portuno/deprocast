@@ -13,6 +13,7 @@ import { migrar, resolverRuta, type Db } from './db.ts'
 import { dirCargas } from './cargas/index.ts'
 import { dirTaller } from './taller.ts'
 import { respaldar } from './respaldo.ts'
+import { aplicarCandidatas, pausarReglas } from './integridad.ts'
 
 export const FORMATO = 'deprocast-estado'
 export const VERSION = 1
@@ -135,6 +136,8 @@ function insertadorDe(db: Db, t: string, cols: string[]): ((fila: unknown[]) => 
 /** Lo de fábrica que falte, el índice, y lo que era de la otra compu (rutas de las cargas, forjas a medio camino). */
 function cerrarImportacion(db: Db, ahora: number) {
   migrar(db)
+  // Las reglas de integridad (pausadas para cargar en cualquier orden) vuelven, arreglando lo que traiga roto.
+  void aplicarCandidatas(db).catch((e) => console.error('  integridad tras importar:', e instanceof Error ? e.message : e))
   db.exec(`INSERT INTO corpus_fts(corpus_fts) VALUES ('rebuild')`)
   const upd = db.prepare('UPDATE cargas SET ruta = ? WHERE id = ?')
   for (const c of db.prepare('SELECT id, ruta FROM cargas WHERE ruta IS NOT NULL').all() as { id: number; ruta: string }[]) upd.run(path.join(dirCargas(), path.basename(c.ruta.replace(/\\/g, '/'))), c.id)
@@ -172,6 +175,7 @@ export function importarEstado(db: Db, texto: string, o: { forzar?: boolean; aho
   db.exec('PRAGMA foreign_keys = OFF')
   db.exec('BEGIN')
   try {
+    pausarReglas(db) // las reglas de integridad vuelven en cerrarImportacion
     for (const t of tablasDe(db)) db.exec(`DELETE FROM "${t}"`)
     for (const [t, e] of Object.entries(exp)) {
       const ins = e?.rows?.length ? insertadorDe(db, t, e.columns) : null
@@ -241,6 +245,7 @@ export async function importarEstadoArchivo(db: Db, ruta: string, o: { forzar?: 
           db.exec('PRAGMA foreign_keys = OFF')
           db.exec('BEGIN')
           abierta = true
+          pausarReglas(db) // las reglas de integridad vuelven en cerrarImportacion
           for (const t of tablasDe(db)) db.exec(`DELETE FROM "${t}"`)
           etapa = 'tablas'
         } else if (cabecera.length > 4 * 1024 * 1024) throw cortada()

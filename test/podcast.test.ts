@@ -29,6 +29,11 @@ test('Fragua #312 · las cuentas del podcast: palabras por minuto, capítulos y 
   assert.ok(Math.abs(duracionMp3(mp3(100)) - 2.612) < 0.01)
   const id3 = Buffer.concat([Buffer.from([0x49, 0x44, 0x33, 3, 0, 0, 0, 0, 0, 5]), Buffer.alloc(5), mp3(100)])
   assert.ok(Math.abs(duracionMp3(id3) - 2.612) < 0.01)
+  // La cabecera Xing/Info de un encoder (primer cuadro) no es audio.
+  const info = Buffer.alloc(417)
+  info.set([0xff, 0xfb, 0x90, 0x00])
+  info.write('Info', 36, 'latin1')
+  assert.ok(Math.abs(duracionMp3(Buffer.concat([info, mp3(100)])) - 2.612) < 0.01)
   assert.equal(reloj(75), '01:15')
   assert.equal(reloj(3725), '1:02:05')
 })
