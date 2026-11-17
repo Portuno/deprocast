@@ -112,7 +112,12 @@ async function procesarFoto(db: Db, datos: Buffer, m: MetaArchivo) {
   if (c && c.tipo !== 'otro' && c.confianza >= umbralCaptura(db)) {
     const { registrarCaptura } = await import('./captura.ts')
     const r = registrarCaptura(db, c, { foto: foto.url, fuente: 'teléfono' })
-    if (r) { await externos.avisar(db, `📸 ${r.resumen} (desde la foto que mandaste${m.nota ? `: «${m.nota}»` : ''}). Si no es así, decime y lo corrijo.`); return }
+    if (r) {
+      // A su Drive también (y de acá se borra al subir: se sirve desde Drive).
+      void import('./google/drive.ts').then((d) => d.alDrive(db, { datos, nombre: m.nombre, tipo: 'imagen', origen: m.dispositivo, descripcion: [m.nota, r.resumen].filter(Boolean).join('\n\n'), adjunto: path.basename(foto.url) })).catch(() => {})
+      await externos.avisar(db, `📸 ${r.resumen} (desde la foto que mandaste${m.nota ? `: «${m.nota}»` : ''}). Si no es así, decime y lo corrijo.`)
+      return
+    }
   }
   const { guardarLectura } = await import('./lectura-imagen.ts')
   const { comoLectura } = await import('./chat/adjuntos.ts')
@@ -120,7 +125,7 @@ async function procesarFoto(db: Db, datos: Buffer, m: MetaArchivo) {
   const pieza = guardarLectura(db, lectura, { datos: foto.datos, url: foto.url, canal: m.dispositivo, nota: m.nota ?? null })
   const lugar = lugarDe(m)
   if (lugar) db.prepare(`UPDATE corpus SET meta = json_set(COALESCE(meta, '{}'), '$.lugar', json(?)) WHERE id = ?`).run(JSON.stringify(lugar), pieza)
-  void import('./google/drive.ts').then((d) => d.alDrive(db, { datos, nombre: m.nombre, tipo: 'imagen', origen: m.dispositivo, descripcion: [m.nota, lectura.titulo, lectura.descripcion].filter(Boolean).join('\n\n') })).catch(() => {})
+  void import('./google/drive.ts').then((d) => d.alDrive(db, { datos, nombre: m.nombre, tipo: 'imagen', origen: m.dispositivo, descripcion: [m.nota, lectura.titulo, lectura.descripcion].filter(Boolean).join('\n\n'), adjunto: path.basename(foto.url) })).catch(() => {})
   const { lecturaComoTexto } = await import('./lectura-imagen.ts')
   await externos.charlar(db, `(Te mandé una foto desde ${m.dispositivo}, ya leída entera y guardada en su corpus [#${pieza}]. Lo que dice:\n${lecturaComoTexto(lectura).slice(0, 12_000)})${m.nota ? `\n${m.nota}` : ''}`)
 }
@@ -157,7 +162,7 @@ async function procesarVideo(db: Db, datos: Buffer, m: MetaArchivo) {
       fuente: 'videos', nivel: 'propia', tipo: 'materia', estado: 'disponible', titulo: `Video · ${fecha} · ${visto?.titulo || (texto ? texto.slice(0, 50) : m.nombre)}`, contenido, fecha,
       etiquetas: ['video'], origenId: `video:${archivo}`, datos: { archivo: m.nombre, url: `/adjuntos/${archivo}`, canal: m.dispositivo, bytes: datos.length }, meta: lugar ? { lugar } : null,
     })!
-    void import('./google/drive.ts').then((d) => d.alDrive(db, { datos, nombre: m.nombre, tipo: 'archivo', origen: m.dispositivo, descripcion: [m.nota, texto.slice(0, 2000)].filter(Boolean).join('\n\n') })).catch(() => {})
+    void import('./google/drive.ts').then((d) => d.alDrive(db, { datos, nombre: m.nombre, tipo: 'archivo', origen: m.dispositivo, descripcion: [m.nota, texto.slice(0, 2000)].filter(Boolean).join('\n\n'), adjunto: archivo })).catch(() => {})
     await externos.charlar(db, `(Te mandé un video desde ${m.dispositivo}, ya guardado en su corpus [#${pieza}].${visto?.descripcion ? ` Lo que se ve: ${visto.descripcion}` : ''}${texto ? `\nLo que se dice: ${texto.slice(0, 8000)}` : ' No tiene voz.'})${m.nota ? `\n${m.nota}` : ''}`)
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true })

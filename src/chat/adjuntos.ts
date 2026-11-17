@@ -75,6 +75,14 @@ export function leerFoto(url: string): { datos: Buffer; mime: string } | null {
   return { datos: fs.readFileSync(archivo), mime: archivo.endsWith('.png') ? 'image/png' : archivo.endsWith('.webp') ? 'image/webp' : 'image/jpeg' }
 }
 
+/** La foto de acá o, si ya se pasó a su Drive (y de acá se borró), de Drive. */
+export async function leerFotoDonde(db: Db, url: string): Promise<{ datos: Buffer; mime: string } | null> {
+  const local = leerFoto(url)
+  if (local) return local
+  const datos = await (await import('../google/drive.ts')).medioDeAdjunto(db, url).catch(() => null)
+  return datos ? { datos, mime: url.endsWith('.png') ? 'image/png' : url.endsWith('.webp') ? 'image/webp' : 'image/jpeg' } : null
+}
+
 /** Una descripción suelta (la de un test, o un modelo que no devolvió JSON) como lectura. */
 export const comoLectura = (l: LecturaImagen | string): LecturaImagen => typeof l === 'string' ? { clase: 'otro', titulo: 'Imagen', descripcion: l.trim(), texto: '', grupos: [], ilegible: [], modelo: null } : l
 
@@ -96,7 +104,7 @@ export async function guardarImagen(db: Db, nombre: string, datos: Buffer, ahora
   }
   const { alDrive, guardaMedios } = await import('../google/drive.ts')
   const drive = guardaMedios(db)
-  try { alDrive(db, { datos, nombre, tipo: 'imagen', origen: 'chat', descripcion }) } catch { /* la cola de Drive avisa sola */ }
+  try { alDrive(db, { datos, nombre, tipo: 'imagen', origen: 'chat', descripcion, adjunto: path.basename(url) }) } catch { /* la cola de Drive avisa sola */ }
   return { url, descripcion, marca: `[imagen:${url}|${descripcion || 'sin descripción'}]`, pieza, drive, ...(aviso ? { aviso } : {}) }
 }
 

@@ -2193,7 +2193,14 @@ const servidor = http.createServer(async (req, res) => {
   // Imágenes adjuntas en el chat.
   if (url.pathname.startsWith('/adjuntos/')) {
     const archivo = path.join(dirAdjuntos(), path.basename(decodeURIComponent(url.pathname)))
-    if (!fs.existsSync(archivo)) return void res.writeHead(404).end('No encontrado')
+    if (!fs.existsSync(archivo)) {
+      // Lo que él mandó vive en su Drive (la copia de acá se borra al subir): se trae de ahí cuando alguien lo mira.
+      const datos = await (await import('./google/drive.ts')).medioDeAdjunto(db, archivo).catch(() => null)
+      if (!datos) return void res.writeHead(404).end('No encontrado')
+      const extD = path.extname(archivo).toLowerCase()
+      const tipoD = TIPOS_MIME[extD] ?? 'application/octet-stream'
+      return void res.writeHead(200, { 'content-type': tipoD, 'content-length': String(datos.length), 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox', 'content-disposition': /^(image|audio|video)\//.test(tipoD) ? 'inline' : 'attachment' }).end(datos)
+    }
     const ext = path.extname(archivo).toLowerCase()
     // Imágenes y PDF se ven en el navegador (aislados); lo demás se baja. Nunca corre nada en la página.
     const tipo = TIPOS_MIME[ext] ?? ({ '.pdf': 'application/pdf', '.txt': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.csv': 'text/plain; charset=utf-8' } as Record<string, string>)[ext] ?? 'application/octet-stream'
@@ -2263,8 +2270,8 @@ const servidor = http.createServer(async (req, res) => {
       if (req.method === 'POST' && url.pathname === '/api/captura/foto') {
         const foto = guardarFoto(url.searchParams.get('nombre') || 'foto.jpg', await leerCrudo(req, 30 * 1024 * 1024))
         const c = await clasificar(db, { imagen: { datos: foto.datos, mime: foto.mime }, texto: url.searchParams.get('texto') || '' })
-        void import('./google/drive.ts').then((d) => d.alDrive(db, { datos: foto.datos, nombre: url.searchParams.get('nombre') || 'foto.jpg', tipo: 'imagen', origen: 'registro', descripcion: [url.searchParams.get('texto'), c.descripcion].filter(Boolean).join('\n\n') })).catch(() => {})
-        const registrado = c.tipo !== 'otro' && c.confianza >= 0.5 ? registrarCaptura(db, c, { foto: foto.url, fuente: 'pantalla' }) : null
+        void import('./google/drive.ts').then((d) => d.alDrive(db, { datos: foto.datos, nombre: url.searchParams.get('nombre') || 'foto.jpg', tipo: 'imagen', origen: 'registro', descripcion: [url.searchParams.get('texto'), c.descripcion].filter(Boolean).join('\n\n'), adjunto: path.basename(foto.url) })).catch(() => {})
+        const registrado =c.tipo !== 'otro' && c.confianza >= 0.5 ? registrarCaptura(db, c, { foto: foto.url, fuente: 'pantalla' }) : null
         return void res.end(JSON.stringify({ captura: c, registrado, foto: foto.url }))
       }
       if (req.method === 'POST' && url.pathname === '/api/chat/archivo') {

@@ -1,19 +1,16 @@
 /**
  * El audio y sus transcripciones (Fragua #306, pedido suyo caminando: «que mantenga el audio y permita varias revisadas,
  * porque la primera transcripción no suele ser perfecta»).
- * - Cada tramo de la escucha (dictado y notas de voz; las conversaciones con otros no) guarda su audio en Deprocast
- *   (comprimido a opus si hay ffmpeg; si no, tal cual), además de la copia en Drive.
+ * - El audio de cada tramo (dictado y notas de voz; las conversaciones con otros no) vive en su Drive, no en Deprocast:
+ *   acá queda atado a su copia de Drive, y para escucharlo o volver a pasarlo se trae de ahí. Sin Drive, solo el texto.
  * - Cada transcripción es una versión: su motor (whisper, gemini), su fecha, su texto y sus tramos con la confianza. Volver
  *   a pasar el audio suma una versión sin perder las anteriores; él elige cuál vale (y la nota de voz se actualiza).
  * - Lo dudoso se marca: los tramos de baja confianza (o que Whisper cree que no tienen voz), para revisar solo eso.
  * - Si más de un tercio de lo transcripto es dudoso, se pasa solo por un segundo motor (Gemini, si está), como versión
  *   alternativa: no pisa la primera.
  */
-import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { spawn } from 'node:child_process'
 import { ajuste, type Db } from './db.ts'
 import type { SegmentoWhisper } from './nan.ts'
 
@@ -50,39 +47,27 @@ export function parteDudosa(segs: SegmentoWhisper[]): number {
 /** El texto con lo dudoso marcado: «… [¿Urbi Alba?] …». */
 export const textoMarcado = (segs: SegmentoWhisper[]) => segs.map((s) => (esDudoso(s) ? `[¿${s.texto}?]` : s.texto)).join(' ').replace(/\s+/g, ' ').trim()
 
-/** Para las pruebas: ffmpeg, los motores y si hay Gemini. */
+/** Para las pruebas: los motores, si hay Gemini y de dónde salen los bytes del audio (su Drive). */
 let externos = {
-  ffmpeg: (args: string[]) => new Promise<boolean>((ok) => { const p = spawn('ffmpeg', args, { stdio: 'ignore', windowsHide: true }); const t = setTimeout(() => p.kill('SIGKILL'), 120_000); p.on('error', () => { clearTimeout(t); ok(false) }); p.on('close', (c) => { clearTimeout(t); ok(c === 0) }) }),
+  bytes: async (db: Db, archivo: string) => (await import('./google/drive.ts')).medioDeAdjunto(db, archivo),
+  vincular: async (db: Db, archivo: string, colaId: number) => (await import('./google/drive.ts')).vincularAdjunto(db, archivo, colaId),
   whisper: async (db: Db, audio: Buffer, nombre: string) => { const r = await (await import('./nan.ts')).nanTranscribirDetallado(db, audio, nombre, { palabras: false, segmentos: true }); return { texto: r.texto, segmentos: r.segmentos ?? [] } },
   gemini: (db: Db, audio: Buffer, nombre: string) => transcribirConGemini(db, audio, nombre),
   hayGemini: () => !!process.env.GEMINI_API_KEY?.trim(),
 }
 export function _probarTranscripciones(o: Partial<typeof externos>) { externos = { ...externos, ...o } }
 
-async function dirAudios() {
-  const { dirAdjuntos } = await import('./chat/adjuntos.ts')
-  // En la carpeta de adjuntos (se sirven desde /adjuntos/…, con la misma clave), con el prefijo voz-.
-  const d = dirAdjuntos()
-  fs.mkdirSync(d, { recursive: true })
-  return d
-}
-
-/** Guarda el audio de un tramo (comprimido a opus si se puede) y su primera transcripción. Devuelve el id del audio. */
-export async function archivarAudio(db: Db, a: { datos: Buffer; nombre: string; refTipo: string; refId: number; piezaId?: number | null; texto: string; segmentos?: SegmentoWhisper[]; motor?: Motor }, ahora = Date.now()): Promise<number> {
+/**
+ * Anota el audio de un tramo (que vive en su Drive: colaId es su entrada en la cola de Drive) y su primera
+ * transcripción. Acá no se guarda el audio: queda un nombre (voz-…) que /adjuntos/ sirve trayéndolo de Drive.
+ * Devuelve el id del audio.
+ */
+export async function archivarAudio(db: Db, a: { colaId: number; nombre: string; refTipo: string; refId: number; piezaId?: number | null; texto: string; segmentos?: SegmentoWhisper[]; motor?: Motor }, ahora = Date.now()): Promise<number> {
   asegurar(db)
-  const d = await dirAudios()
-  const base = `voz-${ahora}-${crypto.createHash('sha1').update(a.datos).digest('hex').slice(0, 10)}`
-  const tmp = path.join(os.tmpdir(), `${base}${path.extname(a.nombre) || '.m4a'}`)
-  fs.writeFileSync(tmp, a.datos)
-  let archivo = `${base}.opus`
-  try {
-    if (!(await externos.ffmpeg(['-y', '-i', tmp, '-ac', '1', '-c:a', 'libopus', '-b:a', '24k', path.join(d, archivo)])) || !fs.existsSync(path.join(d, archivo))) {
-      archivo = `${base}${path.extname(a.nombre) || '.m4a'}`
-      fs.copyFileSync(tmp, path.join(d, archivo))
-    }
-  } finally { fs.rmSync(tmp, { force: true }) }
-  const bytes = fs.statSync(path.join(d, archivo)).size
-  const id = Number(db.prepare('INSERT INTO audios (ref_tipo, ref_id, pieza_id, archivo, bytes, nombre, creado_en) VALUES (?, ?, ?, ?, ?, ?, ?)').run(a.refTipo, a.refId, a.piezaId ?? null, archivo, bytes, a.nombre.slice(0, 120), ahora).lastInsertRowid)
+  const huella = crypto.createHash('sha1').update(`${a.colaId}:${a.nombre}:${ahora}`).digest('hex').slice(0, 10)
+  const archivo = `voz-${ahora}-${huella}${path.extname(a.nombre) || '.m4a'}`
+  await externos.vincular(db, archivo, a.colaId)
+  const id = Number(db.prepare('INSERT INTO audios (ref_tipo, ref_id, pieza_id, archivo, bytes, nombre, creado_en) VALUES (?, ?, ?, ?, ?, ?, ?)').run(a.refTipo, a.refId, a.piezaId ?? null, archivo, 0, a.nombre.slice(0, 120), ahora).lastInsertRowid)
   agregarVersion(db, id, { motor: a.motor ?? 'whisper', texto: a.texto, segmentos: a.segmentos ?? [], vigente: true }, ahora)
   return id
 }
@@ -103,14 +88,14 @@ export function audioDe(db: Db, o: { piezaId?: number; segmentoId?: number }): A
   return r ? deAudio(r) : null
 }
 export function versiones(db: Db, audioId: number): Version[] { asegurar(db); return (db.prepare('SELECT * FROM transcripciones WHERE audio_id = ? ORDER BY version').all(audioId) as any[]).map(deVersion) }
-export async function rutaDelAudio(a: Audio) { return path.join(await dirAudios(), a.archivo) }
 
 /** Pasa el audio otra vez (por otro motor, o el mismo): una versión nueva, que no pisa las anteriores salvo que se pida. */
 export async function retranscribir(db: Db, audioId: number, motor: Motor = 'gemini', o: { vigente?: boolean; ahora?: number } = {}): Promise<Version> {
   const a = leerAudio(db, audioId)
   if (!a) throw new Error(`No existe el audio ${audioId}`)
   if (motor === 'gemini' && !externos.hayGemini()) throw new Error('Gemini no está configurado: puedo volver a pasarlo por Whisper')
-  const datos = fs.readFileSync(await rutaDelAudio(a))
+  const datos = await externos.bytes(db, a.archivo).catch(() => null)
+  if (!datos) throw new Error('No encuentro el audio en tu Drive (¿se borró, o Drive no está conectado?)')
   const r = motor === 'gemini' ? { texto: await externos.gemini(db, datos, a.archivo), segmentos: [] as SegmentoWhisper[] } : await externos.whisper(db, datos, a.archivo)
   if (!r.texto.trim()) throw new Error('El motor no devolvió texto')
   const v = agregarVersion(db, audioId, { motor, texto: r.texto.trim(), segmentos: r.segmentos, vigente: !!o.vigente }, o.ahora ?? Date.now())

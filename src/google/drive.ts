@@ -80,7 +80,57 @@ async function reemplazar(db: Db, id: string, datos: Buffer, mime: string) {
 
 // ─── la cola de lo que va a su Drive ────────────────────────────────────
 
-export type Medio = { datos: Buffer; nombre: string; mime?: string | null; tipo: 'audio' | 'imagen' | 'archivo'; origen: string; descripcion?: string | null }
+/**
+ * adjunto: el nombre del archivo en la carpeta de adjuntos que este medio representa (una foto, un video, un audio de la
+ * escucha). Lo que él manda vive en su Drive, no en Deprocast: cuando Drive confirma la subida, la copia local se borra
+ * y /adjuntos/<nombre> lo trae de Drive cuando alguien lo mira (medioDeAdjunto).
+ */
+export type Medio = { datos: Buffer; nombre: string; mime?: string | null; tipo: 'audio' | 'imagen' | 'archivo'; origen: string; descripcion?: string | null; adjunto?: string | null }
+
+function asegurarAdjuntos(db: Db) {
+  db.exec(`CREATE TABLE IF NOT EXISTS adjuntos_drive (archivo TEXT PRIMARY KEY, cola_id INTEGER, file_id TEXT, link TEXT, subido INTEGER, creado INTEGER NOT NULL)`)
+}
+
+/**
+ * Lo que ya está en su Drive hace más de una hora se borra de acá (una hora de margen: el turno que la mira y el
+ * historial reciente la leen del disco). Desde entonces, /adjuntos/ la trae de Drive. Devuelve cuántas borró.
+ */
+export async function barrerAdjuntosSubidos(db: Db, ahora = Date.now()): Promise<number> {
+  asegurarAdjuntos(db)
+  const { dirAdjuntos } = await import('../chat/adjuntos.ts')
+  let n = 0
+  for (const r of db.prepare('SELECT archivo FROM adjuntos_drive WHERE file_id IS NOT NULL AND subido IS NOT NULL AND subido < ?').all(ahora - 3_600_000) as { archivo: string }[]) {
+    const ruta = path.join(dirAdjuntos(), r.archivo)
+    if (fs.existsSync(ruta)) { fs.rmSync(ruta, { force: true }); n++ }
+  }
+  return n
+}
+/** Ata un nombre de adjunto (real o virtual: un audio que nunca se guardó acá) a su entrada en la cola de Drive. */
+export function vincularAdjunto(db: Db, archivo: string, colaId: number, ahora = Date.now()) {
+  asegurarAdjuntos(db)
+  db.prepare('INSERT OR REPLACE INTO adjuntos_drive (archivo, cola_id, creado) VALUES (?, ?, ?)').run(path.basename(archivo), colaId, ahora)
+}
+/** Dónde está un adjunto que ya no está acá: su id y link de Drive (o null si nunca fue a Drive). */
+export function enDrive(db: Db, archivo: string): { colaId: number | null; fileId: string | null; link: string | null } | null {
+  asegurarAdjuntos(db)
+  const r = db.prepare('SELECT cola_id, file_id, link FROM adjuntos_drive WHERE archivo = ?').get(path.basename(archivo)) as { cola_id: number | null; file_id: string | null; link: string | null } | undefined
+  return r ? { colaId: r.cola_id, fileId: r.file_id, link: r.link } : null
+}
+/** Para las pruebas: bajar de Drive. */
+let bajar = (db: Db, fileId: string) => llamarGoogleCrudo(db, `${API}/${encodeURIComponent(fileId)}?alt=media`)
+export function _probarBajarDrive(f: typeof bajar) { bajar = f }
+/**
+ * Los bytes de un adjunto que vive en Drive: de Drive si ya subió, o de la cola (todavía esperando subir). null si no
+ * está en ningún lado.
+ */
+export async function medioDeAdjunto(db: Db, archivo: string): Promise<Buffer | null> {
+  const d = enDrive(db, archivo)
+  if (!d) return null
+  if (d.fileId) return bajar(db, d.fileId)
+  const c = d.colaId ? db.prepare('SELECT archivo, file_id FROM drive_cola WHERE id = ?').get(d.colaId) as { archivo: string; file_id: string | null } | undefined : undefined
+  if (c?.file_id) return bajar(db, c.file_id)
+  return c && fs.existsSync(c.archivo) ? fs.readFileSync(c.archivo) : null
+}
 const CARPETA_DE = { audio: 'Audios', imagen: 'Imágenes', archivo: 'Archivos' } as const
 const MIME_DE: Record<string, string> = { ogg: 'audio/ogg', oga: 'audio/ogg', mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', webm: 'audio/webm', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', pdf: 'application/pdf', csv: 'text/csv', txt: 'text/plain', md: 'text/markdown', json: 'application/json', zip: 'application/zip' }
 
@@ -101,8 +151,10 @@ export function alDrive(db: Db, m: Medio, ahora = Date.now()): number | null {
   const nombre = `${fechaLocal(ahora)} ${hora(ahora)} · ${m.origen} · ${base}.${ext}`
   const r = db.prepare(`INSERT INTO drive_cola (archivo, nombre, mime, carpeta, descripcion, origen, creado) VALUES (?, ?, ?, ?, ?, ?, ?)`)
     .run(archivo, nombre, m.mime || MIME_DE[ext] || 'application/octet-stream', JSON.stringify([CARPETA_DE[m.tipo], fechaLocal(ahora).slice(0, 7)]), m.descripcion ?? null, m.origen, ahora)
+  const id = Number(r.lastInsertRowid)
+  if (m.adjunto) vincularAdjunto(db, m.adjunto, id, ahora)
   void trabajarCola(db).catch(() => {})
-  return Number(r.lastInsertRowid)
+  return id
 }
 
 /** Para sumar la transcripción o la descripción cuando llega después de encolar. */
@@ -135,6 +187,9 @@ async function pasadaDeCola(db: Db): Promise<number> {
         const r = await subir(db, { datos: fs.readFileSync(f.archivo), nombre: f.nombre, mime: f.mime, ruta: JSON.parse(f.carpeta), descripcion: f.descripcion })
         db.prepare(`UPDATE drive_cola SET hecho = 1, file_id = ?, link = ?, error = NULL WHERE id = ?`).run(r.id, r.link, f.id)
         fs.rmSync(f.archivo, { force: true })
+        // Lo que representa un adjunto: ya está en su Drive (la copia de acá se borra en barrerAdjuntosSubidos).
+        asegurarAdjuntos(db)
+        db.prepare('UPDATE adjuntos_drive SET file_id = ?, link = ?, subido = ? WHERE cola_id = ?').run(r.id, r.link, Date.now(), f.id)
         n++
       } catch (e) {
         db.prepare(`UPDATE drive_cola SET intentos = intentos + 1, error = ? WHERE id = ?`).run(String(e instanceof Error ? e.message : e).slice(0, 300), f.id)
@@ -143,6 +198,7 @@ async function pasadaDeCola(db: Db): Promise<number> {
     }
     // Lo subido hace más de 30 días sale de la cola (en Drive queda).
     db.prepare(`DELETE FROM drive_cola WHERE hecho = 1 AND creado < ?`).run(Date.now() - 30 * 86_400_000)
+    await barrerAdjuntosSubidos(db)
   } catch (e) { console.error('  drive:', e instanceof Error ? e.message : e) }
   return n
 }

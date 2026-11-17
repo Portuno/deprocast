@@ -24,7 +24,7 @@ import { registrarMovimiento, resumenMes, importarCSV } from './finanzas.ts'
 import { escribir } from './bitacora.ts'
 import { buscarHibrido } from './semantica.ts'
 import { clasificar, deshacerCaptura, PARECE_REGISTRO, registrarCaptura, type Captura } from './captura.ts'
-import { comoLectura, guardarFoto, leerFoto } from './chat/adjuntos.ts'
+import { comoLectura, guardarFoto, leerFotoDonde } from './chat/adjuntos.ts'
 import { guardarLectura, lecturaComoTexto, leerImagen, type LecturaImagen } from './lectura-imagen.ts'
 import { registrarSalud, resumenDia } from './salud.ts'
 import { registrarError } from './autocritica.ts'
@@ -255,7 +255,7 @@ async function registrarYContar(db: Db, c: Captura | null, o: { foto?: string | 
 /** Su corrección a un registro: se borra el anterior y se vuelve a clasificar con lo que dijo (y la foto, si había). */
 async function corregirCaptura(db: Db, previa: { tabla: string; id: number | string; texto: string; foto: string | null }, correccion: string) {
   deshacerCaptura(db, previa.tabla, previa.id, 'editada')
-  const imagen = previa.foto ? leerFoto(previa.foto) ?? undefined : undefined
+  const imagen = previa.foto ? (await leerFotoDonde(db, previa.foto)) ?? undefined : undefined
   const texto = `${previa.texto}\nCorrección del jugador (manda sobre lo anterior): ${correccion}`.trim()
   const c = await clasificar(db, { imagen, texto }).catch(() => null)
   if (!(await registrarYContar(db, c, { foto: previa.foto, texto, umbral: 0.4 }))) await decir('Lo borré, pero no entendí la corrección. Mandámelo de nuevo como querés que quede.')
@@ -1095,7 +1095,7 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
     const c = await clasificar(db, { imagen: foto ? { datos: foto.datos, mime: foto.mime } : { datos, mime: 'image/jpeg' }, texto }).catch(() => null)
     // Una página escrita a mano (sin decir nada): es una hoja de cuaderno, va a Tandas aunque no diga «hoja».
     if (c?.tipo === 'manuscrito' && c.confianza >= 0.6) return hojaDeCuaderno(db, datos, nombre, msg.media_group_id ?? null)
-    if (await registrarYContar(db, c, { foto: foto?.url ?? null, texto: texto ?? '' })) { void import('./google/drive.ts').then((d) => d.alDrive(db, { datos, nombre, tipo: 'imagen', origen: nombreCanal(), descripcion: [texto, c?.descripcion].filter(Boolean).join('\n\n') })).catch(() => {}); return }
+    if (await registrarYContar(db, c, { foto: foto?.url ?? null, texto: texto ?? '' })) { void import('./google/drive.ts').then((d) => d.alDrive(db, { datos, nombre, tipo: 'imagen', origen: nombreCanal(), descripcion: [texto, c?.descripcion].filter(Boolean).join('\n\n'), adjunto: foto ? path.basename(foto.url) : null })).catch(() => {}); return }
     // Se lee entera (no una descripción de cinco oraciones) y la lectura queda como pieza suya (Fragua #270 y #272).
     const img = foto ? { datos: foto.datos, mime: foto.mime } : { datos, mime: 'image/jpeg' }
     let lectura: LecturaImagen | null = null
@@ -1106,7 +1106,7 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
     }
     const leida = lectura ? lecturaComoTexto(lectura) : c?.descripcion ?? ''
     const { alDrive, guardaMedios } = await import('./google/drive.ts')
-    try { alDrive(db, { datos, nombre, tipo: 'imagen', origen: nombreCanal(), descripcion: [texto, lectura?.titulo, lectura?.descripcion].filter(Boolean).join('\n\n') }) } catch { /* la cola de Drive avisa sola */ }
+    try { alDrive(db, { datos, nombre, tipo: 'imagen', origen: nombreCanal(), descripcion: [texto, lectura?.titulo, lectura?.descripcion].filter(Boolean).join('\n\n'), adjunto: foto ? path.basename(foto.url) : null }) } catch { /* la cola de Drive avisa sola */ }
     // Si Drive no está conectado, la imagen queda solo en el servidor: se dice una vez por día, no con cada foto.
     if (!guardaMedios(db) && ajuste(db, 'aviso_drive_medios') !== fechaLocal(Date.now())) {
       fijarAjuste(db, 'aviso_drive_medios', fechaLocal(Date.now()))
