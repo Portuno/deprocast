@@ -28,6 +28,7 @@ import { registrarAvisos } from './src/avisos'
 import { registrarPagos } from './src/pagos'
 import { subirUsoTelefono } from './src/uso'
 import { Compartir } from './src/pantallas/Compartir'
+import { Cartel } from './src/cartel'
 import { Vincular } from './src/pantallas/Vincular'
 import { Hoy } from './src/pantallas/Hoy'
 import { Escucha } from './src/pantallas/Escucha'
@@ -44,6 +45,9 @@ export default function App() {
   const [pestana, setPestana] = useState<Pestana>('hoy')
   const [rescate, setRescate] = useState(false)
   const [verCaptura, setVerCaptura] = useState(false)
+  // La confirmación de lo compartido (Fragua #313): un cartel arriba que se va solo, no un diálogo que tapa Hoy.
+  const [cartel, setCartel] = useState<string | null>(null)
+  const cerrarCartel = useCallback(() => setCartel(null), [])
   // Lo que llega por «Compartir → Deprocast» (con los archivos ya copiados a la caché de la app).
   const compartido = useIncomingShare()
   // El icono rápido «Dictar a Deprocast» (Fragua #300): abre la app por deprocast://dictar → Hoy con la escucha prendida.
@@ -92,7 +96,7 @@ export default function App() {
     <SafeAreaView edges={['top', 'bottom', 'left', 'right']} style={[s.raiz, { backgroundColor: t.fondo }]}>
       <StatusBar style="auto" />
       {!c ? <Vincular alVincular={(x) => { setC(x); setRescate(true) }} /> : rescate ? <Rescate c={c} alTerminar={() => setRescate(false)} /> : items.length ? (
-        <Compartir c={c} items={items} resolviendo={compartido.isResolving} listo={(m) => { compartido.clearSharedPayloads(); setPestana('hoy'); if (m) Alert.alert('Deprocast', m) }} />
+        <Compartir c={c} items={items} resolviendo={compartido.isResolving} listo={(m) => { compartido.clearSharedPayloads(); setPestana('hoy'); setCartel(m) }} />
       ) : verCaptura ? <Captura cerrar={() => { setVerCaptura(false); void registrarFondo(); if (c) void registrarAvisos(c).catch(() => {}) }} /> : (
         <EscuchaGlobal c={c}>
           <View style={[s.barra, { borderColor: t.linea }]}>
@@ -107,6 +111,7 @@ export default function App() {
         </EscuchaGlobal>
       )}
     </SafeAreaView>
+    <Cartel texto={cartel} cerrar={cerrarCartel} />
     </SafeAreaProvider>
   )
 }

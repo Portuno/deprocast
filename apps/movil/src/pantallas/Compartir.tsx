@@ -14,6 +14,8 @@ import { encolarCompartidos } from '../archivos'
 import { sincronizar } from '../sincronizar'
 import { armarCompartido, claveCompartido, type Compartido } from '../logica/archivos'
 import { ESP, LETRA, TOQUE, useTema } from '../tema'
+import { useAltoTeclado } from '../teclado'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 const ICONO: Record<string, string> = { text: '💬', url: '🔗', image: '🖼', video: '🎬', audio: '🎧', file: '📄' }
 
@@ -23,6 +25,9 @@ export function Compartir({ c, items, resolviendo, listo }: { c: Credenciales; i
   const [estado, setEstado] = useState<'preparando' | 'mandando' | 'mandado' | 'error'>('preparando')
   const [resumen, setResumen] = useState('')
   const hecho = useRef(false)
+  // El teclado no tapa la nota (Fragua #313): la pantalla le deja su lugar abajo, como en Hoy.
+  const teclado = useAltoTeclado()
+  const bordes = useSafeAreaInsets()
   const hayArchivos = items.some((x) => x.shareType && x.shareType !== 'text' && x.shareType !== 'url')
 
   // Sale solo, apenas están los archivos listos (Fragua #301).
@@ -59,12 +64,12 @@ export function Compartir({ c, items, resolviendo, listo }: { c: Credenciales; i
   }
 
   return (
-    <View style={[s.raiz, { backgroundColor: t.fondo }]}>
+    <View style={[s.raiz, { backgroundColor: t.fondo, paddingBottom: ESP(4) + (teclado ? Math.max(0, teclado - bordes.bottom) : 0) }]}>
       <View style={s.cab}>
         <Text style={[s.titulo, { color: t.texto }]}>{estado === 'mandado' ? '✓ Mandado a Deprocast' : estado === 'error' ? 'No salió' : 'Mandando a Deprocast…'}</Text>
       </View>
-      {resumen ? <Text style={[LETRA.chica, { color: estado === 'error' ? t.mal : t.tenue }]}>{resumen}</Text> : null}
-      <ScrollView contentContainerStyle={s.lista}>
+      {resumen && !(teclado && estado === 'mandado') ? <Text style={[LETRA.chica, { color: estado === 'error' ? t.mal : t.tenue }]} numberOfLines={3}>{resumen}</Text> : null}
+      <ScrollView style={s.scroll} contentContainerStyle={s.lista} keyboardShouldPersistTaps="handled">
         {items.map((x, i) => {
           const tipo = x.shareType ?? 'text'
           const texto = tipo === 'text' || tipo === 'url' ? (x.value ?? '') : (x.originalName ?? x.contentMimeType ?? x.mimeType ?? 'archivo')
@@ -97,6 +102,7 @@ const s = StyleSheet.create({
   raiz: { flex: 1, padding: ESP(4), gap: ESP(3) },
   cab: { flexDirection: 'row', alignItems: 'center', gap: ESP(2), minHeight: TOQUE },
   titulo: { ...LETRA.titulo, fontWeight: '700', flex: 1 },
+  scroll: { flexGrow: 0, flexShrink: 1 },
   lista: { gap: ESP(2) },
   item: { flexDirection: 'row', gap: ESP(3), borderWidth: 1, borderRadius: 12, padding: ESP(3) },
   fila: { flexDirection: 'row', alignItems: 'center', gap: ESP(2), minHeight: TOQUE },
