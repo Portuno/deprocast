@@ -36,6 +36,11 @@ export function queHacer(status: number | null, intentos: number): 'ok' | 'reint
   return intentos + 1 >= 8 ? 'descartar' : 'reintentar'
 }
 
+/** Una huella de lo compartido (Fragua #301): lo mismo dos veces seguidas no se manda de nuevo. */
+export function claveCompartido(items: Compartido[]): string {
+  return items.map((x) => `${x.shareType ?? 'text'}|${x.value ?? ''}|${x.originalName ?? ''}|${x.contentMimeType ?? x.mimeType ?? ''}`).sort().join('\n').slice(0, 2000)
+}
+
 export type Compartido = { shareType?: string | null; value?: string | null; mimeType?: string | null; contentUri?: string | null; contentMimeType?: string | null; originalName?: string | null }
 
 /**

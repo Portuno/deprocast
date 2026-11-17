@@ -342,3 +342,9 @@ test('Fragua #300 · el icono rápido abre la app con deprocast://dictar', async
   assert.equal(atajo.esPedidoDeDictado('deprocast://expo-sharing'), false)
   assert.equal(atajo.esPedidoDeDictado(null), false)
 })
+
+test('Fragua #301 · compartir: la huella de lo compartido no depende del orden', () => {
+  const a = [{ shareType: 'url', value: 'https://x.com/1' }, { shareType: 'image', value: 'content://m/2', originalName: 'f.jpg', contentMimeType: 'image/jpeg' }]
+  assert.equal(archivosL.claveCompartido(a), archivosL.claveCompartido([...a].reverse()))
+  assert.notEqual(archivosL.claveCompartido(a), archivosL.claveCompartido([a[0]]))
+})
