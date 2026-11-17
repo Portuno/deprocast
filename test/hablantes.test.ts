@@ -1,5 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
+// Los audios que archiva recibirVoz (Fragua #306) van a una carpeta temporal, no a la de verdad.
+process.env.MASTRO_ADJUNTOS ??= fs.mkdtempSync(path.join(os.tmpdir(), 'mastro-voz-'))
 
 process.env.TZ = 'Europe/Madrid'
 process.env.NAN_API_KEY = 'test'

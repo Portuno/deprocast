@@ -21,8 +21,20 @@ const INTENTOS = 5
 const hash = (t: string) => crypto.createHash('sha256').update(t).digest('hex')
 const deFila = (r: any): Dispositivo => ({ id: r.id, nombre: r.nombre, plataforma: r.plataforma, tipo: r.tipo ?? 'telefono', estado: r.revocado_en ? 'revocado' : r.estado ?? 'activo', prefijo: r.prefijo, creadoEn: r.creado_en, ultimaVez: r.ultima_vez, revocadoEn: r.revocado_en })
 
-let transcribir = async (db: Db, audio: Buffer, nombre: string) => (await import('./nan.ts')).nanTranscribir(db, audio, nombre)
-export function _probarDispositivos(o: { transcribir?: typeof transcribir }) { if (o.transcribir) transcribir = o.transcribir }
+// Fragua #306: con los tramos y su confianza (para marcar lo dudoso). En las pruebas, solo el texto.
+let transcribir = async (db: Db, audio: Buffer, nombre: string): Promise<string | { texto: string; segmentos: import('./nan.ts').SegmentoWhisper[] }> => {
+  const r = await (await import('./nan.ts')).nanTranscribirDetallado(db, audio, nombre, { palabras: false, segmentos: true })
+  return { texto: r.texto, segmentos: r.segmentos ?? [] }
+}
+export function _probarDispositivos(o: { transcribir?: (db: Db, audio: Buffer, nombre: string) => Promise<string> }) { if (o.transcribir) transcribir = o.transcribir }
+
+/** Guarda el audio del tramo y su transcripción (versión 1); si sale muy dudosa, una segunda pasada por otro motor. */
+function archivar(db: Db, a: { audio: Buffer; nombre: string; segmentoId: number; piezaId?: number | null; texto: string; segmentos: import('./nan.ts').SegmentoWhisper[] }, ahora: number) {
+  void import('./transcripciones.ts').then(async (t) => {
+    const id = await t.archivarAudio(db, { datos: a.audio, nombre: a.nombre, refTipo: 'voz_segmento', refId: a.segmentoId, piezaId: a.piezaId ?? null, texto: a.texto, segmentos: a.segmentos }, ahora)
+    await t.segundaPasadaSiHaceFalta(db, id, ahora)
+  }).catch((e) => console.error('  audio:', e instanceof Error ? e.message : e))
+}
 
 export const listarDispositivos = (db: Db): Dispositivo[] => (db.prepare('SELECT * FROM dispositivos ORDER BY revocado_en IS NOT NULL, id DESC').all() as any[]).map(deFila)
 
@@ -76,7 +88,9 @@ export function autenticarDispositivo(db: Db, autorizacion: string | undefined, 
  */
 export async function recibirVoz(db: Db, d: Dispositivo, audio: Buffer, nombre: string, meta: MetaVoz, ahora = Date.now()): Promise<{ texto: string; destino: 'chat' | 'nota' | 'conversacion' | 'nada'; piezaId?: number; hablante?: import('./hablantes.ts').Hablante | null }> {
   if (!audio.length) throw new Error('El audio vino vacío')
-  const texto = (await transcribir(db, audio, nombre || 'voz.m4a')).trim()
+  const tr = await transcribir(db, audio, nombre || 'voz.m4a')
+  const texto = (typeof tr === 'string' ? tr : tr.texto).trim()
+  const segmentos = typeof tr === 'string' ? [] : tr.segmentos
   // Un tramo sin voz (ruido, el bolsillo) no es un error: no deja nada y el teléfono no lo reintenta (Fragua #278).
   if (!texto) return { texto: '', destino: 'nada' }
   // Fragua #305: lo que el transcriptor inventa sobre el silencio («Gracias.», «Subtítulos por…») o una palabra suelta
@@ -112,7 +126,8 @@ export async function recibirVoz(db: Db, d: Dispositivo, audio: Buffer, nombre: 
     const lugar = meta.lat != null && meta.lon != null ? ` en ${meta.lat.toFixed(5)},${meta.lon.toFixed(5)}` : ''
     const extra = `(Dictado desde ${d.nombre} a las ${cuando}${lugar}${meta.caminando ? ', caminando' : ''}. Es una charla en vivo mientras camina: contestá corto y para escuchar, de a una cosa; si pide una lista para pensar, dala de a un ítem por vez. Lo que decida, anotalo en el momento.)`
     void enviar(db, conversacionHoy(db).id, texto, { via: 'voz', extra }).catch((e) => console.error('  voz → chat:', e instanceof Error ? e.message : e))
-    db.prepare('INSERT INTO voz_segmentos (dispositivo_id, modo, texto, meta, destino, creado_en) VALUES (?, ?, ?, ?, ?, ?)').run(d.id, meta.modo, texto, datos, 'chat', ahora)
+    const seg = Number(db.prepare('INSERT INTO voz_segmentos (dispositivo_id, modo, texto, meta, destino, creado_en) VALUES (?, ?, ?, ?, ?, ?)').run(d.id, meta.modo, texto, datos, 'chat', ahora).lastInsertRowid)
+    archivar(db, { audio, nombre: nombre || 'voz.m4a', segmentoId: seg, texto, segmentos }, ahora)
     return { texto, destino: 'chat' }
   }
   // Lo que nombra en una nota de voz también puede ir a su Librería (Fragua #181).
@@ -121,7 +136,8 @@ export async function recibirVoz(db: Db, d: Dispositivo, audio: Buffer, nombre: 
   const cuando = new Date(meta.inicio ?? ahora)
   const titulo = `Voz · ${cuando.toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}${meta.caminando ? ' · caminando' : ''}`
   const { corpusId } = ingerir(db, { fuente: 'operador', titulo, contenido: texto, dominio: 'voz', origenId: `voz:${d.id}:${meta.inicio ?? ahora}`, meta: { voz: { ...meta, dispositivo: d.nombre } } }, ahora)
-  db.prepare('INSERT INTO voz_segmentos (dispositivo_id, modo, texto, meta, destino, pieza_id, creado_en) VALUES (?, ?, ?, ?, ?, ?, ?)').run(d.id, meta.modo, texto, datos, 'nota', corpusId, ahora)
+  const seg = Number(db.prepare('INSERT INTO voz_segmentos (dispositivo_id, modo, texto, meta, destino, pieza_id, creado_en) VALUES (?, ?, ?, ?, ?, ?, ?)').run(d.id, meta.modo, texto, datos, 'nota', corpusId, ahora).lastInsertRowid)
+  archivar(db, { audio, nombre: nombre || 'voz.m4a', segmentoId: seg, piezaId: corpusId, texto, segmentos }, ahora)
   return { texto, destino: 'nota', piezaId: corpusId }
 }
 

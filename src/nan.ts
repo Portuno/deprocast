@@ -475,7 +475,8 @@ export async function nanTranscribir(db: Db, audio: Buffer, nombre: string, idio
 }
 
 /** Whisper con el tiempo de cada palabra (para saber quién habló cuándo). Sin palabras si el servicio no las da. 429 y 5xx esperan y reintentan (hasta 3 veces). */
-export async function nanTranscribirDetallado(db: Db, audio: Buffer, nombre: string, o: { palabras?: boolean; idioma?: string } = {}): Promise<{ texto: string; palabras: { start: number; end: number; word: string }[] }> {
+export type SegmentoWhisper = { inicio: number; fin: number; texto: string; confianza: number | null; sinVoz: number | null }
+export async function nanTranscribirDetallado(db: Db, audio: Buffer, nombre: string, o: { palabras?: boolean; idioma?: string; segmentos?: boolean } = {}): Promise<{ texto: string; palabras: { start: number; end: number; word: string }[]; segmentos?: SegmentoWhisper[] }> {
   const tipo = /\.(mp3)$/i.test(nombre) ? 'audio/mpeg' : /\.(wav)$/i.test(nombre) ? 'audio/wav' : /\.(ogg|opus)$/i.test(nombre) ? 'audio/ogg' : /\.webm$/i.test(nombre) ? 'audio/webm' : 'audio/mp4'
   const ESPERAS = [2000, 5000, 10_000]
   for (let intento = 0; intento <= ESPERAS.length; intento++) {
@@ -484,9 +485,11 @@ export async function nanTranscribirDetallado(db: Db, audio: Buffer, nombre: str
     form.append('file', new Blob([new Uint8Array(audio)], { type: tipo }), nombre)
     form.append('model', 'whisper')
     if (o.idioma !== 'auto') form.append('language', o.idioma || 'es') // 'auto': que Whisper detecte (un video en valenciano, en inglés…)
-    if (o.palabras !== false) {
+    if (o.palabras !== false || o.segmentos) {
       form.append('response_format', 'verbose_json')
-      form.append('timestamp_granularities[]', 'word')
+      if (o.palabras !== false) form.append('timestamp_granularities[]', 'word')
+      // Fragua #306: los tramos con su confianza (avg_logprob → 0–1), para marcar lo dudoso.
+      if (o.segmentos) form.append('timestamp_granularities[]', 'segment')
     }
     const t0 = Date.now()
     let res: Response
@@ -508,12 +511,14 @@ export async function nanTranscribirDetallado(db: Db, audio: Buffer, nombre: str
     if (res.ok) {
       let texto = cuerpo
       let palabras: { start: number; end: number; word: string }[] = []
+      let segmentos: SegmentoWhisper[] = []
       try {
         const j = JSON.parse(cuerpo)
         texto = j.text ?? cuerpo
         if (Array.isArray(j.words)) palabras = j.words.filter((w: any) => Number.isFinite(w?.start) && Number.isFinite(w?.end) && typeof w?.word === 'string')
+        if (Array.isArray(j.segments)) segmentos = j.segments.filter((x: any) => typeof x?.text === 'string').map((x: any) => ({ inicio: Number(x.start) || 0, fin: Number(x.end) || 0, texto: String(x.text).trim(), confianza: Number.isFinite(x.avg_logprob) ? Math.round(Math.exp(x.avg_logprob) * 100) / 100 : null, sinVoz: Number.isFinite(x.no_speech_prob) ? x.no_speech_prob : null }))
       } catch { /* algunas respuestas vienen en texto plano */ }
-      return { texto: String(texto).trim(), palabras }
+      return { texto: String(texto).trim(), palabras, segmentos }
     }
     if ((res.status !== 429 && res.status < 500) || intento === ESPERAS.length) throw new Error(`Whisper ${res.status}: ${cuerpo.slice(0, 160)}`)
     const dice = Number(res.headers.get('retry-after'))

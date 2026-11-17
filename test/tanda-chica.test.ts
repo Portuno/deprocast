@@ -4,6 +4,12 @@ import { abrir } from '../src/db.ts'
 import { motivoDeRuido } from '../src/voz-ruido.ts'
 import { materialDeAutocritica, _probarArranque } from '../src/autocritica.ts'
 import { aplicarCommits } from '../src/fragua-commits.ts'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
+// Los audios que archiva recibirVoz (Fragua #306) van a una carpeta temporal, no a la de verdad.
+process.env.MASTRO_ADJUNTOS ??= fs.mkdtempSync(path.join(os.tmpdir(), 'mastro-voz-'))
 
 test('Fragua #305 · la escucha no anota lo que el transcriptor inventa sobre el silencio ni la palabra suelta repetida', () => {
   assert.equal(motivoDeRuido('Gracias.', []), 'alucinacion')

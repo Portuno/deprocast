@@ -1435,6 +1435,10 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/escalas$/, async (_, __, q) => (await import('./escalas.ts')).verEscala(db, (q.get('escala') as any) || 'dia', q.get('fecha') || '')],
   ['POST', /^\/api\/escalas\/armar$/, async (b) => ({ hechas: await (await import('./escalas.ts')).armarHaciaArriba(db, String(b.fecha ?? '')) })],
 
+  // El audio de una nota de voz y sus versiones de transcripción (Fragua #306).
+  ['GET', /^\/api\/audios\/de-pieza\/(\d+)$/, async (_, [n]) => { const t = await import('./transcripciones.ts'); const a = t.audioDe(db, { piezaId: id(n) }); return a ? { id: a.id, audio: `/adjuntos/${a.archivo}`, versiones: t.versiones(db, a.id).map((v) => ({ ...v, marcado: v.segmentos.length ? t.textoMarcado(v.segmentos) : v.texto, segmentos: undefined })) } : {} }],
+  ['POST', /^\/api\/audios\/(\d+)\/retranscribir$/, async (b, [n]) => (await import('./transcripciones.ts')).retranscribir(db, id(n), b.motor === 'whisper' ? 'whisper' : 'gemini')],
+  ['POST', /^\/api\/audios\/(\d+)\/elegir$/, async (b, [n]) => (await import('./transcripciones.ts')).elegirVersion(db, id(n), Number(b.version))],
   // Extracciones (Fragua #264): los clientes, su ficha, el plan y los correos (nunca se mandan solos).
   ['GET', /^\/api\/extracciones$/, async () => { const e = await import('./extracciones.ts'); e.seguirEnGmail(db); return e.listarExtracciones(db).map((x) => ({ ...x, diasSinRespuesta: e.diasSinRespuesta(db, x.id), correos: e.correosDe(db, x.id).length })) }],
   ['GET', /^\/api\/extracciones\/(\d+)$/, async (_, [n]) => { const e = await import('./extracciones.ts'); const x = e.leerExtraccion(db, id(n)); if (!x) throw new Error(`No existe la extracción ${n}`); return { ...x, diasSinRespuesta: e.diasSinRespuesta(db, x.id), correos: e.correosDe(db, x.id) } }],
@@ -1765,6 +1769,8 @@ const TIPOS_MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.png': 'image/png', '.webp': 'image/webp',
   '.webmanifest': 'application/manifest+json', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.mp3': 'audio/mpeg', '.mp4': 'video/mp4', '.json': 'application/json; charset=utf-8', '.webm': 'audio/webm',
+  // Los audios de la escucha (Fragua #306): se escuchan en el navegador.
+  '.opus': 'audio/ogg', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4', '.wav': 'audio/wav',
 }
 
 /** Solo la propia pantalla puede hablarle a la API: ni otros sitios (CSRF) ni los iframes aislados del Taller (origen «null»). */
@@ -2183,7 +2189,7 @@ const servidor = http.createServer(async (req, res) => {
     const ext = path.extname(archivo).toLowerCase()
     // Imágenes y PDF se ven en el navegador (aislados); lo demás se baja. Nunca corre nada en la página.
     const tipo = TIPOS_MIME[ext] ?? ({ '.pdf': 'application/pdf', '.txt': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.csv': 'text/plain; charset=utf-8' } as Record<string, string>)[ext] ?? 'application/octet-stream'
-    const ver = /^image\/(jpeg|png|webp)$/.test(tipo) || ext === '.pdf' || tipo.startsWith('text/plain')
+    const ver = /^image\/(jpeg|png|webp)$/.test(tipo) || /^audio\//.test(tipo) || ext === '.pdf' || tipo.startsWith('text/plain')
     // Una foto en una lista va como miniatura (?ancho=480): se genera una vez y queda guardada al lado.
     const ancho = Number(url.searchParams.get('ancho'))
     if (ancho && /^image\/(jpeg|png|webp)$/.test(tipo)) {

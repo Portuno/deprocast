@@ -172,6 +172,20 @@ function pintarPiezas() {
   if (m) m.onclick = () => { filtroCorpus.desde = corpusLista.piezas.length; traerPiezas(true) }
 }
 
+/** El audio de una nota de voz y sus transcripciones (Fragua #306): escucharlo, ver lo dudoso, volver a pasarlo, elegir. */
+async function pintarAudioPieza(id) {
+  const cont = $('#p-audio')
+  if (!cont) return
+  let a
+  try { a = await api(`/audios/de-pieza/${id}`) } catch { return }
+  if (!a?.audio) return
+  cont.innerHTML = `<h3 class="sub">El audio</h3><audio controls preload="none" src="${esc(a.audio)}"></audio>
+    <ul class="lista-mercado">${a.versiones.map((v) => `<li><b>v${v.version}</b> · ${esc(v.motor)}${v.vigente ? ' · <b>la que vale</b>' : ''}${v.dudosos ? ` · ${v.dudosos} tramo${v.dudosos === 1 ? '' : 's'} dudoso${v.dudosos === 1 ? '' : 's'}` : ''}<br><span class="chico">${esc(v.marcado)}</span>${v.vigente ? '' : ` <button class="btn btn-chico" data-audio-elegir="${v.version}">Usar esta</button>`}</li>`).join('')}</ul>
+    <div class="fila"><button class="btn btn-chico" data-audio-otra="gemini">Volver a pasarlo (Gemini)</button><button class="btn btn-chico" data-audio-otra="whisper">Volver a pasarlo (Whisper)</button></div>`
+  $$('[data-audio-elegir]', cont).forEach((b) => (b.onclick = async () => { try { await api(`/audios/${a.id}/elegir`, { version: Number(b.dataset.audioElegir) }); modalPieza(id) } catch (e) { error(e) } }))
+  $$('[data-audio-otra]', cont).forEach((b) => (b.onclick = async () => { b.disabled = true; b.textContent = 'Transcribiendo…'; try { await api(`/audios/${a.id}/retranscribir`, { motor: b.dataset.audioOtra }); pintarAudioPieza(id) } catch (e) { error(e); pintarAudioPieza(id) } }))
+}
+
 async function modalPieza(id) {
   try {
     const { pieza: p, quantomos, entidades } = await api(`/corpus/${id}`)
@@ -187,12 +201,14 @@ async function modalPieza(id) {
       ${entidades.length ? `<div class="tags my-2">${entidades.map((e) => `<span class="ent">${esc(e.tipo)} · ${esc(e.nombre)}</span>`).join('')}</div>` : ''}
       ${p.etiquetas.length ? `<div class="tags my-2">${p.etiquetas.map((t) => `<span>${esc(t)}</span>`).join('')}</div>` : ''}
       <div class="respuesta" style="max-height:42vh;overflow:auto;margin-top:12px">${esc(p.contenido)}</div>
+      <div id="p-audio"></div>
       <h3 class="sub">Quántomos de esta pieza (${quantomos.length})</h3>
       ${quantomos.some((q) => q.etapa === 'proto' || q.etapa === 'propuesta') ? '<p class="tenue chico q-ayuda">Cribalos con el teclado: <kbd>1</kbd>–<kbd>9</kbd>, <kbd>0</kbd> = 10, <kbd>q</kbd> = 11, <kbd>w</kbd> = 12 · <kbd>x</kbd> descarta · <kbd>↑</kbd> <kbd>↓</kbd> para moverte. Pasa sola a la siguiente.</p>' : ''}
       ${quantomos.length ? `<div class="q-lista">${quantomos.map(quantomoHTML).join('')}</div>` : '<p class="tenue">Ninguno. Si pasa por la pipeline, el extractor propone proto-quántomos.</p>'}
       ${meta.length ? `<h3 class="sub">Metadatos</h3><pre class="json">${esc(JSON.stringify(Object.fromEntries(meta), null, 2))}</pre>` : ''}`, { lado: true })
     engancharQuantomos($('#modal'), () => modalPieza(id))
     if ($('#p-recordar')) $('#p-recordar').onclick = () => recordarPiezaUI(p.id)
+    void pintarAudioPieza(p.id)
     const c = $('#p-crawl')
     if (c) c.onclick = async () => {
       try {
