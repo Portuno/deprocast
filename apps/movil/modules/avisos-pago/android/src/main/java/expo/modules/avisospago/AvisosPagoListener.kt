@@ -20,7 +20,8 @@ class AvisosPagoListener : NotificationListenerService() {
     const val COLA = "cola"
     const val PAQUETES = "paquetes"
     private val NOMBRE_DE_PAGO = Regex("(?i)\\b(bank|banco|banca|pay|wallet|billetera|card|tarjeta|revolut|n26|bbva|santander|caixa|ing\\b|sabadell|bankinter|openbank|mercado ?pago|belo|wise|ual[aá]|brubank|naranja|galicia|lemon|prex)")
-    private val MONTO = Regex("(€|EUR|US\\$|USD|U\\$S|\\$|ARS|USDC|USDT)\\s?\\d|\\d[\\d.,]*\\s?(€|EUR|USD|ARS|pesos|euros|d[oó]lares)", RegexOption.IGNORE_CASE)
+    // El signo pesos va escapado para Kotlin (\$) y para la expresión regular (\\): «\\\$».
+    private val MONTO = Regex("(€|EUR|US\\\$|USD|U\\\$S|\\\$|ARS|USDC|USDT)\\s?\\d|\\d[\\d.,]*\\s?(€|EUR|USD|ARS|pesos|euros|d[oó]lares)", RegexOption.IGNORE_CASE)
 
     fun cola(ctx: Context): JSONArray = try { JSONArray(ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(COLA, "[]")) } catch (_: Exception) { JSONArray() }
     fun guardarCola(ctx: Context, a: JSONArray) { ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(COLA, a.toString()).apply() }
