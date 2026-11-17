@@ -1435,6 +1435,21 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/escalas$/, async (_, __, q) => (await import('./escalas.ts')).verEscala(db, (q.get('escala') as any) || 'dia', q.get('fecha') || '')],
   ['POST', /^\/api\/escalas\/armar$/, async (b) => ({ hechas: await (await import('./escalas.ts')).armarHaciaArriba(db, String(b.fecha ?? '')) })],
 
+  // Encuestas y cuotas (Fragua #263): los eventos, el análisis de cada mercado y las encuestas; anotar cuotas y encuestas.
+  ['GET', /^\/api\/mercados$/, async (_, __, q) => {
+    const m = await import('./mercados.ts')
+    const eventos = [...new Set(m.listarMercados(db).map((x) => x.evento))]
+    const evento = q.get('evento') || eventos[0] || null
+    if (!evento) return { eventos, evento: null, mercados: [], encuestas: null }
+    return { eventos, evento, mercados: m.listarMercados(db, evento).map((x) => m.analizarMercado(db, x.id, { desde: Date.now() - 86_400_000 })), encuestas: m.promedioEncuestas(db, evento) }
+  }],
+  ['GET', /^\/api\/mercados\/informe$/, async (_, __, q) => ({ informe: (await import('./mercados.ts')).informeMercados(db, q.get('evento') || '') })],
+  ['POST', /^\/api\/mercados\/cuotas$/, async (b) => {
+    const m = await import('./mercados.ts')
+    const mer = m.asegurarMercado(db, { evento: b.evento, nombre: b.mercado, resultados: Array.isArray(b.resultados) && b.resultados.length ? b.resultados : undefined })
+    return m.anotarCuotas(db, { mercado: mer.id, casa: b.casa, cuotas: Array.isArray(b.cuotas) ? b.cuotas : [], fuente: 'pantalla' })
+  }],
+  ['POST', /^\/api\/mercados\/encuestas$/, async (b) => { const m = await import('./mercados.ts'); return b.url ? m.importarEncuestas(db, String(b.evento), String(b.url)) : m.anotarEncuestas(db, String(b.evento), Array.isArray(b.encuestas) ? b.encuestas : []) }],
   // La hoja citable de una entidad (Fragua #292): la última (GET) o armarla / rehacerla (POST, con forzar).
   ['GET', /^\/api\/hojas-citables\/(\d+)$/, async (_, [n]) => (await import('./hojas-citables.ts')).leerHoja(db, id(n)) ?? {}],
   ['POST', /^\/api\/hojas-citables\/(\d+)$/, async (b, [n]) => (await import('./hojas-citables.ts')).hojaCitable(db, id(n), { forzar: !!b.forzar })],

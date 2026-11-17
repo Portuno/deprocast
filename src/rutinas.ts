@@ -250,6 +250,12 @@ export const ACCIONES: Acciones = {
     const total = r.poda + r.fusiones + r.puentes
     return total ? `🌙 El Soñador dejó ${total} propuesta${total === 1 ? '' : 's'} en Para validar: ${[r.poda ? `${r.poda} poda${r.poda === 1 ? '' : 's'}` : '', r.fusiones ? `${r.fusiones} para juntar` : '', r.puentes ? `${r.puentes} puente${r.puentes === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')}.` : null
   },
+  /** A las 9 (Fragua #263): el informe de cada evento con mercados abiertos; sin mercados, nada. */
+  async mercados(db, _fecha, ahora) {
+    const m = await import('./mercados.ts')
+    const eventos = [...new Set(m.listarMercados(db).filter((x) => !x.cierra || x.cierra >= _fecha).map((x) => x.evento))]
+    return eventos.length ? eventos.map((e) => m.informeMercados(db, e, ahora)).join('\n\n———\n\n') : null
+  },
   /** Al mediodía (Fragua #298): el sueño de anoche, estimado por la actividad (nunca pisa uno anotado). En silencio. */
   async sueno(db, fecha, ahora) {
     await (await import('./sueno-estimado.ts')).anotarSuenoEstimado(db, fecha, ahora)

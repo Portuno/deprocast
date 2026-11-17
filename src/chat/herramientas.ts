@@ -662,6 +662,41 @@ export const HERRAMIENTAS: Herramienta[] = [
     ejecutar: async (a, { db }) => { const u = await import('../uso-telefono.ts'); return a.dias ? u.usoDeDias(db, Number(a.dias)) : u.usoDelDia(db, a.fecha || undefined) },
   },
   {
+    nombre: 'ver_mercados', familia: 'lectura',
+    descripcion: 'Encuestas y cuotas de un evento (una elección, un partido): por mercado (nunca mezclados), el consenso de las casas sin su margen, cuánto se movió, quién paga más, el margen de cada casa y las que se apartan del resto; y el promedio de las últimas 5 encuestas con su dispersión. Sin evento: los mercados abiertos. informe: true da el texto del día. Es información: no recomiendes apostar; apostar va por el Monedero con su tope.',
+    parametros: S({ evento: str('El evento («29N»)'), mercado: str('Un mercado (nombre o id): su análisis completo'), informe: bool('true: el informe del día') }),
+    ejecutar: async (a, { db }) => {
+      const m = await import('../mercados.ts')
+      if (a.mercado) return m.analizarMercado(db, a.mercado, { evento: a.evento ?? null, desde: Date.now() - 86_400_000 })
+      if (a.evento && a.informe) return { informe: m.informeMercados(db, String(a.evento)) }
+      if (a.evento) return { mercados: m.listarMercados(db, String(a.evento)).map((x) => m.analizarMercado(db, x.id, { desde: Date.now() - 86_400_000 })), encuestas: m.promedioEncuestas(db, String(a.evento)) }
+      return { mercados: m.listarMercados(db).map((x) => ({ id: x.id, evento: x.evento, nombre: x.nombre, resultados: x.resultados })) }
+    },
+  },
+  {
+    nombre: 'anotar_cuotas', familia: 'accion',
+    descripcion: 'Anota las cuotas de una casa de apuestas para un mercado («Retabet: Feijóo presidente 1,16», o lo que leas de una captura). Si el mercado no existe, lo crea con el evento y sus resultados (sí/no por defecto). Cada mercado por separado: «más votado», «presidente» y «mayoría» son mercados distintos. Pasá las cuotas de todos los resultados que publique la casa (así se calcula su margen). Solo anota: nunca apuesta.',
+    parametros: S({ evento: str('El evento («29N»)'), mercado: str('El mercado, exacto («PP más votado», «Feijóo presidente», «PP+Vox con mayoría»)'), resultados: { type: 'array', items: { type: 'string' }, description: 'Si el mercado es nuevo y no es sí/no: sus resultados posibles' }, casa: str('La casa («Retabet»)'), cuotas: { type: 'array', items: { type: 'object', properties: { resultado: { type: 'string' }, cuota: { type: 'number' } } }, description: 'Cada resultado con su cuota decimal' } }, ['evento', 'mercado', 'casa', 'cuotas']),
+    ejecutar: async (a, { db }) => {
+      const m = await import('../mercados.ts')
+      const mer = m.asegurarMercado(db, { evento: a.evento, nombre: a.mercado, resultados: Array.isArray(a.resultados) ? a.resultados : undefined })
+      const r = m.anotarCuotas(db, { mercado: mer.id, casa: a.casa, cuotas: Array.isArray(a.cuotas) ? a.cuotas : [] })
+      return { ...r, analisis: m.analizarMercado(db, mer.id) }
+    },
+    resumen: (a) => `anotó cuotas de ${a.casa} para «${a.mercado}»`,
+  },
+  {
+    nombre: 'anotar_encuestas', familia: 'accion',
+    descripcion: 'Anota encuestas de un evento: encuestadora, fechas de campo (YYYY-MM-DD), muestra y cifras por opción (porcentajes). Con url (una tabla pública, como la de Wikipedia), las saca de ahí solo. La misma encuestadora con el mismo fin de campo no se repite.',
+    parametros: S({ evento: str('El evento («29N»)'), url: str('Una página con la tabla de encuestas'), encuestas: { type: 'array', items: { type: 'object' }, description: 'Si no hay url: [{encuestadora, campoDesde, campoHasta, muestra, cifras: {opción: %}}]' } }, ['evento']),
+    ejecutar: async (a, { db }) => {
+      const m = await import('../mercados.ts')
+      if (a.url) return m.importarEncuestas(db, String(a.evento), String(a.url))
+      return m.anotarEncuestas(db, String(a.evento), Array.isArray(a.encuestas) ? a.encuestas : [])
+    },
+    resumen: (a) => `anotó encuestas de ${a.evento}`,
+  },
+  {
     nombre: 'hoja_citable', familia: 'accion',
     descripcion: 'La «hoja citable» de un proyecto (o de una persona o empresa de su mundo): el markdown canónico para que una IA la cite (resumen de 60 palabras, qué hace, servicios, links oficiales, equipo y hechos con fecha), armado SOLO con lo que Deprocast sabe. Devuelve la última si nada cambió; regenerar la rehace. Queda versionada en el corpus. Es privada: publicarla es decisión suya.',
     parametros: S({ entidad: str('El proyecto, persona o empresa (nombre o id)'), regenerar: bool('true: rehacerla aunque nada haya cambiado') }, ['entidad']),
@@ -2653,7 +2688,7 @@ export const GRUPOS: Record<string, string[]> = {
   liga: ['ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'ver_banco_de_pruebas', 'correr_banco_de_pruebas', 'comparar_motores', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['ver_suenos_noche', 'al_diario', 'ver_diario', 'crear_dominio', 'retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_criterios', 'fijar_criterio', 'ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['ficha_empresa', 'responder_pregunta', 'votar_criba', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'crear_dominio', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_hipotesis', 'probar_hipotesis', 'ver_recorrido', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ver_compras', 'marcar_compras', 'ver_escala', 'ver_monedero', 'asentar_en_monedero', 'atribuir_ingreso', 'ajustar_monedero', 'buscar_por_lugar', 'ver_actividad', 'ver_uso_telefono', 'estimar_sueno', 'hoja_citable', 'reservar', 'ver_reservas', 'actualizar_reserva', 'marcar_distracciones', 'recordar_en_telefono', 'guardar_lugar', 'privacidad_recorrido', 'recorrido_rango'],
+  vida: ['ficha_empresa', 'responder_pregunta', 'votar_criba', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'crear_dominio', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_hipotesis', 'probar_hipotesis', 'ver_recorrido', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ver_compras', 'marcar_compras', 'ver_escala', 'ver_monedero', 'asentar_en_monedero', 'atribuir_ingreso', 'ajustar_monedero', 'buscar_por_lugar', 'ver_actividad', 'ver_uso_telefono', 'estimar_sueno', 'ver_mercados', 'anotar_cuotas', 'anotar_encuestas', 'hoja_citable', 'reservar', 'ver_reservas', 'actualizar_reserva', 'marcar_distracciones', 'recordar_en_telefono', 'guardar_lugar', 'privacidad_recorrido', 'recorrido_rango'],
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado', 'borrar_programado'],
   correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'marcar_correo_atendido', 'buscar_contacto'],
   drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'borrar_de_drive', 'barrer_documentos_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],

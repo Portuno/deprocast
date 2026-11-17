@@ -6,6 +6,7 @@
 //   Cada página se construye sola con lo que pasa en ella y él la moldea con instrucciones en lenguaje natural.
 // - A mano (#hojas, #hojas/Rojo): los cuadernos de la tableta, hoja por hoja.
 // - Compras (#compras): la lista de compras.
+// - Encuestas y cuotas (#mercados, #mercados/29N): cada mercado por separado (Fragua #263).
 // - Reservas (#reservas): las reservas con sus textos y su seguimiento (Fragua #254).
 
 const OFICIOS_72 = ['Entra · Cuerpo', 'Entra · Mente', 'Entra · Alma', 'Procesa · Cuerpo', 'Procesa · Mente', 'Procesa · Alma', 'Sale · Cuerpo', 'Sale · Mente', 'Sale · Alma']
@@ -31,6 +32,7 @@ const QUE_ES_VISTA = {
   escalas: ['Tu vida por escalas: cada día desde sus piezas, y la semana, el mes… hasta el lustro.'],
   monedero: ['El Monedero del Tesorero: patrimonio, cuentas, arcas de cada agente y arquetipo, y lo que espera tu firma.'],
   compras: ['La lista de compras: lo que mandás para comprar, junto y tachable.', 'compras'],
+  mercados: ['Encuestas y cuotas de un evento: cada mercado con el margen de cada casa, el consenso y quién se aparta.'],
   reservas: ['Tus reservas: el pedido armado (mail, WhatsApp, llamada), el seguimiento y las confirmadas en la agenda.', 'reservas'],
   capsulas: ['Cápsulas del tiempo: mensajes para tu yo futuro.'],
   jugador: ['Tu personaje: nivel, inventario e historia.'],
@@ -285,6 +287,60 @@ async function pintarCompras() {
     b.disabled = true; b.textContent = 'Leyendo tus mensajes…'
     try { const r = await api('/compras/importar', {}); toast(`Revisé ${r.revisados} mensajes: ${r.nuevos} ítems nuevos de ${r.mensajes} listas.`, 'suave'); pintarCompras() } catch (x) { error(x); b.disabled = false }
   }
+}
+
+// ─── Encuestas y cuotas (Fragua #263) ───────────────────────────────────
+
+const coma = (n) => (n == null ? '—' : String(n).replace('.', ','))
+
+/** #mercados o #mercados/29N. */
+async function montarMercados(param) {
+  let d
+  try { d = await api(`/mercados${param ? `?evento=${encodeURIComponent(param)}` : ''}`) } catch (e) { return error(e) }
+  const ev = d.evento
+  const tarjeta = (a) => `<article class="tarjeta mercado">
+      <div class="tarjeta-cab">${esc(a.mercado.nombre)}<span class="tenue chico">${a.casas.length} casa${a.casas.length === 1 ? '' : 's'}</span></div>
+      ${a.casas.length ? `<table class="tabla-mercado"><thead><tr><th>Casa</th>${a.mercado.resultados.map((r) => `<th>${esc(r)}</th>`).join('')}<th>Margen</th></tr></thead><tbody>
+        ${a.casas.map((c) => `<tr><td>${esc(c.casa)} <small class="tenue">${esc(c.actualizada)}</small></td>${a.mercado.resultados.map((r) => `<td>${coma(c.cuotas[r])}</td>`).join('')}<td>${c.margen == null ? '<span class="tenue" title="No publicó todos los resultados">?</span>' : `${coma(c.margen)} %`}</td></tr>`).join('')}
+      </tbody></table>
+      <ul class="lista-mercado">${a.resultados.map((r) => `<li><b>${esc(r.resultado)}</b>: consenso ${coma(r.consenso)} %${r.movimiento ? ` <small>(${r.movimiento > 0 ? '+' : ''}${coma(r.movimiento)} desde ayer)</small>` : ''}${r.mejor ? ` · paga más <b>${esc(r.mejor.casa)}</b> a ${coma(r.mejor.cuota)}` : ''}${r.avisos.map((x) => `<br><span class="aviso-mercado">⚠ ${esc(x.casa)}: ${coma(x.prob)} %, ${x.desvio > 0 ? '+' : ''}${coma(x.desvio)} puntos contra el resto</span>`).join('')}</li>`).join('')}</ul>` : '<p class="tenue">Sin cuotas todavía.</p>'}
+    </article>`
+  const enc = d.encuestas
+  $('#principal').innerHTML = `<div class="titulo"><h1>Encuestas y cuotas</h1>
+    <p>Cada mercado por separado (nunca mezclados), con el margen de cada casa, el consenso sin ese margen, quién paga más y la casa que se aparta del resto (eso es la oportunidad). Es información: apostar es plata y va por el Monedero, con su tope. Las cuotas las cargás acá o se las mandás a Mastropiero («Retabet: Feijóo presidente 1,16»).</p></div>
+    ${d.eventos.length > 1 ? `<div class="chips">${d.eventos.map((e) => `<a class="chip ${e === ev ? 'on' : ''}" href="${rutaA('mercados', e)}">${esc(e)}</a>`).join('')}</div>` : ''}
+    <form id="f-cuota" class="reservas-form">
+      <input name="evento" placeholder="Evento (29N)" value="${esc(ev ?? '')}" required aria-label="Evento">
+      <input name="mercado" placeholder="Mercado (Feijóo presidente)" required aria-label="Mercado">
+      <input name="casa" placeholder="Casa" required aria-label="Casa">
+      <input name="si" placeholder="Cuota «sí»" inputmode="decimal" required aria-label="Cuota sí">
+      <input name="no" placeholder="Cuota «no» (para el margen)" inputmode="decimal" aria-label="Cuota no">
+      <button class="btn btn-primario">Anotar cuotas</button>
+    </form>
+    ${ev ? `<div class="tarjetas">${d.mercados.map(tarjeta).join('') || '<p class="tenue">Sin mercados.</p>'}</div>
+    <section class="seccion"><div class="seccion-cab"><h3>Encuestas · ${esc(ev)}</h3><span class="tenue">Promedio de las últimas cinco, con la dispersión.</span></div>
+      ${enc?.promedio?.length ? `<ul class="lista-mercado">${enc.promedio.map((p) => `<li><b>${esc(p.opcion)}</b> ${coma(p.promedio)} % <small class="tenue">±${coma(p.desvio)} · ${p.min}–${p.max} · ${p.encuestas} encuestas</small></li>`).join('')}</ul>
+        <details><summary class="tenue">Las últimas</summary><ul class="chico">${enc.ultimas.map((u) => `<li>${esc(u.encuestadora)} · ${esc(u.campo)}${u.muestra ? ` · n=${u.muestra}` : ''} · ${Object.entries(u.cifras).map(([k, v]) => `${esc(k)} ${coma(v)}`).join(', ')}</li>`).join('')}</ul></details>` : '<p class="tenue">Sin encuestas todavía.</p>'}
+      <form id="f-encuestas" class="fila compras-sumar"><input name="url" placeholder="Link a una tabla pública de encuestas (la de Wikipedia)" aria-label="Link de encuestas"><button class="btn">Traer encuestas</button></form>
+    </section>
+    <p><button class="btn btn-chico" id="m-informe">Copiar el informe del día</button></p>` : '<div class="vacio"><h2>Sin mercados todavía</h2><p>Anotá la primera cuota arriba (con su evento y su mercado) o mandásela a Mastropiero.</p></div>'}`
+  $('#f-cuota').onsubmit = async (e) => {
+    e.preventDefault()
+    const form = e.currentTarget
+    const f = Object.fromEntries(new FormData(form))
+    const cuotas = [{ resultado: 'sí', cuota: Number(String(f.si).replace(',', '.')) }, ...(String(f.no).trim() ? [{ resultado: 'no', cuota: Number(String(f.no).replace(',', '.')) }] : [])]
+    try { await api('/mercados/cuotas', { evento: f.evento, mercado: f.mercado, casa: f.casa, cuotas }); toast('Cuotas anotadas', 'suave'); montarMercados(String(f.evento)) } catch (x) { error(x) }
+  }
+  const fe = $('#f-encuestas')
+  if (fe) fe.onsubmit = async (e) => {
+    e.preventDefault()
+    const url = new FormData(e.currentTarget).get('url')
+    if (!String(url).trim()) return
+    const b = $('button', fe); b.disabled = true; b.textContent = 'Leyendo la tabla…'
+    try { const r = await api('/mercados/encuestas', { evento: ev, url }); toast(`${r.leidas} encuestas leídas: ${r.nuevas} nuevas`, 'suave'); montarMercados(ev) } catch (x) { error(x); b.disabled = false; b.textContent = 'Traer encuestas' }
+  }
+  const inf = $('#m-informe')
+  if (inf) inf.onclick = async () => { try { const r = await api(`/mercados/informe?evento=${encodeURIComponent(ev)}`); await navigator.clipboard.writeText(r.informe); toast('Informe copiado', 'suave') } catch (x) { error(x) } }
 }
 
 // ─── Reservas (Fragua #254) ─────────────────────────────────────────────
