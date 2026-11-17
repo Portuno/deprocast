@@ -80,3 +80,60 @@ test('Fragua #312 · un episodio con el largo pedido: plan en capítulos, guion 
   const corta = await crearSegun(db, { tipo: 'charla', pedido: 'mapas' })
   assert.deepEqual(corta.archivos, ['charla.mp3'])
 })
+
+test('Fragua #312 · el episodio terminado va a su Drive (mp3 y transcripción) y a su WhatsApp con el índice; grande, como documento', async () => {
+  const { fijarAjuste } = await import('../src/db.ts')
+  const { _probarGoogle } = await import('../src/google/oauth.ts')
+  const wa = await import('../src/whatsapp.ts')
+  const antes = { db: process.env.MASTRO_DB, id: process.env.GOOGLE_OAUTH_ID, s: process.env.GOOGLE_OAUTH_SECRETO }
+  process.env.MASTRO_DB = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'podcast-db-')), 'x.db')
+  process.env.GOOGLE_OAUTH_ID = 'c'; process.env.GOOGLE_OAUTH_SECRETO = 's'
+  try {
+    const db = abrir(':memory:')
+    fijarAjuste(db, 'google_refresh', 'r1')
+    fijarAjuste(db, 'google_alcances', 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file')
+    _probarGoogle((async () => new Response('{}', { status: 503 })) as typeof fetch) // sin red: queda en la cola de Drive
+    wa.configurarWhatsapp(db, { numeroId: '123456789', token: 'EAA'.padEnd(40, 'x'), secreto: 'a'.repeat(32) })
+    fijarAjuste(db, 'whatsapp_wa_id', '5491100000000')
+    fijarAjuste(db, 'whatsapp_ultimo_entrante', String(Date.now() - 3_600_000))
+    const mandados: any[] = []
+    const subidos: string[] = []
+    wa._probarWhatsapp((async (u: string, init: RequestInit = {}) => {
+      if (String(u).endsWith('/media')) { subidos.push(String((init.body as FormData).get('type'))); return new Response(JSON.stringify({ id: 'm1' })) }
+      if (String(u).endsWith('/messages')) { mandados.push(JSON.parse(String(init.body))); return new Response(JSON.stringify({ messages: [{ id: 'w' }] })) }
+      return new Response('{}', { status: 404 })
+    }) as typeof fetch)
+    _probarModelo(async (_l, o) => {
+      const s = String(o.mensajes[0].content)
+      if (s.includes('Armás el plan de un episodio')) return { texto: JSON.stringify({ titulo: 'Mapas vivos', capitulos: [{ titulo: 'Uno', puntos: ['a'] }] }), llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }
+      return { texto: JSON.stringify({ turnos: Array.from({ length: 4 }, (_, i) => ({ quien: i % 2 ? 'B' : 'A', texto: Array.from({ length: 200 }, () => 'idea').join(' ') })) }), llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }
+    })
+    _probarTaller({ voz: async () => mp3(50) })
+
+    const a = await crearSegun(db, { tipo: 'charla', pedido: 'mapas', minutos: '5', usarArchivo: false })
+    assert.equal(a.estado, 'listo', String(a.progreso))
+    assert.deepEqual(a.meta.entrega, { drive: true, whatsapp: true })
+    const cola = db.prepare(`SELECT nombre, mime, carpeta, descripcion FROM drive_cola WHERE origen = 'podcast' ORDER BY id`).all() as any[]
+    assert.equal(cola.length, 2)
+    assert.match(cola[0].nombre, /podcast · Mapas vivos\.mp3$/)
+    assert.equal(cola[0].mime, 'audio/mpeg')
+    assert.match(cola[0].carpeta, /Audios/)
+    assert.match(cola[0].descripcion, /00:00 · 1\. Uno/)
+    assert.match(cola[1].nombre, /podcast · Mapas vivos transcripci.n.md$/)
+    // Por WhatsApp: el aviso con el índice y después el mp3 como audio.
+    assert.equal(mandados[0].type, 'text')
+    assert.match(mandados[0].text.body, /Listo el podcast «Mapas vivos»[\s\S]*00:00 · 1\. Uno[\s\S]*Drive/)
+    assert.equal(mandados[1].type, 'audio')
+    assert.deepEqual(subidos, ['audio/mpeg'])
+
+    // Uno más grande que el tope de audio de WhatsApp va como documento; con la ventana cerrada, no sale.
+    mandados.length = 0
+    assert.equal(await wa.archivoPorWhatsapp(db, Buffer.alloc(wa.TOPE_AUDIO_WHATSAPP + 1), 'largo.mp3', { mime: 'audio/mpeg' }), true)
+    assert.equal(mandados[0].type, 'document')
+    assert.equal(mandados[0].document.filename, 'largo.mp3')
+    assert.equal(await wa.archivoPorWhatsapp(db, mp3(5), 'x.mp3', { mime: 'audio/mpeg', ahora: Date.now() + 2 * 86_400_000 }), false)
+  } finally {
+    for (const [k, v] of [['MASTRO_DB', antes.db], ['GOOGLE_OAUTH_ID', antes.id], ['GOOGLE_OAUTH_SECRETO', antes.s]] as const) { if (v === undefined) delete process.env[k]; else process.env[k] = v }
+    _probarGoogle(fetch)
+  }
+})

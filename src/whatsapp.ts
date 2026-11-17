@@ -453,6 +453,23 @@ export async function recibirWebhook(db: Db, cuerpo: any, ahora = Date.now()): P
   return n
 }
 
+/** Hasta acá un mp3 sale como audio (el límite de WhatsApp); más grande, como documento (hasta 100 MB). */
+export const TOPE_AUDIO_WHATSAPP = 16 * 1024 * 1024
+/**
+ * Un archivo que terminó solo (un podcast del Taller), por WhatsApp si la ventana de 24 horas está abierta: el texto
+ * primero y después el archivo. Un mp3 chico va como audio (se escucha ahí mismo); uno grande, como documento.
+ */
+export async function archivoPorWhatsapp(db: Db, datos: Buffer, nombre: string, o: { mime: string; texto?: string; ahora?: number }): Promise<boolean> {
+  const c = cfg(db)
+  const ultimo = Number(ajuste(db, 'whatsapp_ultimo_entrante')) || 0
+  if (!whatsappConfigurado(db) || !c.suyo || (o.ahora ?? Date.now()) - ultimo >= VENTANA || !datos.length) return false
+  if (o.texto?.trim()) await mandarTexto(db, c.suyo, o.texto.trim())
+  const id = await subirMedio(db, datos, o.mime, nombre)
+  const comoAudio = o.mime.startsWith('audio/') && datos.length <= TOPE_AUDIO_WHATSAPP
+  await graph(db, `${c.numeroId}/messages`, { method: 'POST', body: JSON.stringify(comoAudio ? { messaging_product: 'whatsapp', to: c.suyo, type: 'audio', audio: { id } } : { messaging_product: 'whatsapp', to: c.suyo, type: 'document', document: { id, filename: nombre } }) })
+  return true
+}
+
 /** Lo que Mastropiero dice solo: por WhatsApp si la ventana de 24 horas está abierta. */
 export async function decirPorWhatsapp(db: Db, texto: string, ahora = Date.now(), botones?: Botones): Promise<boolean> {
   const c = cfg(db)
