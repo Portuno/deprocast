@@ -132,7 +132,7 @@ export async function medioDeAdjunto(db: Db, archivo: string): Promise<Buffer | 
   return c && fs.existsSync(c.archivo) ? fs.readFileSync(c.archivo) : null
 }
 const CARPETA_DE = { audio: 'Audios', imagen: 'Imágenes', archivo: 'Archivos' } as const
-const MIME_DE: Record<string, string> = { ogg: 'audio/ogg', oga: 'audio/ogg', mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', webm: 'audio/webm', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', pdf: 'application/pdf', csv: 'text/csv', txt: 'text/plain', md: 'text/markdown', json: 'application/json', zip: 'application/zip' }
+const MIME_DE: Record<string, string> = { ogg: 'audio/ogg', oga: 'audio/ogg', mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', webm: 'audio/webm', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', pdf: 'application/pdf', csv: 'text/csv', txt: 'text/plain', md: 'text/markdown', json: 'application/json', zip: 'application/zip', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }
 
 /** ¿Van sus audios, imágenes y archivos a Drive? (Sin el permiso de escribir, nada se encola: no se acumula en disco.) */
 export function guardaMedios(db: Db) { return googleConectado(db) && puedeEscribir(db) && ajuste(db, 'drive_medios') !== '0' }

@@ -365,6 +365,33 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a, r: any) => `armó el PDF «${a.titulo}»${r?.enviado ? ` y lo mandó por ${r.enviado}` : ''}`,
   },
   {
+    nombre: 'armar_presentacion', familia: 'accion',
+    descripcion: 'Arma una presentación PowerPoint (.pptx) de verdad, editable en PowerPoint y Google Slides: portada (título, subtítulo, autor, fecha) y las slides de un guion, cada una con título, puntos cortos (3 a 6), la nota del orador (lo que él dice en esa slide: va en el campo de notas, no en la slide) y, si suma, una imagen: una del Taller (artefacto), un adjunto suyo, o un pedido para pintarla (prompt en inglés, con generar_imagenes; tarda unos segundos por imagen). tipo «seccion» es un separador; «cita», una frase grande. Paleta: sobria (clara), oscura o tierra. Se la manda por el canal en que habla, queda para bajar en el chat y va a su Drive. Si ya salió por WhatsApp o Telegram, no repitas el contenido: decí en una línea qué le mandaste; si no, poné la «marca» tal cual.',
+    parametros: S({
+      titulo: str('El título'), subtitulo: str('El subtítulo (la clase, el evento)'), autor: str('Quién presenta'),
+      slides: { type: 'array', items: { type: 'object', properties: { titulo: { type: 'string' }, puntos: { type: 'array', items: { type: 'string' } }, notas: { type: 'string' }, tipo: { type: 'string', enum: ['contenido', 'seccion', 'cita'] }, imagen: { type: 'object', properties: { artefacto: { type: 'integer' }, adjunto: { type: 'string' }, prompt: { type: 'string' } } } }, required: ['titulo'] }, description: 'El guion, slide por slide' },
+      paleta: str('La paleta', { enum: ['sobria', 'oscura', 'tierra'] }), generar_imagenes: bool('true: pintar las imágenes que tienen prompt'), nombre: str('Nombre del archivo, sin .pptx (opcional)'),
+    }, ['titulo', 'slides']),
+    ejecutar: async (a, { db }) => {
+      const { armarPresentacion } = await import('../presentacion.ts')
+      const r = await armarPresentacion(db, { titulo: String(a.titulo), subtitulo: a.subtitulo ?? null, autor: a.autor ?? null, slides: Array.isArray(a.slides) ? a.slides : [], paleta: a.paleta ?? 'sobria', generarImagenes: !!a.generar_imagenes })
+      const base = String(a.nombre || a.titulo).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'presentacion'
+      const nombre = `${base}.pptx`
+      const fs = await import('node:fs')
+      const path = await import('node:path')
+      const { dirAdjuntos } = await import('./adjuntos.ts')
+      fs.mkdirSync(dirAdjuntos(), { recursive: true })
+      const archivo = `${Date.now()}-${base}.pptx`
+      fs.writeFileSync(path.join(dirAdjuntos(), archivo), r.datos)
+      // A su Drive (y de acá se borra al subir: el link del chat la trae de Drive).
+      let drive = false
+      try { drive = (await import('../google/drive.ts')).alDrive(db, { datos: r.datos, nombre, mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', tipo: 'archivo', origen: 'presentación', descripcion: String(a.titulo), adjunto: archivo }) != null } catch { /* sin Drive: queda acá */ }
+      const enviado = await (await import('../telegram.ts')).mandarArchivoAlCanal(r.datos, nombre).catch(() => null)
+      return { enviado, slides: r.slides, imagenes: r.imagenes, avisos: r.avisos.length ? r.avisos : undefined, nombre, drive, marca: `[archivo:/adjuntos/${archivo}|${nombre}|${r.slides} slides]` }
+    },
+    resumen: (a, r: any) => `armó la presentación «${a.titulo}» (${r?.slides ?? '?'} slides)${r?.enviado ? ` y la mandó por ${r.enviado}` : ''}`,
+  },
+  {
     nombre: 'guardar_en_drive', familia: 'accion',
     descripcion: 'Guarda un documento en SU carpeta «Mastropiero» de Google Drive (en Documentos, o en una subcarpeta), como Google Doc: un resumen, un plan, un borrador, una lista, lo que él pida o lo que convenga dejarle a mano. Si ya hay uno con ese título en esa carpeta, lo reescribe (no crea otro). Devuelve el link.',
     parametros: S({ titulo: str('El título del documento'), contenido: str('El texto (puede llevar listas y títulos simples)'), carpeta: str('Subcarpeta dentro de Documentos, opcional') }, ['titulo', 'contenido']),
@@ -2771,7 +2798,7 @@ export const GRUPOS: Record<string, string[]> = {
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus', 'ver_suenos_noche'],
   mapamundi: ['ver_mapamundi', 'disputar'],
   observatorio: ['seguir_tema', 'ver_observatorio', 'crear_campana', 'armar_campana'],
-  crear: ['armar_pdf', 'difundir_idea', 'ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
+  crear: ['armar_pdf', 'armar_presentacion', 'difundir_idea', 'ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
 
 /** Los grupos que el mensaje ya anuncia (para no gastar una vuelta pidiéndolos). */
