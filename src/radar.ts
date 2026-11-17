@@ -15,13 +15,13 @@ export type Oportunidad = {
   id: number; titulo: string; url: string | null; tipo: string; descripcion: string | null; porQue: string | null; cierre: string | null
   /** Dónde y cuándo (para el mapa y el calendario): fecha/fechaFin son las del evento; cierre, la fecha límite. */
   lugar: string | null; online: boolean; lat: number | null; lon: number | null; fecha: string | null; fechaFin: string | null; enCalendario: boolean
-  misionId: number | null; entidadId: number | null; borrador: string | null; estado: 'nueva' | 'me_interesa' | 'hecha' | 'descartada'; origen: string; creadaEn: number
+  misionId: number | null; entidadId: number | null; borrador: string | null; estado: EstadoOportunidad; motivo: string | null; origen: string; creadaEn: number
 }
 
 const deFila = (r: any): Oportunidad => ({
   id: r.id, titulo: r.titulo, url: r.url, tipo: r.tipo, descripcion: r.descripcion, porQue: r.por_que, cierre: r.cierre,
   lugar: r.lugar ?? null, online: !!r.online, lat: r.lat ?? null, lon: r.lon ?? null, fecha: r.fecha ?? null, fechaFin: r.fecha_fin ?? null, enCalendario: !!r.en_calendario, misionId: r.mision_id,
-  entidadId: r.entidad_id, borrador: r.borrador, estado: r.estado, origen: r.origen, creadaEn: r.creada_en,
+  entidadId: r.entidad_id, borrador: r.borrador, estado: r.estado, motivo: r.motivo ?? null, origen: r.origen, creadaEn: r.creada_en,
 })
 
 export function listarOportunidades(db: Db, f: { estados?: string[]; misionId?: number; limite?: number } = {}): Oportunidad[] {
@@ -37,11 +37,42 @@ export function leerOportunidad(db: Db, id: number): Oportunidad | null {
   return r ? deFila(r) : null
 }
 
-export function marcarOportunidad(db: Db, id: number, estado: Oportunidad['estado'], ahora = Date.now()): Oportunidad {
-  if (!['nueva', 'me_interesa', 'hecha', 'descartada'].includes(estado)) throw new Error('Estado inválido')
-  if (!leerOportunidad(db, id)) throw new Error(`No existe la oportunidad ${id}`)
-  db.prepare('UPDATE oportunidades SET estado = ?, actualizada_en = ? WHERE id = ?').run(estado, ahora, id)
+/**
+ * Los estados (Fragua #304): nueva, en juego (me_interesa), en pausa, hecha, descartada (con su motivo) y vencida (sola,
+ * cuando pasó su cierre o su fecha; se puede recuperar).
+ */
+export const ESTADOS_OPORTUNIDAD = ['nueva', 'me_interesa', 'en_pausa', 'hecha', 'descartada', 'vencida'] as const
+export type EstadoOportunidad = (typeof ESTADOS_OPORTUNIDAD)[number]
+
+export function marcarOportunidad(db: Db, id: number, estado: Oportunidad['estado'], ahora = Date.now(), motivo?: string | null): Oportunidad {
+  if (!(ESTADOS_OPORTUNIDAD as readonly string[]).includes(estado)) throw new Error(`Estado inválido (${ESTADOS_OPORTUNIDAD.join(' | ')})`)
+  const antes = leerOportunidad(db, id)
+  if (!antes) throw new Error(`No existe la oportunidad ${id}`)
+  // Una vencida que él recupera queda «rescatada»: no vuelve a vencer sola.
+  const m = estado === 'descartada' || estado === 'en_pausa' ? (motivo?.trim().slice(0, 300) || null)
+    : (estado === 'nueva' || estado === 'me_interesa') && (antes.estado === 'vencida' || antes.motivo === 'rescatada') ? 'rescatada' : null
+  db.prepare('UPDATE oportunidades SET estado = ?, motivo = ?, actualizada_en = ? WHERE id = ?').run(estado, m, ahora, id)
   return leerOportunidad(db, id)!
+}
+
+/** El triaje en bloque (Fragua #304): varias de una pasada, con el mismo estado (y el mismo motivo si se descartan). */
+export function marcarOportunidades(db: Db, ids: number[], estado: Oportunidad['estado'], motivo?: string | null, ahora = Date.now()): number {
+  let n = 0
+  for (const id of [...new Set(ids.map(Number).filter(Number.isFinite))].slice(0, 500)) { try { marcarOportunidad(db, id, estado, ahora, motivo); n++ } catch { /* una que ya no está */ } }
+  return n
+}
+
+/**
+ * La caducidad (Fragua #304): lo nuevo o en juego cuyo cierre ya pasó, o cuyo evento ya fue, queda vencido; lo nuevo sin
+ * fecha ninguna, a los 30 días. Nada se borra: se ve en «Vencidas» y se puede recuperar (una que él tocó después de su
+ * fecha, como al recuperarla, no vuelve a vencer). Devuelve cuántas vencieron.
+ */
+export function caducarOportunidades(db: Db, ahora = Date.now()): number {
+  const hoy = fechaLocal(ahora)
+  const r1 = db.prepare(`UPDATE oportunidades SET estado = 'vencida', motivo = 'cerró el ' || cierre, actualizada_en = ? WHERE estado IN ('nueva', 'me_interesa') AND cierre IS NOT NULL AND cierre < ? AND COALESCE(motivo, '') != 'rescatada'`).run(ahora, hoy).changes
+  const r2 = db.prepare(`UPDATE oportunidades SET estado = 'vencida', motivo = 'fue el ' || COALESCE(fecha_fin, fecha), actualizada_en = ? WHERE estado IN ('nueva', 'me_interesa') AND cierre IS NULL AND COALESCE(fecha_fin, fecha) IS NOT NULL AND COALESCE(fecha_fin, fecha) < ? AND COALESCE(motivo, '') != 'rescatada'`).run(ahora, hoy).changes
+  const r3 = db.prepare(`UPDATE oportunidades SET estado = 'vencida', motivo = '30 días sin tocarla', actualizada_en = ? WHERE estado = 'nueva' AND cierre IS NULL AND fecha IS NULL AND fecha_fin IS NULL AND actualizada_en < ?`).run(ahora, ahora - 30 * 86_400_000).changes
+  return Number(r1) + Number(r2) + Number(r3)
 }
 
 /** Dónde y cuándo, validado (lo que sale del modelo puede venir de cualquier forma). */

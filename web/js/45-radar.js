@@ -3,8 +3,9 @@
 // Se ven en lista (por estado y tipo), en el mapa o en el calendario.
 
 const TIPO_OPOR = { comunidad: '◍', evento: '◷', convocatoria: '✉', beca: '✦', premio: '★', contacto: '◐', medio: '▤', otro: '·' }
-const ESTADOS_OPOR = [['nueva', 'Nuevas'], ['me_interesa', 'Me interesan'], ['hecha', 'Hechas'], ['descartada', 'Descartadas']]
-const radarVista = { estado: 'nueva', tipo: null, modo: (() => { try { return localStorage.getItem('mastro-radar-modo') || 'lista' } catch { return 'lista' } })() }
+// Fragua #304: en juego (me_interesa), en pausa y vencidas (solas, al pasar su fecha; se recuperan).
+const ESTADOS_OPOR = [['nueva', 'Nuevas'], ['me_interesa', 'En juego'], ['en_pausa', 'En pausa'], ['hecha', 'Hechas'], ['descartada', 'Descartadas'], ['vencida', 'Vencidas']]
+const radarVista = { estado: 'nueva', tipo: null, sel: new Set(), modo: (() => { try { return localStorage.getItem('mastro-radar-modo') || 'lista' } catch { return 'lista' } })() }
 let radarFirma = ''
 let radarDatos = null
 let calConectado = null
@@ -37,6 +38,8 @@ async function traerRadar() {
   if (!$('#rd-cuerpo')) return
   try {
     radarDatos = await api('/radar')
+    if (radarDatos.vencidasAhora) toast(`${radarDatos.vencidasAhora} pasaron su fecha y quedaron en «Vencidas»`, 'suave')
+    radarVista.sel = new Set([...radarVista.sel].filter((id) => radarDatos.oportunidades.some((o) => o.id === id)))
     const sel = $('#rd-mision')
     if (sel && sel.options.length === 1) sel.innerHTML += radarDatos.primarias.map((p) => `<option value="${p.id}">Para «${esc(p.titulo)}»</option>`).join('')
     $('#rd-cuotas').innerHTML = radarDatos.conBuscador
@@ -65,7 +68,7 @@ function pintarRadar() {
     </div>
     ${tipos.length > 1 ? `<div class="mp-capas">${[[null, 'Todos'], ...tipos.map((t) => [t, `${TIPO_OPOR[t] ?? '·'} ${t}`])].map(([t, n]) => `<button class="chip-capa ${radarVista.tipo === t ? 'activo' : ''}" data-rd-tipo="${t ?? ''}" style="--c:var(--acento)">${esc(n)} <small>${t ? delEstado.filter((o) => o.tipo === t).length : delEstado.length}</small></button>`).join('')}</div>` : ''}
     ${d.sinUbicar ? `<p class="chico tenue">${d.sinUbicar} sin lugar ni fecha todavía. <button class="btn btn-chico" id="rd-ubicar">📍 Ubicar en mapa y calendario</button></p>` : ''}`
-  $$('[data-rd-estado]').forEach((b) => (b.onclick = () => { radarVista.estado = b.dataset.rdEstado; pintarRadar() }))
+  $$('[data-rd-estado]').forEach((b) => (b.onclick = () => { radarVista.estado = b.dataset.rdEstado; radarVista.sel = new Set(); pintarRadar() }))
   $$('[data-rd-modo]').forEach((b) => (b.onclick = () => { radarVista.modo = b.dataset.rdModo; try { localStorage.setItem('mastro-radar-modo', radarVista.modo) } catch {}; pintarRadar() }))
   $$('[data-rd-tipo]').forEach((b) => (b.onclick = () => { radarVista.tipo = b.dataset.rdTipo || null; pintarRadar() }))
   const ub = $('#rd-ubicar')
@@ -92,11 +95,27 @@ function pintarRadar() {
   }
   const pronto = xs.filter((o) => o.cierre && diasHasta(o.cierre) >= 0 && diasHasta(o.cierre) <= 7 && ['nueva', 'me_interesa'].includes(o.estado))
   const resto = xs.filter((o) => !pronto.includes(o))
+  // El triaje en bloque (Fragua #304): marcar varias y resolverlas de una.
+  const masivos = [['me_interesa', '★ En juego'], ['en_pausa', '⏸ En pausa'], ['hecha', '✓ Hechas'], ['descartada', '✕ Descartar…'], ['nueva', '↺ A nuevas']].filter(([e]) => e !== radarVista.estado)
+  const triaje = xs.length ? `<div class="rd-triaje fila"><label class="chico"><input type="checkbox" data-rd-todas ${xs.every((o) => radarVista.sel.has(o.id)) ? 'checked' : ''}> Todas</label><span class="tenue chico">${radarVista.sel.size ? `${radarVista.sel.size} seleccionada${radarVista.sel.size === 1 ? '' : 's'}` : 'Marcá varias para resolverlas de una'}</span>${radarVista.sel.size ? masivos.map(([e, n]) => `<button class="btn btn-chico" data-rd-masivo="${e}">${n}</button>`).join('') : ''}</div>` : ''
   cont.innerHTML = xs.length
-    ? `${pronto.length ? `<h3 class="sub rd-pronto">⏳ Cierra pronto · ${pronto.length}</h3><div class="opor-grid">${pronto.map(oporHTML).join('')}</div>` : ''}${resto.length ? `${pronto.length ? `<h3 class="sub">El resto · ${resto.length}</h3>` : ''}<div class="opor-grid">${resto.map(oporHTML).join('')}</div>` : ''}`
+    ? `${triaje}${pronto.length ? `<h3 class="sub rd-pronto">⏳ Cierra pronto · ${pronto.length}</h3><div class="opor-grid">${pronto.map(oporHTML).join('')}</div>` : ''}${resto.length ? `${pronto.length ? `<h3 class="sub">El resto · ${resto.length}</h3>` : ''}<div class="opor-grid">${resto.map(oporHTML).join('')}</div>` : ''}`
     : `<p class="tenue">Nada en «${esc(ESTADOS_OPOR.find(([e]) => e === radarVista.estado)?.[1] ?? '')}»${radarVista.tipo ? ` de tipo ${esc(radarVista.tipo)}` : ''}.</p>`
+  const todasBox = $('[data-rd-todas]', cont)
+  if (todasBox) todasBox.onchange = () => { radarVista.sel = todasBox.checked ? new Set(xs.map((o) => o.id)) : new Set(); pintarRadar() }
+  $$('[data-rd-masivo]', cont).forEach((b) => (b.onclick = async () => {
+    const estado = b.dataset.rdMasivo
+    let motivo = null
+    if (estado === 'descartada' || estado === 'en_pausa') {
+      motivo = await preguntar(estado === 'descartada' ? '¿Por qué se descartan? (opcional, uno para todas)' : '¿Por qué en pausa? (opcional)', '', { ok: 'Listo' })
+      if (motivo == null) return
+    }
+    try { const r = await api('/radar/marcar', { ids: [...radarVista.sel], estado, motivo }); toast(`${r.marcadas} resuelta${r.marcadas === 1 ? '' : 's'}`, 'suave'); radarVista.sel = new Set(); traerRadar() } catch (e) { error(e) }
+  }))
   $$('[data-op]', cont).forEach((card) => {
     const id = card.dataset.op
+    const caja = $('[data-op-sel]', card)
+    if (caja) caja.onchange = () => { caja.checked ? radarVista.sel.add(Number(id)) : radarVista.sel.delete(Number(id)); pintarRadar() }
     $$('[data-op-estado]', card).forEach((b) => (b.onclick = async () => { try { await api(`/radar/${id}`, { estado: b.dataset.opEstado }); traerRadar() } catch (e) { error(e) } }))
     const br = $('[data-op-borrador]', card)
     if (br) br.onclick = () => trabajando(br, 'Redactando…', async () => { await api(`/radar/${id}/borrador`, {}); traerRadar() })
@@ -131,6 +150,7 @@ function oporHTML(o) {
   const cuando = cierra == null ? '' : cierra < 0 ? `cerró el ${fechaOpor(o.cierre)}` : cierra === 0 ? 'cierra hoy' : cierra === 1 ? 'cierra mañana' : cierra <= 14 ? `cierra en ${cierra} días` : `cierra el ${fechaOpor(o.cierre)}`
   return `<article class="opor ${o.estado}" data-op="${o.id}">
     <div class="opor-meta">
+      <input type="checkbox" data-op-sel aria-label="Seleccionar" ${radarVista.sel.has(o.id) ? 'checked' : ''}>
       <span class="tipo-chip">${TIPO_OPOR[o.tipo] ?? '·'} ${esc(o.tipo)}</span>
       ${o.online ? '<span class="opor-dato">🌐 online</span>' : o.lugar ? `<span class="opor-dato">📍 ${esc(o.lugar)}</span>` : ''}
       ${o.fecha ? `<span class="opor-dato">📅 ${esc(fechaOpor(o.fecha))}${o.fechaFin && o.fechaFin !== o.fecha ? `–${esc(fechaOpor(o.fechaFin))}` : ''}</span>` : ''}
@@ -139,12 +159,14 @@ function oporHTML(o) {
     <h3>${o.url ? `<a href="${esc(o.url)}" target="_blank" rel="noopener">${esc(o.titulo)}</a>` : esc(o.titulo)}</h3>
     ${o.descripcion ? `<p class="opor-desc" title="${esc(o.descripcion)}">${esc(o.descripcion)}</p>` : ''}
     ${o.porQue ? `<p class="porque">${esc(o.porQue)}</p>` : ''}
+    ${o.motivo && o.motivo !== 'rescatada' ? `<p class="tenue chico">${o.estado === 'vencida' ? '⌛' : o.estado === 'en_pausa' ? '⏸' : '✕'} ${esc(o.motivo)}</p>` : ''}
     ${o.borrador ? `<details class="borrador"><summary>✍ Borrador en tu voz</summary><pre>${esc(o.borrador)}</pre><button class="btn btn-chico" data-op-copiar>Copiar</button></details>` : ''}
     <div class="opor-acc">
-      ${o.estado === 'descartada'
-        ? '<button class="btn btn-chico" data-op-estado="nueva">↺ Recuperar</button>'
+      ${o.estado === 'descartada' || o.estado === 'vencida' || o.estado === 'en_pausa'
+        ? `<button class="btn btn-chico" data-op-estado="nueva">↺ Recuperar</button>${o.estado === 'en_pausa' ? '<button class="btn btn-chico" data-op-estado="me_interesa">★ A en juego</button>' : ''}`
         : `${o.borrador ? '<button class="btn btn-chico" data-op-borrador title="Rehacer el borrador">✍ Rehacer</button>' : '<button class="btn btn-chico btn-primario" data-op-borrador>✍ Borrador</button>'}
-          ${o.estado === 'nueva' ? '<button class="btn btn-chico" data-op-estado="me_interesa" title="Me interesa">☆ Me interesa</button>' : o.estado === 'me_interesa' ? '<button class="btn btn-chico activo" data-op-estado="nueva" title="Ya no me interesa">★ Te interesa</button>' : ''}
+          ${o.estado === 'nueva' ? '<button class="btn btn-chico" data-op-estado="me_interesa" title="La juego">☆ En juego</button>' : o.estado === 'me_interesa' ? '<button class="btn btn-chico activo" data-op-estado="nueva" title="Sacarla de en juego">★ En juego</button>' : ''}
+          ${o.estado !== 'hecha' ? '<button class="btn btn-chico" data-op-estado="en_pausa" title="En pausa">⏸</button>' : ''}
           ${o.fecha || o.cierre || o.estado !== 'hecha' ? `<button class="btn btn-chico ${o.enCalendario ? 'activo' : ''}" data-op-agendar title="${o.enCalendario ? 'Ya está en tu calendario (actualizar)' : 'Llevar a mi calendario'}">📅${o.enCalendario ? ' ✓' : ''}</button>` : ''}
           <span class="opor-sep"></span>
           ${o.estado !== 'hecha' ? '<button class="btn btn-chico" data-op-estado="hecha" title="Ya lo hice">✓</button>' : ''}

@@ -63,7 +63,7 @@ import { aplicarForja, descartarForja, estadoReal, forjarMejora, leerForja, list
 import { borrarCuaderno, charla, componentesDeEntidad, crearCuaderno, guia, haciendo, leerCuaderno, listarCuadernos, notas, preguntar, quitarFuente, sumarFuentes } from './cuadernos.ts'
 import { buscarHibrido, estadoVectores, nivelesDe, vectorizarPendientes } from './semantica.ts'
 import { editarMovimiento, importarCSV, listarMovimientos, registrarMovimiento, resolverSugerido, resumenMes, resumenPorProyecto, ritmoMeta, sugeridos } from './finanzas.ts'
-import { buscarOportunidades, listarOportunidades, marcarOportunidad, redactarOportunidad } from './radar.ts'
+import { buscarOportunidades, caducarOportunidades, ESTADOS_OPORTUNIDAD, listarOportunidades, marcarOportunidad, marcarOportunidades, redactarOportunidad } from './radar.ts'
 import { cuotas, hayBuscadorWeb } from './web.ts'
 import { anotarPrediccion, calificarAMano, calificarDia, curva, paraElJugador, predecirDia, prediccionesDe, sumarPredicciones, textoDeCalificacion } from './gemelo.ts'
 import { cerrarDirecto, iniciarDirecto, latidoDirecto, tramoDirecto, tramosDe, leerSesion, listarSesiones, momentos as momentosDirecto, registrarAudio, registrarCuadro, sesionActiva, rehacerInforme, resolverPropuestas, propuestasPendientes } from './directo.ts'
@@ -1566,7 +1566,9 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/finanzas\/sugeridos\/(\d+)$/, (b, [m]) => resolverSugerido(db, id(m), b.accion === 'aceptar' ? 'aceptar' : 'descartar', { monto: b.monto != null ? Number(b.monto) : undefined, descripcion: b.descripcion }) ?? { descartado: true }],
 
   ['GET', /^\/api\/radar$/, () => ({
-    oportunidades: listarOportunidades(db, { estados: ['nueva', 'me_interesa', 'hecha', 'descartada'], limite: 300 }), cuotas: cuotas(db), conBuscador: hayBuscadorWeb(),
+    // Fragua #304: lo que pasó su fecha vence solo (sin borrarse) cada vez que se mira.
+    vencidasAhora: caducarOportunidades(db),
+    oportunidades: listarOportunidades(db, { estados: [...ESTADOS_OPORTUNIDAD], limite: 500 }), cuotas: cuotas(db), conBuscador: hayBuscadorWeb(),
     sinUbicar: (db.prepare(`SELECT COUNT(*) AS n FROM oportunidades WHERE ubicada IS NULL AND estado != 'descartada'`).get() as { n: number }).n,
     primarias: listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana: semanaDe(), estados: ['activa'] }).map((m) => ({ id: m.id, titulo: m.titulo })),
   })],
@@ -1630,7 +1632,9 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/tarjetas$/, async (_, __, q) => { const t = await import('./tarjetas.ts'); return { resumen: t.resumenTarjetas(db), paraHoy: t.paraRepasar(db, { mazo: q.get('mazo') || null, limite: Number(q.get('limite')) || 50 }) } }],
   ['POST', /^\/api\/tarjetas$/, async (b) => (await import('./tarjetas.ts')).crearTarjeta(db, { mazo: String(b.mazo || 'general'), frente: b.frente, dorso: b.dorso, contexto: b.contexto ?? null })],
   ['POST', /^\/api\/tarjetas\/(\d+)$/, async (b, [t]) => { const m = await import('./tarjetas.ts'); if (b.calidad === 'suspender') { m.suspenderTarjeta(db, id(t)); return { ok: true } } return m.responderTarjeta(db, id(t), b.calidad) }],
-  ['POST', /^\/api\/radar\/(\d+)$/, (b, [o]) => marcarOportunidad(db, id(o), b.estado)],
+  ['POST', /^\/api\/radar\/(\d+)$/, (b, [o]) => marcarOportunidad(db, id(o), b.estado, Date.now(), b.motivo ?? null)],
+  // El triaje en bloque (Fragua #304).
+  ['POST', /^\/api\/radar\/marcar$/, (b) => ({ marcadas: marcarOportunidades(db, Array.isArray(b.ids) ? b.ids : [], b.estado, b.motivo ?? null) })],
   ['POST', /^\/api\/radar\/(\d+)\/borrador$/, async (b, [o]) => redactarOportunidad(db, id(o), b.pedido || null)],
   ['GET', /^\/api\/gemelo$/, (_, __, q) => {
     const fecha = q.get('fecha') || fechaLocal()

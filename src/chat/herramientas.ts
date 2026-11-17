@@ -2581,9 +2581,16 @@ ${a.detalle ?? ''}`)
     resumen: (_, r) => `el radar encontró ${r?.nuevas?.length ?? 0} oportunidades`,
   },
   {
-    nombre: 'ver_oportunidades', familia: 'lectura', descripcion: 'Las oportunidades del radar (nuevas, las que le interesan, las hechas).',
+    nombre: 'triar_oportunidades', familia: 'accion',
+    descripcion: 'Resuelve varias oportunidades del radar de una pasada (ids de ver_oportunidades): en juego, en pausa, hechas o descartadas (con el motivo, uno para todas), o recuperar vencidas (nueva). Lo vencido se recupera, nada se borra.',
+    parametros: S({ ids: { type: 'array', items: { type: 'integer' }, description: 'Cuáles' }, estado: str('A qué estado', { enum: ['nueva', 'me_interesa', 'en_pausa', 'hecha', 'descartada'] }), motivo: str('Por qué (al descartar o pausar)') }, ['ids', 'estado']),
+    ejecutar: async (a, { db }) => ({ marcadas: (await import('../radar.ts')).marcarOportunidades(db, Array.isArray(a.ids) ? a.ids : [], a.estado, a.motivo ?? null) }),
+    resumen: (a) => `pasó ${Array.isArray(a.ids) ? a.ids.length : 0} oportunidades a ${a.estado}`,
+  },
+  {
+    nombre: 'ver_oportunidades', familia: 'lectura', descripcion: 'Las oportunidades del radar: nuevas, en juego (me_interesa), en pausa y hechas; lo que pasó su fecha queda vencido solo.',
     parametros: S({}),
-    ejecutar: (_, { db }) => listarOportunidades(db, { estados: ['nueva', 'me_interesa', 'hecha'], limite: 40 }).map((o) => ({ id: o.id, titulo: o.titulo, tipo: o.tipo, url: o.url, estado: o.estado, cierre: o.cierre ?? undefined, tiene_borrador: !!o.borrador })),
+    ejecutar: async (_, { db }) => { (await import('../radar.ts')).caducarOportunidades(db); return listarOportunidades(db, { estados: ['nueva', 'me_interesa', 'en_pausa', 'hecha'], limite: 60 }).map((o) => ({ id: o.id, titulo: o.titulo, tipo: o.tipo, url: o.url, estado: o.estado === 'me_interesa' ? 'en juego' : o.estado, cierre: o.cierre ?? undefined, motivo: o.motivo ?? undefined, tiene_borrador: !!o.borrador })) },
   },
   {
     nombre: 'redactar_oportunidad', familia: 'accion', descripcion: 'Le redacta, en su voz, el mensaje, post o postulación para aprovechar una oportunidad del radar. Él lo revisa y lo manda.',
@@ -2747,7 +2754,7 @@ export const GRUPOS: Record<string, string[]> = {
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado', 'borrar_programado'],
   correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'marcar_correo_atendido', 'buscar_contacto'],
   drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'borrar_de_drive', 'barrer_documentos_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],
-  web: ['ver_ranking_feed', 'ver_censo_canal', 'aprobar_censo_canal', 'seguir_en_feed', 'ver_feed', 'buscar_web', 'buscar_en', 'explorar', 'usar_alexandria', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'redactar_oportunidad'],
+  web: ['ver_ranking_feed', 'ver_censo_canal', 'aprobar_censo_canal', 'seguir_en_feed', 'ver_feed', 'buscar_web', 'buscar_en', 'explorar', 'usar_alexandria', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'triar_oportunidades', 'redactar_oportunidad'],
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus', 'ver_suenos_noche'],
   mapamundi: ['ver_mapamundi', 'disputar'],
   observatorio: ['seguir_tema', 'ver_observatorio', 'crear_campana', 'armar_campana'],
