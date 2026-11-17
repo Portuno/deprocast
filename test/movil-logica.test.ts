@@ -101,7 +101,7 @@ const captura = await deLaApp('captura')
 
 test('Mobile 1.0 · bloque 4: un interruptor por función y uno que apaga todo; el audio espera sin red o con la batería baja', () => {
   const a = captura.leerAjustes(null)
-  assert.deepEqual(a, { todo: true, audio: true, ubicacion: true, soloParadas: false, pasos: true, uso: true, avisos: true })
+  assert.deepEqual(a, { todo: true, audio: true, ubicacion: true, soloParadas: false, pasos: true, uso: true, pagos: true, avisos: true })
   assert.equal(captura.capta({ ...a, ubicacion: false }, 'ubicacion'), false)
   assert.equal(captura.capta({ ...a, todo: false }, 'audio'), false, 'el general manda')
   assert.deepEqual(captura.leerAjustes('{roto'), a, 'un ajuste roto vuelve a los iniciales')

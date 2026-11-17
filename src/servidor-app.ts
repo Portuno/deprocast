@@ -1880,6 +1880,11 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
       const u = await import('./uso-telefono.ts')
       return responder(200, { guardados: u.recibirUso(db, `disp:${disp.id}`, b.dias), hoy: u.usoDelDia(db) })
     }
+    // Fragua #296: los avisos de las apps de pago y banco, como movimientos sugeridos en el Monedero.
+    if (ruta === 'pagos' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 1024 * 1024)).toString('utf8') || '{}')
+      return responder(200, await (await import('./avisos-pago.ts')).recibirAvisosPago(db, b.avisos))
+    }
     if (ruta === 'avisos' && req.method === 'GET') return responder(200, await (await import('./avisos-movil.ts')).proximosAvisos(db))
     // Los lugares: los frecuentes sin nombre (para nombrarlos) y guardar uno.
     if (ruta === 'lugares' && req.method === 'GET') { const t = await import('./territorio.ts'); return responder(200, { frecuentes: t.paradasFrecuentes(db), lugares: t.lugaresConCoordenadas(db) }) }

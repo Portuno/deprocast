@@ -25,6 +25,7 @@ import { registrarArchivos } from './src/archivos'
 import { registrarPasos } from './src/pasos'
 import { registrarFondo } from './src/fondo'
 import { registrarAvisos } from './src/avisos'
+import { registrarPagos } from './src/pagos'
 import { subirUsoTelefono } from './src/uso'
 import { Compartir } from './src/pantallas/Compartir'
 import { Vincular } from './src/pantallas/Vincular'
@@ -69,6 +70,7 @@ export default function App() {
     registrarArchivos()
     void registrarPasos().then(() => registrarFondo())
     void registrarAvisos(c).catch(() => {})
+    registrarPagos()
     void subirUsoTelefono(c).catch(() => null)
     void recuperarTramos().then((n) => { if (n) void sincronizar(c) }).catch(() => {})
   }, [c])

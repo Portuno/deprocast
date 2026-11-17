@@ -7,19 +7,21 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AppState, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native'
 import { abrirPermisoUso, hayModuloUso, tienePermisoUso } from '../uso'
+import { abrirPermisoPagos, hayPagos, tienePermisoPagos } from '../pagos'
 import { hayAtajo, ofrecerAtajo, puedeOfrecerAtajo } from '../../modules/atajo-dictado'
 import { ajustesCaptura, energiaYRed, guardarAjustesCaptura } from '../captura'
 import { AJUSTES_INICIALES, type Ajustes } from '../logica/captura'
 import { ESP, LETRA, TOQUE, useTema } from '../tema'
 
 type Permiso = 'concedido' | 'pendiente' | 'negado' | 'no hace falta'
-type Funcion = { clave: 'audio' | 'ubicacion' | 'pasos' | 'uso'; titulo: string; capta: string; para: string; permiso: string }
+type Funcion = { clave: 'audio' | 'ubicacion' | 'pasos' | 'uso' | 'pagos'; titulo: string; capta: string; para: string; permiso: string }
 
 const FUNCIONES: Funcion[] = [
   { clave: 'audio', titulo: 'Micrófono', capta: 'Tu voz, en tramos cortos (se cortan al dejar de hablar, al cambiar de app o al minuto), también con la pantalla apagada.', para: 'El dictado (va al chat de Hoy) y la escucha (notas de voz). El audio se sube, se transcribe y se borra del teléfono.', permiso: 'Micrófono' },
   { clave: 'ubicacion', titulo: 'Ubicación', capta: 'Tu recorrido, aparte de la escucha (se prende en la pestaña Mapa y sigue con la app cerrada): quieto casi no marca; caminando, cada 30 s. O solo las paradas.', para: 'El mapa de tu día, que Mastropiero lo analice («¿por dónde anduve?») y cruzar lo que dijiste con dónde estabas.', permiso: 'Ubicación (todo el tiempo, para que siga con la app cerrada)' },
   { clave: 'pasos', titulo: 'Pasos', capta: 'Los pasos y si caminás, por el sensor del teléfono (no por GPS), también con la app cerrada (el contador del teléfono, cada ~15 minutos).', para: 'Cruzar lo que dijiste con cómo te movías.', permiso: 'Actividad física' },
   { clave: 'uso', titulo: 'Tiempo en el teléfono', capta: 'Cuánto estuvo prendida la pantalla, cuántas veces lo desbloqueaste y cuánto pasaste en cada app. Nunca lo que hay adentro de cada app.', para: 'Medir la procrastinación de verdad: cuánto se fue en redes y video, y cruzarlo con tus días y tus metas.', permiso: 'Acceso a uso (se da una vez en los ajustes de Android)' },
+  { clave: 'pagos', titulo: 'Avisos de pago', capta: 'Los avisos de las apps de pago y banco (Mercado Pago, Belo, el banco) que traen un monto. Android da acceso a todas las notificaciones: el teléfono ignora el resto sin guardarlo.', para: 'Que tus gastos y cobros entren solos al Monedero, para firmar en un toque.', permiso: 'Acceso a notificaciones (se da una vez en los ajustes de Android)' },
 ]
 
 export function Captura({ cerrar }: { cerrar: () => void }) {
@@ -35,6 +37,7 @@ export function Captura({ cerrar }: { cerrar: () => void }) {
     try { p.ubicacion = de(await (await import('expo-location')).getForegroundPermissionsAsync()) } catch { p.ubicacion = 'pendiente' }
     try { const { Pedometer } = await import('expo-sensors'); p.pasos = (await Pedometer.isAvailableAsync()) ? de(await Pedometer.getPermissionsAsync()) : 'no hace falta' } catch { p.pasos = 'pendiente' }
     p.uso = !hayModuloUso() ? 'no hace falta' : tienePermisoUso() ? 'concedido' : 'pendiente'
+    p.pagos = !hayPagos() ? 'no hace falta' : tienePermisoPagos() ? 'concedido' : 'pendiente'
     try { p.avisos = de(await (await import('expo-notifications')).getPermissionsAsync()) } catch { p.avisos = 'pendiente' }
     setPermisos(p)
   }, [])
@@ -50,6 +53,7 @@ export function Captura({ cerrar }: { cerrar: () => void }) {
   const cambiar = async (x: Partial<Ajustes>) => { const n = { ...a, ...x }; setA(n); await guardarAjustesCaptura(n) }
   const pedir = async (clave: Funcion['clave'] | 'avisos') => {
     if (clave === 'uso') return void abrirPermisoUso()
+    if (clave === 'pagos') return void abrirPermisoPagos()
     if (permisos[clave] === 'negado') return void Linking.openSettings()
     try {
       if (clave === 'audio') await (await import('expo-audio')).requestRecordingPermissionsAsync()

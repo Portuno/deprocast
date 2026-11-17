@@ -143,4 +143,6 @@ export const traerMapaRango = (c: Credenciales, desde: string, hasta: string) =>
 export type DiaUsoApi = { fecha: string; pantallaMin: number; desbloqueos: number; apps: { paquete: string; nombre: string; min: number; aperturas: number }[]; sesiones?: [number, number][] }
 export const subirUso = (c: Credenciales, dias: DiaUsoApi[]) => pedir<{ guardados: number }>(c, 'uso', { method: 'POST', body: JSON.stringify({ dias }) })
 export type AvisoApi = { clave: string; titulo: string; cuerpo: string; en: number }
+/** Fragua #296: los avisos de las apps de pago y banco que guardó el teléfono. */
+export const mandarAvisosPago = (c: Credenciales, avisos: { paquete: string; app: string; titulo: string; texto: string; en: number }[]) => pedir<{ recibidos: number; sugeridos: number }>(c, 'pagos', { method: 'POST', body: JSON.stringify({ avisos }) })
 export const traerAvisos = (c: Credenciales) => pedir<{ minutosAntes: number; avisos: AvisoApi[] }>(c, 'avisos')

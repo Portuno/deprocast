@@ -7,18 +7,19 @@
  *   paradas (un lugar donde te quedaste 5 minutos o más) en vez de toda la traza;
  * - pasos: por el sensor del teléfono (no por GPS), para cruzar lo que dijiste con cómo te movías;
  * - uso (Mobile 1.3): cuánto tiempo en cada app, la pantalla y los desbloqueos (con «Acceso a uso»; nunca lo de adentro);
+ * - pagos (Fragua #296): los avisos de las apps de pago y banco (con «Acceso a notificaciones»; el resto se ignora);
  * - batería y red: sin permiso, para decidir cuándo subir el audio.
  * Qué NO capta: el teclado, tus contactos, el contenido de otras apps ni capturas de pantalla.
  */
 
-export type Ajustes = { todo: boolean; audio: boolean; ubicacion: boolean; soloParadas: boolean; pasos: boolean; uso: boolean; avisos: boolean }
-export const AJUSTES_INICIALES: Ajustes = { todo: true, audio: true, ubicacion: true, soloParadas: false, pasos: true, uso: true, avisos: true }
+export type Ajustes = { todo: boolean; audio: boolean; ubicacion: boolean; soloParadas: boolean; pasos: boolean; uso: boolean; pagos: boolean; avisos: boolean }
+export const AJUSTES_INICIALES: Ajustes = { todo: true, audio: true, ubicacion: true, soloParadas: false, pasos: true, uso: true, pagos: true, avisos: true }
 
 /** Los ajustes guardados (con lo que falte, de los iniciales). El interruptor general manda sobre todo. */
 export function leerAjustes(texto: string | null): Ajustes {
   try { return { ...AJUSTES_INICIALES, ...(texto ? JSON.parse(texto) : {}) } } catch { return { ...AJUSTES_INICIALES } }
 }
-export const capta = (a: Ajustes, que: 'audio' | 'ubicacion' | 'pasos' | 'uso') => a.todo && a[que]
+export const capta = (a: Ajustes, que: 'audio' | 'ubicacion' | 'pasos' | 'uso' | 'pagos') => a.todo && a[que]
 /** Los avisos no son captura: el interruptor general no los apaga. */
 export const avisa = (a: Ajustes) => a.avisos
 

@@ -13,6 +13,7 @@ import { avisa, capta } from './logica/captura'
 import { leerContador, subirPasos, cuentaConLaAppCerrada } from './pasos'
 import { subirUsoTelefono, tienePermisoUso } from './uso'
 import { revisarAvisos } from './avisos'
+import { subirPagos, tienePermisoPagos } from './pagos'
 
 export const TAREA_FONDO = 'deprocast-fondo'
 
@@ -24,6 +25,7 @@ TaskManager.defineTask(TAREA_FONDO, async () => {
     if (!c) return BackgroundTask.BackgroundTaskResult.Success
     if (capta(a, 'pasos')) await subirPasos(c).catch(() => {})
     await subirUsoTelefono(c, { forzar: true }).catch(() => null)
+    await subirPagos(c).catch(() => {})
     if (avisa(a)) await revisarAvisos(c, { forzar: true }).catch(() => {})
     return BackgroundTask.BackgroundTaskResult.Success
   } catch { return BackgroundTask.BackgroundTaskResult.Failed }
@@ -32,7 +34,7 @@ TaskManager.defineTask(TAREA_FONDO, async () => {
 /** ¿Hace falta la tarea? (algo de lo que hace está prendido y es posible en este teléfono). */
 async function hayQueHacer(): Promise<boolean> {
   const a = await ajustesCaptura()
-  return (capta(a, 'pasos') && cuentaConLaAppCerrada()) || (capta(a, 'uso') && tienePermisoUso()) || avisa(a)
+  return (capta(a, 'pasos') && cuentaConLaAppCerrada()) || (capta(a, 'uso') && tienePermisoUso()) || (capta(a, 'pagos') && tienePermisoPagos()) || avisa(a)
 }
 
 /** La registra (o la saca si no hace falta). Se llama al abrir y al cambiar los ajustes. */
