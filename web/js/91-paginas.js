@@ -6,6 +6,7 @@
 //   Cada página se construye sola con lo que pasa en ella y él la moldea con instrucciones en lenguaje natural.
 // - A mano (#hojas, #hojas/Rojo): los cuadernos de la tableta, hoja por hoja.
 // - Compras (#compras): la lista de compras.
+// - Extracciones (#extracciones, #extracciones/12): los clientes de extracción de datos (Fragua #264).
 // - Encuestas y cuotas (#mercados, #mercados/29N): cada mercado por separado (Fragua #263).
 // - Reservas (#reservas): las reservas con sus textos y su seguimiento (Fragua #254).
 
@@ -32,6 +33,7 @@ const QUE_ES_VISTA = {
   escalas: ['Tu vida por escalas: cada día desde sus piezas, y la semana, el mes… hasta el lustro.'],
   monedero: ['El Monedero del Tesorero: patrimonio, cuentas, arcas de cada agente y arquetipo, y lo que espera tu firma.'],
   compras: ['La lista de compras: lo que mandás para comprar, junto y tachable.', 'compras'],
+  extracciones: ['Tus clientes de extracción de datos: ficha, plan para quien ejecuta y los correos del día, listos para mandar.'],
   mercados: ['Encuestas y cuotas de un evento: cada mercado con el margen de cada casa, el consenso y quién se aparta.'],
   reservas: ['Tus reservas: el pedido armado (mail, WhatsApp, llamada), el seguimiento y las confirmadas en la agenda.', 'reservas'],
   capsulas: ['Cápsulas del tiempo: mensajes para tu yo futuro.'],
@@ -287,6 +289,67 @@ async function pintarCompras() {
     b.disabled = true; b.textContent = 'Leyendo tus mensajes…'
     try { const r = await api('/compras/importar', {}); toast(`Revisé ${r.revisados} mensajes: ${r.nuevos} ítems nuevos de ${r.mensajes} listas.`, 'suave'); pintarCompras() } catch (x) { error(x); b.disabled = false }
   }
+}
+
+// ─── Extracciones (Fragua #264) ─────────────────────────────────────────
+
+const CAMPOS_EXTRACCION = [
+  ['origen', 'Origen (Microsoft, Azure Blob, GCS, S3…)'], ['destino', 'Destino'], ['que', 'Qué se copia'], ['herramienta', 'Herramienta'], ['ventana', 'Ventana'], ['volumen', 'Volumen'], ['costo', 'Costo estimado'], ['ejecuta', 'Quién ejecuta'],
+  ['decide', 'Quién decide'], ['firma', 'Quién firma'], ['sistema', 'Qué sistema usa'], ['dolor', 'Qué le duele'], ['contacto', 'Contacto'], ['email', 'Email del cliente'],
+  ['cobroEstado', 'Cobro: estado'], ['cobroFecha', 'Cobro: fecha comprometida (AAAA-MM-DD)'], ['cobroQuien', 'Cobro: quién responde'], ['notas', 'Notas'],
+]
+const ESTADO_EXTR = { prospecto: ['prospecto', ''], plan: ['con plan', 'vivo'], en_curso: ['en curso', 'vivo'], hecha: ['hecha', 'ok'], pausa: ['en pausa', 'mal'] }
+
+/** #extracciones o #extracciones/12 (un cliente). */
+async function montarExtracciones(param) {
+  if (param) return montarExtraccion(Number(param))
+  let xs
+  try { xs = await api('/extracciones') } catch (e) { return error(e) }
+  $('#principal').innerHTML = `<div class="titulo"><h1>Extracciones</h1>
+    <p>Cada cliente de extracción de datos con su ficha (quién decide, quién firma, qué le duele, el cobro), el plan para quien lo ejecuta y los correos listos para mandar —en tus borradores, nunca solos—. De lunes a viernes a las 8:30 te deja los correos del día; si un cliente lleva 10 días sin contestar, te avisa.</p></div>
+    <form id="f-extr" class="fila compras-sumar"><input name="cliente" placeholder="Cliente nuevo" maxlength="120" required aria-label="Cliente"><button class="btn btn-primario">Agregar</button></form>
+    ${xs.length ? `<div class="tarjetas">${xs.map((x) => { const [t, cl] = ESTADO_EXTR[x.estado] ?? [x.estado, '']; return `<a class="tarjeta" href="${rutaA('extracciones', x.id)}"><div class="tarjeta-cab">${esc(x.cliente)}<span class="estado-chip ${cl}">${esc(t)}</span></div><p class="chico">${esc([x.ficha.origen, x.ficha.destino].filter(Boolean).join(' → ') || 'sin origen ni destino todavía')}</p><p class="tenue chico">${x.correos} correo${x.correos === 1 ? '' : 's'}${x.diasSinRespuesta != null ? ` · <b>${x.diasSinRespuesta} días sin contestar</b>` : ''}${x.ficha.cobroEstado ? ` · cobro: ${esc(x.ficha.cobroEstado)}` : ''}</p></a>` }).join('')}</div>` : '<div class="vacio"><h2>Sin clientes todavía</h2><p>Agregá uno arriba o contale a Mastropiero («nuevo cliente de extracción: …»).</p></div>'}`
+  $('#f-extr').onsubmit = async (e) => {
+    e.preventDefault()
+    const cliente = new FormData(e.currentTarget).get('cliente')
+    try { const x = await api('/extracciones', { cliente }); irA(`extracciones/${x.id}`) } catch (x) { error(x) }
+  }
+}
+
+async function montarExtraccion(id) {
+  let x
+  try { x = await api(`/extracciones/${id}`) } catch (e) { return error(e) }
+  const [t, cl] = ESTADO_EXTR[x.estado] ?? [x.estado, '']
+  $('#principal').innerHTML = `<div class="titulo"><h1>${esc(x.cliente)} <span class="estado-chip ${cl}">${esc(t)}</span></h1><p><a href="${rutaA('extracciones')}">← Todos los clientes</a>${x.diasSinRespuesta != null ? ` · <b>${x.diasSinRespuesta} días sin contestar</b>` : ''}</p></div>
+    <div class="chips">${Object.entries(ESTADO_EXTR).map(([k, [n]]) => `<button class="chip ${k === x.estado ? 'on' : ''}" data-estado-extr="${k}">${esc(n)}</button>`).join('')}</div>
+    <form id="f-ficha" class="reservas-form">${CAMPOS_EXTRACCION.map(([k, n]) => `<label class="chico tenue">${esc(n)}<input name="${k}" value="${esc(x.ficha[k] ?? '')}" aria-label="${esc(n)}"></label>`).join('')}<button class="btn btn-primario">Guardar la ficha</button></form>
+    <div class="fila"><button class="btn btn-primario" id="x-plan">${x.plan ? 'Rehacer el plan' : 'Armar el plan'}</button><button class="btn" id="x-correo">Armar un correo</button></div>
+    ${x.plan ? `<section class="seccion"><div class="seccion-cab"><h3>Plan</h3><button class="btn btn-chico" data-copiar-x="plan">Copiar</button></div><pre class="fr-copia">${esc(x.plan)}</pre>
+      ${x.paraTecnico ? `<h4>Para el técnico</h4><p class="chico">${esc(x.paraTecnico)}</p>` : ''}${x.paraQuienPaga ? `<h4>Para el que paga</h4><p class="chico">${esc(x.paraQuienPaga)}</p>` : ''}</section>` : ''}
+    <section class="seccion"><div class="seccion-cab"><h3>Correos · ${x.correos.length}</h3><span class="tenue">Quedan en tus borradores de Gmail (si el cliente tiene email); los mandás vos. Lo mandado y lo respondido se ve solo desde tu Gmail.</span></div>
+      ${x.correos.map((c) => `<article class="tarjeta" data-correo-x="${c.id}"><div class="tarjeta-cab">${esc(c.asunto)}<span class="estado-chip ${c.estado === 'respondido' ? 'ok' : c.estado === 'mandado' ? 'vivo' : ''}">${esc(c.estado)}</span></div><pre class="fr-copia">${esc(c.cuerpo)}</pre>${c.pedido ? `<p class="tenue chico">Pedido: ${esc(c.pedido)}</p>` : ''}
+        <div class="tarjeta-pie"><button class="btn btn-chico" data-copiar-correo>Copiar</button>${c.estado === 'borrador' ? '<button class="btn btn-chico" data-marcar="mandado">Ya lo mandé</button>' : ''}${c.estado !== 'respondido' ? '<button class="btn btn-chico" data-marcar="respondido">Contestó</button>' : ''}${c.estado === 'borrador' ? '<button class="btn btn-chico" data-marcar="descartado">Descartar</button>' : ''}</div></article>`).join('') || '<p class="tenue">Todavía ninguno.</p>'}
+    </section>`
+  const recargar = () => montarExtraccion(id)
+  $$('[data-estado-extr]').forEach((b) => (b.onclick = async () => { try { await api(`/extracciones/${id}`, { estado: b.dataset.estadoExtr }); recargar() } catch (e) { error(e) } }))
+  $('#f-ficha').onsubmit = async (e) => {
+    e.preventDefault()
+    try { await api(`/extracciones/${id}`, { ficha: Object.fromEntries(new FormData(e.currentTarget)) }); toast('Ficha guardada', 'suave'); recargar() } catch (x) { error(x) }
+  }
+  $('#x-plan').onclick = async (e) => { e.currentTarget.disabled = true; e.currentTarget.textContent = 'Armando el plan…'; try { await api(`/extracciones/${id}/plan`, {}); recargar() } catch (x) { error(x); recargar() } }
+  $('#x-correo').onclick = async (e) => {
+    const p = await preguntar('¿Para qué es el correo? (primer contacto, seguimiento, mandar el plan, el cobro…)', 'seguimiento', { ok: 'Armarlo' })
+    if (p == null) return
+    const b = e.currentTarget; b.disabled = true; b.textContent = 'Armando…'
+    try { const c = await api(`/extracciones/${id}/correo`, { proposito: p }); toast(esc(c.nota), 'suave'); recargar() } catch (x) { error(x); recargar() }
+  }
+  const pc = $('[data-copiar-x]')
+  if (pc) pc.onclick = async () => { try { await navigator.clipboard.writeText(x.plan); toast('Plan copiado', 'suave') } catch { toast('No pude copiar: seleccionalo a mano', 'error') } }
+  $$('[data-correo-x]').forEach((el) => {
+    const c = x.correos.find((y) => y.id === Number(el.dataset.correoX))
+    $('[data-copiar-correo]', el).onclick = async () => { try { await navigator.clipboard.writeText(`${c.asunto}\n\n${c.cuerpo}`); toast('Correo copiado', 'suave') } catch { toast('No pude copiar', 'error') } }
+    $$('[data-marcar]', el).forEach((b) => (b.onclick = async () => { try { await api(`/extracciones/correos/${c.id}`, { estado: b.dataset.marcar }); recargar() } catch (e) { error(e) } }))
+  })
 }
 
 // ─── Encuestas y cuotas (Fragua #263) ───────────────────────────────────

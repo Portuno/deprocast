@@ -1435,6 +1435,14 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/escalas$/, async (_, __, q) => (await import('./escalas.ts')).verEscala(db, (q.get('escala') as any) || 'dia', q.get('fecha') || '')],
   ['POST', /^\/api\/escalas\/armar$/, async (b) => ({ hechas: await (await import('./escalas.ts')).armarHaciaArriba(db, String(b.fecha ?? '')) })],
 
+  // Extracciones (Fragua #264): los clientes, su ficha, el plan y los correos (nunca se mandan solos).
+  ['GET', /^\/api\/extracciones$/, async () => { const e = await import('./extracciones.ts'); e.seguirEnGmail(db); return e.listarExtracciones(db).map((x) => ({ ...x, diasSinRespuesta: e.diasSinRespuesta(db, x.id), correos: e.correosDe(db, x.id).length })) }],
+  ['GET', /^\/api\/extracciones\/(\d+)$/, async (_, [n]) => { const e = await import('./extracciones.ts'); const x = e.leerExtraccion(db, id(n)); if (!x) throw new Error(`No existe la extracción ${n}`); return { ...x, diasSinRespuesta: e.diasSinRespuesta(db, x.id), correos: e.correosDe(db, x.id) } }],
+  ['POST', /^\/api\/extracciones$/, async (b) => (await import('./extracciones.ts')).crearExtraccion(db, String(b.cliente ?? ''), b.ficha ?? {})],
+  ['POST', /^\/api\/extracciones\/(\d+)$/, async (b, [n]) => (await import('./extracciones.ts')).actualizarExtraccion(db, id(n), { ficha: b.ficha, estado: b.estado })],
+  ['POST', /^\/api\/extracciones\/(\d+)\/plan$/, async (_, [n]) => (await import('./extracciones.ts')).armarPlan(db, id(n))],
+  ['POST', /^\/api\/extracciones\/(\d+)\/correo$/, async (b, [n]) => (await import('./extracciones.ts')).armarCorreo(db, id(n), String(b.proposito ?? 'seguimiento'))],
+  ['POST', /^\/api\/extracciones\/correos\/(\d+)$/, async (b, [n]) => { (await import('./extracciones.ts')).marcarCorreo(db, id(n), b.estado); return { ok: true } }],
   // Encuestas y cuotas (Fragua #263): los eventos, el análisis de cada mercado y las encuestas; anotar cuotas y encuestas.
   ['GET', /^\/api\/mercados$/, async (_, __, q) => {
     const m = await import('./mercados.ts')

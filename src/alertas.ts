@@ -15,6 +15,7 @@ import { aContactar } from './personas.ts'
 import { alertasSalud } from './salud.ts'
 import { alertasReservas } from './reservas.ts'
 import { alertasMercados } from './mercados.ts'
+import { alertasExtracciones } from './extracciones.ts'
 
 /** marcas: claves que se anotan junto con esta (los ítems de un bloque, para contar cuántas veces se avisó cada uno). */
 export type Alerta = { clave: string; texto: string; marcas?: string[] }
@@ -55,6 +56,8 @@ export function alertasPendientes(db: Db, ahora = Date.now()): Alerta[] {
   out.push(...alertasReservas(db, ahora))
   // Fragua #263: una casa que se aparta del consenso de las otras más que el umbral.
   out.push(...alertasMercados(db, ahora))
+  // Fragua #264: un cliente de extracción que lleva 10 días sin contestar.
+  out.push(...alertasExtracciones(db, ahora))
   return out.filter((a) => !db.prepare('SELECT 1 FROM alertas WHERE clave = ?').get(a.clave))
 }
 

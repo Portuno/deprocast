@@ -2373,6 +2373,7 @@ const RUTINAS_SISTEMA = [
   { id: 'temporada', nombre: 'Cierre de temporada de la liga', hora: '07:30', dias: '1', accion: 'temporada' },
   { id: 'tesoro', nombre: 'El Tesorero reparte los ingresos nuevos (a tu firma) y el día 1 deja el parte del mes', hora: '06:05', dias: '0123456', accion: 'tesoro' },
   { id: 'sonador', nombre: 'El Soñador: poda, junta lo repetido y tiende puentes en tu memoria (todo a Para validar)', hora: '03:50', dias: '0123456', accion: 'sonador' },
+  { id: 'extracciones', nombre: 'Los correos del día para tus clientes de extracción (en tus borradores, para que los mandes vos)', hora: '08:30', dias: '12345', accion: 'extracciones' },
   { id: 'mercados', nombre: 'Encuestas y cuotas: el informe del día de cada evento con mercados abiertos (consenso, movimiento, quién paga más, desvíos)', hora: '09:00', dias: '0123456', accion: 'mercados' },
   { id: 'sueno', nombre: 'El sueño de anoche, estimado sin reloj (pantalla, pasos, chat y escucha) en tu salud', hora: '13:30', dias: '0123456', accion: 'sueno' },
   { id: 'escalas', nombre: 'El diario por escalas: el día de ayer, lo que lo contiene y un poco del pasado', hora: '04:10', dias: '0123456', accion: 'escalas' },

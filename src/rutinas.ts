@@ -250,6 +250,10 @@ export const ACCIONES: Acciones = {
     const total = r.poda + r.fusiones + r.puentes
     return total ? `🌙 El Soñador dejó ${total} propuesta${total === 1 ? '' : 's'} en Para validar: ${[r.poda ? `${r.poda} poda${r.poda === 1 ? '' : 's'}` : '', r.fusiones ? `${r.fusiones} para juntar` : '', r.puentes ? `${r.puentes} puente${r.puentes === 1 ? '' : 's'}` : ''].filter(Boolean).join(', ')}.` : null
   },
+  /** A las 8:30 de lunes a viernes (Fragua #264): los correos del día para los clientes de extracción. */
+  async extracciones(db, _fecha, ahora) {
+    return (await import('./extracciones.ts')).correosDelDia(db, ahora)
+  },
   /** A las 9 (Fragua #263): el informe de cada evento con mercados abiertos; sin mercados, nada. */
   async mercados(db, _fecha, ahora) {
     const m = await import('./mercados.ts')

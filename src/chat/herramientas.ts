@@ -662,6 +662,47 @@ export const HERRAMIENTAS: Herramienta[] = [
     ejecutar: async (a, { db }) => { const u = await import('../uso-telefono.ts'); return a.dias ? u.usoDeDias(db, Number(a.dias)) : u.usoDelDia(db, a.fecha || undefined) },
   },
   {
+    nombre: 'extraccion_cliente', familia: 'accion',
+    descripcion: 'Un cliente de extracción de datos (migrar sus datos de Microsoft, Azure Blob, Google Cloud o S3 a otro lado): crearlo o completar su ficha (origen, destino, qué se copia, herramienta, ventana, volumen, costo, quién ejecuta, quién decide, quién firma, qué sistema usa, qué le duele, contacto, email, cobro: estado, fecha comprometida y quién responde) o cambiar su estado (prospecto, plan, en_curso, hecha, pausa). Sin cliente: la lista con quién lleva días sin contestar.',
+    parametros: S({ cliente: str('El cliente (nombre o id)'), estado: str('Nuevo estado', { enum: ['prospecto', 'plan', 'en_curso', 'hecha', 'pausa'] }), ficha: { type: 'object', description: 'Los campos de la ficha que dijo (origen, destino, que, herramienta, ventana, volumen, costo, ejecuta, decide, firma, sistema, dolor, contacto, email, cobroEstado, cobroFecha YYYY-MM-DD, cobroQuien, notas)' } }),
+    ejecutar: async (a, { db }) => {
+      const e = await import('../extracciones.ts')
+      if (!a.cliente) return e.listarExtracciones(db).map((x) => ({ id: x.id, cliente: x.cliente, estado: x.estado, dias_sin_respuesta: e.diasSinRespuesta(db, x.id) ?? undefined, cobro: x.ficha.cobroEstado ?? undefined, tiene_plan: !!x.plan }))
+      const ya = e.buscarExtraccion(db, a.cliente)
+      const x = ya ? e.actualizarExtraccion(db, ya.id, { ficha: a.ficha ?? {}, estado: a.estado }) : await e.crearExtraccion(db, String(a.cliente), a.ficha ?? {})
+      if (!ya && a.estado) e.actualizarExtraccion(db, x.id, { estado: a.estado })
+      return { ...e.leerExtraccion(db, x.id), correos: e.correosDe(db, x.id).slice(0, 5).map((c) => ({ id: c.id, asunto: c.asunto, estado: c.estado })) }
+    },
+    resumen: (a) => (a.cliente ? `actualizó al cliente ${recorte(String(a.cliente), 40)}` : 'miró los clientes de extracción'),
+  },
+  {
+    nombre: 'plan_extraccion', familia: 'accion',
+    descripcion: 'Arma (o rehace) el plan de extracción de un cliente con lo que dice su ficha: origen → destino, herramienta, ventana, volumen, costo estimado en rango con sus supuestos, quién ejecuta, pasos para el ejecutor, riesgos y preguntas abiertas; y la explicación para el técnico y para el que paga. Es un plan: no promete plazos ni toca su infraestructura.',
+    parametros: S({ cliente: str('El cliente (nombre o id)') }, ['cliente']),
+    ejecutar: async (a, { db }) => {
+      const e = await import('../extracciones.ts')
+      const x = e.buscarExtraccion(db, a.cliente)
+      if (!x) return { error: `No tengo a «${a.cliente}» como cliente de extracción: crealo primero con su ficha.` }
+      const r = await e.armarPlan(db, x.id)
+      return { cliente: r.cliente, plan: r.plan, para_el_tecnico: r.paraTecnico, para_quien_paga: r.paraQuienPaga }
+    },
+    resumen: (a) => `armó el plan de extracción de ${recorte(String(a.cliente), 40)}`,
+  },
+  {
+    nombre: 'correo_extraccion', familia: 'accion',
+    descripcion: 'Los correos a un cliente de extracción: armar uno (con su propósito: primer contacto, seguimiento, mandar el plan, el cobro…; queda en sus borradores de Gmail si el cliente tiene email, NUNCA se manda solo), marcar uno como mandado o respondido, o los correos del día de todos los clientes que lo necesitan.',
+    parametros: S({ que: str('Qué', { enum: ['armar', 'marcar', 'del_dia'] }), cliente: str('Armar: el cliente'), proposito: str('Armar: para qué'), correo: int('Marcar: cuál'), estado: str('Marcar: mandado | respondido | descartado', { enum: ['mandado', 'respondido', 'descartado'] }) }, ['que']),
+    ejecutar: async (a, { db }) => {
+      const e = await import('../extracciones.ts')
+      if (a.que === 'del_dia') return { correos: (await e.correosDelDia(db)) ?? 'Hoy no le toca correo a ningún cliente.' }
+      if (a.que === 'marcar') { e.marcarCorreo(db, Number(a.correo), a.estado); return { ok: true } }
+      const x = e.buscarExtraccion(db, a.cliente)
+      if (!x) return { error: `No tengo a «${a.cliente}» como cliente de extracción.` }
+      return e.armarCorreo(db, x.id, a.proposito ?? 'seguimiento')
+    },
+    resumen: (a) => (a.que === 'armar' ? `armó un correo para ${recorte(String(a.cliente), 40)}` : a.que === 'del_dia' ? 'armó los correos del día' : 'marcó un correo'),
+  },
+  {
     nombre: 'ver_mercados', familia: 'lectura',
     descripcion: 'Encuestas y cuotas de un evento (una elección, un partido): por mercado (nunca mezclados), el consenso de las casas sin su margen, cuánto se movió, quién paga más, el margen de cada casa y las que se apartan del resto; y el promedio de las últimas 5 encuestas con su dispersión. Sin evento: los mercados abiertos. informe: true da el texto del día. Es información: no recomiendes apostar; apostar va por el Monedero con su tope.',
     parametros: S({ evento: str('El evento («29N»)'), mercado: str('Un mercado (nombre o id): su análisis completo'), informe: bool('true: el informe del día') }),
@@ -2688,7 +2729,7 @@ export const GRUPOS: Record<string, string[]> = {
   liga: ['ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'ver_banco_de_pruebas', 'correr_banco_de_pruebas', 'comparar_motores', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['ver_suenos_noche', 'al_diario', 'ver_diario', 'crear_dominio', 'retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_criterios', 'fijar_criterio', 'ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
-  vida: ['ficha_empresa', 'responder_pregunta', 'votar_criba', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'crear_dominio', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_hipotesis', 'probar_hipotesis', 'ver_recorrido', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ver_compras', 'marcar_compras', 'ver_escala', 'ver_monedero', 'asentar_en_monedero', 'atribuir_ingreso', 'ajustar_monedero', 'buscar_por_lugar', 'ver_actividad', 'ver_uso_telefono', 'estimar_sueno', 'ver_mercados', 'anotar_cuotas', 'anotar_encuestas', 'hoja_citable', 'reservar', 'ver_reservas', 'actualizar_reserva', 'marcar_distracciones', 'recordar_en_telefono', 'guardar_lugar', 'privacidad_recorrido', 'recorrido_rango'],
+  vida: ['ficha_empresa', 'responder_pregunta', 'votar_criba', 'buscar_contacto', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ver_finanzas', 'fijar_meta_mes', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'crear_aprendizaje', 'crear_dominio', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_hipotesis', 'probar_hipotesis', 'ver_recorrido', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ver_compras', 'marcar_compras', 'ver_escala', 'ver_monedero', 'asentar_en_monedero', 'atribuir_ingreso', 'ajustar_monedero', 'buscar_por_lugar', 'ver_actividad', 'ver_uso_telefono', 'estimar_sueno', 'extraccion_cliente', 'plan_extraccion', 'correo_extraccion', 'ver_mercados', 'anotar_cuotas', 'anotar_encuestas', 'hoja_citable', 'reservar', 'ver_reservas', 'actualizar_reserva', 'marcar_distracciones', 'recordar_en_telefono', 'guardar_lugar', 'privacidad_recorrido', 'recorrido_rango'],
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado', 'borrar_programado'],
   correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'marcar_correo_atendido', 'buscar_contacto'],
   drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'borrar_de_drive', 'barrer_documentos_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],
