@@ -14,6 +14,7 @@
 import crypto from 'node:crypto'
 import type { Db } from './db.ts'
 import { celda as celdaDe, DOMINIOS } from './geometria72.ts'
+import { esOficioDeAlguno, fichaDe } from './arquetipos.ts'
 
 export type TipoPagina = 'arquetipo' | 'dominio'
 export const TIPOS_PAGINA: TipoPagina[] = ['arquetipo', 'dominio']
@@ -196,6 +197,9 @@ export function nombrarPagina(db: Db, tipo: TipoPagina, clave: string, nombre: s
   if (limpio && tipo === 'arquetipo') {
     const otro = (db.prepare(`SELECT clave FROM paginas WHERE tipo = 'arquetipo' AND clave != ? AND nombre = ? COLLATE NOCASE`).get(clave, limpio) as { clave: string } | undefined)?.clave
     if (otro) throw new Error(`«${limpio}» ya es el nombre del arquetipo ${otro}.`)
+    // Fragua #260: un oficio no es un nombre propio («Tesorero» es un oficio; su nombre es otro).
+    const deOficio = esOficioDeAlguno(db, limpio)
+    if (deOficio != null) throw new Error(`«${limpio}» es el oficio del arquetipo ${deOficio}: un oficio no puede ser un nombre propio.`)
   }
   const nueva = { ...p, nombre: limpio }
   guardar(db, nueva, ahora)
@@ -248,6 +252,8 @@ export async function listarArquetipos(db: Db, ahora = Date.now()) {
       n, etiqueta: c.etiqueta, dominio: c.dominio, ipo: c.ipo, cma: c.cma, nombre: p?.nombre ?? null, descripcion: p?.descripcion ?? null,
       organos: ORGANOS.filter((o) => o.celda === n && o.tipo === 'organo').map((o) => o.nombre), propuestos: ORGANOS.filter((o) => o.celda === n && o.tipo === 'propuesto').length,
       agentes: porCelda.get(n) ?? 0, construida: p?.construida_en ?? null, instrucciones: json<Instruccion[]>(p?.instrucciones, []).length,
+      // Fragua #260: su ficha del plantel (oficio, elemento, estado).
+      ...(() => { const f = fichaDe(db, n); return { oficio: f.oficio, elemento: f.elemento, estado: f.estado } })(),
     }
   }) }
 }

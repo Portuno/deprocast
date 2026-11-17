@@ -3587,3 +3587,8 @@ a.arq-celda { color: var(--texto); text-decoration: none; }
 .feed-puntaje .btn { min-width: 32px; }
 .feed-razon { margin-top: var(--e-1); }
 .feed-ranking li { gap: 2px; }
+
+/* El plantel (Fragua 260): la ficha de un arquetipo en su página. */
+.arq-ficha { display: grid; gap: var(--e-2); }
+.arq-ficha input, .arq-ficha select { width: 100%; min-width: 0; }
+.arq-ficha .fila label { flex: 1; }

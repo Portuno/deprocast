@@ -121,11 +121,13 @@ async function montarArquetipos() {
       const a = d.arquetipos[di * 9 + o]
       const hay = a.organos.length + a.agentes + a.propuestos
       grilla += `<a class="celda esq-celda arq-celda ${a.nombre || a.construida ? 'llena' : ''}" href="${rutaA('arquetipo', a.n)}" title="${a.etiqueta} · ${esc(dom)} · ${OFICIOS_72[o]}${a.descripcion ? ` — ${esc(a.descripcion)}` : ''}">
-        <small>${a.etiqueta}${hay ? ` · ${hay}` : ''}</small>${a.nombre ? `<em class="esq-nombre">${esc(a.nombre)}</em>` : a.organos[0] ? `<em class="esq-nombre tenue">${esc(a.organos[0])}</em>` : ''}</a>`
+        <small>${a.etiqueta}${hay ? ` · ${hay}` : ''}${a.elemento ? ` · ${esc(a.elemento)}` : ''}${a.estado === 'en prueba' || a.estado === 'activo' ? ` · ${esc(a.estado)}` : ''}</small>${a.nombre ? `<em class="esq-nombre">${esc(a.nombre)}</em>` : a.organos[0] ? `<em class="esq-nombre tenue">${esc(a.organos[0])}</em>` : ''}</a>`
     }
   })
   $('#arq').innerHTML = `<p class="tenue">${con} de 72 con nombre · ${d.arquetipos.filter((a) => a.construida).length} páginas construidas. Para nombrar uno: entrá a su página, o decile a Mastropiero «la celda 12 es El Modista».</p>
-    <div class="esq-grilla-caja"><div class="matriz esq-matriz">${grilla}</div></div>`
+    <div class="esq-grilla-caja"><div class="matriz esq-matriz">${grilla}</div></div>
+    <section id="plantel" class="seccion"></section>`
+  void pintarPlantel()
 }
 
 async function montarDominios() {
@@ -138,6 +140,47 @@ async function montarDominios() {
       <div class="tarjeta-cab">Nivel ${d.nivel}${d.estado !== 'activo' ? ` · ${esc(d.estado)}` : ''}${d.construida ? ` · ${fechaPag(d.construida)}` : ' · sin construir'}</div>
       <h4>${esc(d.tema)}</h4>${d.descripcion ? `<p class="recorte">${esc(d.descripcion)}</p>` : ''}</a>`).join('')}</div>`
     : `<div class="vacio"><div class="gran">▦</div><h2>Todavía no hay dominios</h2><p>Pedile a Mastropiero «creame el dominio Energía y almacenamiento» y aparece acá con su página.</p></div>`
+}
+
+// ─── El plantel (Fragua #260) ───────────────────────────────────────────
+
+const ELEMENTOS_GNOSIS = ['partícula', 'materia', 'campo', 'onda', 'tiempo-espacio', 'posición']
+const ESTADO_PLANTEL = { 'vacío': '', 'nombrado': '', 'en prueba': 'vivo', 'activo': 'ok' }
+
+/** La ficha de un arquetipo en su página: oficio, elemento, celda 6×6, qué maneja, un ejemplo y su estado. */
+async function pintarFichaArquetipo(n) {
+  const cont = $('#arq-ficha')
+  if (!cont) return
+  let f
+  try { f = await api(`/arquetipos/${n}/ficha`) } catch (e) { return void (cont.innerHTML = `<h3>Su ficha</h3><p class="tenue">${esc(e.message)}</p>`) }
+  cont.innerHTML = `<h3>Su ficha <span class="estado-chip ${ESTADO_PLANTEL[f.estado] ?? ''}">${esc(f.estado)}</span></h3>
+    <form id="f-arq-ficha" class="arq-ficha">
+      <label class="chico tenue">Oficio (una profesión)<input name="oficio" value="${esc(f.oficio ?? '')}" placeholder="Tesorero, Modista…" maxlength="60"></label>
+      <label class="chico tenue">Elemento<select name="elemento"><option value="">—</option>${ELEMENTOS_GNOSIS.map((e) => `<option ${f.elemento === e ? 'selected' : ''}>${e}</option>`).join('')}</select></label>
+      <div class="fila"><label class="chico tenue">Fila 6×6<input name="fila" type="number" min="1" max="6" value="${f.fila ?? ''}"></label><label class="chico tenue">Columna<input name="columna" type="number" min="1" max="6" value="${f.columna ?? ''}"></label></div>
+      <label class="chico tenue">Qué maneja (una línea)<input name="maneja" value="${esc(f.maneja ?? '')}" maxlength="200"></label>
+      <label class="chico tenue">Un ejemplo concreto<input name="ejemplo" value="${esc(f.ejemplo ?? '')}" maxlength="300"></label>
+      <label class="chico tenue">Estado<select name="estado">${['nombrado', 'en prueba', 'activo'].map((e) => `<option ${f.estado === e ? 'selected' : ''}>${e}</option>`).join('')}</select></label>
+      <button class="btn btn-chico btn-primario">Guardar la ficha</button>
+    </form>`
+  $('#f-arq-ficha').onsubmit = async (e) => {
+    e.preventDefault()
+    const x = Object.fromEntries(new FormData(e.currentTarget))
+    const cuerpo = { oficio: x.oficio || null, elemento: x.elemento || null, fila: x.fila ? Number(x.fila) : null, columna: x.columna ? Number(x.columna) : null, maneja: x.maneja || null, ejemplo: x.ejemplo || null, estado: f.nombre ? x.estado : undefined }
+    try { await api(`/arquetipos/${n}/ficha`, cuerpo); toast('Ficha guardada', 'suave'); pintarFichaArquetipo(n) } catch (err) { error(err) }
+  }
+}
+
+/** El plantel, aparte de la Matriz: los que tienen nombre, cuántos en cada estado y lo que no cumple las reglas. */
+async function pintarPlantel() {
+  const cont = $('#plantel')
+  if (!cont) return
+  let p
+  try { p = await api('/arquetipos/plantel') } catch (e) { return error(e) }
+  cont.innerHTML = `<h2 class="sub">El plantel</h2>
+    <p class="tenue">La Matriz de arriba es el reparto (dónde trabaja cada cosa); el plantel son los arquetipos con nombre propio, cada uno con su oficio, su elemento y su estado. ${Object.entries(p.porEstado).map(([e, k]) => `${k} ${esc(e)}`).join(' · ')}</p>
+    ${p.problemas.length ? `<div class="aviso"><b>Para corregir</b><ul>${p.problemas.map((x) => `<li><a href="${rutaA('arquetipo', x.n)}">#${String(x.n).padStart(2, '0')}</a>: ${esc(x.problema)}</li>`).join('')}</ul></div>` : ''}
+    ${p.plantel.length ? `<table class="tabla-mercado"><thead><tr><th>Celda</th><th>Nombre</th><th>Oficio</th><th>Elemento</th><th>6×6</th><th>Qué maneja</th><th>Estado</th></tr></thead><tbody>${p.plantel.map((f) => `<tr><td><a href="${rutaA('arquetipo', f.n)}">${String(f.n).padStart(2, '0')}</a></td><td><b>${esc(f.nombre)}</b></td><td>${esc(f.oficio ?? '—')}</td><td>${esc(f.elemento ?? '—')}</td><td>${f.fila && f.columna ? `${f.fila}·${f.columna}` : '—'}</td><td>${esc(f.maneja ?? '')}${f.ejemplo ? `<br><small class="tenue">${esc(f.ejemplo)}</small>` : ''}</td><td><span class="estado-chip ${ESTADO_PLANTEL[f.estado] ?? ''}">${esc(f.estado)}</span></td></tr>`).join('')}</tbody></table>` : '<p class="tenue">Todavía ninguno con nombre: entrá a una celda y ponéselo.</p>'}`
 }
 
 // Declaradas con «function»: la carga perezosa solo anuncia esas (con const, VISTAS no las encontraría al arrancar).
@@ -167,6 +210,7 @@ function pintarPaginaPropia(tipo, clave, p, d) {
     : `<div class="vacio"><div class="gran">${esArq ? '⬡' : '▦'}</div><h2>Esta página todavía no se construyó</h2><p>Se arma con lo que pasa acá${esArq ? ' (sus órganos, sus agentes, su monedero)' : ' (tu material, tus clases, su fuente)'} y con lo que le pidas abajo. También se construye sola de noche si algo cambia.</p><button class="btn btn-primario" data-construir>Construirla ahora</button></div>`
 
   const lado = esArq ? `
+    <section id="arq-ficha"><h3>Su ficha</h3><p class="tenue chico">Trayéndola…</p></section>
     <section><h3>Lo que trabaja acá</h3>${d.organos.length ? `<ul class="pag-lista">${d.organos.map((o) => `<li><b>${esc(o.nombre)}</b>${o.tipo === 'propuesto' ? ' <span class="chip chip-chico">propuesto</span>' : ''}<small>${esc(o.funcion)}</small>${o.semana?.length ? `<small class="tenue">${o.semana.map((s) => `${s.n ?? '—'} ${esc(s.etiqueta)}`).join(' · ')} esta semana</small>` : ''}</li>`).join('')}</ul>` : '<p class="tenue">Ningún órgano del sistema en esta celda.</p>'}</section>
     <section><h3>Agentes</h3>${d.agentes.length ? `<ul class="pag-lista">${d.agentes.map((a) => `<li><button class="link" data-agente="${esc(a.id)}">${esc(a.nombre || a.id)}</button><small>${esc(a.clase)} · ${esc(a.estado)} · ${a.exitos}✓ ${a.fallos}✗ · puntos de liga ${a.monedero} · arcas ${a.arcas} €</small></li>`).join('')}</ul>` : '<p class="tenue">Ningún agente con esta celda todavía (se asigna al forjarlo).</p>'}</section>
     <section><h3>Sus arcas</h3><p>El arquetipo: <b>${d.arcas.arquetipo} €</b> · sus agentes: <b>${d.arcas.agentes} €</b></p>${d.arcas.generado.length ? `<ul class="pag-lista">${d.arcas.generado.map((g) => `<li><b>${esc(g.nombre)}</b><small>generó ${g.total} € en ${g.ingresos} ingreso${g.ingresos === 1 ? '' : 's'}</small></li>`).join('')}</ul>` : '<p class="tenue">Todavía no generó nada (un ingreso se le atribuye desde el Monedero o diciendo «este ingreso lo generó…»).</p>'}<a class="btn btn-chico" href="${rutaA('monedero')}">Abrir el Monedero</a></section>
@@ -189,6 +233,7 @@ function pintarPaginaPropia(tipo, clave, p, d) {
       <aside class="pag-lado">${lado}</aside>
     </div>`
 
+  if (esArq) void pintarFichaArquetipo(n)
   const reconstruir = async (que) => {
     $$('[data-construir], [data-instruir] button', raiz).forEach((b) => { b.disabled = true; b.textContent = 'Construyendo…' })
     try {

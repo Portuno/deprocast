@@ -1399,6 +1399,10 @@ const rutas: [string, RegExp, Ruta][] = [
 
   // Páginas propias: los 72 arquetipos y los dominios (cada una se construye sola y él la moldea con instrucciones).
   ['GET', /^\/api\/paginas\/arquetipos$/, async () => (await import('./paginas.ts')).listarArquetipos(db)],
+  // El plantel (Fragua #260): las fichas con nombre, cuántos en cada estado y lo que no cumple las reglas; completar una.
+  ['GET', /^\/api\/arquetipos\/plantel$/, async () => { const a = await import('./arquetipos.ts'); const p = a.plantel(db); return { plantel: p.plantel, porEstado: p.porEstado, problemas: a.revisarPlantel(db), elementos: a.ELEMENTOS } }],
+  ['GET', /^\/api\/arquetipos\/(\d+)\/ficha$/, async (_, [n]) => (await import('./arquetipos.ts')).fichaDe(db, id(n))],
+  ['POST', /^\/api\/arquetipos\/(\d+)\/ficha$/, async (b, [n]) => (await import('./arquetipos.ts')).fijarFicha(db, id(n), b)],
   ['GET', /^\/api\/paginas\/dominios$/, async () => (await import('./paginas.ts')).listarPaginasDominio(db)],
   ['GET', /^\/api\/paginas\/(arquetipo|dominio)\/(\d+)$/, async (_, [t, c]) => { const p = await import('./paginas.ts'); return { pagina: p.leerPagina(db, t as any, c), datos: await p.datosDe(db, t as any, c) } }],
   ['POST', /^\/api\/paginas\/(arquetipo|dominio)\/(\d+)\/construir$/, async (_, [t, c]) => (await import('./paginas.ts')).construirPagina(db, t as any, c)],
