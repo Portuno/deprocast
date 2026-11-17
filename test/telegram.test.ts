@@ -73,8 +73,14 @@ test('telegram: formato HTML, comandos rápidos (gasto, nota, bitácora, buscar,
   await procesarActualizacion(db, yo({ text: '/voz sí' }))
   await procesarActualizacion(db, yo({ text: 'por escrito' }))
   assert.equal(archivos.length, 0)
+  // Un turno corto (dos líneas) no lleva audio (Fragua #311).
+  await procesarActualizacion(db, yo({ voice: { file_id: 'f0' } }))
+  assert.equal(archivos.length, 0)
+  const largo = 'Lo que contás tiene una forma clara: ya decidiste y estás esperando permiso.\nEso frena más que el miedo, y lo sabés.\nLa idea no es que salga perfecto, sino que salga.'
+  _probarModelo(async () => ({ texto: largo, llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }))
   await procesarActualizacion(db, yo({ voice: { file_id: 'f1' } }))
   assert.deepEqual(archivos.map((a) => [a.metodo, a.campo]), [['sendAudio', 'audio']])
+  _probarModelo(async (_l, o) => ({ texto: String(o.mensajes[0].content).includes('armás una run') ? JSON.stringify({ resumen: 'ok', misiones: [{ titulo: 'Escribir el mail', minutos: 12 }] }) : '**Dale**, te escucho.', llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }))
 
   // Una nota de voz larga (una caminata pensando en voz alta) queda además como pieza suya.
   _probarTelegram({ transcribir: async () => 'Estuve pensando en el taller de IA para abogados y en cómo venderlo. '.repeat(15) })

@@ -2401,6 +2401,7 @@ const AJUSTES_SISTEMA: Record<string, string> = {
   pensar_cada_horas: '3', // Mastropiero piensa solo y deja una sugerencia (o nada); 0 = nunca
   meta_ingresos_mes: '', // su meta de ingresos por mes, en euros; vacío = sin meta
   telegram_voz: '0', // respuestas por Telegram también en audio: 0 = no, 1 = cuando él manda audio, siempre
+  whatsapp_voz: '1', // lo mismo por WhatsApp (Fragua #311): de entrada, en audio cuando él manda un audio
   telegram_bandas: '1', // cada banda de la run llega sola por Telegram, con botones
   destilar_por_dia: '15', // con la ingesta en pausa, cuántas piezas propias despierta por día la rutina «destilar»
   vectorizar_auto: '1', // calcular solos los vectores del corpus (búsqueda por significado); 0 = no

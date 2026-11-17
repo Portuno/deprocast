@@ -601,10 +601,12 @@ async function conversar(db: Db, texto: string, o: { porVoz?: boolean } = {}) {
   const respuesta = respuestaSola && hechas.length ? `${respuestaSola}\n\n_✓ ${[...new Set(hechas)].slice(0, 5).join(' · ')}. Si algo no era, decime «deshacé»._` : respuestaSola
   const error = mensajes(db, c.id, desde).find((m) => m.rol === 'error')
   await decir(respuesta || (error ? `No pude: ${error.texto}` : 'Listo.'))
-  const voz = ajuste(db, 'telegram_voz') ?? '0'
-  if (respuesta && (voz === 'siempre' || (voz === '1' && o.porVoz))) {
+  // También en audio (Fragua #311): según la preferencia de este canal, y solo el marco (los datos van escritos).
+  const v = await import('./voz-respuesta.ts')
+  const marco = respuestaSola && v.tocaVoz(v.vozDelCanal(db, v.canalVoz(nombreCanal())), !!o.porVoz) ? v.marcoParaVoz(respuestaSola) : null
+  if (marco) {
     try {
-      const mp3 = await hablar(sinMarcas(respuesta).slice(0, 2500))
+      const mp3 = await hablar(marco)
       if (otroCanal()) await otroCanal()!.audio?.(mp3, 'Mastropiero')
       else {
         await pedir('sendChatAction', { chat_id: suChat(), action: 'upload_voice' }).catch(() => {})
@@ -767,9 +769,13 @@ async function comando(db: Db, cmd: string, resto: string) {
       return guardarSuenoTelegram(db, { texto: resto })
     }
     case '/voz': {
-      const v = /^(no|off|0|apag)/i.test(resto) ? '0' : /^siempre/i.test(resto) ? 'siempre' : (ajuste(db, 'telegram_voz') ?? '0') === '0' || /^(s[ií]|on|1)/i.test(resto) ? '1' : '0'
-      fijarAjuste(db, 'telegram_voz', v)
-      return decir(v === '0' ? 'Listo: te contesto solo por escrito.' : v === 'siempre' ? 'Listo: te contesto siempre también en audio.' : 'Listo: cuando me mandes un audio, te contesto también en audio. (/voz siempre para todo, /voz no para apagarlo)')
+      // La preferencia de este canal (Fragua #311: WhatsApp y Telegram, cada uno la suya).
+      const vr = await import('./voz-respuesta.ts')
+      const cv = vr.canalVoz(nombreCanal())
+      const v = /^(no|off|0|apag)/i.test(resto) ? '0' : /^siempre/i.test(resto) ? 'siempre' : vr.vozDelCanal(db, cv) === '0' || /^(s[ií]|on|1)/i.test(resto) ? '1' : '0'
+      vr.fijarVozDelCanal(db, cv, v)
+      const aca = cv === 'whatsapp' ? 'por WhatsApp' : 'por Telegram'
+      return decir(v === '0' ? `Listo: ${aca} te contesto solo por escrito.` : v === 'siempre' ? `Listo: ${aca} te contesto siempre también en audio (lo que no sea de dos líneas; los números y las listas, escritos).` : `Listo: ${aca}, cuando me mandes un audio, te contesto también en audio. (/voz siempre para todo, /voz no para apagarlo)`)
     }
     default: return conversar(db, `${cmd.slice(1)} ${resto}`.trim())
   }
