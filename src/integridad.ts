@@ -49,6 +49,9 @@ function valoresDe(sql: string, params: unknown[]): Map<string, unknown> {
 /** Si e es un error de clave foránea, uno que dice qué pasó; si no, e tal cual. */
 export function traducirIntegridad(db: Db, e: unknown, sql: string, params: unknown[]): unknown {
   const msg = e instanceof Error ? e.message : String(e)
+  // Lo frenó uno de los disparadores de aplicarCandidatas: el mensaje ya dice qué y dónde.
+  const regla = /integridad: (no se pudo (\S+) en «(\w+)»[\s\S]*)$/.exec(msg)
+  if (regla) return new ErrorIntegridad(regla[1].charAt(0).toUpperCase() + regla[1].slice(1), { tabla: regla[3], operacion: regla[2] }, e)
   if (!/FOREIGN KEY constraint failed/i.test(msg)) return e
   const m = /^\s*(INSERT(?:\s+OR\s+\w+)?\s+INTO|REPLACE\s+INTO|UPDATE(?:\s+OR\s+\w+)?|DELETE\s+FROM)\s+["`]?(\w+)/i.exec(sql)
   if (!m) return new ErrorIntegridad('Una regla de integridad de la base frenó el cambio (una clave foránea), pero no pude ver en qué tabla.', { tabla: '?', operacion: '?' }, e)
@@ -96,7 +99,7 @@ export function engancharIntegridad(db: Db) {
  * - cascada: lo de abajo no tiene vida propia (el vector de una pieza borrada no sirve para nada);
  * - vaciar: lo de abajo sigue existiendo sin eso (una misión sin su run);
  * - impedir: no se deja borrar lo de arriba mientras tenga esto (un movimiento con asientos contables).
- * Todavía NO se aplican: revisarCandidatas solo cuenta (filas y huérfanos ya presentes) para decidir con él.
+ * revisarCandidatas cuenta (filas y huérfanos); aplicarCandidatas las pone (con disparadores) al arrancar.
  */
 export type Candidata = { tabla: string; columna: string; padre: string; alBorrar: 'cascada' | 'vaciar' | 'impedir'; porQue: string }
 export const CANDIDATAS: Candidata[] = [
@@ -157,4 +160,66 @@ export async function huerfanos(db: Db, o: { limitePorTabla?: number } = {}): Pr
     }
   }
   return [...out.values()].sort((a, b) => b.filas - a.filas)
+}
+
+/** El nombre de un disparador de una candidata (uno por regla). */
+const nombreRegla = (c: Candidata, que: 'borrar' | 'guardar' | 'cambiar') => `fk_${c.tabla}_${c.columna}_${que}`
+/** Lo que dice un disparador cuando frena algo (traducirIntegridad lo reconoce por «integridad:»). */
+const comillas = (s: string) => s.replace(/'/g, "''")
+
+export type ReglaAplicada = { tabla: string; columna: string; padre: string; alBorrar: Candidata['alBorrar']; estado: 'aplicada' | 'ya estaba' | 'falta tabla' | 'salteada'; limpiadas: number; nota?: string }
+
+/**
+ * Las claves foráneas candidatas, aplicadas con disparadores (Fragua #291; SQLite no deja sumar una clave foránea sin
+ * rehacer la tabla, y son tablas de cientos de miles de filas). Por cada una, si están las dos tablas:
+ * 1. lo ya roto se arregla según la regla (cascada: se borran los huérfanos; vaciar: la columna queda en NULL;
+ *    impedir: no se toca nada, se avisa);
+ * 2. un índice en la columna (así borrar el padre no recorre la tabla entera);
+ * 3. los disparadores: al borrar el padre (cascada, vaciar o frenar) y al guardar o cambiar el hijo (si apunta a algo
+ *    que no existe, se frena con un mensaje que dice qué y dónde).
+ * Es idempotente: lo que ya está no se rehace. Las tablas que todavía no existen (nacen con su módulo) quedan para el
+ * próximo arranque.
+ */
+export async function aplicarCandidatas(db: Db): Promise<ReglaAplicada[]> {
+  const existe = (t: string) => !!db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(t)
+  const hayRegla = (n: string) => !!db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = ?`).get(n)
+  const out: ReglaAplicada[] = []
+  for (const c of CANDIDATAS) {
+    await new Promise((r) => setImmediate(r))
+    const base = { tabla: c.tabla, columna: c.columna, padre: c.padre, alBorrar: c.alBorrar, limpiadas: 0 }
+    if (!existe(c.tabla) || !existe(c.padre)) { out.push({ ...base, estado: 'falta tabla' }); continue }
+    const col = db.prepare(`SELECT name, "notnull" AS nn FROM pragma_table_info(?) WHERE name = ?`).get(c.tabla, c.columna) as { name: string; nn: number } | undefined
+    if (!col) { out.push({ ...base, estado: 'salteada', nota: `«${c.tabla}» no tiene la columna ${c.columna}` }); continue }
+    if (c.alBorrar === 'vaciar' && col.nn) { out.push({ ...base, estado: 'salteada', nota: `${c.columna} no admite vacío en «${c.tabla}»: la regla «vaciar» no se puede` }); continue }
+    if ([nombreRegla(c, 'borrar'), nombreRegla(c, 'guardar'), nombreRegla(c, 'cambiar')].every(hayRegla)) { out.push({ ...base, estado: 'ya estaba' }); continue }
+    const pk = clavePrimaria(db, c.padre)
+    const huerfana = `"${c.columna}" IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "${c.padre}" p WHERE p."${pk}" = "${c.tabla}"."${c.columna}")`
+    const falta = `NOT EXISTS (SELECT 1 FROM "${c.padre}" WHERE "${pk}" = NEW."${c.columna}")`
+    const frenoHijo = comillas(`integridad: no se pudo guardar en «${c.tabla}»: ${c.columna} apunta a «${c.padre}» y esa fila no existe (¿se borró, o el id está mal?).`)
+    let limpiadas = 0, nota: string | undefined
+    db.exec('SAVEPOINT fk_regla')
+    try {
+      if (c.alBorrar === 'cascada') limpiadas = Number(db.prepare(`DELETE FROM "${c.tabla}" WHERE ${huerfana}`).run().changes)
+      else if (c.alBorrar === 'vaciar') limpiadas = Number(db.prepare(`UPDATE "${c.tabla}" SET "${c.columna}" = NULL WHERE ${huerfana}`).run().changes)
+      else {
+        const n = (db.prepare(`SELECT COUNT(*) AS n FROM "${c.tabla}" WHERE ${huerfana}`).get() as { n: number }).n
+        if (n) nota = `${n} fila(s) ya apuntan a algo que no existe: no se tocaron (es la regla «impedir»)`
+      }
+      const tieneIndice = (db.prepare(`SELECT il.name FROM pragma_index_list(?) il WHERE (SELECT name FROM pragma_index_info(il.name) WHERE seqno = 0) = ?`).all(c.tabla, c.columna) as unknown[]).length > 0
+      if (!tieneIndice) db.exec(`CREATE INDEX IF NOT EXISTS "ix_fk_${c.tabla}_${c.columna}" ON "${c.tabla}"("${c.columna}")`)
+      const alBorrar = c.alBorrar === 'cascada' ? `DELETE FROM "${c.tabla}" WHERE "${c.columna}" = OLD."${pk}";`
+        : c.alBorrar === 'vaciar' ? `UPDATE "${c.tabla}" SET "${c.columna}" = NULL WHERE "${c.columna}" = OLD."${pk}";`
+          : `SELECT RAISE(ABORT, '${comillas(`integridad: no se pudo borrar en «${c.padre}»: hay filas en «${c.tabla}» (${c.columna}) que dependen de esa. Hay que borrar o mover esas primero.`)}') WHERE EXISTS (SELECT 1 FROM "${c.tabla}" WHERE "${c.columna}" = OLD."${pk}");`
+      db.exec(`CREATE TRIGGER IF NOT EXISTS "${nombreRegla(c, 'borrar')}" ${c.alBorrar === 'impedir' ? 'BEFORE' : 'AFTER'} DELETE ON "${c.padre}" BEGIN ${alBorrar} END`)
+      db.exec(`CREATE TRIGGER IF NOT EXISTS "${nombreRegla(c, 'guardar')}" BEFORE INSERT ON "${c.tabla}" WHEN NEW."${c.columna}" IS NOT NULL AND ${falta} BEGIN SELECT RAISE(ABORT, '${frenoHijo}'); END`)
+      db.exec(`CREATE TRIGGER IF NOT EXISTS "${nombreRegla(c, 'cambiar')}" BEFORE UPDATE OF "${c.columna}" ON "${c.tabla}" WHEN NEW."${c.columna}" IS NOT NULL AND ${falta} BEGIN SELECT RAISE(ABORT, '${frenoHijo.replace('guardar', 'cambiar')}'); END`)
+      db.exec('RELEASE fk_regla')
+    } catch (e) {
+      db.exec('ROLLBACK TO fk_regla'); db.exec('RELEASE fk_regla')
+      out.push({ ...base, estado: 'salteada', nota: `no se pudo: ${e instanceof Error ? e.message : e}` })
+      continue
+    }
+    out.push({ ...base, estado: 'aplicada', limpiadas, ...(nota ? { nota } : {}) })
+  }
+  return out
 }

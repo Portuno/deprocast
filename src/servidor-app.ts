@@ -1429,6 +1429,7 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/uso\/distracciones$/, async (req) => { const b = JSON.parse((await leerCrudo(req, 64 * 1024)).toString('utf8') || '{}'); return { distracciones: (await import('./uso-telefono.ts')).fijarDistracciones(db, Array.isArray(b.distracciones) ? b.distracciones : []) } }],
   // Fragua #291: los huérfanos que encontró la revisión del arranque (o, con ?ahora=1, una revisión nueva).
   // Las claves foráneas que faltan: cuántas filas y cuántos huérfanos tendría cada una (solo cuenta, no cambia nada).
+  ['GET', /^\/api\/integridad\/reglas$/, async () => JSON.parse(ajuste(db, 'integridad_reglas') ?? '{"r":[]}')],
   ['GET', /^\/api\/integridad\/candidatas$/, async () => ({ candidatas: await (await import('./integridad.ts')).revisarCandidatas(db) })],
   ['GET', /^\/api\/integridad$/, async (_, __, q) => q.get('ahora') ? { en: Date.now(), h: await (await import('./integridad.ts')).huerfanos(db) } : JSON.parse(ajuste(db, 'integridad_huerfanos') ?? '{"h":[]}')],
   ['GET', /^\/api\/recordatorios$/, async () => ({ recordatorios: (await import('./avisos-movil.ts')).recordatorios(db) })],
@@ -2805,8 +2806,13 @@ deFondo(() => {
 deFondo(() => setTimeout(() => void import('./video.ts').then((v) => v.trabajarVideos(db)).catch((e) => console.error('  videos:', e instanceof Error ? e.message : e)), 45_000).unref())
 // Fragua #254: las reservas (con fecha y hora) entran a la agenda de todos: Hoy, la línea, los avisos del teléfono.
 void Promise.all([import('./calendario.ts'), import('./reservas.ts')]).then(([cal, res]) => cal.registrarFuenteDeEventos('tus reservas', (f) => res.eventosDeReservas(db, f))).catch(() => {})
-// Fragua #291: al arrancar, lo que ya está roto (filas que apuntan a algo que no existe), sin borrar nada.
+// Fragua #291: al arrancar, las claves foráneas candidatas con sus disparadores (arreglando lo ya roto según la regla de
+// cada una), y después lo que quede roto en las claves de siempre, sin borrar nada.
 deFondo(() => setTimeout(() => void import('./integridad.ts').then(async (i) => {
+  const r = await i.aplicarCandidatas(db)
+  fijarAjuste(db, 'integridad_reglas', JSON.stringify({ en: Date.now(), r }))
+  const nuevas = r.filter((x) => x.estado === 'aplicada'), limpias = r.reduce((n, x) => n + x.limpiadas, 0), raras = r.filter((x) => x.estado === 'salteada')
+  if (nuevas.length || raras.length) console.log(`  integridad: ${nuevas.length} regla(s) nuevas${limpias ? `, ${limpias} huérfano(s) arreglados` : ''}${raras.length ? ` · salteadas: ${raras.map((x) => `${x.tabla}.${x.columna} (${x.nota})`).join(' · ')}` : ''}`)
   const h = await i.huerfanos(db)
   fijarAjuste(db, 'integridad_huerfanos', JSON.stringify({ en: Date.now(), h }))
   if (h.length) console.warn(`  integridad: ${h.map((x) => `${x.tabla}→${x.padre} ${x.filas}`).join(' · ')} (huérfanos; no se borró nada)`)
