@@ -1435,6 +1435,11 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/escalas$/, async (_, __, q) => (await import('./escalas.ts')).verEscala(db, (q.get('escala') as any) || 'dia', q.get('fecha') || '')],
   ['POST', /^\/api\/escalas\/armar$/, async (b) => ({ hechas: await (await import('./escalas.ts')).armarHaciaArriba(db, String(b.fecha ?? '')) })],
 
+  // Las reservas (Fragua #254): la lista, anotar una, cambiarla y sus textos (mail, WhatsApp, llamada, recordatorio).
+  ['GET', /^\/api\/reservas$/, async (_, __, q) => (await import('./reservas.ts')).listarReservas(db, { estado: (q.get('estado') as any) || 'todas' })],
+  ['POST', /^\/api\/reservas$/, async (b) => (await import('./reservas.ts')).crearReserva(db, b)],
+  ['POST', /^\/api\/reservas\/(\d+)$/, async (b, [n]) => (await import('./reservas.ts')).actualizarReserva(db, id(n), b)],
+  ['GET', /^\/api\/reservas\/(\d+)\/textos$/, async (_, [n]) => (await import('./reservas.ts')).textosDeReserva(db, id(n))],
   // La lista de compras
   ['GET', /^\/api\/compras$/, async (_, __, q) => (await import('./compras.ts')).listarCompras(db, { estado: (q.get('estado') as any) || 'todas' })],
   ['POST', /^\/api\/compras$/, async (b) => {
@@ -2744,6 +2749,8 @@ deFondo(() => {
 })
 // Los videos que quedaron en la cola (o a mitad) por un reinicio: siguen.
 deFondo(() => setTimeout(() => void import('./video.ts').then((v) => v.trabajarVideos(db)).catch((e) => console.error('  videos:', e instanceof Error ? e.message : e)), 45_000).unref())
+// Fragua #254: las reservas (con fecha y hora) entran a la agenda de todos: Hoy, la línea, los avisos del teléfono.
+void Promise.all([import('./calendario.ts'), import('./reservas.ts')]).then(([cal, res]) => cal.registrarFuenteDeEventos('tus reservas', (f) => res.eventosDeReservas(db, f))).catch(() => {})
 // Fragua #291: al arrancar, lo que ya está roto (filas que apuntan a algo que no existe), sin borrar nada.
 deFondo(() => setTimeout(() => void import('./integridad.ts').then(async (i) => {
   const h = await i.huerfanos(db)

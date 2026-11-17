@@ -200,8 +200,24 @@ export async function eventosIcsDelRango(dias: string[]): Promise<{ porDia: Map<
   return { porDia: new Map(dias.map((d) => [d, eventosDelDia(textos, d)])), avisos }
 }
 
+/**
+ * Otras fuentes de eventos propias de Deprocast (Fragua #254: las reservas confirmadas): se registran al arrancar y
+ * entran a la agenda de todos (Hoy, la línea, los avisos del teléfono, la brújula) sin tocar a cada uno.
+ */
+const otrasFuentes = new Map<string, (fecha: string) => Evento[]>()
+export function registrarFuenteDeEventos(nombre: string, f: ((fecha: string) => Evento[]) | null) { if (f) otrasFuentes.set(nombre, f); else otrasFuentes.delete(nombre) }
+
 /** Eventos del día de todos los calendarios configurados. Un calendario que falla no frena a los otros. */
 export async function agendaDelDia(fecha: string): Promise<{ eventos: Evento[]; avisos: string[] }> {
+  const r = await agendaDeCalendarios(fecha)
+  const propios: Evento[] = []
+  for (const [nombre, f] of otrasFuentes) { try { propios.push(...f(fecha)) } catch (e) { r.avisos.push(`No pude leer ${nombre}: ${e instanceof Error ? e.message : e}`) } }
+  if (!propios.length) return r
+  const vistos = new Set(r.eventos.map((e) => `${e.inicio}|${e.titulo}`))
+  return { eventos: [...r.eventos, ...propios.filter((e) => !vistos.has(`${e.inicio}|${e.titulo}`))].sort((a, b) => a.inicio - b.inicio), avisos: r.avisos }
+}
+
+async function agendaDeCalendarios(fecha: string): Promise<{ eventos: Evento[]; avisos: string[] }> {
   const avisos: string[] = []
   const textos: string[] = []
   // Su Google Calendar por la API (ida y vuelta), si está conectado.

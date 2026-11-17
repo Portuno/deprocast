@@ -13,6 +13,7 @@ import { personaje } from './personajes.ts'
 import { oportunidadesQueCierran } from './radar.ts'
 import { aContactar } from './personas.ts'
 import { alertasSalud } from './salud.ts'
+import { alertasReservas } from './reservas.ts'
 
 /** marcas: claves que se anotan junto con esta (los ítems de un bloque, para contar cuántas veces se avisó cada uno). */
 export type Alerta = { clave: string; texto: string; marcas?: string[] }
@@ -49,6 +50,8 @@ export function alertasPendientes(db: Db, ahora = Date.now()): Alerta[] {
     out.push({ clave: `persona:${p.id}:${semanaDe(ahora)}`, texto: `Hace ${p.diasSinContacto ?? 'mucho'} días que no sabés de ${p.nombre}${p.cadaDias ? ` (querías cada ${p.cadaDias})` : ''}.${p.proxima ? ` Tenías pendiente: ${p.proxima}.` : ' ¿Le escribís?'}` })
   }
   out.push(...alertasSalud(db, ahora))
+  // Fragua #254: las reservas pedidas sin confirmar a las 48 h, y las confirmadas de mañana.
+  out.push(...alertasReservas(db, ahora))
   return out.filter((a) => !db.prepare('SELECT 1 FROM alertas WHERE clave = ?').get(a.clave))
 }
 

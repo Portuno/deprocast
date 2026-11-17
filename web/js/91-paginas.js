@@ -6,6 +6,7 @@
 //   Cada página se construye sola con lo que pasa en ella y él la moldea con instrucciones en lenguaje natural.
 // - A mano (#hojas, #hojas/Rojo): los cuadernos de la tableta, hoja por hoja.
 // - Compras (#compras): la lista de compras.
+// - Reservas (#reservas): las reservas con sus textos y su seguimiento (Fragua #254).
 
 const OFICIOS_72 = ['Entra · Cuerpo', 'Entra · Mente', 'Entra · Alma', 'Procesa · Cuerpo', 'Procesa · Mente', 'Procesa · Alma', 'Sale · Cuerpo', 'Sale · Mente', 'Sale · Alma']
 const fechaPag = (ms) => (ms ? new Date(ms).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }) : '')
@@ -30,6 +31,7 @@ const QUE_ES_VISTA = {
   escalas: ['Tu vida por escalas: cada día desde sus piezas, y la semana, el mes… hasta el lustro.'],
   monedero: ['El Monedero del Tesorero: patrimonio, cuentas, arcas de cada agente y arquetipo, y lo que espera tu firma.'],
   compras: ['La lista de compras: lo que mandás para comprar, junto y tachable.', 'compras'],
+  reservas: ['Tus reservas: el pedido armado (mail, WhatsApp, llamada), el seguimiento y las confirmadas en la agenda.', 'reservas'],
   capsulas: ['Cápsulas del tiempo: mensajes para tu yo futuro.'],
   jugador: ['Tu personaje: nivel, inventario e historia.'],
   suenos: ['Tus sueños anotados y lo que dicen.', 'suenos'],
@@ -282,6 +284,80 @@ async function pintarCompras() {
     const b = e.currentTarget
     b.disabled = true; b.textContent = 'Leyendo tus mensajes…'
     try { const r = await api('/compras/importar', {}); toast(`Revisé ${r.revisados} mensajes: ${r.nuevos} ítems nuevos de ${r.mensajes} listas.`, 'suave'); pintarCompras() } catch (x) { error(x); b.disabled = false }
+  }
+}
+
+// ─── Reservas (Fragua #254) ─────────────────────────────────────────────
+
+const ESTADO_RESERVA = { a_buscar: ['a buscar', ''], pedida: ['pedida', 'vivo'], confirmada: ['confirmada', 'ok'], cancelada: ['cancelada', 'mal'] }
+
+async function montarReservas() {
+  $('#principal').innerHTML = `<div class="titulo"><h1>Reservas</h1>
+    <p>Un restaurante, un médico, una mesa para seis: anotala acá o pedísela a Mastropiero («reservame en … para 6 el viernes a las 21»). Te deja el mail, el WhatsApp y el guion de la llamada listos; la mandás vos con un toque. Si a las 48 horas no confirmaron, te avisa con el recordatorio armado. Las confirmadas entran a tu agenda.</p></div>
+    <form id="f-reserva" class="reservas-form">
+      <input name="sitio" placeholder="Dónde (restaurante, médico…)" maxlength="120" required aria-label="Dónde">
+      <input name="fecha" type="date" aria-label="Fecha">
+      <input name="hora" type="time" aria-label="Hora">
+      <input name="personas" type="number" min="1" max="99" placeholder="Personas" aria-label="Personas">
+      <input name="telefono" placeholder="Teléfono" maxlength="40" aria-label="Teléfono">
+      <input name="email" type="email" placeholder="Mail" maxlength="120" aria-label="Mail">
+      <input name="link" placeholder="Link de reservas o web" maxlength="500" aria-label="Link">
+      <input name="nota" placeholder="Algo a pedir: terraza, celíaco…" maxlength="500" aria-label="Nota">
+      <button class="btn btn-primario">Anotar</button>
+    </form>
+    <div id="reservas"><p class="tenue">Trayendo tus reservas…</p></div>`
+  $('#f-reserva').onsubmit = async (e) => {
+    e.preventDefault()
+    const form = e.currentTarget
+    const f = new FormData(form)
+    const d = Object.fromEntries([...f.entries()].filter(([, v]) => String(v).trim()))
+    if (d.personas) d.personas = Number(d.personas)
+    try { await api('/reservas', d); form.reset(); pintarReservas() } catch (x) { error(x) }
+  }
+  await pintarReservas()
+}
+
+async function pintarReservas() {
+  let xs
+  try { xs = await api('/reservas') } catch (e) { return error(e) }
+  const abiertas = xs.filter((x) => x.estado !== 'cancelada' && !(x.estado === 'confirmada' && x.fecha && x.fecha < hoyISO()))
+  const viejas = xs.filter((x) => !abiertas.includes(x)).slice(0, 30)
+  const cuando = (x) => x.fecha ? `${new Date(`${x.fecha}T12:00:00`).toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })}${x.hora ? ` · ${x.hora}` : ''}` : (x.hora ?? 'sin fecha')
+  const tarjeta = (x) => {
+    const [txt, clase] = ESTADO_RESERVA[x.estado] ?? [x.estado, '']
+    const horas = x.pedidaEn ? Math.round((Date.now() - x.pedidaEn) / 3_600_000) : null
+    return `<article class="tarjeta" data-reserva="${x.id}">
+      <div class="tarjeta-cab">#${x.id}<span class="estado-chip ${clase}">${esc(txt)}</span>${x.estado === 'pedida' && horas != null ? `<span class="tenue chico">${horas >= 48 ? `<b>hace ${Math.floor(horas / 24)} días sin confirmar</b>` : `pedida hace ${horas} h`}</span>` : ''}</div>
+      <h4>${esc(x.sitio)}</h4>
+      <p class="chico">${esc(cuando(x))}${x.personas ? ` · ${x.personas} persona${x.personas === 1 ? '' : 's'}` : ''}${x.nota ? ` · ${esc(x.nota)}` : ''}</p>
+      ${x.comprobante ? `<p class="tenue chico">✓ ${esc(x.comprobante)}</p>` : ''}
+      <div class="tarjeta-pie" data-acciones><span class="tenue chico">Armando los textos…</span></div>
+    </article>`
+  }
+  $('#reservas').innerHTML = `${abiertas.length ? `<div class="tarjetas">${abiertas.map(tarjeta).join('')}</div>` : '<div class="vacio"><h2>Sin reservas abiertas</h2><p>Anotá una arriba o pedísela a Mastropiero.</p></div>'}
+    ${viejas.length ? `<details class="compras-hechas"><summary>Pasadas o canceladas (${viejas.length})</summary><div class="tarjetas">${viejas.map(tarjeta).join('')}</div></details>` : ''}`
+  for (const el of $$('[data-reserva]')) {
+    const id = Number(el.dataset.reserva)
+    const x = xs.find((r) => r.id === id)
+    let t
+    try { t = await api(`/reservas/${id}/textos`) } catch { continue }
+    const pie = $('[data-acciones]', el)
+    const insistir = x.estado === 'pedida'
+    const texto = insistir ? t.recordatorio : `${t.asunto}\n\n${t.cuerpo}`
+    pie.innerHTML = `${t.links.mail ? `<a class="btn btn-chico" href="${esc(t.links.mail)}">✉ Mail</a>` : ''}${t.links.whatsapp ? `<a class="btn btn-chico" href="${esc(t.links.whatsapp)}" target="_blank" rel="noopener">💬 WhatsApp</a>` : ''}${t.links.llamar ? `<a class="btn btn-chico" href="${esc(t.links.llamar)}">📞 Llamar</a>` : ''}${t.links.web ? `<a class="btn btn-chico" href="${esc(t.links.web)}" target="_blank" rel="noopener">↗ Web</a>` : ''}
+      <button class="btn btn-chico" data-copiar-reserva>${insistir ? 'Copiar el recordatorio' : 'Copiar el pedido'}</button>
+      <span class="espacio"></span>
+      ${x.estado === 'a_buscar' ? '<button class="btn btn-chico btn-primario" data-reserva-estado="pedida">Ya la pedí</button>' : ''}
+      ${x.estado === 'a_buscar' || x.estado === 'pedida' ? '<button class="btn btn-chico btn-primario" data-reserva-estado="confirmada">Confirmada</button>' : ''}
+      ${x.estado !== 'cancelada' ? '<button class="btn btn-chico" data-reserva-estado="cancelada">Cancelar</button>' : ''}
+      <details class="reserva-guion"><summary class="tenue chico">Guion de la llamada</summary><ol class="chico">${t.llamada.map((l) => `<li>${esc(l)}</li>`).join('')}</ol></details>`
+    $('[data-copiar-reserva]', pie).onclick = async () => { try { await navigator.clipboard.writeText(texto); toast('Copiado', 'suave') } catch { toast('No pude copiar: seleccionalo a mano', 'error') } }
+    $$('[data-reserva-estado]', pie).forEach((b) => (b.onclick = async () => {
+      const estado = b.dataset.reservaEstado
+      const cuerpo = { estado }
+      if (estado === 'confirmada') { const c = await preguntar('¿A nombre de quién quedó, o el código de la reserva? (opcional)', '', { ok: 'Confirmada' }); if (c == null) return; if (c.trim()) cuerpo.comprobante = c.trim() }
+      try { await api(`/reservas/${id}`, cuerpo); pintarReservas() } catch (e) { error(e) }
+    }))
   }
 }
 

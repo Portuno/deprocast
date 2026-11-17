@@ -3536,6 +3536,10 @@ a.arq-celda { color: var(--texto); text-decoration: none; }
 .hoja-img.sin-imagen > span { display: block; }
 .hoja-texto { display: flex; flex-direction: column; gap: var(--e-2); min-width: 0; }
 .compras-sumar { margin-bottom: var(--e-4); }
+.reservas-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr)); gap: var(--e-2); margin-bottom: var(--e-4); max-width: 960px; }
+.reservas-form input { min-width: 0; }
+.reserva-guion { flex-basis: 100%; }
+.reserva-guion ol { margin: var(--e-1) 0 0; padding-left: var(--e-4); }
 .compras-sumar input { flex: 1; min-width: 0; }
 .compras-lista { list-style: none; padding: 0; margin: 0 0 var(--e-3); max-width: 720px; }
 .compra { display: flex; align-items: center; gap: var(--e-2); padding: var(--e-2) 0; border-bottom: 1px solid var(--linea); }

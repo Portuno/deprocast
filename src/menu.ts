@@ -23,6 +23,7 @@ const SQL: Record<string, string> = {
   hojas: `SELECT COUNT(*) AS n FROM tandas WHERE tipo = 'pagina'`,
   cuadernosHuion: `SELECT COUNT(DISTINCT COALESCE(NULLIF(TRIM(cuaderno), ''), '-')) AS n FROM tandas WHERE tipo = 'pagina'`,
   compras: `SELECT COUNT(*) AS n FROM compras WHERE estado = 'pendiente'`,
+  reservas: `SELECT COUNT(*) AS n FROM reservas WHERE estado IN ('a_buscar', 'pedida')`,
   arquetiposNombrados: `SELECT COUNT(*) AS n FROM paginas WHERE tipo = 'arquetipo' AND nombre IS NOT NULL`,
   paginasConstruidas: 'SELECT COUNT(*) AS n FROM paginas WHERE construida_en IS NOT NULL',
   propuestas: `SELECT COUNT(*) AS n FROM propuestas WHERE estado = 'abierta'`,
