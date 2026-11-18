@@ -116,7 +116,7 @@ test('compras: se anotan sin duplicar, se tachan por nombre y se recuperan las l
 
   // Desde el chat: siempre a mano y anunciada por el mensaje.
   assert.ok(NUCLEO.includes('anotar_compras'))
-  assert.ok(gruposDelMensaje('qué tengo en la lista de compras').includes('vida'))
+  assert.ok(gruposDelMensaje('qué tengo en la lista de compras').includes('plata'))
   const h = await ejecutarHerramienta(HERRAMIENTAS, 'anotar_compras', JSON.stringify({ items: [{ item: 'café' }] }), { db, conversacionId: null })
   assert.deepEqual((h.resultado as any).anotados, ['café'])
   assert.equal(menuGeneral(db).cuentas.compras, listarCompras(db).length)

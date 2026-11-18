@@ -41,7 +41,7 @@ import { cadena, M, topeAlcanzado, type LlamadaHerramienta } from '../nan.ts'
 import { llamarModelo } from '../modelo.ts'
 import { alias, leer, nivel, type Ficha } from '../roster.ts'
 import { capa } from '../xp.ts'
-import { activas, activasEnOrden, ejecutarHerramienta, esquemas, GRUPOS, gruposDelMensaje, HERRAMIENTAS, herramientasPara, type Ctx, type Herramienta } from './herramientas.ts'
+import { activas, activasEnOrden, ALIAS_GRUPOS, ejecutarHerramienta, esquemas, GRUPOS, gruposDelMensaje, HERRAMIENTAS, herramientasPara, type Ctx, type Herramienta } from './herramientas.ts'
 import { archivoRelevante } from '../semantica.ts'
 import { vozPara } from '../personalidad.ts'
 
@@ -803,7 +803,7 @@ ${REGLAS_DE_CIERRE}
 ${vozPara('ceremonia')}` : ''}`, hs, previos, clase: 'mastropiero', agenteId: o.via === 'copiloto' ? 'copiloto' : MASTROPIERO, grupos: fijos,
           ctx: {
             db, conversacionId: cid, hablarConAgente: (id, m) => hablarConAgente(db, id, m),
-            activar: (gs) => { for (const g of gs) if (GRUPOS[g]) fijos.add(g); return activas(hs, fijos).map((h) => h.nombre) },
+            activar: (gs) => { for (const g of gs.flatMap((x) => ALIAS_GRUPOS[x] ?? [x])) if (GRUPOS[g]) fijos.add(g); return activas(hs, fijos).map((h) => h.nombre) },
           },
           alGuardar, vivo, nuevos,
         })

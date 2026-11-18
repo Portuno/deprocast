@@ -467,8 +467,11 @@ export async function archivoPorWhatsapp(db: Db, datos: Buffer, nombre: string, 
   // Primero sube: si falla, no llega un «listo» sin el archivo.
   const id = await subirMedio(db, datos, o.mime, nombre)
   if (o.texto?.trim()) await mandarTexto(db, c.suyo, o.texto.trim())
-  const comoAudio = o.mime.startsWith('audio/') && datos.length <= TOPE_AUDIO_WHATSAPP
-  await graph(db, `${c.numeroId}/messages`, { method: 'POST', body: JSON.stringify(comoAudio ? { messaging_product: 'whatsapp', to: c.suyo, type: 'audio', audio: { id } } : { messaging_product: 'whatsapp', to: c.suyo, type: 'document', document: { id, filename: nombre } }) })
+  // El audio se escucha y la imagen y el video se ven ahí mismo (dentro de los topes de WhatsApp); lo demás, documento.
+  const como = o.mime.startsWith('audio/') && datos.length <= TOPE_AUDIO_WHATSAPP ? 'audio'
+    : /^image\/(jpeg|png)$/.test(o.mime) && datos.length <= 5 * 1024 * 1024 ? 'image'
+      : o.mime === 'video/mp4' && datos.length <= TOPE_AUDIO_WHATSAPP ? 'video' : 'document'
+  await graph(db, `${c.numeroId}/messages`, { method: 'POST', body: JSON.stringify({ messaging_product: 'whatsapp', to: c.suyo, type: como, [como]: como === 'document' ? { id, filename: nombre } : { id } }) })
   return true
 }
 

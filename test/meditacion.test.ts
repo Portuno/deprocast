@@ -84,7 +84,7 @@ test('meditación · a medida: el modelo lo diseña, se acota y queda suyo; tamb
   await assert.rejects(m.aMedida(db, 'x'), /para qué lo querés/)
 
   // Desde el chat: la herramienta está en el grupo de vida y lo nombra el mensaje.
-  assert.ok(gruposDelMensaje('quiero un ejercicio de respiración para la ansiedad').includes('vida'))
+  assert.ok(gruposDelMensaje('quiero un ejercicio de respiración para la ansiedad').includes('salud'))
   const r: any = await ejecutarHerramienta(HERRAMIENTAS, 'crear_meditacion', JSON.stringify({ pedido: 'foco para escribir 25 minutos, solo sonido' }), { db } as any)
   assert.equal(r.resultado.nombre, 'Dormir en diez')
   assert.match(r.resumen, /diseñó «Dormir en diez» en Meditación/)

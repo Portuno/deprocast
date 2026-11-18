@@ -598,7 +598,7 @@ export async function crearPodcast(db: Db, temas: string, o: { minutos: number; 
     fs.writeFileSync(path.join(dir, 'transcripcion.md'), transcripcion(titulo, capitulos, turnos, t0))
     db.prepare('UPDATE artefactos SET titulo = ? WHERE id = ?').run(titulo, a.id)
     terminar(db, a.id, ['podcast.mp3', 'transcripcion.md'], { guion: turnos.map((t) => ({ voz: t.voz, texto: t.texto })), capitulos, duracion: Math.round(t0), palabras: contarPalabras(turnos.map((t) => t.texto).join(' ')) })
-    await entregarPodcast(db, a.id, unido, titulo, capitulos, t0)
+    await entregarArtefacto(db, a.id, { drive: true, whatsapp: true, datos: unido })
   } catch (e) { fallar(db, a.id, e) }
   return leerArtefacto(db, a.id)!
 }
@@ -608,23 +608,51 @@ export async function crearPodcast(db: Db, temas: string, o: { minutos: number; 
  * WhatsApp con el índice de capítulos (si la ventana de 24 horas está abierta). Lo que no se pudo queda anotado en el
  * artefacto; nunca hace fallar al podcast, que ya está listo.
  */
-async function entregarPodcast(db: Db, id: number, mp3: Buffer, titulo: string, capitulos: { titulo: string; desde: number }[], duracion: number) {
-  const { reloj } = await import('./podcast.ts')
+export type Entrega = { drive: boolean; whatsapp: boolean; en: number; errores?: string[] }
+const MIME_OBRA: Record<string, { mime: string; tipo: 'audio' | 'imagen' | 'archivo' }> = {
+  mp3: { mime: 'audio/mpeg', tipo: 'audio' }, mp4: { mime: 'video/mp4', tipo: 'archivo' }, png: { mime: 'image/png', tipo: 'imagen' }, jpg: { mime: 'image/jpeg', tipo: 'imagen' }, jpeg: { mime: 'image/jpeg', tipo: 'imagen' }, webp: { mime: 'image/webp', tipo: 'imagen' },
+}
+/** El archivo que se manda de una obra: el audio o el video; si no, la primera imagen. Un juego o una página no tienen. */
+const archivoPrincipal = (a: Artefacto) => a.archivos.find((n) => /\.(mp3|mp4)$/i.test(n)) ?? a.archivos.find((n) => /\.(png|jpe?g|webp)$/i.test(n)) ?? null
+
+/**
+ * Una obra terminada sale del Taller: a su Drive (Audios, Imágenes o Archivos; un podcast, con su transcripción) y a
+ * su WhatsApp (el audio se escucha ahí, la imagen y el video se ven; un podcast va con su índice de capítulos), si la
+ * ventana de 24 horas está abierta. Lo que pasó queda en la obra (meta.entrega) y se ve en su ficha; si algo no llegó,
+ * se manda de nuevo desde ahí. Nunca hace fallar a la obra, que ya está lista.
+ */
+export async function entregarArtefacto(db: Db, id: number, o: { drive?: boolean; whatsapp?: boolean; datos?: Buffer; ahora?: number } = {}): Promise<Entrega> {
+  const a = leerArtefacto(db, id)
+  if (!a || a.estado !== 'listo') throw new Error('Esa obra no está lista')
+  const archivo = archivoPrincipal(a)
+  if (!archivo) throw new Error('Esta obra no tiene un archivo para mandar (es un juego o una página: se abre desde el Taller)')
   const dir = carpeta(id)
-  const indice = capitulos.map((c, i) => `${reloj(c.desde)} · ${i + 1}. ${c.titulo}`).join('\n')
-  const entrega: { drive: boolean; whatsapp: boolean; errores?: string[] } = { drive: false, whatsapp: false }
+  const datos = o.datos ?? fs.readFileSync(path.join(dir, archivo))
+  const ext = archivo.split('.').pop()!.toLowerCase()
+  const { mime, tipo } = MIME_OBRA[ext]
+  const titulo = a.titulo
+  const { reloj } = await import('./podcast.ts')
+  const caps = Array.isArray(a.meta?.capitulos) ? (a.meta.capitulos as { titulo: string; desde: number }[]) : []
+  const indice = caps.map((c, i) => `${reloj(c.desde)} · ${i + 1}. ${c.titulo}`).join('\n')
+  const previa = (a.meta?.entrega ?? {}) as Partial<Entrega>
+  const entrega: Entrega = { drive: !!previa.drive, whatsapp: !!previa.whatsapp, en: o.ahora ?? Date.now() }
   const fallo = (donde: string, e: unknown) => { (entrega.errores ??= []).push(`${donde}: ${e instanceof Error ? e.message : e}`) }
-  try {
+  if (o.drive !== false) try {
     const { alDrive } = await import('./google/drive.ts')
-    entrega.drive = alDrive(db, { datos: mp3, nombre: `${titulo}.mp3`, mime: 'audio/mpeg', tipo: 'audio', origen: 'podcast', descripcion: `${titulo}\n\n${indice}` }) != null
-    if (entrega.drive) alDrive(db, { datos: fs.readFileSync(path.join(dir, 'transcripcion.md')), nombre: `${titulo} transcripción.md`, mime: 'text/markdown', tipo: 'archivo', origen: 'podcast', descripcion: titulo })
+    entrega.drive = alDrive(db, { datos, nombre: `${titulo}.${ext}`, mime, tipo, origen: a.meta?.podcast ? 'podcast' : 'taller', descripcion: [titulo, indice].filter(Boolean).join('\n\n') }) != null
+    if (entrega.drive && a.archivos.includes('transcripcion.md')) alDrive(db, { datos: fs.readFileSync(path.join(dir, 'transcripcion.md')), nombre: `${titulo} transcripción.md`, mime: 'text/markdown', tipo: 'archivo', origen: 'podcast', descripcion: titulo })
+    if (!entrega.drive) fallo('Drive', 'Google no está conectado (o no tiene permiso para escribir)')
   } catch (e) { fallo('Drive', e) }
-  try {
-    const texto = `Listo el podcast «${titulo}» (${reloj(duracion)}).\n\n${indice}${entrega.drive ? '\n\nLa transcripción y el mp3 quedan en tu Drive.' : ''}`
-    entrega.whatsapp = await (await import('./whatsapp.ts')).archivoPorWhatsapp(db, mp3, `${titulo.replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 60) || 'podcast'}.mp3`, { mime: 'audio/mpeg', texto })
+  if (o.whatsapp !== false) try {
+    const texto = a.meta?.podcast
+      ? `Listo el podcast «${titulo}» (${reloj(Number(a.meta.duracion) || 0)}).\n\n${indice}${entrega.drive ? '\n\nLa transcripción y el mp3 quedan en tu Drive.' : ''}`
+      : `«${titulo}», del Taller.`
+    entrega.whatsapp = await (await import('./whatsapp.ts')).archivoPorWhatsapp(db, datos, `${titulo.replace(/[\\/:*?"<>|]+/g, ' ').trim().slice(0, 60) || 'obra'}.${ext}`, { mime, texto })
+    if (!entrega.whatsapp) fallo('WhatsApp', 'la ventana de 24 horas está cerrada (mandale cualquier cosa a Mastropiero y se abre) o no está vinculado')
   } catch (e) { fallo('WhatsApp', e) }
-  const a = leerArtefacto(db, id)!
-  db.prepare('UPDATE artefactos SET meta = ? WHERE id = ?').run(JSON.stringify({ ...a.meta, entrega }), id)
+  const ahora = leerArtefacto(db, id)!
+  db.prepare('UPDATE artefactos SET meta = ? WHERE id = ?').run(JSON.stringify({ ...ahora.meta, entrega }), id)
+  return entrega
 }
 
 // ─── ideas desde su archivo ─────────────────────────────────────────────

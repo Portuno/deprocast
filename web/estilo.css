@@ -3668,3 +3668,26 @@ a.arq-celda { color: var(--texto); text-decoration: none; }
 .med-ses-fin p { margin: 0; }
 .med-animos .btn { min-width: 6em; }
 @media (max-width: 720px) { .med-desl { grid-template-columns: 64px minmax(0, 1fr); } .med-desl output { grid-column: 2; } .med-detalle { padding: 14px; } }
+.tl-entrega { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--linea); border-radius: var(--r-m); background: var(--panel-2); }
+.tl-entrega p { margin: 0; }
+
+/* ─── El vigía (La máquina → Estado) ─────────────────────────────────────── */
+.vg-resumen { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 12px 16px; border-radius: var(--r-l); border: 1px solid var(--linea); background: var(--panel); margin-bottom: 14px; }
+.vg-resumen b { font-size: var(--t-5); }
+.vg-resumen.vg-mal { border-color: var(--mal); }
+.vg-resumen.vg-ojo { border-color: var(--aviso); }
+.vg-piezas { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; margin-bottom: 18px; }
+.vg-pieza { min-width: 0; padding: 12px 14px; border: 1px solid var(--linea); border-radius: var(--r-l); background: var(--panel); display: grid; gap: 4px; align-content: start; }
+.vg-pieza p { margin: 0; }
+.vg-cab { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.vg-chip { font-size: var(--t-1); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 2px 8px; border-radius: var(--r-pill); }
+.vg-chip.vg-bien { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.vg-chip.vg-ojo { color: var(--aviso); background: color-mix(in srgb, var(--aviso) 16%, transparent); }
+.vg-chip.vg-mal { color: var(--mal); background: color-mix(in srgb, var(--mal) 14%, transparent); }
+.vg-problemas { margin: 4px 0 0; padding-left: 18px; font-size: var(--t-2); color: var(--mal); }
+.vg-tabla { overflow-x: auto; border: 1px solid var(--linea); border-radius: var(--r-l); background: var(--panel); margin-bottom: 8px; }
+.vg-tabla table { width: 100%; border-collapse: collapse; font-size: var(--t-3); }
+.vg-tabla th, .vg-tabla td { text-align: left; padding: 7px 12px; border-bottom: 1px solid var(--linea); vertical-align: top; }
+.vg-tabla tr:last-child td { border-bottom: 0; }
+.vg-tabla th { color: var(--tenue); font-weight: 500; font-size: var(--t-2); }
+.vg-tabla .n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }

@@ -117,7 +117,9 @@ test('Fragua #312 · el episodio terminado va a su Drive (mp3 y transcripción) 
 
     const a = await crearSegun(db, { tipo: 'charla', pedido: 'mapas', minutos: '5', usarArchivo: false })
     assert.equal(a.estado, 'listo', String(a.progreso))
-    assert.deepEqual(a.meta.entrega, { drive: true, whatsapp: true })
+    assert.equal(a.meta.entrega.drive, true)
+    assert.equal(a.meta.entrega.whatsapp, true)
+    assert.equal(a.meta.entrega.errores, undefined)
     const cola = db.prepare(`SELECT nombre, mime, carpeta, descripcion FROM drive_cola WHERE origen = 'podcast' ORDER BY id`).all() as any[]
     assert.equal(cola.length, 2)
     assert.match(cola[0].nombre, /podcast · Mapas vivos\.mp3$/)

@@ -213,6 +213,16 @@ function vistaGrande(a) {
     ${a.meta?.guion?.length && a.tipo === 'voz' ? `<details class="tl-guion"><summary>Guion</summary>${a.meta.guion.map((t) => `<p><b>${esc(tl.datos?.voces?.[t.voz]?.split(' ')[0] ?? t.voz)}:</b> ${esc(t.texto)}</p>`).join('')}</details>` : ''}`
 }
 
+/** Lo que pasó con la entrega de una obra (a su Drive y a su WhatsApp), y los botones para mandarla de nuevo. */
+function lineaEntrega(a) {
+  if (a.estado !== 'listo' || !a.archivos.some((n) => /\.(mp3|mp4|png|jpe?g|webp)$/i.test(n))) return ''
+  const e = a.meta?.entrega
+  const hecho = e ? [e.drive && '✓ En tu Drive', e.whatsapp && '✓ Mandado por WhatsApp'].filter(Boolean) : []
+  return `<div class="tl-entrega"><p class="chico">${hecho.length ? hecho.join(' · ') : 'Todavía no salió del Taller.'}${e?.en ? ` <span class="tenue">(${esc(haceCuanto(e.en))})</span>` : ''}</p>
+    ${e?.errores?.length ? `<p class="tenue chico">${e.errores.map(esc).join('<br>')}</p>` : ''}
+    <div class="fila"><button class="btn btn-chico" data-entregar="whatsapp">${e?.whatsapp ? 'Mandar de nuevo por WhatsApp' : 'Mandar por WhatsApp'}</button>${e?.drive ? '' : '<button class="btn btn-chico" data-entregar="drive">Guardar en Drive</button>'}</div></div>`
+}
+
 async function fichaObra(raiz, verId = null) {
   await traerTaller(true)
   const o = tl.datos.obras.find((x) => x.raiz === raiz) ?? (await api('/taller')).obras.find((x) => x.raiz === raiz)
@@ -237,6 +247,7 @@ async function fichaObra(raiz, verId = null) {
             ${a.tipo === 'video' && a.archivos.includes('video.mp4') ? '<button class="btn btn-chico btn-primario" id="tlf-estudio">🎬 Posproducir en el Estudio</button>' : ''}
             <button class="btn btn-chico" id="tlf-corpus" title="Guardarlo en tu corpus">❦ Al corpus</button>
           </div>
+          ${lineaEntrega(a)}
           <details class="tl-archivos"><summary>Archivos (${a.archivos.length})</summary>${a.archivos.map((n) => `<a href="${urlTaller(a, n)}" download="${esc(n)}">${esc(n)}</a>`).join('')}</details>` : ''}
         ${a.estado !== 'haciendo' ? `<button class="btn btn-chico tl-borrar" id="tlf-borrar">Borrar ${o.versiones.length > 1 ? `la v${a.version}` : 'esta obra'}</button>` : ''}
       </div>
@@ -257,6 +268,16 @@ async function fichaObra(raiz, verId = null) {
   }))
   const est = $('#tlf-estudio')
   if (est) est.onclick = async () => { try { const n = await api('/estudio/nuevo', { desdeArtefacto: a.id }); cerrarModal(); es.id = n.id; irA('estudio') } catch (e) { error(e) } }
+  $$('[data-entregar]').forEach((b) => (b.onclick = async () => {
+    const que = b.dataset.entregar
+    b.disabled = true
+    try {
+      const r = await api(`/taller/${a.id}/entregar`, { drive: que === 'drive', whatsapp: que === 'whatsapp' })
+      const ok = que === 'drive' ? r.drive : r.whatsapp
+      toast(ok ? (que === 'drive' ? 'Guardado en tu Drive' : 'Mandado por WhatsApp') : 'No salió', ok ? 'suave' : 'error')
+      fichaObra(raiz, a.id)
+    } catch (e) { error(e); b.disabled = false }
+  }))
   const co = $('#tlf-corpus')
   if (co) co.onclick = async () => { try { await api(`/taller/${a.id}/corpus`, {}); toast('Guardado en el corpus', 'suave') } catch (e) { error(e) } }
   $$('[data-usar]').forEach((b) => (b.onclick = () => { cerrarModal(); abrirMesa(b.dataset.usar, { personajeId: a.id }); $('#tl-mesa').scrollIntoView({ behavior: 'smooth' }) }))

@@ -1474,6 +1474,11 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/hojas-citables\/(\d+)$/, async (_, [n]) => (await import('./hojas-citables.ts')).leerHoja(db, id(n)) ?? {}],
   ['POST', /^\/api\/hojas-citables\/(\d+)$/, async (b, [n]) => (await import('./hojas-citables.ts')).hojaCitable(db, id(n), { forzar: !!b.forzar })],
   // Las reservas (Fragua #254): la lista, anotar una, cambiarla y sus textos (mail, WhatsApp, llamada, recordatorio).
+  // El vigía (La máquina → Estado): cada pieza con su estado, y el aviso por WhatsApp prendido o no.
+  ['GET', /^\/api\/vigia$/, async () => (await import('./vigia.ts')).estadoSistema(db, { commit: process.env.MASTRO_COMMIT ?? null, arranco: Date.parse(ARRANCO) })],
+  ['POST', /^\/api\/vigia\/avisos$/, async (b) => { fijarAjuste(db, 'vigia_whatsapp', b.prender === false ? '0' : '1'); return { avisos: b.prender !== false } }],
+  // La entrega de una obra del Taller (a su Drive y a su WhatsApp), de nuevo o por primera vez.
+  ['POST', /^\/api\/taller\/(\d+)\/entregar$/, async (b, [n]) => (await import('./taller.ts')).entregarArtefacto(db, id(n), { drive: b.drive !== false, whatsapp: b.whatsapp !== false })],
   // Meditación: respiración y binaural beats a medida (el sonido lo hace la pantalla; acá, lo guardado y las sesiones).
   ['GET', /^\/api\/meditacion$/, async () => (await import('./meditacion.ts')).seccion(db)],
   ['POST', /^\/api\/meditacion$/, async (b) => (await import('./meditacion.ts')).guardar(db, b)],
@@ -2829,6 +2834,10 @@ deFondo(() => setTimeout(() => void import('./video.ts').then((v) => v.trabajarV
 void Promise.all([import('./calendario.ts'), import('./reservas.ts')]).then(([cal, res]) => cal.registrarFuenteDeEventos('tus reservas', (f) => res.eventosDeReservas(db, f))).catch(() => {})
 // Fragua #291: al arrancar, las claves foráneas candidatas con sus disparadores (arreglando lo ya roto según la regla de
 // cada una), y después lo que quede roto en las claves de siempre, sin borrar nada.
+// El vigía: cada 15 minutos mira si algo se rompió y lo avisa por WhatsApp (una vez cada 12 h por problema). Solo el dueño.
+if (!enUsuario()) deFondo(() => setInterval(() => void import('./vigia.ts').then((v) => v.vigilar(db, { commit: process.env.MASTRO_COMMIT ?? null, arranco: Date.parse(ARRANCO) }))
+  .then((r) => { if (r.avisados.length) console.log(`  vigía: ${r.avisados.length} problema(s)${r.mandado ? ', avisado por WhatsApp' : ''}`) })
+  .catch((e) => console.error('  vigía:', e instanceof Error ? e.message : e)), 15 * 60_000).unref())
 deFondo(() => setTimeout(() => void import('./integridad.ts').then(async (i) => {
   const r = await i.aplicarCandidatas(db)
   fijarAjuste(db, 'integridad_reglas', JSON.stringify({ en: Date.now(), r }))
