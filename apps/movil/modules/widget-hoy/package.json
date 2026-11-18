@@ -1,0 +1,8 @@
+{
+  "name": "widget-hoy",
+  "version": "0.1.0",
+  "description": "El widget de Deprocast en la pantalla de inicio: lo de ahora, lo que espera tu ok y un boton para dictar.",
+  "main": "index.ts",
+  "private": true,
+  "license": "MIT"
+}

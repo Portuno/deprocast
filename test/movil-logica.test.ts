@@ -174,7 +174,7 @@ test('Mobile 1.0.1: el teclado ya no tapa lo que escribís; la ubicación va apa
   const r = fs.readFileSync('apps/movil/src/recorrido.ts', 'utf8')
   assert.match(r, /TaskManager\.defineTask\(TAREA/)
   assert.match(r, /foregroundService: \{ notificationTitle: 'Deprocast anota tu recorrido'/)
-  assert.match(fs.readFileSync('apps/movil/App.tsx', 'utf8'), /\['hoy', 'escucha', 'mapa'\]/)
+  assert.match(fs.readFileSync('apps/movil/App.tsx', 'utf8'), /\['hoy', 'validar', 'escucha', 'mapa'\]/, 'Validar (Mobile 1.6) entre Hoy y Escucha; el Mapa, aparte')
   const app = JSON.parse(fs.readFileSync('apps/movil/app.json', 'utf8')).expo
   const loc = app.plugins.find((p: any) => Array.isArray(p) && p[0] === 'expo-location')[1]
   assert.equal(loc.isAndroidBackgroundLocationEnabled, true)

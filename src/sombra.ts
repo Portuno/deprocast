@@ -201,6 +201,27 @@ export async function resolverLote(db: Db, items: Pedido[], ahora = Date.now()) 
   return { hechas, errores }
 }
 
+export type Tarjeta = { tipo: string; id: number | string; grupo: string; texto: string; sub: string | null; si: string; no: string }
+
+/**
+ * Una tanda para validar en el teléfono (mobile, «Validar en 5 minutos»): lo que más pesa de la bandeja, de a una
+ * tarjeta, solo lo que se resuelve con sí o no (aceptar o descartar). Como mucho 4 por grupo, para que la tanda mezcle.
+ */
+export function tandaParaValidar(db: Db, max = 10, ahora = Date.now()): { total: number; tarjetas: Tarjeta[] } {
+  const b = bandeja(db, ahora)
+  const tarjetas: Tarjeta[] = []
+  for (const g of b.grupos) {
+    const si = g.acciones?.find(([a]) => a === 'aceptar')
+    const no = g.acciones?.find(([a]) => a === 'descartar')
+    if (!si || !no) continue
+    for (const i of g.items.slice(0, 4)) {
+      if (tarjetas.length >= max) break
+      tarjetas.push({ tipo: g.tipo, id: i.id, grupo: g.nombre, texto: String(i.texto ?? '').slice(0, 600), sub: i.sub ? String(i.sub).slice(0, 600) : null, si: si[1].replace(/^✓\s*/, '') || 'Sí', no: no[1].replace(/^✕\s*/, '') || 'No' })
+    }
+  }
+  return { total: b.total, tarjetas }
+}
+
 /** Lo de un grupo entero (o de todos) que admite esa acción, tal como está en la bandeja. */
 export function pedidosDeGrupo(db: Db, o: { tipo?: string; todo?: boolean; accion: string }, ahora = Date.now()): Pedido[] {
   return bandeja(db, ahora).grupos

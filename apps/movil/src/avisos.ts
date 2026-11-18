@@ -9,6 +9,7 @@
 import { AppState, Platform } from 'react-native'
 import * as Notifications from 'expo-notifications'
 import { traerAvisos, traerHoy, traerMarca, type Credenciales } from './api'
+import { actualizarWidget } from '../modules/widget-hoy'
 import { fijarAjuste, guardarPaquete, leerAjuste, leerChat } from './almacen'
 import { ajustesCaptura } from './captura'
 import { avisa } from './logica/captura'
@@ -44,7 +45,9 @@ async function mostrar(titulo: string, cuerpo: string) {
 
 /** Programa los eventos y recordatorios que vienen (y cancela los que ya no están). */
 async function programar(c: Credenciales) {
-  const { avisos } = await traerAvisos(c)
+  const { avisos, ahora, paraValidar } = await traerAvisos(c)
+  // El widget de la pantalla de inicio (si lo puso): lo de ahora y lo que espera su ok, con lo que acaba de llegar.
+  if (ahora) actualizarWidget({ titulo: ahora.titulo, sub: ahora.sub, validar: paraValidar ?? 0 })
   const programados = (await Notifications.getAllScheduledNotificationsAsync()).map((n) => n.identifier)
   const plan = planDeAvisos(programados, avisos)
   for (const id of plan.cancelar) await Notifications.cancelScheduledNotificationAsync(id).catch(() => {})

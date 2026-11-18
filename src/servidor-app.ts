@@ -1925,7 +1925,14 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
       const b = JSON.parse((await leerCrudo(req, 1024 * 1024)).toString('utf8') || '{}')
       return responder(200, await (await import('./avisos-pago.ts')).recibirAvisosPago(db, b.avisos))
     }
-    if (ruta === 'avisos' && req.method === 'GET') return responder(200, await (await import('./avisos-movil.ts')).proximosAvisos(db))
+    if (ruta === 'avisos' && req.method === 'GET') {
+      // Con lo de ahora y lo que espera tu ok: el teléfono lo pide cada ~15 min de fondo y con eso actualiza el widget.
+      const av = await import('./avisos-movil.ts')
+      const r = await av.proximosAvisos(db)
+      // La marca de Hoy ya trae cuánto espera tu ok (con su caché de 20 s): «conversación:último mensaje:para validar».
+      const paraValidar = Number((await d.marcaHoy(db)).marca.split(':')[2]) || 0
+      return responder(200, { ...r, ahora: av.ahoraEnDosLineas(db), paraValidar })
+    }
     // Los lugares: los frecuentes sin nombre (para nombrarlos) y guardar uno.
     if (ruta === 'lugares' && req.method === 'GET') { const t = await import('./territorio.ts'); return responder(200, { frecuentes: t.paradasFrecuentes(db), lugares: t.lugaresConCoordenadas(db) }) }
     if (ruta === 'lugares' && req.method === 'POST') {
@@ -1974,6 +1981,14 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
     }
     if (ruta === 'rescate/subir' && req.method === 'POST') return responder(200, await rs.salvar(db, disp, String(url.searchParams.get('clave') ?? ''), await leerCrudo(req, 50 * 1024 * 1024)))
     if (ruta === 'rescate/cerrar' && req.method === 'POST') { const r = rs.cerrarRescate(db, disp); void r.trabajo.catch(() => {}); return responder(200, { ...r, trabajo: undefined }) }
+    // Validar en 5 minutos (el teléfono): la tanda de tarjetas, y el sí o no de cada una (lo mismo que la bandeja de la web).
+    if (ruta === 'validar' && req.method === 'GET') return responder(200, (await import('./sombra.ts')).tandaParaValidar(db, Math.min(30, Number(url.searchParams.get('n')) || 10)))
+    if (ruta === 'validar' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 64 * 1024)).toString('utf8') || '{}')
+      if (!['aceptar', 'descartar'].includes(String(b.accion))) return responder(400, { error: 'La acción va «aceptar» o «descartar»' })
+      const r = await (await import('./sombra.ts')).resolverLote(db, [{ tipo: String(b.tipo), id: typeof b.id === 'number' ? b.id : String(b.id), accion: String(b.accion) }])
+      return responder(r.hechas ? 200 : 422, r.hechas ? { ok: true } : { error: r.errores[0] ?? 'No se pudo' })
+    }
     if (ruta === 'mensaje' && req.method === 'POST') {
       const b = JSON.parse((await leerCrudo(req, 256 * 1024)).toString('utf8') || '{}')
       const texto = String(b.texto ?? '').trim()

@@ -78,6 +78,33 @@ export async function cargarMisiones() { misionesMod ??= await import('./misione
 
 let cache: { en: number; eventos: { titulo: string; inicio: number; lugar: string | null; todoElDia: boolean }[] } | null = null
 
+/**
+ * Lo de ahora en dos líneas (el widget de la pantalla de inicio): la banda de la run en curso, lo que sigue entre
+ * bandas, o lo próximo de la agenda (de hoy o mañana). Sin nada de eso, un empujón para armar el día.
+ */
+export function ahoraEnDosLineas(db: Db, ahora = Date.now()): { titulo: string; sub: string } {
+  const hm = (t: number) => new Date(t).toTimeString().slice(0, 5)
+  const enCuanto = (min: number) => (min < 60 ? `en ${Math.max(1, min)} min` : `en ${Math.floor(min / 60)} h${min % 60 ? ` ${min % 60} min` : ''}`)
+  try {
+    const { runActual, misionesDeRun } = requireMisiones()
+    const run = runActual(db, ahora)
+    if (run && run.fecha === fechaLocal(ahora) && run.estado === 'en_curso') {
+      const aMin = (h: string) => { const [a, b] = h.split(':').map(Number); return a * 60 + (b || 0) }
+      const d = new Date(ahora)
+      const ya = d.getHours() * 60 + d.getMinutes()
+      const bandas = misionesDeRun(db, run.id).filter((m) => m.inicio && m.fin).sort((a, b) => aMin(a.inicio!) - aMin(b.inicio!))
+      const hechas = bandas.filter((m) => m.estado === 'hecha').length
+      const actual = bandas.find((m) => aMin(m.inicio!) <= ya && ya < aMin(m.fin!))
+      if (actual) return { titulo: actual.titulo, sub: `Hasta las ${actual.fin} · ${hechas} de ${bandas.length} bandas hechas` }
+      const sigue = bandas.find((m) => aMin(m.inicio!) > ya)
+      if (sigue) return { titulo: `Lo que sigue: ${sigue.titulo}`, sub: `A las ${sigue.inicio} · ${hechas} de ${bandas.length} hechas` }
+    }
+  } catch { /* sin misiones cargadas: la agenda */ }
+  const ev = (cache?.eventos ?? []).filter((e) => !e.todoElDia && e.inicio > ahora).sort((a, b) => a.inicio - b.inicio)[0]
+  if (ev) return { titulo: `Lo próximo: ${ev.titulo}`, sub: `${fechaLocal(ev.inicio) === fechaLocal(ahora) ? '' : 'Mañana '}${hm(ev.inicio)} · ${enCuanto(Math.round((ev.inicio - ahora) / 60_000))}${ev.lugar ? ` · ${ev.lugar}` : ''}` }
+  return { titulo: 'Nada agendado', sub: 'Armá una run o contale a Mastropiero qué querés hacer.' }
+}
+
 /** Lo que el teléfono tiene que programar: eventos (unos minutos antes) y recordatorios, de ahora a 36 horas. */
 export async function proximosAvisos(db: Db, ahora = Date.now()): Promise<{ minutosAntes: number; avisos: Aviso[] }> {
   await cargarMisiones().catch(() => {})

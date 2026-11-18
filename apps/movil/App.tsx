@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native'
-import { esPedidoDeDictado } from './src/logica/atajo'
+import { esPedidoDeDictado, pestanaDelLink } from './src/logica/atajo'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar'
 import { useIncomingShare } from 'expo-sharing'
@@ -28,6 +28,7 @@ import { registrarAvisos } from './src/avisos'
 import { registrarPagos } from './src/pagos'
 import { subirUsoTelefono } from './src/uso'
 import { Compartir } from './src/pantallas/Compartir'
+import { Validar } from './src/pantallas/Validar'
 import { Cartel } from './src/cartel'
 import { Vincular } from './src/pantallas/Vincular'
 import { Hoy } from './src/pantallas/Hoy'
@@ -36,8 +37,8 @@ import { EscuchaGlobal } from './src/escuchaGlobal'
 import { Rescate } from './src/pantallas/Rescate'
 import { ESP, LETRA, TOQUE, useTema } from './src/tema'
 
-type Pestana = 'hoy' | 'escucha' | 'mapa'
-const NOMBRE_PESTANA: Record<Pestana, string> = { hoy: 'Hoy', escucha: 'Escucha', mapa: 'Mapa' }
+type Pestana = 'hoy' | 'validar' | 'escucha' | 'mapa'
+const NOMBRE_PESTANA: Record<Pestana, string> = { hoy: 'Hoy', validar: 'Validar', escucha: 'Escucha', mapa: 'Mapa' }
 
 export default function App() {
   const t = useTema()
@@ -53,7 +54,12 @@ export default function App() {
   // El icono rápido «Dictar a Deprocast» (Fragua #300): abre la app por deprocast://dictar → Hoy con la escucha prendida.
   const [dictar, setDictar] = useState(0)
   useEffect(() => {
-    const ver = (url: string | null | undefined) => { if (esPedidoDeDictado(url)) { setPestana('hoy'); setVerCaptura(false); setDictar(Date.now()) } }
+    const ver = (url: string | null | undefined) => {
+      if (esPedidoDeDictado(url)) { setPestana('hoy'); setVerCaptura(false); setDictar(Date.now()); return }
+      // El widget: Validar abre la tanda; tocarlo, Hoy.
+      const p = pestanaDelLink(url)
+      if (p) { setPestana(p); setVerCaptura(false) }
+    }
     void Linking.getInitialURL().then(ver).catch(() => {})
     const x = Linking.addEventListener('url', (e) => ver(e.url))
     return () => x.remove()
@@ -100,14 +106,14 @@ export default function App() {
       ) : verCaptura ? <Captura cerrar={() => { setVerCaptura(false); void registrarFondo(); if (c) void registrarAvisos(c).catch(() => {}) }} /> : (
         <EscuchaGlobal c={c}>
           <View style={[s.barra, { borderColor: t.linea }]}>
-            {(['hoy', 'escucha', 'mapa'] as const).map((p) => (
+            {(['hoy', 'validar', 'escucha', 'mapa'] as const).map((p) => (
               <Pressable key={p} onPress={() => setPestana(p)} style={[s.pestana, pestana === p && { borderColor: t.acento }]} accessibilityRole="tab" accessibilityState={{ selected: pestana === p }}>
                 <Text style={[LETRA.cuerpo, { color: pestana === p ? t.texto : t.tenue, fontWeight: '600' }]}>{NOMBRE_PESTANA[p]}</Text>
               </Pressable>
             ))}
             <Pressable onPress={menu} style={s.menu} accessibilityLabel="Menú: captura y permisos, desvincular"><Text style={[LETRA.chica, { color: t.tenue }]} numberOfLines={1}>{c.nombre} ⋯</Text></Pressable>
           </View>
-          {pestana === 'hoy' ? <Hoy c={c} irAEscucha={() => setPestana('escucha')} dictar={dictar} /> : pestana === 'escucha' ? <Escucha c={c} /> : <Mapa c={c} />}
+          {pestana === 'hoy' ? <Hoy c={c} irAEscucha={() => setPestana('escucha')} dictar={dictar} /> : pestana === 'validar' ? <Validar c={c} /> : pestana === 'escucha' ? <Escucha c={c} /> : <Mapa c={c} />}
         </EscuchaGlobal>
       )}
     </SafeAreaView>
@@ -119,6 +125,6 @@ export default function App() {
 const s = StyleSheet.create({
   raiz: { flex: 1 },
   barra: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, paddingHorizontal: ESP(2) },
-  pestana: { minHeight: TOQUE, justifyContent: 'center', paddingHorizontal: ESP(4), borderBottomWidth: 2, borderColor: 'transparent' },
+  pestana: { minHeight: TOQUE, justifyContent: 'center', paddingHorizontal: ESP(3), borderBottomWidth: 2, borderColor: 'transparent' },
   menu: { marginLeft: 'auto', minHeight: TOQUE, justifyContent: 'center', paddingHorizontal: ESP(3), flexShrink: 1 },
 })

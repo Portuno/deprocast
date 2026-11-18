@@ -145,4 +145,8 @@ export const subirUso = (c: Credenciales, dias: DiaUsoApi[]) => pedir<{ guardado
 export type AvisoApi = { clave: string; titulo: string; cuerpo: string; en: number }
 /** Fragua #296: los avisos de las apps de pago y banco que guardó el teléfono. */
 export const mandarAvisosPago = (c: Credenciales, avisos: { paquete: string; app: string; titulo: string; texto: string; en: number }[]) => pedir<{ recibidos: number; sugeridos: number }>(c, 'pagos', { method: 'POST', body: JSON.stringify({ avisos }) })
-export const traerAvisos = (c: Credenciales) => pedir<{ minutosAntes: number; avisos: AvisoApi[] }>(c, 'avisos')
+// Validar en 5 minutos: la tanda de tarjetas (lo que más pesa de «Para validar») y el sí o no de cada una.
+export type Tarjeta = { tipo: string; id: number | string; grupo: string; texto: string; sub: string | null; si: string; no: string }
+export const traerTanda = (c: Credenciales, n = 10) => pedir<{ total: number; tarjetas: Tarjeta[] }>(c, `validar?n=${n}`)
+export const responderTarjeta = (c: Credenciales, t: Pick<Tarjeta, 'tipo' | 'id'>, accion: 'aceptar' | 'descartar') => pedir<{ ok: true }>(c, 'validar', { method: 'POST', body: JSON.stringify({ tipo: t.tipo, id: t.id, accion }) })
+export const traerAvisos = (c: Credenciales) => pedir<{ minutosAntes: number; avisos: AvisoApi[]; ahora?: { titulo: string; sub: string }; paraValidar?: number }>(c, 'avisos')
