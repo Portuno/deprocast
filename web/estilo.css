@@ -3595,3 +3595,76 @@ a.arq-celda { color: var(--texto); text-decoration: none; }
 .arq-ficha { display: grid; gap: var(--e-2); }
 .arq-ficha input, .arq-ficha select { width: 100%; min-width: 0; }
 .arq-ficha .fila label { flex: 1; }
+
+/* ─── Meditación ─────────────────────────────────────────────────────────── */
+.med-grilla { display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr); gap: 22px; align-items: start; }
+@media (max-width: 1000px) { .med-grilla { grid-template-columns: minmax(0, 1fr); } }
+.med-lista { display: grid; gap: 10px; min-width: 0; }
+.med-amedida { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--linea); border-radius: var(--r-l); background: var(--panel); margin-bottom: 8px; }
+.med-amedida .tl-h { margin: 0; }
+.med-tarjetas { display: grid; gap: 8px; }
+.med-tarjeta { display: grid; gap: 4px; text-align: left; padding: 12px 14px; border-radius: var(--r-l); border: 1px solid var(--linea); background: var(--panel); color: var(--texto); font: inherit; cursor: pointer; transition: border-color .15s, background .15s; }
+.med-tarjeta:hover { border-color: var(--linea-2); }
+.med-tarjeta.on { border-color: var(--acento); background: var(--panel-2); }
+.med-chips { display: flex; flex-wrap: wrap; gap: 4px 6px; margin-top: 2px; }
+.med-chips span { font-size: var(--t-2); color: var(--tenue); background: var(--panel-2); border-radius: var(--r-pill); padding: 1px 8px; font-variant-numeric: tabular-nums; }
+.med-detalle { min-width: 0; padding: 18px 20px; border: 1px solid var(--linea); border-radius: var(--r-l); background: var(--panel); display: grid; gap: 14px; }
+.med-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
+.med-cab h2 { margin: 0; }
+.med-intencion { margin: 4px 0 0; color: var(--tenue); }
+.med-desc { margin: 0; max-width: 68ch; }
+.med-empezar { font-size: var(--t-4); padding: 10px 20px; }
+.med-patron { display: flex; gap: 3px; height: 46px; border-radius: var(--r-m); overflow: hidden; }
+.med-f { display: flex; flex-direction: column; justify-content: center; align-items: center; min-width: 0; font-size: var(--t-2); color: var(--texto); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; }
+.med-f b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.med-f.inhalar { background: color-mix(in srgb, var(--acento) 34%, var(--panel)); }
+.med-f.retener { background: color-mix(in srgb, var(--oro) 30%, var(--panel)); }
+.med-f.exhalar { background: color-mix(in srgb, var(--bueno) 30%, var(--panel)); }
+.med-f.sostener { background: var(--panel-2); color: var(--tenue); }
+.med-f.libre { background: var(--panel-2); color: var(--tenue); }
+.med-datos { display: grid; gap: 6px; margin: 0; }
+.med-datos div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; }
+.med-datos dt { color: var(--tenue); font-size: var(--t-2); padding-top: 2px; }
+.med-datos dd { margin: 0; }
+.med-practica { border-top: 1px solid var(--linea); padding-top: 12px; }
+.med-practica p { margin: 0 0 8px; }
+.med-ultimas { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: var(--t-3); }
+.med-ultimas li { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.med-form { display: grid; gap: 10px; }
+.med-form h2 { margin: 0; }
+.med-form .tl-h { margin: 8px 0 0; }
+.med-fases { display: grid; gap: 6px; }
+.med-fase select { width: auto; margin: 0; }
+.med-fase input[type=number] { width: 5.5em; margin: 0; }
+.med-largo span:first-child, .med-desl-et { color: var(--tenue); font-size: var(--t-2); min-width: 72px; }
+.med-largo input[type=number] { width: 6em; margin: 0; }
+.med-bin { display: grid; gap: 8px; padding-left: 4px; }
+.med-bin[hidden], .med-bin [hidden] { display: none; }
+.med-desl { display: grid; grid-template-columns: 72px minmax(0, 1fr) 128px; align-items: center; gap: 10px; }
+.med-desl span { color: var(--tenue); font-size: var(--t-2); }
+.med-desl output { font-size: var(--t-2); font-variant-numeric: tabular-nums; }
+.med-desl input[type=range] { width: 100%; accent-color: var(--acento); }
+
+/* La sesión: pantalla completa, calma, el círculo que respira. */
+.med-sesion { position: fixed; inset: 0; z-index: var(--z-modal); background: var(--fondo); color: var(--texto); display: grid; grid-template-rows: auto 1fr auto; padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+.med-ses-cab { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.med-ses-centro { display: grid; place-items: center; align-content: center; gap: 22px; }
+.med-circulo { --c: var(--acento); width: min(62vmin, 420px); aspect-ratio: 1; max-width: 100%; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle, color-mix(in srgb, var(--c) 28%, transparent) 0%, color-mix(in srgb, var(--c) 10%, transparent) 62%, transparent 72%); border: 1px solid color-mix(in srgb, var(--c) 45%, transparent); transform: scale(.55); will-change: transform; transition: border-color 1.2s, background 1.2s; }
+.med-circulo[data-fase="retener"] { --c: var(--oro); }
+.med-circulo[data-fase="exhalar"] { --c: var(--bueno); }
+.med-circulo[data-fase="sostener"] { --c: var(--tenue); }
+.med-circulo-in { display: grid; place-items: center; gap: 4px; text-align: center; }
+.med-circulo-in span { font-size: var(--t-6); font-weight: 500; letter-spacing: .01em; }
+.med-circulo-in b { font-size: var(--t-8); font-weight: 400; font-variant-numeric: tabular-nums; color: var(--tenue); min-height: 1.2em; }
+.med-ses-info { margin: 0; color: var(--tenue); font-variant-numeric: tabular-nums; text-align: center; }
+.med-ses-barra { width: min(420px, 80vw); height: 3px; border-radius: 2px; background: var(--panel-2); overflow: hidden; }
+.med-ses-barra i { display: block; height: 100%; background: var(--acento); width: 0; }
+.med-ses-pie { display: flex; justify-content: center; align-items: center; gap: 14px; flex-wrap: wrap; }
+.med-ses-vol { grid-template-columns: auto 140px; }
+.med-sesion.pausada .med-circulo { opacity: .55; }
+.med-ses-fin { position: absolute; inset: 0; background: var(--fondo); display: grid; place-items: center; align-content: center; gap: 12px; text-align: center; padding: 16px; }
+.med-ses-fin[hidden] { display: none; }
+.med-ses-fin h2 { margin: 0; font-size: var(--t-7); }
+.med-ses-fin p { margin: 0; }
+.med-animos .btn { min-width: 6em; }
+@media (max-width: 720px) { .med-desl { grid-template-columns: 64px minmax(0, 1fr); } .med-desl output { grid-column: 2; } .med-detalle { padding: 14px; } }

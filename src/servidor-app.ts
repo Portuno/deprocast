@@ -1474,6 +1474,12 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/hojas-citables\/(\d+)$/, async (_, [n]) => (await import('./hojas-citables.ts')).leerHoja(db, id(n)) ?? {}],
   ['POST', /^\/api\/hojas-citables\/(\d+)$/, async (b, [n]) => (await import('./hojas-citables.ts')).hojaCitable(db, id(n), { forzar: !!b.forzar })],
   // Las reservas (Fragua #254): la lista, anotar una, cambiarla y sus textos (mail, WhatsApp, llamada, recordatorio).
+  // Meditación: respiración y binaural beats a medida (el sonido lo hace la pantalla; acá, lo guardado y las sesiones).
+  ['GET', /^\/api\/meditacion$/, async () => (await import('./meditacion.ts')).seccion(db)],
+  ['POST', /^\/api\/meditacion$/, async (b) => (await import('./meditacion.ts')).guardar(db, b)],
+  ['POST', /^\/api\/meditacion\/a-medida$/, async (b) => (await import('./meditacion.ts')).aMedida(db, String(b.pedido ?? ''))],
+  ['POST', /^\/api\/meditacion\/sesion$/, async (b) => (await import('./meditacion.ts')).registrarSesion(db, b)],
+  ['POST', /^\/api\/meditacion\/(\d+)\/borrar$/, async (_, [n]) => { (await import('./meditacion.ts')).borrar(db, n); return { ok: true } }],
   ['GET', /^\/api\/reservas$/, async (_, __, q) => (await import('./reservas.ts')).listarReservas(db, { estado: (q.get('estado') as any) || 'todas' })],
   ['POST', /^\/api\/reservas$/, async (b) => (await import('./reservas.ts')).crearReserva(db, b)],
   ['POST', /^\/api\/reservas\/(\d+)$/, async (b, [n]) => (await import('./reservas.ts')).actualizarReserva(db, id(n), b)],
