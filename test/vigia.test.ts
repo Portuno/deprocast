@@ -32,6 +32,16 @@ test('vigía · cada pieza con su estado, y el aviso por WhatsApp una vez cada 1
   // El mismo problema no se repite en la ronda siguiente; pasadas 12 horas, sí.
   assert.equal((await vigilar(db, { ahora: ahora + 15 * 60_000, decir })).avisados.length, 0)
   assert.equal((await vigilar(db, { ahora: ahora + 13 * 3_600_000, decir })).avisados.length, 2)
+  // La caché del chat: las llamadas que no la anotan (el streaming de antes) no cuentan; sin otras, «sin medir».
+  const llamada = (cache: number | null) => db.prepare(`INSERT INTO llamadas (motor, modelo, clase, agente_id, tokens_in, tokens_out, tokens_cache, latencia_ms, status, en) VALUES ('nan', 'm', 'mastropiero', 'mastropiero', 2000000, 100, ?, 1, 200, ?)`).run(cache, ahora)
+  llamada(null)
+  let g = (await estadoSistema(db, { ahora })).piezas.find((p) => p.id === 'gasto')!
+  assert.match(g.detalle, /El chat, hoy: caché sin medir todavía/)
+  assert.equal(g.problemas.length, 0, 'sin medir no es un 0 %')
+  llamada(100_000)
+  g = (await estadoSistema(db, { ahora })).piezas.find((p) => p.id === 'gasto')!
+  assert.match(g.detalle, /El chat, hoy: 5 % de caché/)
+  assert.equal(g.problemas.length, 1, 'medida y baja, sí')
   // Si lo apaga, no avisa.
   fijarAjuste(db, 'vigia_whatsapp', '0')
   assert.equal((await vigilar(db, { ahora: ahora + 30 * 3_600_000, decir })).avisados.length, 0)

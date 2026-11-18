@@ -77,7 +77,7 @@ async function errores(db: Db, ahora: number): Promise<Pieza & { grupos: { veces
     id: 'errores', nombre: 'Errores', estado: nuevos.length ? 'mal' : propios.length ? 'ojo' : 'bien',
     problemas: nuevos.slice(0, 3).map((g) => ({ clave: `error:${g.huella ?? g.mensaje.slice(0, 40)}`, texto: `un error nuevo se repite (${g.veces} veces): ${String(g.mensaje).slice(0, 140)}` })),
     detalle: `${e.total ?? 0} en 24 h, en ${grupos.length} grupos; ${propios.length ? `${propios.length} sin recuperarse solos` : 'todos se recuperaron solos o son de afuera'}.`,
-    grupos: grupos.slice(0, 12).map((g) => ({ veces: g.veces, texto: String(g.mensaje).slice(0, 200), donde: [g.origen, g.donde].filter(Boolean).join(' · '), ultima: g.ultima, propio: !g.recuperado && !g.ajeno })),
+    grupos: [...propios, ...grupos.filter((g) => !propios.includes(g))].slice(0, 12).map((g) => ({ veces: g.veces, texto: String(g.mensaje).slice(0, 200), donde: [g.origen, g.donde].filter(Boolean).join(' · '), ultima: g.ultima, propio: !g.recuperado && !g.ajeno })),
   }
 }
 
@@ -85,18 +85,20 @@ function gasto(db: Db, ahora: number) {
   const d = new Date(ahora)
   const hoy = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
   const mes = new Date(d.getFullYear(), d.getMonth(), 1).getTime()
-  const q = (desde: number, filtro = '') => db.prepare(`SELECT COUNT(*) AS llamadas, COALESCE(SUM(tokens_in), 0) AS entrada, COALESCE(SUM(MIN(COALESCE(tokens_cache, 0), COALESCE(tokens_in, 0))), 0) AS cache, COALESCE(SUM(tokens_out), 0) AS salida, ROUND(COALESCE(SUM(creditos), 0), 2) AS creditos FROM llamadas WHERE en >= ? ${filtro}`).get(desde) as { llamadas: number; entrada: number; cache: number; salida: number; creditos: number }
+  // medida: la entrada de las llamadas que anotan su caché (las del chat en streaming no la guardaban hasta el 18/11:
+  // contarlas daba un 0 % falso). La caché se calcula sobre eso.
+  const q = (desde: number, filtro = '') => db.prepare(`SELECT COUNT(*) AS llamadas, COALESCE(SUM(tokens_in), 0) AS entrada, COALESCE(SUM(CASE WHEN tokens_cache IS NOT NULL THEN tokens_in END), 0) AS medida, COALESCE(SUM(MIN(COALESCE(tokens_cache, 0), COALESCE(tokens_in, 0))), 0) AS cache, COALESCE(SUM(tokens_out), 0) AS salida, ROUND(COALESCE(SUM(creditos), 0), 2) AS creditos FROM llamadas WHERE en >= ? ${filtro}`).get(desde) as { llamadas: number; entrada: number; medida: number; cache: number; salida: number; creditos: number }
   const chatHoy = q(hoy, `AND agente_id IN ('mastropiero', 'copiloto')`)
-  return { hoy: q(hoy), mes: q(mes), chatHoy, cacheChatHoy: chatHoy.entrada ? Math.round((chatHoy.cache / chatHoy.entrada) * 100) : null }
+  return { hoy: q(hoy), mes: q(mes), chatHoy, cacheChatHoy: chatHoy.medida ? Math.round((chatHoy.cache / chatHoy.medida) * 100) : null }
 }
 
 function piezaGasto(g: ReturnType<typeof gasto>, ahora: number): Pieza {
-  const pc = (x: { entrada: number; cache: number }) => (x.entrada ? Math.round((x.cache / x.entrada) * 100) : 0)
+  const pc = (x: { medida: number; cache: number }) => (x.medida ? `${Math.round((x.cache / x.medida) * 100)} %` : 'sin medir')
   const problemas: Problema[] = []
   // La caché del chat baja (después del arreglo del 18/11 tendría que estar alta): con volumen, vale saberlo.
-  if (g.chatHoy.entrada > 1_000_000 && (g.cacheChatHoy ?? 0) < 20) problemas.push({ clave: `cache:${fechaLocal(ahora)}`, texto: `hoy el chat leyó ${miles(g.chatHoy.entrada)} tokens y solo el ${g.cacheChatHoy} % salió de la caché` })
+  if (g.chatHoy.medida > 1_000_000 && g.cacheChatHoy != null && g.cacheChatHoy < 20) problemas.push({ clave: `cache:${fechaLocal(ahora)}`, texto: `hoy el chat leyó ${miles(g.chatHoy.medida)} tokens y solo el ${g.cacheChatHoy} % salió de la caché` })
   return { id: 'gasto', nombre: 'Gasto y caché', estado: problemas.length ? 'ojo' : 'bien', problemas,
-    detalle: `Hoy ${g.hoy.creditos} créditos (${miles(g.hoy.entrada + g.hoy.salida)} tokens, ${pc(g.hoy)} % de caché); este mes ${g.mes.creditos}. El chat, hoy: ${g.cacheChatHoy == null ? 'sin uso' : `${g.cacheChatHoy} % de caché`}.` }
+    detalle: `Hoy ${g.hoy.creditos} créditos (${miles(g.hoy.entrada + g.hoy.salida)} tokens; caché: ${pc(g.hoy)}); este mes ${g.mes.creditos}. El chat, hoy: ${!g.chatHoy.llamadas ? 'sin uso' : g.cacheChatHoy == null ? 'caché sin medir todavía' : `${g.cacheChatHoy} % de caché`}.` }
 }
 
 /** El estado de todo, para la pantalla y para el aviso. */

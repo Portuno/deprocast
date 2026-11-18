@@ -19,7 +19,8 @@ async function pintarVigia() {
   if (vista !== 'vigia' || !$('#vigia')) return
   const credito = (n) => Number(n).toLocaleString('es-AR', { maximumFractionDigits: 2 })
   const tokens = (n) => (n >= 1e6 ? `${(n / 1e6).toLocaleString('es-AR', { maximumFractionDigits: 1 })} M` : `${Math.round(n / 1000).toLocaleString('es-AR')} mil`)
-  const pc = (x) => (x.entrada ? `${Math.round((x.cache / x.entrada) * 100)} %` : '—')
+  // La caché, sobre las llamadas que la anotan (antes del 18/11 el chat en streaming no la guardaba).
+  const pc = (x) => (x.medida ? `${Math.round((x.cache / x.medida) * 100)} %` : 'sin medir')
   $('#vigia').innerHTML = `
     <div class="vg-resumen vg-${d.estado}"><b>${d.estado === 'bien' ? 'Todo anda' : d.estado === 'ojo' ? 'Anda, con cosas para mirar' : 'Hay algo roto'}</b>
       <span class="tenue chico">Mirado ${new Date(d.en).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} · se actualiza solo</span>
