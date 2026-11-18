@@ -369,7 +369,7 @@ export async function nanChatHerramientas(
 
 /** Acumulador de un stream SSE de chat: junta texto, razonamiento y pedidos de herramienta (que llegan en pedazos). */
 export function acumuladorSSE() {
-  const estado = { texto: '', razonamiento: '', fin: '', tokens: 0, llamadas: [] as { id: string; nombre: string; argumentos: string }[] }
+  const estado = { texto: '', razonamiento: '', fin: '', tokens: 0, usage: null as any, llamadas: [] as { id: string; nombre: string; argumentos: string }[] }
   let resto = ''
   return {
     estado,
@@ -399,7 +399,7 @@ export function acumuladorSSE() {
           if (tc.function?.arguments) estado.llamadas[i].argumentos += tc.function.arguments
         }
         if (c?.finish_reason) estado.fin = c.finish_reason
-        if (j.usage) estado.tokens = (j.usage.prompt_tokens ?? 0) + (j.usage.completion_tokens ?? 0)
+        if (j.usage) { estado.tokens = (j.usage.prompt_tokens ?? 0) + (j.usage.completion_tokens ?? 0); estado.usage = j.usage }
       }
       return sumo
     },
@@ -448,9 +448,9 @@ export async function nanChatHerramientasStream(
       if (acc.empujar(dec.decode(value, { stream: true }))) alTexto(acc.estado.texto)
     }
     const e = acc.estado
-    l.db.prepare(
-      `INSERT INTO llamadas (motor, modelo, clase, agente_id, tokens_in, tokens_out, latencia_ms, status, en, fondo) VALUES ('nan', ?, ?, ?, ?, NULL, ?, 200, ?, ?)`,
-    ).run(modelo, l.clase, l.agenteId, e.tokens || null, Date.now() - t0, Date.now(), fondo())
+    // Igual que sin streaming: entrada y salida por separado, lo que salió de la caché y los créditos (antes el chat
+    // anotaba la suma como entrada, sin caché ni créditos: su gasto no se veía).
+    anotar(l, modelo, { status: 200, body: '', json: { usage: e.usage ?? (e.tokens ? { prompt_tokens: e.tokens } : null) } }, Date.now() - t0)
     if (e.fin === 'length' || (!e.texto.trim() && !e.llamadas.length)) throw new Error('stream cortado')
     return {
       texto: e.texto.trim(),
