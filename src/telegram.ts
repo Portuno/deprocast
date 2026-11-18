@@ -554,7 +554,7 @@ export function guardarNotaDeVoz(db: Db, texto: string, segundos: number | null,
 
 /** ¿Es una herramienta que cambia algo (no solo lee)? */
 let familias: Map<string, string> | null = null
-const esAccion = (nombre: string | null | undefined) => {
+export const esAccion = (nombre: string | null | undefined) => {
   if (!nombre) return false
   familias ??= new Map(HERRAMIENTAS_ACCION())
   return familias.get(nombre) === 'accion'

@@ -1837,8 +1837,9 @@ function soloNube(que: string) {
 
 /**
  * Las apps conectadas (Morpheon y las que vengan): con su token (Authorization: Bearer), sin la clave de la pantalla.
- * Solo estas rutas: GET /api/apps/yo, POST /api/apps/suenos (JSON, multipart con «audio», o el audio crudo) y POST
- * /api/apps/eventos. Sin token o revocado: 401; sin el permiso: 403.
+ * Solo estas rutas: GET /api/apps/yo, POST /api/apps/suenos (JSON, multipart con «audio», o el audio crudo), POST
+ * /api/apps/eventos, POST /api/apps/cargar (documentos y notas al corpus, de a uno o en lote) y POST /api/apps/mensaje
+ * (hablarle a Mastropiero; con GET ?desde=<id>, lo que contestó después). Sin token o revocado: 401; sin el permiso: 403.
  */
 /**
  * Tus dispositivos (plan v33): /api/dispositivo/vincular (con el código de 6 dígitos, sin token) y, con «Authorization:
@@ -2029,12 +2030,19 @@ async function atenderApp(req: http.IncomingMessage, res: http.ServerResponse, u
   const responder = (codigo: number, cuerpo: unknown) => void res.writeHead(codigo, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }).end(JSON.stringify(cuerpo))
   const apps = await import('./apps.ts')
   const ruta = url.pathname.slice('/api/apps/'.length)
-  if (!['yo', 'suenos', 'eventos'].includes(ruta)) return responder(404, { error: 'Ruta desconocida' })
-  const permiso = ruta === 'yo' ? undefined : (ruta as 'suenos' | 'eventos')
+  if (!['yo', 'suenos', 'eventos', 'cargar', 'mensaje'].includes(ruta)) return responder(404, { error: 'Ruta desconocida' })
+  const permiso = ruta === 'yo' ? undefined : (ruta as 'suenos' | 'eventos' | 'cargar' | 'mensaje')
   const { app, motivo } = apps.autenticarApp(db, req.headers.authorization, permiso)
   if (!app) return responder(motivo === 'sin_permiso' ? 403 : 401, { error: motivo === 'sin_permiso' ? `Esta app no tiene permiso para ${permiso}` : 'Falta el token o no es válido (Authorization: Bearer dpc_…)' })
   try {
     if (ruta === 'yo') return req.method === 'GET' ? responder(200, { app: app.nombre, permisos: app.permisos }) : responder(405, { error: 'Usá GET' })
+    // Lo que contestó Mastropiero a un mensaje que quedó «pensando».
+    if (ruta === 'mensaje' && req.method === 'GET') {
+      // Solo con un «desde» que le dio este servidor a esta app (la última hora): no se lee la charla entera.
+      const desde = Number(url.searchParams.get('desde') ?? NaN)
+      if (!Number.isInteger(desde) || !apps.desdeDeLaApp(app, desde)) return responder(400, { error: 'Falta «desde», o no es uno que te di (el número que volvió con tu mensaje, de la última hora)' })
+      return responder(200, await apps.respuestaDesde(db, desde))
+    }
     if (req.method !== 'POST') return responder(405, { error: 'Usá POST' })
     const tipo = String(req.headers['content-type'] ?? '')
     const crudo = await leerCrudo(req, 30 * 1024 * 1024)
@@ -2060,6 +2068,12 @@ async function atenderApp(req: http.IncomingMessage, res: http.ServerResponse, u
       })
       if (enLaNube()) void sn.destilarSueno(db, s.id).catch((e) => console.error('  sueño:', e instanceof Error ? e.message : e))
       return responder(201, { id: s.id, fecha: s.fecha, texto: s.texto, estado: s.estado })
+    }
+    if (ruta === 'cargar') return responder(201, apps.cargarVarias(db, app, campos))
+    if (ruta === 'mensaje') {
+      const r = await apps.mensajeDeApp(db, app, campos)
+      if (r.estado === 'ocupado') return responder(409, { ...r, error: 'Mastropiero está contestando otro mensaje: probá de nuevo en unos segundos' })
+      return responder(r.estado === 'pensando' ? 202 : 200, r)
     }
     return responder(201, apps.recibirEvento(db, app, campos))
   } catch (e) {
