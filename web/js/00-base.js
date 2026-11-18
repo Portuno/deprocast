@@ -4,6 +4,8 @@
 const $ = (s, el = document) => el.querySelector(s)
 const $$ = (s, el = document) => [...el.querySelectorAll(s)]
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
+/** El nombre de un motor para mostrar (el id «nan» es la nube NaN; «local», sin modelo). */
+const nombreMotor = (m) => ({ nan: 'NaN', local: 'Sin modelo' })[m] ?? String(m ?? '').replace(/^funcion:/, 'función: ')
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms))
 /** La dirección por la que entran tus apps, tu MCP y tu teléfono: en el Deprocast de un usuario lleva /u/<id> (plan v33). */
 const ORIGEN_PUBLICO = location.origin + (document.documentElement.dataset.base || '')
@@ -325,7 +327,7 @@ function cartaHTML(f) {
     <div class="xp-txt"><span>${f.xp} XP</span><span>${f.xpTecho ? `→ ${f.xpTecho}` : 'MÁX'}</span></div>
     ${f.padre ? `<div class="linaje" title="${esc(f.mutacion ?? '')}">🧬 hijo de ${esc(f.padre)}${f.mutacion ? `: ${esc(f.mutacion)}` : ''}</div>` : ''}
     <ul class="stats">${stats}</ul>
-    <footer><span class="pill ${f.estado}">${f.estado}</span><span>✓${f.exitos} ✗${f.fallos}</span><span class="motor" title="${esc(f.motor)}">${esc(f.motor)}</span></footer>
+    <footer><span class="pill ${f.estado}">${f.estado}</span><span>✓${f.exitos} ✗${f.fallos}</span><span class="motor" title="${esc(f.motor)}">${esc(nombreMotor(f.motor))}</span></footer>
   </article>`
 }
 

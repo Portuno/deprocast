@@ -153,7 +153,7 @@ function pintarForja() {
 
   const motores = META.motores.filter((m) => (c.id === 'ejecutivo') === m.startsWith('funcion:'))
   if (!motores.includes(forja.motor)) forja.motor = motores.includes(META.motorDefecto) ? META.motorDefecto : motores[0]
-  $('#f-motor').innerHTML = motores.map((m) => `<option ${m === forja.motor ? 'selected' : ''}>${esc(m)}</option>`).join('')
+  $('#f-motor').innerHTML = motores.map((m) => `<option value="${esc(m)}" ${m === forja.motor ? 'selected' : ''}>${esc(nombreMotor(m))}</option>`).join('')
   $('#f-motor').onchange = (e) => { forja.motor = e.target.value; pintarPrevia() }
   $('#f-celda').textContent = forja.celda ? `⬡ ${String(forja.celda).padStart(2, '0')} · elegir otra` : '⬡ elegir celda'
   pintarPrevia()

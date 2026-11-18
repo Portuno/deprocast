@@ -54,6 +54,21 @@
         "--sin-telegram"
       ],
       "port": 7375
+    },
+    {
+      "name": "mastropiero-nuevo",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "--disable-warning=ExperimentalWarning",
+        "src/servidor.ts",
+        "--db",
+        "data/nuevo-prueba.db",
+        "--puerto",
+        "7375",
+        "--sin-rutinas",
+        "--sin-telegram"
+      ],
+      "port": 7375
     }
   ]
 }

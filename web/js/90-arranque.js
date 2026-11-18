@@ -113,6 +113,8 @@ const ESPACIOS = [
   { id: 'maquina', nombre: 'La máquina', ico: 'cog', tecla: 'm', vistas: [['matriz', 'Matriz 72'], ['arquetipos', 'Arquetipos'], ['fragua', 'La Fragua'], ['revision', 'Revisión']] },
   { id: 'perfil', nombre: 'Perfil', ico: 'user', tecla: 'y', vistas: [['perfil', 'Perfil']] },
 ]
+// En la cuenta de un usuario, La Fragua no va: mejora el código de Deprocast y solo la usa el dueño.
+if (document.documentElement.dataset.base) for (const e of ESPACIOS) e.vistas = e.vistas.filter(([v]) => v !== 'fragua')
 /** Las vistas que viven adentro de otra (se marcan como esa pestaña). */
 const VISTA_PADRE = { quantomos: 'corpus', estudio: 'taller', arquetipo: 'arquetipos', dominio: 'dominios' }
 const espacioDe = (v) => ESPACIOS.find((e) => e.vistas.some(([x]) => x === (VISTA_PADRE[v] ?? v))) ?? ESPACIOS[0]
@@ -405,7 +407,9 @@ function avisarSiHayNovedad() {
   const a = E.hoy?.aviso
   if (!a || a.id <= ultimoAviso) return
   ultimoAviso = a.id
-  const corto = a.texto.length > 140 ? `${a.texto.slice(0, 140)}…` : a.texto
+  // Sin las marcas del markdown (**negrita**, _cursiva_, # títulos, [links](…)): el cartel y la notificación son texto plano.
+  const plano = a.texto.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').replace(/\[\[\/?[a-z]+\]\]/g, '').replace(/^#+\s*/gm, '').replace(/(\*\*|__|\*|`)/g, '').replace(/(^|\s)_([^_\n]+)_(?=\s|$|[.,;:!?])/g, '$1$2').replace(/\s+/g, ' ').trim()
+  const corto = plano.length > 140 ? `${plano.slice(0, 140)}…` : plano
   toast(`☿ Mastropiero<small>${esc(corto)}</small>`)
   try {
     if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
