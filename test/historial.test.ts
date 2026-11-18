@@ -90,5 +90,6 @@ test('chat: con muchos turnos el modelo sigue viendo la primera pregunta del ope
   _probarModelo(async (_l, o) => { visto = o.mensajes; return { texto: 'ok', llamadas: [], razonamiento: null, modelo: 'f', tokens: 1 } })
   await enviar(db, cid, 'última')
   assert.equal(visto.find((m) => m.role === 'user')?.content, 'pregunta 0')
-  assert.equal(visto.at(-1).content, 'última')
+  // Lo del momento viaja pegado a su último mensaje (por la caché); lo que escribió va al final, tal cual.
+  assert.match(visto.at(-1).content, /\[Lo que te escribió\]\núltima$/)
 })

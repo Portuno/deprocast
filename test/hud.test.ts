@@ -16,7 +16,7 @@ test('HUD: las líneas de registro quedan en la conversación pero no van al mod
   let visto: any = null
   _probarModelo(async (_l, o) => { visto = o; return { texto: 'Vas bien.', llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 } })
   await enviar(db, c.id, '¿cómo voy?', { hud: 'cuerpo' })
-  assert.match(String(visto.mensajes[0].content), /En su panel de Hoy está mirando: Cuerpo \(calorías, proteína, sueño/)
+  assert.match(visto.mensajes.map((m: any) => String(m.content ?? '')).join('\n'), /En su panel de Hoy está mirando: Cuerpo \(calorías, proteína, sueño/)
   assert.ok(!JSON.stringify(visto.mensajes.slice(1)).includes('Escribir el capítulo III'), 'el registro no viaja al modelo')
   assert.doesNotMatch(promptMastropiero(db, 'hola'), /está mirando/, 'sin HUD, nada')
   assert.doesNotMatch(promptMastropiero(db, 'hola', 'inventado'), /está mirando/)

@@ -2830,6 +2830,17 @@ export function activas(hs: Herramienta[], grupos: Set<string>): Herramienta[] {
 /** Lo que puede usar un agente de la liga cuando conversa: leer, nunca actuar. */
 export const PARA_AGENTES = ['buscar_corpus', 'leer_pieza', 'listar_quantomos', 'listar_entidades', 'ver_entidad']
 
+/**
+ * Las mismas que activas(), pero en el orden en que llegaron los grupos (el núcleo primero): si un grupo se suma, sus
+ * herramientas van al final y lo de antes del pedido no cambia (la caché del modelo lo reusa).
+ */
+export function activasEnOrden(hs: Herramienta[], grupos: Iterable<string>): Herramienta[] {
+  const por = new Map(hs.map((h) => [h.nombre, h]))
+  const nombres = new Set(NUCLEO.filter((n) => por.has(n)))
+  for (const g of grupos) for (const n of GRUPOS[g] ?? []) if (por.has(n)) nombres.add(n)
+  return [...nombres].map((n) => por.get(n)!)
+}
+
 export function herramientasPara(con: 'mastropiero' | 'agente'): Herramienta[] {
   return con === 'mastropiero' ? HERRAMIENTAS : HERRAMIENTAS.filter((h) => PARA_AGENTES.includes(h.nombre))
 }

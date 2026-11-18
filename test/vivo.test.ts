@@ -14,7 +14,7 @@ const sombra = await import('../src/sombra.ts')
 
 _probarEscriba(async () => {})
 const sistemas: string[] = []
-_probarModelo(async (_l: any, o: any) => { sistemas.push(String(o.mensajes[0].content)); return { texto: 'Lleva 25 minutos en Instagram. [[seguir]]\nPasá a la siguiente banda\n[[/seguir]]', llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 } as any })
+_probarModelo(async (_l: any, o: any) => { sistemas.push(o.mensajes.map((m: any) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? ''))).join('\n')); return { texto: 'Lleva 25 minutos en Instagram. [[seguir]]\nPasá a la siguiente banda\n[[/seguir]]', llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 } as any })
 
 const T = new Date(2026, 9, 21, 15, 0).getTime()
 const MIN = 60_000

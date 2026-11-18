@@ -15,7 +15,7 @@ test('#237: un turno que se cortó por largo se reintenta una vez, por partes, y
   let n = 0
   _probarModelo(async (_l: any, o: any) => {
     n++
-    sistemas.push(o.mensajes.filter((m: any) => m.role === 'system').map((m: any) => m.content).join('\n'))
+    sistemas.push(o.mensajes.map((m: any) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? ''))).join('\n'))
     if (n === 1) throw new Error('Ningún modelo pudo contestar. deepseek-v4-flash: el servidor falló (504: tiempo agotado)')
     return { texto: 'Listo: tanda 1 de 12 en el documento. Faltan 11.', llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 }
   })

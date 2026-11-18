@@ -576,7 +576,8 @@ export function tokensHoy(db: Db, ahora = Date.now()): { liga: number; mastropie
   const desde = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
   const filas = db.prepare(
     // El reproceso tiene su propio presupuesto: no le come el tope a la liga.
-    `SELECT clase = 'mastropiero' AS suyo, COALESCE(fondo, 0) AS solo, COALESCE(SUM(tokens_in), 0) + COALESCE(SUM(tokens_out), 0) AS t FROM llamadas WHERE en >= ? AND agente_id NOT LIKE 'reproceso%' GROUP BY 1, 2`,
+    // Lo que sale de la caché del modelo cuenta un décimo: cuesta unas 50 veces menos que lo nuevo.
+    `SELECT clase = 'mastropiero' AS suyo, COALESCE(fondo, 0) AS solo, CAST(ROUND(COALESCE(SUM(tokens_in), 0) - 0.9 * COALESCE(SUM(MIN(COALESCE(tokens_cache, 0), COALESCE(tokens_in, 0))), 0) + COALESCE(SUM(tokens_out), 0)) AS INTEGER) AS t FROM llamadas WHERE en >= ? AND agente_id NOT LIKE 'reproceso%' GROUP BY 1, 2`,
   ).all(desde) as { suyo: number; solo: number; t: number }[]
   const suma = (f: (x: { suyo: number; solo: number }) => boolean) => filas.filter(f).reduce((s, x) => s + x.t, 0)
   const liga = suma((x) => !x.suyo)

@@ -9,7 +9,8 @@ const { _probarModelo } = await import('../src/modelo.ts')
 const { _probarEscriba, conversacionHoy, enviar, estaPensando } = await import('../src/chat/index.ts')
 
 _probarEscriba(async () => {})
-const contenidos = (ms: any[]) => ms.map((m) => `${m.role}: ${String(m.content ?? '')}`)
+// Sin el contexto del momento (viaja pegado a su último mensaje): lo que escribió él.
+const contenidos = (ms: any[]) => ms.map((m) => `${m.role}: ${String(m.content ?? '').split('[Lo que te escribió]\n').at(-1)}`)
 
 test('Escribir mientras trabaja: el mensaje entra a la próxima vuelta del mismo turno y contesta todo junto', async () => {
   const db = abrir(':memory:')

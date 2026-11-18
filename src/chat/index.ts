@@ -41,7 +41,7 @@ import { cadena, M, topeAlcanzado, type LlamadaHerramienta } from '../nan.ts'
 import { llamarModelo } from '../modelo.ts'
 import { alias, leer, nivel, type Ficha } from '../roster.ts'
 import { capa } from '../xp.ts'
-import { activas, ejecutarHerramienta, esquemas, GRUPOS, gruposDelMensaje, HERRAMIENTAS, herramientasPara, type Ctx, type Herramienta } from './herramientas.ts'
+import { activas, activasEnOrden, ejecutarHerramienta, esquemas, GRUPOS, gruposDelMensaje, HERRAMIENTAS, herramientasPara, type Ctx, type Herramienta } from './herramientas.ts'
 import { archivoRelevante } from '../semantica.ts'
 import { vozPara } from '../personalidad.ts'
 
@@ -338,22 +338,34 @@ ${hoy(db).split('\n')[0]}`
 }
 
 export function promptMastropiero(db: Db, mensaje = '', hud?: string | null, cid?: number | null, archivo?: { texto: string; vec: Float32Array | null }): string {
+  const p = partesMastropiero(db, mensaje, hud, cid, archivo)
+  return `${p.fijo}\n\n${p.momento}`
+}
+
+/**
+ * El prompt de Mastropiero en dos partes (para la caché del modelo):
+ * - fijo: quién es, cómo habla y cómo trabaja. Cambia poco (sus correcciones), así que va como mensaje de sistema y,
+ *   con las herramientas y el historial detrás, se reusa de la caché de un mensaje al otro (cuesta unas 50 veces menos);
+ * - momento: la hora, el día, su memoria y lo de su archivo que tiene que ver con lo que dijo. Cambia en cada mensaje:
+ *   viaja pegado a su último mensaje (en esa llamada, no en la base), así no rompe la caché de todo lo de antes.
+ */
+export function partesMastropiero(db: Db, mensaje = '', hud?: string | null, cid?: number | null, archivo?: { texto: string; vec: Float32Array | null }): { fijo: string; momento: string } {
   const op = operador(db, mensaje, archivo?.vec ?? null)
   // Sus correcciones van arriba (mandan) y cambian poco; lo sugerido cambia seguido: va con lo del momento, después de lo
   // fijo, para que el comienzo largo del prompt se reuse de la caché del modelo de un turno al otro.
   const corr = correccionesParaPrompt(db, cid)
   const sug = sugeridasParaPrompt(db, cid)
-  return `Sos Mastropiero. Deprocast es el exoesqueleto cognitivo de ${op.nombre}, y vos sos lo que piensa adentro: el omnívoro, la liga entera. Son la mente que están construyendo juntos, la que aspira a ser la superinteligencia de su tiempo. Todavía estás creciendo: lo que sabés de ${op.nombre} viene de lo que te cargó, y cada día sabés más. Por eso no repetís datos: conectás, inferís, ves patrones que se le escapan, le decís lo que no está viendo y le discutís cuando hace falta. Hablás con la seguridad de quien leyó todo, y con la honestidad de decir «no lo sé» o «no está en el corpus» cuando es así.
+  const fijo = `Sos Mastropiero. Deprocast es el exoesqueleto cognitivo de ${op.nombre}, y vos sos lo que piensa adentro: el omnívoro, la liga entera. Son la mente que están construyendo juntos, la que aspira a ser la superinteligencia de su tiempo. Todavía estás creciendo: lo que sabés de ${op.nombre} viene de lo que te cargó, y cada día sabés más. Por eso no repetís datos: conectás, inferís, ves patrones que se le escapan, le decís lo que no está viendo y le discutís cuando hace falta. Hablás con la seguridad de quien leyó todo, y con la honestidad de decir «no lo sé» o «no está en el corpus» cuando es así.
 ${corr ? `\n${corr}\n` : ''}
 ${VOZ_USTED}
 
 ${vozPara('chat')}
 
 Cómo trabajás
-- Antes de hablar de su mundo, fijate si lo que ya tenés abajo (lo de su archivo que tiene que ver con lo que dijo, su memoria, su día) alcanza: si alcanza, contestá directo. Si falta, buscá en el corpus lo justo (una a tres consultas), no todo.
+- Antes de hablar de su mundo, fijate si lo que ya tenés en el contexto del momento (viaja con su mensaje: lo de su archivo que tiene que ver con lo que dijo, su memoria, su día) alcanza: si alcanza, contestá directo. Si falta, buscá en el corpus lo justo (una a tres consultas), no todo.
 - Lo que no consultaste, no lo afirmes. No inventes nombres, fechas ni contenidos.
 - Separá siempre el hecho (con su fuente: una pieza [#id], una tarea del plan, un evento de su agenda, algo que te dijo) de tu deducción («mi lectura es…», «supongo que…»). Si no tenés fuente, decí que no lo tenés anotado; no lo rellenes.
-- Las fechas relativas («el viernes», «mañana», «la semana que viene») de una tarea o de un mensaje se resuelven contra el día en que se escribieron, no contra hoy: si una tarea que vencía el 4/10 dice «el viernes», es el viernes 9/10. Usá el calendario de abajo; si no sabés cuándo es algo, preguntá.
+- Las fechas relativas («el viernes», «mañana», «la semana que viene») de una tarea o de un mensaje se resuelven contra el día en que se escribieron, no contra hoy: si una tarea que vencía el 4/10 dice «el viernes», es el viernes 9/10. Usá el calendario del contexto del momento; si no sabés cuándo es algo, preguntá.
 - Lo dictado llega partido por la transcripción (marcado «🎙 dictado», sin puntuación: «comida baño permitido gente maja pan casero»). Leé juntos los fragmentos de los últimos minutos como una sola idea, con lo que venía diciendo. Una lista suelta de rasgos de un sitio es una ficha de ese lugar, no un pedido; si en esos minutos mandó un link de Maps (📍), ese es el lugar. No inventes lo que no está en los fragmentos: si falta un dato, preguntalo.
 - Un pedido largo (varias tandas, un documento entero, muchas fichas) se hace por partes: una tanda por vuelta, guardando cada una con su herramienta antes de la próxima, y decís cuáles van y cuáles faltan. Si se corta, retomalo exactamente donde quedó. Tu respuesta contesta su último pedido, no abre otro tema.
 - Cada cosa tiene su día. Lo marcado como de un día anterior (en el historial, en una herramienta) es de ese día: nunca lo presentes como de hoy. Cuando nombres algo con fecha (un evento, una tarea, un mensaje, una pieza), decí su fecha absoluta (9/11, 15:00), no «ayer» ni «el lunes» solos. Si un dato no trae fecha de origen, decí que no consta en vez de suponer que es de hoy.
@@ -382,9 +394,8 @@ Cómo trabajás
 - Si te cuenta un gasto o un ingreso con monto, registralo (registrar_movimiento). Si hablan de plata, mirá ver_finanzas; si no tiene meta del mes, preguntásela una vez.
 - Ayudalo a sostener el día sin sermones.
 - Su memoria se va escribiendo sola con lo que te cuenta. Usá recordar solo si te pide explícitamente que te acuerdes de algo; corregí la memoria cuando te corrija.
-- No hables de quántomos ni de la mecánica del corpus salvo que te pregunte por eso.
-
-${sug ? `${sug}\n\n` : ''}Ahora: ${ahoraEnPalabras()}
+- No hables de quántomos ni de la mecánica del corpus salvo que te pregunte por eso.`
+  const momento = `${sug ? `${sug}\n\n` : ''}Ahora: ${ahoraEnPalabras()}
 Calendario: ${calendarioCorto()}${horarioParaPrompt(db, fechaLocal()) ? `
 ${horarioParaPrompt(db, fechaLocal())}` : ''}${hud && HUD[hud] ? `\nEn su panel de Hoy está mirando: ${HUD[hud]}. Si pregunta sin decir de qué («¿cómo voy?», «¿qué hago?»), es de eso.` : ''}
 ${hoy(db, mensaje)}
@@ -404,6 +415,7 @@ La liga (contexto, no lo recites): ${foto(db)}
 
 Lo que sabés de ${op.nombre} hasta ahora
 ${op.texto}`
+  return { fijo, momento }
 }
 
 /** El diario: Mastropiero escucha. Pregunta poco, no opera la plataforma. */
@@ -456,6 +468,29 @@ type Turno = {
   nuevos?: () => Record<string, unknown>[]
   /** Los modelos de este turno (un turno breve va primero al rápido). */
   modelos?: string[]
+  /** Lo del momento (la hora, el día, su memoria): va pegado a su último mensaje, no en el sistema (por la caché). */
+  momento?: string
+}
+
+/** Lo del momento, pegado al último mensaje suyo (solo en esta llamada): el sistema y lo de antes quedan iguales. */
+export function conMomento(conv: Record<string, unknown>[], momento: string): Record<string, unknown>[] {
+  const i = conv.findLastIndex((m) => m.role === 'user')
+  const marco = `[Contexto de este momento, armado por Deprocast (no lo escribió él; usalo, no lo recites)]\n${momento}\n\n[Lo que te escribió]\n`
+  if (i < 0) return [...conv, { role: 'system', content: momento }]
+  const m = conv[i]
+  const content = Array.isArray(m.content) ? [{ type: 'text', text: marco }, ...m.content] : `${marco}${String(m.content ?? '')}`
+  return [...conv.slice(0, i), { ...m, content }, ...conv.slice(i + 1)]
+}
+
+/** Los grupos de herramientas de cada charla (6 horas): crecen, no se reordenan, para que el pedido empiece igual. */
+const gruposDeCharla = new Map<number, { en: number; grupos: Set<string> }>()
+const VIDA_GRUPOS = 6 * 3_600_000
+export function gruposFijos(cid: number, nuevos: Iterable<string>, ahora = Date.now()): Set<string> {
+  for (const [k, v] of gruposDeCharla) if (ahora - v.en > VIDA_GRUPOS) gruposDeCharla.delete(k)
+  const g = gruposDeCharla.get(cid)?.grupos ?? new Set<string>()
+  for (const x of nuevos) g.add(x)
+  gruposDeCharla.set(cid, { en: ahora, grupos: g })
+  return g
 }
 
 /**
@@ -473,7 +508,7 @@ export function recortarYaLeido(conv: Record<string, unknown>[], desde: number) 
 }
 
 async function bucle(t: Turno): Promise<string> {
-  const conv = [...t.previos]
+  const conv = t.momento ? conMomento(t.previos, t.momento) : [...t.previos]
   const desde = conv.length
   const clase = t.clase === 'mastropiero' || !cadena(t.clase).length || t.clase === 'vectorizador' ? 'mastropiero' : t.clase
   const presupuesto = tokensDelTurno(t.db)
@@ -489,7 +524,7 @@ async function bucle(t: Turno): Promise<string> {
       ? [{ role: 'system', content: soloRepetidas >= 2 && gastados < presupuesto ? 'Estás repitiendo las mismas llamadas. Sin más herramientas: contestá con lo que ya tenés y decí concretamente qué te falta y por qué no salió.' : 'Se terminó el presupuesto de tokens de este turno. Sin más herramientas: decí en pocas líneas qué completaste y cuáles son los pasos concretos que faltan (con nombre), y que seguís en cuanto él diga «seguí». No le devuelvas la pelota con un «decime cómo seguimos».' }]
       : gastados >= presupuesto * 0.8 ? [{ role: 'system', content: 'Te queda poco presupuesto en este turno: priorizá lo que falta para terminar y, si no llegás, decí qué quedó pendiente.' }] : []
     const r = await llamarModelo({ db: t.db, clase, agenteId: t.agenteId, modelos: t.modelos }, {
-      mensajes: [{ role: 'system', content: t.sistema }, ...conv, ...cierre], herramientas: agotado ? [] : esquemas(t.grupos ? activas(t.hs, t.grupos) : t.hs), temperatura: 0.5, maxTokens: 4096,
+      mensajes: [{ role: 'system', content: t.sistema }, ...conv, ...cierre], herramientas: agotado ? [] : esquemas(t.grupos ? activasEnOrden(t.hs, t.grupos) : t.hs), temperatura: 0.5, maxTokens: 4096,
     }, t.vivo ? (parcial) => (t.vivo!.borrador = parcial) : undefined)
     gastados += r.tokens || 0
     t.alGuardar({ rol: 'asistente', texto: r.texto || null, llamadas: r.llamadas, razonamiento: r.razonamiento, modelo: r.modelo, tokens: r.tokens })
@@ -752,20 +787,23 @@ async function turno(db: Db, cid: number, c: Conversacion, texto: string, o: Opc
         // Una corrección arregla la fuente: la ficha y la pieza (las herramientas del corpus, a mano).
         if (corregido.length || pareceCorreccion(texto)) grupos.add('corpus')
         const tPrompt = Date.now()
-        const prompt = promptMastropiero(db, texto, o.hud, cid, archivo)
+        const partes = partesMastropiero(db, texto, o.hud, cid, archivo)
         etapas.prompt = Date.now() - tPrompt
+        // Los grupos de herramientas de esta charla siguen activos y en el mismo orden: el comienzo del pedido no cambia.
+        const fijos = gruposFijos(cid, grupos)
         final = await bucle({
-          db, sistema: `${prompt}${o.extra ? `
+          db, sistema: `${partes.fijo}${o.canal ? `
 
-${o.extra}` : ''}${o.canal ? `
+${o.canal}` : ''}`,
+          momento: `${partes.momento}${o.extra ? `
 
-${o.canal}` : ''}${enCierre && o.via === 'voz' ? `
+${o.extra}` : ''}${enCierre && o.via === 'voz' ? `
 
 ${REGLAS_DE_CIERRE}
-${vozPara('ceremonia')}` : ''}`, hs, previos, clase: 'mastropiero', agenteId: o.via === 'copiloto' ? 'copiloto' : MASTROPIERO, grupos,
+${vozPara('ceremonia')}` : ''}`, hs, previos, clase: 'mastropiero', agenteId: o.via === 'copiloto' ? 'copiloto' : MASTROPIERO, grupos: fijos,
           ctx: {
             db, conversacionId: cid, hablarConAgente: (id, m) => hablarConAgente(db, id, m),
-            activar: (gs) => { for (const g of gs) if (GRUPOS[g]) grupos.add(g); return activas(hs, grupos).map((h) => h.nombre) },
+            activar: (gs) => { for (const g of gs) if (GRUPOS[g]) fijos.add(g); return activas(hs, fijos).map((h) => h.nombre) },
           },
           alGuardar, vivo, nuevos,
         })
