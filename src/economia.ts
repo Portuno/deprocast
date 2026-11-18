@@ -7,6 +7,8 @@
  * cierre se liquida y la liga se arregla sola — los que dieron pérdida van a la banca (y si ya estaban y vuelven a
  * perder, se retiran), y el mejor de una clase con trabajo acumulado se clona. Ejecutivos y gerentes no entran:
  * son únicos.
+ * La vara (nov 2026): lo que gasta se cobra en créditos de NaN (la plata de verdad; los tokens, solo donde no hay precio),
+ * y cada pieza suya —que escribió o procesó— que Mastropiero te citó en una respuesta le paga: lo que usaste, no lo que hizo.
  */
 import { type Db } from './db.ts'
 import { alias, cambiarEstado, forjar, leer, listar, retirar, type Ficha } from './roster.ts'
@@ -14,11 +16,11 @@ import { semanaDe } from './misiones.ts'
 import { CLASES, type ClaseId } from './clases.ts'
 
 /** Lo que paga cada cosa. Los tokens se cobran por miles. */
-export const TARIFAS = { tarea: 1, aporte: 15, fallo: -3, milTokens: -1 }
+export const TARIFAS = { tarea: 1, aporte: 15, fallo: -3, milTokens: -1, credito: -10 }
 /** Lo que paga cada resultado de una misión (y su feedback). */
 export const RESULTADOS = {
   pista: 2, borradorAceptado: 5, borradorEditado: 3, borradorRechazado: -2,
-  enviada: 3, respondio: 10, reunion: 25, cliente: 100, pulgarArriba: 3, pulgarAbajo: -3,
+  enviada: 3, respondio: 10, reunion: 25, cliente: 100, pulgarArriba: 3, pulgarAbajo: -3, piezaUsada: 3,
 } as const
 const FUERA = new Set(['ejecutivo', 'gerente'])
 const TIPOS_APORTE = new Set(['aporte', 'preparar-run'])
@@ -45,9 +47,15 @@ export function balance(db: Db, semana: string): Linea[] {
   }
   const fallas = db.prepare(`SELECT asignada_a AS a, COUNT(*) AS n FROM tareas WHERE estado = 'fallida' AND asignada_a IS NOT NULL AND actualizada_en >= ? AND actualizada_en < ? GROUP BY asignada_a`).all(desde, hasta) as any[]
   for (const r of fallas) out.push({ agente: r.a, monto: r.n * TARIFAS.fallo, motivo: `${r.n} fallo${r.n > 1 ? 's' : ''}` })
-  const gasto = db.prepare(`SELECT agente_id AS a, SUM(COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0)) AS t FROM llamadas WHERE en >= ? AND en < ? AND agente_id IS NOT NULL GROUP BY agente_id`).all(desde, hasta) as any[]
+  // Lo que gastó, en créditos (la plata de verdad); las llamadas sin precio (un modelo local, una fila vieja), por tokens.
+  const gasto = db.prepare(`SELECT agente_id AS a, ROUND(SUM(COALESCE(creditos, 0)), 2) AS c, SUM(CASE WHEN creditos IS NULL THEN COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0) ELSE 0 END) AS t
+    FROM llamadas WHERE en >= ? AND en < ? AND agente_id IS NOT NULL GROUP BY agente_id`).all(desde, hasta) as { a: string; c: number; t: number }[]
   const agentes = new Set((db.prepare('SELECT id FROM agentes').all() as any[]).map((r) => r.id))
-  for (const r of gasto) if (agentes.has(r.a) && r.t > 0) out.push({ agente: r.a, monto: Math.round((r.t / 1000) * TARIFAS.milTokens * 100) / 100, motivo: `${Math.round(r.t / 1000)}K tokens` })
+  for (const r of gasto) {
+    if (!agentes.has(r.a)) continue
+    if (r.c > 0) out.push({ agente: r.a, monto: Math.round(r.c * TARIFAS.credito * 100) / 100, motivo: `${r.c} créditos` })
+    if (r.t > 0) out.push({ agente: r.a, monto: Math.round((r.t / 1000) * TARIFAS.milTokens * 100) / 100, motivo: `${Math.round(r.t / 1000)}K tokens` })
+  }
   out.push(...resultados(db, desde, hasta))
   return out.filter((l) => agentes.has(l.agente))
 }
@@ -90,8 +98,54 @@ export function resultados(db: Db, desde: number, hasta: number): Linea[] {
     if (r.peso >= 7) sumar(r.a, 'sellado alto en La Mano', r.peso - 6)
     else if (r.peso <= 3) sumar(r.a, 'sellado bajo en La Mano', -1)
   }
+  // Lo que usaste: cada pieza suya (la escribió o la procesó) que Mastropiero te citó en una respuesta, una vez por pieza.
+  for (const [agente, piezas] of piezasUsadas(db, desde, hasta)) for (let i = 0; i < piezas.size; i++) sumar(agente, 'de sus piezas que Mastropiero usó con vos', RESULTADOS.piezaUsada)
   for (const [agente, m] of suma) for (const [que, x] of m) out.push({ agente, monto: x.monto, motivo: `${x.n} ${que}` })
   return out
+}
+
+/**
+ * Las piezas que Mastropiero te citó ([#id]) en sus respuestas de la ventana, por agente: el que la escribió (autor) y
+ * los que la procesaron (sus tareas hechas sobre esa pieza). Una pieza cuenta una vez por agente.
+ */
+export function piezasUsadas(db: Db, desde: number, hasta: number): Map<string, Set<number>> {
+  db.exec('CREATE INDEX IF NOT EXISTS ix_tareas_corpus ON tareas(corpus_id, estado)')
+  const ids = new Set<number>()
+  for (const r of db.prepare(`SELECT texto FROM mensajes WHERE rol = 'asistente' AND en >= ? AND en < ? AND texto LIKE '%[#%'`).all(desde, hasta) as { texto: string }[]) {
+    for (const m of r.texto.matchAll(/\[#(\d+)\]/g)) ids.add(Number(m[1]))
+  }
+  const out = new Map<string, Set<number>>()
+  const sumar = (a: string | null, p: number) => { if (!a) return; const s = out.get(a) ?? new Set<number>(); s.add(p); out.set(a, s) }
+  const autor = db.prepare('SELECT autor FROM corpus WHERE id = ?')
+  const procesaron = db.prepare(`SELECT DISTINCT asignada_a AS a FROM tareas WHERE corpus_id = ? AND estado = 'hecha' AND asignada_a IS NOT NULL`)
+  for (const p of ids) {
+    sumar((autor.get(p) as { autor: string | null } | undefined)?.autor ?? null, p)
+    for (const r of procesaron.all(p) as { a: string }[]) sumar(r.a, p)
+  }
+  return out
+}
+
+export type Rinde = { agente: string; nombre: string; clase: string; estado: string; creditos: number; tareas: number; fallos: number; usadas: number; valor: number; porCredito: number | null; veredicto: 'rinde' | 'rinde poco' | 'caro sin resultados' | 'sin gasto' }
+
+/**
+ * Lo que rinde cada agente en los últimos días: lo que gastó (créditos), lo que hizo (tareas), lo que usaste (piezas
+ * citadas) y lo que valió para vos (resultados: pistas, borradores, respuestas, clientes, 👍, sellos altos, piezas
+ * usadas), y cuánto valor da por crédito. Ordenado por lo que gasta: arriba, lo que más conviene mirar.
+ */
+export function rendimiento(db: Db, dias = 30, ahora = Date.now()): Rinde[] {
+  const desde = ahora - dias * 86_400_000
+  const gasto = new Map((db.prepare(`SELECT agente_id AS a, ROUND(SUM(COALESCE(creditos, 0)), 2) AS c FROM llamadas WHERE en >= ? AND agente_id IS NOT NULL GROUP BY agente_id`).all(desde) as { a: string; c: number }[]).map((r) => [r.a, r.c]))
+  const hechas = new Map((db.prepare(`SELECT asignada_a AS a, SUM(estado = 'hecha') AS h, SUM(estado = 'fallida') AS f FROM tareas WHERE asignada_a IS NOT NULL AND actualizada_en >= ? GROUP BY asignada_a`).all(desde) as { a: string; h: number; f: number }[]).map((r) => [r.a, r]))
+  const valor = new Map<string, number>()
+  for (const l of resultados(db, desde, ahora + 1)) valor.set(l.agente, (valor.get(l.agente) ?? 0) + l.monto)
+  const usadas = piezasUsadas(db, desde, ahora + 1)
+  return listar(db).filter((f) => !FUERA.has(f.clase)).map((f): Rinde => {
+    const creditos = gasto.get(f.id) ?? 0
+    const v = Math.round((valor.get(f.id) ?? 0) * 100) / 100
+    const porCredito = creditos > 0 ? Math.round((v / creditos) * 100) / 100 : null
+    const veredicto = creditos < 0.5 ? 'sin gasto' : v <= 0 ? 'caro sin resultados' : (porCredito ?? 0) < 1 ? 'rinde poco' : 'rinde'
+    return { agente: f.id, nombre: alias(f), clase: f.clase, estado: f.estado, creditos, tareas: hechas.get(f.id)?.h ?? 0, fallos: hechas.get(f.id)?.f ?? 0, usadas: usadas.get(f.id)?.size ?? 0, valor: v, porCredito, veredicto }
+  }).sort((a, b) => b.creditos - a.creditos || b.valor - a.valor)
 }
 
 /** Asienta la temporada en el monedero (rehacerla la reemplaza: es idempotente). */

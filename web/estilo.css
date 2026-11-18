@@ -3691,3 +3691,5 @@ a.arq-celda { color: var(--texto); text-decoration: none; }
 .vg-tabla tr:last-child td { border-bottom: 0; }
 .vg-tabla th { color: var(--tenue); font-weight: 500; font-size: var(--t-2); }
 .vg-tabla .n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.estado-chip.aviso { color: var(--aviso); border-color: color-mix(in srgb, var(--aviso) 45%, transparent); }
+.rev-tabla .n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }

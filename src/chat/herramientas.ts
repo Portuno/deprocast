@@ -2240,6 +2240,13 @@ ${a.detalle ?? ''}`)
     ejecutar: (_, { db }) => tablaEconomia(db).slice(0, 25).map((x) => ({ agente: x.nombre, clase: x.clase, estado: x.estado, temporada: x.temporada, saldo: x.saldo })),
   },
   {
+    nombre: 'ver_rendimiento_liga', familia: 'lectura',
+    descripcion: 'Lo que rinde cada agente de la liga (por defecto, 30 días): los créditos que gastó, las tareas que hizo, cuántas piezas suyas le citaste a él (lo que de verdad usó), lo que valió (pistas, borradores, respuestas, clientes, 👍, sellos altos, piezas usadas) y el valor por crédito, con un veredicto (rinde, rinde poco, caro sin resultados). Para decidir a quién darle más contexto, mejores misiones o mandar a la banca.',
+    parametros: S({ dias: int('Cuántos días mirar (7 a 90; por defecto 30)') }),
+    ejecutar: async (a, { db }) => (await import('../economia.ts')).rendimiento(db, Math.min(90, Math.max(7, Number(a.dias) || 30))).filter((x) => x.creditos > 0 || x.valor !== 0).slice(0, 25)
+      .map((x) => ({ agente: x.nombre, clase: x.clase, estado: x.estado, creditos: x.creditos, tareas: x.tareas, piezas_usadas: x.usadas, valor: x.valor, valor_por_credito: x.porCredito, veredicto: x.veredicto })),
+  },
+  {
     nombre: 'ver_cuadernos', familia: 'lectura',
     descripcion: 'Sus cuadernos (colecciones de fuentes para estudiar un tema) con sus fuentes y cuántas notas tienen.',
     parametros: S({}),
@@ -2810,7 +2817,7 @@ export const NUCLEO = [
   'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'proponer_mejora', 'deshacer_ultima_accion', 'ver_para_validar', 'validar', 'arrancar_bloque', 'terminar_bloque',
 ]
 export const GRUPOS: Record<string, string[]> = {
-  liga: ['ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ficha_arquetipo', 'ver_plantel', 'crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'ver_banco_de_pruebas', 'correr_banco_de_pruebas', 'comparar_motores', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
+  liga: ['ver_rendimiento_liga', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ficha_arquetipo', 'ver_plantel', 'crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'ver_banco_de_pruebas', 'correr_banco_de_pruebas', 'comparar_motores', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['ver_suenos_noche', 'al_diario', 'ver_diario', 'crear_dominio', 'retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_criterios', 'fijar_criterio', 'ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   // Lo que era «vida» (93 herramientas, unos 15.500 tokens), en grupos chicos: cada mensaje trae solo lo suyo.

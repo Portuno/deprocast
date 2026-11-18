@@ -1396,6 +1396,8 @@ const rutas: [string, RegExp, Ruta][] = [
   ['POST', /^\/api\/fragua\/commits$/, async () => (await import('./fragua-commits.ts')).revisarCommits(db)],
 
   // Economía de agentes
+  // La vara de la liga: lo que gasta (créditos), lo que hace, lo que usaste y lo que vale cada agente.
+  ['GET', /^\/api\/liga\/rendimiento$/, async (_, __, q) => ({ dias: Math.min(90, Number(q.get('dias')) || 30), agentes: (await import('./economia.ts')).rendimiento(db, Math.min(90, Number(q.get('dias')) || 30)) })],
   ['GET', /^\/api\/economia$/, (_, __, q) => ({ semana: q.get('semana') || semanaDe(), tarifas: TARIFAS, resultados: RESULTADOS, tabla: tablaEconomia(db, q.get('semana') || semanaDe()), historia: db.prepare('SELECT semana, COUNT(*) AS agentes, ROUND(SUM(neto), 1) AS neto FROM temporadas GROUP BY semana ORDER BY semana DESC LIMIT 8').all() })],
 
   // Páginas propias: los 72 arquetipos y los dominios (cada una se construye sola y él la moldea con instrucciones).

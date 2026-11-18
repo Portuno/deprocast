@@ -198,6 +198,23 @@ async function pintarAgSala() {
 
 // ─── la temporada: quién cobra y por qué ────────────────────────────────
 
+/** La vara de la liga: lo que gasta cada agente, lo que hizo, lo que usaste y lo que vale por crédito. */
+async function pintarRinde() {
+  const caja = $('#ag-rinde')
+  if (!caja) return
+  let r
+  try { r = await api('/liga/rendimiento?dias=30') } catch (e) { caja.innerHTML = `<h3>Lo que rinde cada uno</h3><p class="mal chico">${esc(e.message)}</p>`; return }
+  const xs = r.agentes.filter((x) => x.creditos > 0 || x.valor !== 0)
+  const total = xs.reduce((s, x) => s + x.creditos, 0)
+  const sinRes = xs.filter((x) => x.veredicto === 'caro sin resultados')
+  const chip = { 'rinde': 'ok', 'rinde poco': 'aviso', 'caro sin resultados': 'mal', 'sin gasto': '' }
+  caja.innerHTML = `<h3>Lo que rinde cada uno (30 días)</h3>
+    <p class="chico">${xs.length ? `Gastaron ${total.toLocaleString('es-AR', { maximumFractionDigits: 1 })} créditos.${sinRes.length ? ` ${sinRes.length} gastan sin que nada suyo te sirva todavía: ${sinRes.slice(0, 4).map((x) => esc(x.nombre)).join(', ')}.` : ''}` : 'Todavía no hay gasto ni resultados para medir.'} «Usadas»: piezas suyas que Mastropiero te citó.</p>
+    ${xs.length ? `<div class="gf-tabla"><table class="rev-tabla"><thead><tr><th>Agente</th><th>Clase</th><th class="n">Créditos</th><th class="n">Tareas</th><th class="n">Usadas</th><th class="n">Valor</th><th class="n">Por crédito</th><th></th></tr></thead><tbody>
+      ${xs.slice(0, 30).map((x) => `<tr><td>${esc(x.nombre)}</td><td class="chico">${esc(x.clase)}</td><td class="n">${x.creditos.toLocaleString('es-AR')}</td><td class="n">${x.tareas}</td><td class="n">${x.usadas}</td><td class="n">${x.valor.toLocaleString('es-AR')}</td><td class="n">${x.porCredito ?? '—'}</td><td><span class="estado-chip ${chip[x.veredicto]}">${esc(x.veredicto)}</span></td></tr>`).join('')}
+    </tbody></table></div>` : ''}`
+}
+
 async function montarAgTemporada() {
   $('#principal').innerHTML = `<div class="titulo"><h1>La temporada</h1><p>Los agentes cobran por lo que te sirve y pagan lo que gastan. El lunes se cierra la semana: el que dio pérdida va a la banca (dos seguidas, se retira) y el mejor con trabajo esperando se clona.</p></div><div id="ag-temporada"><p class="tenue">Juntando…</p></div>`
   let e
@@ -210,6 +227,9 @@ async function montarAgTemporada() {
       <li>Una pista que no descartás: +${x.pista}</li><li>Un borrador que mandás: +${x.borradorAceptado} (con cambios: +${x.borradorEditado}; descartado: ${x.borradorRechazado})</li>
       <li>La primera vez que una pista llega a enviada: +${x.enviada} · respuesta: +${x.respondio} · reunión: +${x.reunion} · cliente: +${x.cliente}</li>
       <li>Tu 👍: +${x.pulgarArriba} · tu 👎: ${x.pulgarAbajo} · lo suyo que sellás alto en La Mano: lo que pasa del 6</li>
-      <li>Una tarea del bus: +${t.tarea} · un aporte a una primaria: +${t.aporte} · un fallo: ${t.fallo} · cada mil tokens: ${t.milTokens}</li></ul></section>
+      <li>Cada pieza suya (la escribió o la procesó) que Mastropiero te citó: +${x.piezaUsada}</li>
+      <li>Una tarea del bus: +${t.tarea} · un aporte a una primaria: +${t.aporte} · un fallo: ${t.fallo} · cada crédito de NaN que gasta: ${t.credito} (sin precio, cada mil tokens: ${t.milTokens})</li></ul></section>
+    <section class="seccion" id="ag-rinde"><h3>Lo que rinde cada uno (30 días)</h3><p class="tenue">Mirando…</p></section>
     ${e.historia.length ? `<section class="seccion"><h3>Temporadas anteriores</h3><p class="chico">${e.historia.map((h) => `${esc(h.semana)} (${h.neto > 0 ? '+' : ''}${h.neto})`).join(' · ')}</p></section>` : ''}`
+  pintarRinde()
 }
