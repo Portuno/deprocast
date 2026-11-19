@@ -346,7 +346,7 @@ export const HERRAMIENTAS: Herramienta[] = [
     nombre: 'armar_pdf', familia: 'accion',
     descripcion: 'Arma un PDF (A4, maquetado simple: título, secciones, párrafos, listas, citas y al pie la fecha y el número de página) y se lo manda por el mismo canal por el que habla (WhatsApp o Telegram); en la pantalla queda como archivo en el chat. Para cuando pide un documento, informe, resumen o PDF para leer o mandar. El contenido va en Markdown: «# título», «## sección», «- ítem», «1. ítem», «> cita», «---». Si ya salió por WhatsApp o Telegram, no repitas el contenido: decí en una línea qué le mandaste. Si no salió por ningún canal (está en la pantalla), poné en tu respuesta la «marca» tal cual, para que vea el archivo.',
     parametros: S({ titulo: str('El título del documento'), contenido: str('El texto en Markdown'), nombre: str('Nombre del archivo, sin .pdf (opcional)') }, ['titulo', 'contenido']),
-    ejecutar: async (a) => {
+    ejecutar: async (a, { db, conversacionId }) => {
       const { pdfDesdeMarkdown } = await import('../pdf.ts')
       const fecha = new Date().toLocaleDateString('es-AR', { day: 'numeric', month: 'long', year: 'numeric' })
       const datos = pdfDesdeMarkdown(String(a.contenido), { titulo: String(a.titulo), pie: `Deprocast · ${fecha}`, autor: 'Mastropiero' })
@@ -359,7 +359,10 @@ export const HERRAMIENTAS: Herramienta[] = [
       const archivo = `${Date.now()}-${base}.pdf`
       fs.writeFileSync(path.join(dirAdjuntos(), archivo), datos)
       const paginas = (datos.toString('latin1').match(/\/Type \/Page\b/g) ?? []).length
-      const enviado = await (await import('../telegram.ts')).mandarArchivoAlCanal(datos, nombre).catch((e) => { throw new Error(`Armé el PDF pero no lo pude mandar: ${e instanceof Error ? e.message : e}`) })
+      // Al Archivo (Fragua #320): queda a mano aunque el mensaje se pierda en el hilo.
+      const registrar = (canal: string | null) => import('../archivo.ts').then((x) => x.registrarConProyecto(db, { clave: `adjunto:${archivo}`, tipo: 'pdf', titulo: String(a.titulo), nombre, mime: 'application/pdf', origen: 'chat', origenRef: conversacionId ? `conversacion:${conversacionId}` : null, origenTexto: 'Pedido en el chat', adjunto: archivo, texto: String(a.contenido), resumen: `${paginas} página${paginas === 1 ? '' : 's'} · ${primeraDe(String(a.contenido))}`, canal })).catch(() => null)
+      const enviado = await (await import('../telegram.ts')).mandarArchivoAlCanal(datos, nombre).catch(async (e) => { await registrar(null); throw new Error(`Armé el PDF pero no lo pude mandar: ${e instanceof Error ? e.message : e}`) })
+      await registrar(enviado)
       return { enviado, paginas, nombre, marca: `[archivo:/adjuntos/${archivo}|${nombre}|${paginas} página${paginas === 1 ? '' : 's'}]` }
     },
     resumen: (a, r: any) => `armó el PDF «${a.titulo}»${r?.enviado ? ` y lo mandó por ${r.enviado}` : ''}`,
@@ -372,7 +375,7 @@ export const HERRAMIENTAS: Herramienta[] = [
       slides: { type: 'array', items: { type: 'object', properties: { titulo: { type: 'string' }, puntos: { type: 'array', items: { type: 'string' } }, notas: { type: 'string' }, tipo: { type: 'string', enum: ['contenido', 'seccion', 'cita'] }, imagen: { type: 'object', properties: { artefacto: { type: 'integer' }, adjunto: { type: 'string' }, prompt: { type: 'string' } } } }, required: ['titulo'] }, description: 'El guion, slide por slide' },
       paleta: str('La paleta', { enum: ['sobria', 'oscura', 'tierra'] }), generar_imagenes: bool('true: pintar las imágenes que tienen prompt'), nombre: str('Nombre del archivo, sin .pptx (opcional)'),
     }, ['titulo', 'slides']),
-    ejecutar: async (a, { db }) => {
+    ejecutar: async (a, { db, conversacionId }) => {
       const { armarPresentacion } = await import('../presentacion.ts')
       const r = await armarPresentacion(db, { titulo: String(a.titulo), subtitulo: a.subtitulo ?? null, autor: a.autor ?? null, slides: Array.isArray(a.slides) ? a.slides : [], paleta: a.paleta ?? 'sobria', generarImagenes: !!a.generar_imagenes })
       const base = String(a.nombre || a.titulo).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'presentacion'
@@ -387,9 +390,33 @@ export const HERRAMIENTAS: Herramienta[] = [
       let drive = false
       try { drive = (await import('../google/drive.ts')).alDrive(db, { datos: r.datos, nombre, mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', tipo: 'archivo', origen: 'presentación', descripcion: String(a.titulo), adjunto: archivo }) != null } catch { /* sin Drive: queda acá */ }
       const enviado = await (await import('../telegram.ts')).mandarArchivoAlCanal(r.datos, nombre).catch(() => null)
+      const slides = (Array.isArray(a.slides) ? a.slides : []) as { titulo?: string; puntos?: unknown }[]
+      await import('../archivo.ts').then((x) => x.registrarConProyecto(db, {
+        clave: `adjunto:${archivo}`, tipo: 'presentacion', titulo: String(a.titulo), nombre, mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', origen: 'chat',
+        origenRef: conversacionId ? `conversacion:${conversacionId}` : null, origenTexto: [a.subtitulo, 'Pedido en el chat'].filter(Boolean).join(' · '), adjunto: archivo,
+        texto: slides.map((x, i) => [`## ${i + 1}. ${x.titulo ?? ''}`, ...(Array.isArray(x.puntos) ? x.puntos : [x.puntos]).filter(Boolean).map((p) => `- ${p}`)].join('\n')).join('\n\n'),
+        resumen: `${r.slides} slides · ${slides.slice(0, 4).map((x) => x.titulo).filter(Boolean).join(' · ')}`, canal: enviado,
+      })).catch(() => null)
       return { enviado, slides: r.slides, imagenes: r.imagenes, avisos: r.avisos.length ? r.avisos : undefined, nombre, drive, marca: `[archivo:/adjuntos/${archivo}|${nombre}|${r.slides} slides]` }
     },
     resumen: (a, r: any) => `armó la presentación «${a.titulo}» (${r?.slides ?? '?'} slides)${r?.enviado ? ` y la mandó por ${r.enviado}` : ''}`,
+  },
+  {
+    nombre: 'buscar_generados', familia: 'lectura',
+    descripcion: 'El Archivo: todo lo que Deprocast generó (PDF y presentaciones que pidió por el chat, obras del Taller, informes de los programados, aportes de los ayudantes, guías de cuadernos), lo más nuevo primero. Para «¿dónde está el PDF de ayer?», «mandame de nuevo la presentación». Con texto, tipo (pdf, presentacion, imagen, audio, video, informe, aporte, cuaderno, juego, pagina) y fechas AAAA-MM-DD. Para mandarlo de nuevo, reenviar_generado.',
+    parametros: S({ consulta: str('Texto a buscar (título, contenido, de dónde salió)'), tipo: str('Tipo'), desde: str('AAAA-MM-DD'), hasta: str('AAAA-MM-DD'), limite: int('Cuántos (máx. 30)') }),
+    ejecutar: async (a, { db }) => {
+      const r = (await import('../archivo.ts')).listarGenerados(db, { q: a.consulta, tipo: a.tipo, desde: a.desde, hasta: a.hasta, limite: Math.min(a.limite ?? 12, 30) })
+      return { total: r.total, generados: r.items.map((g) => ({ id: g.id, tipo: g.tipo, titulo: g.titulo, cuando: new Date(g.creadoEn).toLocaleString('es-AR'), de: g.origenTexto ? recorte(g.origenTexto, 120) : g.origen, resumen: g.resumen, proyecto: g.entidad, salio_por: g.canal, drive: g.drive })) }
+    },
+    resumen: (a, r: any) => `buscó en el Archivo${a.consulta ? ` «${a.consulta}»` : ''} → ${r?.total ?? 0}`,
+  },
+  {
+    nombre: 'reenviar_generado', familia: 'accion',
+    descripcion: 'Vuelve a mandar a su WhatsApp algo del Archivo (por id, de buscar_generados): el archivo tal cual, o el texto de un informe o un aporte.',
+    parametros: S({ id: int('id en el Archivo') }, ['id']),
+    ejecutar: async (a, { db }) => (await import('../archivo.ts')).reenviarGenerado(db, Number(a.id)),
+    resumen: (_, r: any) => (r?.canal ? `lo mandó de nuevo por ${r.canal}` : 'intentó mandarlo de nuevo'),
   },
   {
     nombre: 'guardar_en_drive', familia: 'accion',
@@ -2845,7 +2872,7 @@ export const GRUPOS: Record<string, string[]> = {
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus', 'ver_suenos_noche'],
   mapamundi: ['ver_mapamundi', 'disputar'],
   observatorio: ['seguir_tema', 'ver_observatorio', 'crear_campana', 'armar_campana'],
-  crear: ['armar_pdf', 'armar_presentacion', 'difundir_idea', 'ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
+  crear: ['armar_pdf', 'armar_presentacion', 'buscar_generados', 'reenviar_generado', 'difundir_idea', 'ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
 
 /** Los grupos que el mensaje ya anuncia (para no gastar una vuelta pidiéndolos). */
@@ -2904,6 +2931,9 @@ export function herramientasPara(con: 'mastropiero' | 'agente'): Herramienta[] {
 export function esquemas(hs: Herramienta[]) {
   return hs.map((h) => ({ type: 'function', function: { name: h.nombre, description: h.descripcion, parameters: h.parametros } }))
 }
+
+/** La primera línea con algo de un Markdown (para el resumen en el Archivo). */
+const primeraDe = (t: string) => (t.split('\n').map((x) => x.replace(/^[#>\-*\d.\s]+/, '').trim()).find((x) => x.length > 2) ?? '').slice(0, 120)
 
 export async function ejecutarHerramienta(hs: Herramienta[], nombre: string, argumentos: string, ctx: Ctx): Promise<{ resultado: unknown; resumen: string; ok: boolean; inversa?: Inversa | null }> {
   const h = hs.find((x) => x.nombre === nombre)

@@ -1161,6 +1161,28 @@ CREATE TABLE IF NOT EXISTS programados (
   conversacion_id INTEGER,
   creado INTEGER NOT NULL
 );
+-- El Archivo (Fragua #320): todo lo generado en un solo lugar. Cada fila es un puntero (al adjunto, a la obra del
+-- Taller, a la pieza, al informe), nunca una copia del archivo. clave: de dónde sale, para no registrar dos veces.
+CREATE TABLE IF NOT EXISTS generados (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  clave TEXT NOT NULL UNIQUE,         -- adjunto:<archivo> | artefacto:<id> | programado:<id>:<en> | aporte:<pieza> | cuaderno:<nota>
+  tipo TEXT NOT NULL,                 -- pdf | presentacion | imagen | audio | video | informe | planilla | documento | cuaderno | aporte | juego | pagina
+  titulo TEXT NOT NULL,
+  nombre TEXT,
+  mime TEXT,
+  origen TEXT NOT NULL,               -- chat | taller | programado | ayudante | cuaderno
+  origen_ref TEXT,                    -- conversacion:5 | programado:3 | mision:9 | cuaderno:2
+  origen_texto TEXT,                  -- de qué salió, en palabras (el pedido, el encargo, la primaria)
+  adjunto TEXT,
+  artefacto_id INTEGER,
+  pieza_id INTEGER,
+  texto TEXT,                         -- informes, aportes, guías y el contenido de un PDF: para ver y buscar
+  resumen TEXT,
+  entidad_id INTEGER,
+  canal TEXT,
+  creado_en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS generados_creado ON generados (creado_en);
 -- La Criba del 72 (plan v36): 72 frases en 36 pares de polos opuestos; él las vota del 1 al 6.
 CREATE TABLE IF NOT EXISTS cribas72 (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

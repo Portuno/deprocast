@@ -1476,6 +1476,10 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/hojas-citables\/(\d+)$/, async (_, [n]) => (await import('./hojas-citables.ts')).leerHoja(db, id(n)) ?? {}],
   ['POST', /^\/api\/hojas-citables\/(\d+)$/, async (b, [n]) => (await import('./hojas-citables.ts')).hojaCitable(db, id(n), { forzar: !!b.forzar })],
   // Las reservas (Fragua #254): la lista, anotar una, cambiarla y sus textos (mail, WhatsApp, llamada, recordatorio).
+  // El Archivo (Fragua #320): todo lo generado, con búsqueda y filtros; uno entero; reenviarlo a su WhatsApp.
+  ['GET', /^\/api\/archivo$/, async (_, __, q) => (await import('./archivo.ts')).listarGenerados(db, { q: q.get('q'), tipo: q.get('tipo'), origen: q.get('origen'), entidad: num(q.get('entidad')) ?? null, desde: q.get('desde'), hasta: q.get('hasta'), limite: num(q.get('limite')), saltar: num(q.get('saltar')) })],
+  ['GET', /^\/api\/archivo\/(\d+)$/, async (_, [n]) => { const g = (await import('./archivo.ts')).leerGenerado(db, id(n)); if (!g) throw new Error('No existe eso en el Archivo'); return g }],
+  ['POST', /^\/api\/archivo\/(\d+)\/reenviar$/, async (_, [n]) => (await import('./archivo.ts')).reenviarGenerado(db, id(n))],
   // El vigía (La máquina → Estado): cada pieza con su estado, y el aviso por WhatsApp prendido o no.
   ['GET', /^\/api\/vigia$/, async () => (await import('./vigia.ts')).estadoSistema(db, { commit: process.env.MASTRO_COMMIT ?? null, arranco: Date.parse(ARRANCO) })],
   ['POST', /^\/api\/vigia\/avisos$/, async (b) => { fijarAjuste(db, 'vigia_whatsapp', b.prender === false ? '0' : '1'); return { avisos: b.prender !== false } }],
@@ -2265,6 +2269,15 @@ const servidor = http.createServer(async (req, res) => {
     if (!archivo.startsWith(dirTaller()) || !fs.existsSync(archivo) || fs.statSync(archivo).isDirectory()) return void res.writeHead(404).end('No encontrado')
     res.writeHead(200, { 'content-type': TIPOS_MIME[path.extname(archivo).toLowerCase()] ?? 'application/octet-stream', 'cache-control': 'no-store', 'content-security-policy': 'sandbox allow-scripts allow-pointer-lock', 'x-content-type-options': 'nosniff' })
     return void fs.createReadStream(archivo).pipe(res)
+  }
+  // Lo del Archivo que es texto (un informe, un aporte, una guía), para bajarlo como .md.
+  const comoMd = req.method === 'GET' ? /^\/api\/archivo\/(\d+)\/md$/.exec(url.pathname) : null
+  if (comoMd) {
+    const a = await import('./archivo.ts')
+    const g = a.leerGenerado(db, Number(comoMd[1]))
+    if (!g?.texto) return void res.writeHead(404).end('No encontrado')
+    const { nombre, datos } = a.markdownDe(g)
+    return void res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8', 'content-length': String(datos.length), 'content-disposition': `attachment; filename="${nombre}"`, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }).end(datos)
   }
   // La Librería en CSV.
   if (req.method === 'GET' && url.pathname === '/api/libreria.csv') {

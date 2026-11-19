@@ -1968,7 +1968,7 @@ details > summary h3.en-linea { display: inline; margin: 0; }
 .gr-nodo text { font: var(--t-1) var(--sans, system-ui); fill: var(--texto); text-anchor: middle; paint-order: stroke; stroke: var(--panel-2); stroke-width: 3px; pointer-events: none; }
 .gr-leyenda { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: var(--t-2); color: var(--tenue); }
 .gr-leyenda i { display: inline-block; width: 14px; height: 3px; border-radius: var(--r-s); margin-right: 4px; vertical-align: middle; }
-.tl-juego { width: 100%; aspect-ratio: 4 / 3; border: 1px solid var(--linea); border-radius: var(--r-m); background: #000; }
+.tl-juego { width: 100%; aspect-ratio: 4 / 3; border: 1px solid var(--linea); border-radius: var(--r-m); background: var(--fondo); }
 .tl-haciendo { display: flex; align-items: center; gap: 8px; color: var(--tenue); font-size: var(--t-3); padding: 20px 0; }
 
 /* ─── el Estudio ─── */
@@ -3693,3 +3693,30 @@ a.arq-celda { color: var(--texto); text-decoration: none; }
 .vg-tabla .n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .estado-chip.aviso { color: var(--aviso); border-color: color-mix(in srgb, var(--aviso) 45%, transparent); }
 .rev-tabla .n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* ─── Archivo (Fragua #320): todo lo generado ─── */
+.ar-barra { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.ar-barra .ar-q { flex: 1 1 260px; min-width: 0; }
+.ar-barra select { max-width: 220px; }
+.ar-fecha { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-2); color: var(--tenue); }
+.ar-grilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 12px; }
+.ar-tarjeta { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 12px; background: var(--panel); border: 1px solid var(--linea); border-radius: var(--r-l); padding: 10px; }
+.ar-tarjeta:hover { border-color: var(--linea-2); }
+.ar-mini { width: 88px; height: 88px; border-radius: var(--r-m); background: var(--panel-2); border: 1px solid var(--linea); display: grid; place-items: center; overflow: hidden; padding: 0; cursor: pointer; }
+.ar-mini img { width: 100%; height: 100%; object-fit: cover; }
+.ar-glifo { font-size: 30px; line-height: 1; }
+.ar-cuerpo { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ar-cab { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.ar-cuerpo h4 { margin: 0; font-size: var(--t-4); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.ar-cuerpo h4:hover { color: var(--acento-texto); }
+.ar-resumen { margin: 0; font-size: var(--t-3); color: var(--texto); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ar-origen { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ar-acc { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.ar-acc a.btn { text-decoration: none; }
+.ar-mas { display: flex; justify-content: center; margin: 16px 0; }
+.ar-detalle { display: flex; flex-direction: column; gap: 10px; }
+.ar-previa { max-width: 100%; max-height: 60vh; border-radius: var(--r-m); align-self: flex-start; }
+audio.ar-previa { width: 100%; }
+.ar-marco { width: 100%; height: 60vh; border: 1px solid var(--linea); border-radius: var(--r-m); background: var(--fondo); }
+.ar-texto { max-height: 55vh; overflow: auto; background: var(--panel-2); border: 1px solid var(--linea); border-radius: var(--r-m); padding: 12px 16px; }
+@media (max-width: 720px) { .ar-tarjeta { grid-template-columns: 64px minmax(0, 1fr); } .ar-mini { width: 64px; height: 64px; } .ar-barra select, .ar-fecha { flex: 1 1 45%; max-width: none; } }

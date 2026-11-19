@@ -144,6 +144,8 @@ export async function correrProgramado(db: Db, id: number, ahora = Date.now()): 
     const informe = r.filter((x) => x.rol === 'asistente').map((x) => x.texto).join('\n\n').trim()
     if (!informe) throw new Error(error ?? 'No devolvió informe')
     db.prepare('UPDATE programados SET ultimo = ?, resultado = ?, error = NULL, proximo = ? WHERE id = ?').run(ahora, informe.slice(0, 20_000), proximo, id)
+    // Al Archivo (Fragua #320): cada informe queda, no solo el último.
+    await import('./archivo.ts').then((x) => x.registrarConProyecto(db, { clave: `programado:${id}:${ahora}`, tipo: 'informe', titulo: p.titulo, origen: 'programado', origenRef: `programado:${id}`, origenTexto: p.pedido, texto: informe, canal: 'Hoy', creadoEn: ahora })).catch(() => null)
     // A Hoy (y de ahí a Telegram o WhatsApp) y, si lo pidió, a su Drive.
     chat.mensajeDeMastropiero(db, chat.conversacionHoy(db).id, `⏰ ${p.titulo}\n\n${informe}`)
     if (p.drive) {

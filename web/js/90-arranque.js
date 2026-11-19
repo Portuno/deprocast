@@ -42,6 +42,7 @@ const VISTAS = {
   revision: { montar: montarRevision, refrescar: () => {} },
   perfil: { montar: montarPerfil, refrescar: () => {} },
   correo: { montar: montarCorreo, refrescar: () => {} },
+  archivo: { montar: montarArchivo, refrescar: () => {} },
   programados: { montar: montarProgramados, refrescar: () => {} },
   agsala: { montar: montarAgSala, refrescar: () => {} },
   agmisiones: { montar: montarAgMisiones, refrescar: () => {} },
@@ -102,7 +103,7 @@ const firmaDeVista = (v) => (FIRMA_VISTA[v] && E ? JSON.stringify(FIRMA_VISTA[v]
  */
 const ESPACIOS = [
   { id: 'menu', nombre: 'Menú', ico: 'house', tecla: 'u', vistas: [['menu', 'Menú general']] },
-  { id: 'hoy', nombre: 'Hoy', ico: 'sun', tecla: 'h', vistas: [['hoy', 'Hoy'], ['correo', 'Correo'], ['informe', 'Informe'], ['directo', 'Directo']] },
+  { id: 'hoy', nombre: 'Hoy', ico: 'sun', tecla: 'h', vistas: [['hoy', 'Hoy'], ['correo', 'Correo'], ['archivo', 'Archivo'], ['informe', 'Informe'], ['directo', 'Directo']] },
   { id: 'chat', nombre: 'Chat', ico: 'message-circle', tecla: 'c', vistas: [['chat', 'Chat']] },
   { id: 'plan', nombre: 'Plan', ico: 'target', tecla: 'p', vistas: [['misiones', 'Misiones'], ['calendario', 'Calendario'], ['linea', 'Línea'], ['mapa', 'Mapa']] },
   { id: 'vida', nombre: 'Vida', ico: 'heart-pulse', tecla: 'v', vistas: [['salud', 'Salud'], ['meditacion', 'Meditación'], ['tudia', 'Tu día'], ['personas', 'Personas'], ['escalas', 'Diario por escalas'], ['compras', 'Compras'], ['reservas', 'Reservas'], ['monedero', 'Monedero'], ['capsulas', 'Cápsulas'], ['jugador', 'Jugador'], ['suenos', 'Sueños']] },
