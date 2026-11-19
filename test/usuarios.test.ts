@@ -157,6 +157,24 @@ describe('la puerta, de punta a punta (con un Deprocast de usuario de verdad)', 
       const h = await hub2.asegurar(1)
       assert.equal(h.pid, pidVivo, 'adoptó el mismo proceso')
       assert.equal(hub2.token, puerta.hub.token, 'mismo token: el proceso sigue aceptando los pedidos')
+
+      // Un proceso que corre con el código de otra versión (un deploy después; en la nube su carpeta se borra y se
+      // queda sin pantalla: «No encontrado» en todo) se renueva con el código del hub nuevo.
+      const { leerRegistro } = await import('../src/cuentas-usuarios/procesos.ts')
+      const ruta = path.join(datos, 'usuarios', 'hub.json')
+      const reg = leerRegistro(ruta)!
+      reg.hijos['1'].script = path.join(datos, 'codigo-viejo', 'src', 'servidor.ts')
+      fs.writeFileSync(ruta, JSON.stringify(reg))
+      hub2.dejar()
+      const hub3 = crearHub({ datos })
+      try {
+        const nuevo = await hub3.asegurar(1)
+        assert.notEqual(nuevo.pid, pidVivo, 'lo renovó')
+        const { vivo } = await import('../src/supervisor.ts')
+        assert.equal(vivo(pidVivo), false, 'el viejo se apagó')
+        assert.ok(leerRegistro(ruta)!.hijos['1'].script?.endsWith(path.join('src', 'servidor.ts')), 'el registro anota con qué código corre')
+        assert.equal((await pedir('/version', { cookie })).status, 200, 'y contesta')
+      } finally { await hub3.pararTodos() }
     } finally { await hub2.pararTodos() }
 
     // Salir: la cookie ya no vale y vuelve a lo del dueño.

@@ -26,7 +26,7 @@ import path from 'node:path'
 import { CABECERA_HUB } from '../acceso.ts'
 import { vivo } from '../supervisor.ts'
 
-export type Hijo = { id: number; puerto: number; pid: number; proc: ChildProcess | null; listo: Promise<void>; listoYa: boolean; desde: number; ultimo: number; activos: number; salio: Promise<void> }
+export type Hijo = { id: number; puerto: number; pid: number; proc: ChildProcess | null; listo: Promise<void>; listoYa: boolean; desde: number; ultimo: number; activos: number; salio: Promise<void>; viejo?: boolean }
 
 export type OpcionesHub = {
   /** Donde van las carpetas: `<datos>/usuarios/<id>/`. */
@@ -43,7 +43,8 @@ export type OpcionesHub = {
   activo?: () => boolean
 }
 
-type Registro = { token: string; hub: number; hijos: Record<string, { pid: number; puerto: number }> }
+/** script: el código con que corre cada proceso (en la nube, la carpeta de ese commit). Sin él, es de antes del registro con versión. */
+type Registro = { token: string; hub: number; hijos: Record<string, { pid: number; puerto: number; script?: string }> }
 
 /** Lo que pasa del entorno del dueño al de un usuario. Todo lo demás (claves, tokens, su calendario) se queda. */
 const PASAN = /^(PATH|Path|PATHEXT|SYSTEMROOT|SystemRoot|WINDIR|windir|COMSPEC|ComSpec|TEMP|TMP|TMPDIR|HOME|USERPROFILE|APPDATA|LOCALAPPDATA|LANG|LC_ALL|TZ|NAN_API_KEY|NAN_BASE_URL|NAN_CADENA_[A-Z_]+|NAN_MIMO_ID|GOOGLE_OAUTH_ID|GOOGLE_OAUTH_SECRETO|MASTRO_MOTOR|MASTRO_EMBED_MODEL|MASTRO_ZONA|MASTRO_COMMIT)$/
@@ -71,6 +72,7 @@ export function crearHub(o: OpcionesHub) {
   const token = previo?.token ?? crypto.randomBytes(32).toString('hex')
   const hijos = new Map<number, Hijo>()
   const prendiendo = new Map<number, Promise<Hijo>>()
+  const renovando = new Map<number, Promise<Hijo>>()
   /** Los que tienen que estar prendidos: si se caen, vuelven. */
   const quieren = new Set<number>()
   const caidas = new Map<number, number>()
@@ -79,7 +81,7 @@ export function crearHub(o: OpcionesHub) {
   const activo = o.activo ?? (() => true)
 
   /** Anota en el registro (este hub es el actual; ese usuario corre en ese proceso, o ya no). */
-  function anotar(id?: number, h?: { pid: number; puerto: number } | null) {
+  function anotar(id?: number, h?: { pid: number; puerto: number; script?: string } | null) {
     try {
       const r: Registro = leerRegistro(registro) ?? { token, hub: process.pid, hijos: {} }
       r.token = token
@@ -141,7 +143,7 @@ export function crearHub(o: OpcionesHub) {
     h = { id, puerto, pid, proc, listo, listoYa: false, desde: Date.now(), ultimo: Date.now(), activos: 0, salio }
     listo.then(() => { h.listoYa = true }, () => { try { proc.kill() } catch { /* ya no está */ } })
     hijos.set(id, h)
-    anotar(id, { pid, puerto })
+    anotar(id, { pid, puerto, script })
     return h
   }
 
@@ -152,7 +154,9 @@ export function crearHub(o: OpcionesHub) {
     if (hijos.has(id)) return hijos.get(id)!
     let fin = () => {}
     const salio = new Promise<void>((ok) => (fin = ok))
-    const h: Hijo = { id, puerto: e.puerto, pid: e.pid, proc: null, listo: Promise.resolve(), listoYa: true, desde: 0, ultimo: Date.now(), activos: 0, salio }
+    // Si corre con el código de otra versión (un deploy después), se adopta para no cortar, pero se renueva en cuanto
+    // este hub manda: en la nube, la carpeta de esa versión se borra en algún deploy siguiente y se queda sin pantalla.
+    const h: Hijo = { id, puerto: e.puerto, pid: e.pid, proc: null, listo: Promise.resolve(), listoYa: true, desde: 0, ultimo: Date.now(), activos: 0, salio, viejo: e.script !== script }
     hijos.set(id, h)
     // No es hijo de este proceso: se nota que terminó mirándolo cada tanto.
     const vigia = setInterval(() => { if (!vivo(h.pid)) { clearInterval(vigia); alTerminar(h, 'adoptado'); fin() } }, 3000)
@@ -165,9 +169,28 @@ export function crearHub(o: OpcionesHub) {
     quieren.add(id)
     let h = hijos.get(id)
     if (!h || !vivo(h.pid)) h = (await adoptar(id)) ?? (await prenderUna(id))
+    if (h.viejo && activo() && !apagando) h = await renovar(h)
     h.ultimo = Date.now()
     await h.listo
     return h
+  }
+
+  /** Lo cambia por uno con el código de este hub: apaga el viejo y prende el nuevo (unos segundos sin contestar). */
+  async function renovar(h: Hijo): Promise<Hijo> {
+    const ya = renovando.get(h.id)
+    if (ya) return ya
+    const p = (async () => {
+      process.stdout.write(`  [u${h.id}] corría con el código de otra versión: lo renuevo con esta
+`)
+      hijos.delete(h.id)
+      anotar(h.id, null)
+      try { process.kill(h.pid) } catch { /* ya no está */ }
+      const t0 = Date.now()
+      while (vivo(h.pid) && Date.now() - t0 < 10_000) await new Promise((ok) => setTimeout(ok, 200))
+      return prenderUna(h.id)
+    })().finally(() => renovando.delete(h.id))
+    renovando.set(h.id, p)
+    return p
   }
 
   /** Pasa el pedido (tal cual, en streaming: subidas grandes y respuestas que van llegando) al Deprocast de ese usuario. */

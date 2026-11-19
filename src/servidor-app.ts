@@ -2632,6 +2632,14 @@ const servidor = http.createServer(async (req, res) => {
     return
   }
   const archivo = path.join(WEB, url.pathname === '/' ? 'index.html' : path.normalize(url.pathname))
+  // El Deprocast de un usuario que se quedó sin pantalla (la carpeta de su versión se borró en un deploy): se reinicia
+  // solo y el hub lo vuelve a prender con el código de ahora. Mientras, «actualizando», no «No encontrado».
+  if (enUsuario() && !fs.existsSync(path.join(WEB, 'index.html'))) {
+    console.error('  la carpeta de la pantalla ya no está (deploy nuevo): me reinicio con el código de ahora')
+    res.writeHead(503, { 'content-type': 'text/plain; charset=utf-8', 'retry-after': '15' }).end('Tu Deprocast se está actualizando: probá de nuevo en unos segundos.')
+    setTimeout(() => process.exit(75), 300).unref()
+    return
+  }
   if (!archivo.startsWith(WEB) || !fs.existsSync(archivo) || fs.statSync(archivo).isDirectory()) {
     return void res.writeHead(404).end('No encontrado')
   }
