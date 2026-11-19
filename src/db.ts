@@ -1207,6 +1207,55 @@ CREATE TABLE IF NOT EXISTS posicion_respuestas (
   UNIQUE (pregunta_id, modelo, semana)
 );
 CREATE INDEX IF NOT EXISTS posicion_respuestas_entidad ON posicion_respuestas (entidad_id, semana);
+-- La ficha v2 (Fragua #302): un molde para empresa, proyecto y lugar. La historia de cada dato (cuándo cambió, de qué a
+-- qué y de dónde salió); los órganos y el equipo, las cuentas anuales y la cartera de clientes, leídos de fuentes (cada
+-- fila con su link) y no escritos a mano.
+CREATE TABLE IF NOT EXISTS ficha_historia (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entidad_id INTEGER NOT NULL,
+  campo TEXT NOT NULL,
+  antes TEXT,
+  despues TEXT,
+  fuente TEXT,                         -- «a mano», «chat», un link o «pieza:<id>»
+  en INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ficha_historia_entidad ON ficha_historia (entidad_id, en);
+CREATE TABLE IF NOT EXISTS ficha_personas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entidad_id INTEGER NOT NULL,
+  nombre TEXT NOT NULL,
+  rol TEXT,                            -- administrador único, consejero, director, apoderado, socio, equipo…
+  firma INTEGER NOT NULL DEFAULT 0,    -- puede firmar por la empresa (administrador, apoderado)
+  persona_id INTEGER,                  -- si es alguien de su grafo
+  fuente TEXT,
+  fecha TEXT,                          -- de cuándo es el dato (el BORME, el perfil)
+  vigente INTEGER NOT NULL DEFAULT 1,
+  en INTEGER NOT NULL,
+  UNIQUE (entidad_id, nombre, rol)
+);
+CREATE TABLE IF NOT EXISTS ficha_cuentas (
+  entidad_id INTEGER NOT NULL,
+  ejercicio INTEGER NOT NULL,
+  ingresos REAL,
+  resultado REAL,
+  patrimonio REAL,
+  activo REAL,
+  empleados INTEGER,
+  depositadas TEXT,                    -- AAAA-MM-DD: cuándo se depositaron en el Registro Mercantil
+  fuente TEXT,
+  en INTEGER NOT NULL,
+  PRIMARY KEY (entidad_id, ejercicio)
+);
+CREATE TABLE IF NOT EXISTS ficha_clientes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entidad_id INTEGER NOT NULL,
+  nombre TEXT NOT NULL,
+  cliente_id INTEGER,                  -- si es una entidad de su grafo
+  fuente TEXT,
+  fecha TEXT,
+  en INTEGER NOT NULL,
+  UNIQUE (entidad_id, nombre)
+);
 -- La Criba del 72 (plan v36): 72 frases en 36 pares de polos opuestos; él las vota del 1 al 6.
 CREATE TABLE IF NOT EXISTS cribas72 (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

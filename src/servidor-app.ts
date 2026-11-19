@@ -784,6 +784,20 @@ const rutas: [string, RegExp, Ruta][] = [
   // La ficha de empresa (Fragua #164).
   ['GET', /^\/api\/entidades\/(\d+)\/empresa$/, async (_, [e]) => (await import('./empresas.ts')).leerEmpresa(db, id(e))],
   ['POST', /^\/api\/entidades\/(\d+)\/empresa$/, async (b, [e]) => (await import('./empresas.ts')).guardarEmpresa(db, id(e), b)],
+  // La ficha v2 (Fragua #302): un molde para empresa, proyecto y lugar; editarla, sumar órganos o clientes, investigarla.
+  ['GET', /^\/api\/entidades\/(\d+)\/ficha$/, async (_, [e]) => (await import('./fichas.ts')).fichaDe(db, id(e))],
+  ['POST', /^\/api\/entidades\/(\d+)\/ficha$/, async (b, [e]) => {
+    const f = await import('./fichas.ts')
+    const n = id(e)
+    if (b.datos) await f.guardarDatos(db, n, b.datos, { fuente: 'a mano' })
+    if (b.persona?.nombre) f.anotarPersona(db, n, { nombre: String(b.persona.nombre), rol: b.persona.rol ?? null, vigente: b.persona.vigente !== false, fuente: 'a mano' })
+    if (b.cliente) f.anotarCliente(db, n, { nombre: String(b.cliente), fuente: 'a mano' })
+    if (b.quitarPersona) { const p = db.prepare('SELECT nombre, rol FROM ficha_personas WHERE id = ? AND entidad_id = ?').get(Number(b.quitarPersona), n) as { nombre: string; rol: string | null } | undefined; if (p) f.anotarPersona(db, n, { ...p, vigente: false, fuente: 'a mano' }) }
+    if (b.quitarCliente) { const c = db.prepare('SELECT nombre FROM ficha_clientes WHERE id = ? AND entidad_id = ?').get(Number(b.quitarCliente), n) as { nombre: string } | undefined; if (c) { db.prepare('DELETE FROM ficha_clientes WHERE id = ?').run(Number(b.quitarCliente)); f.anotarCambios(db, n, { [`cliente:${c.nombre}`]: 'sí' }, {}, 'a mano') } }
+    await f.alCorpus(db, n)
+    return f.fichaDe(db, n)
+  }],
+  ['POST', /^\/api\/entidades\/(\d+)\/ficha\/investigar$/, async (_, [e]) => (await import('./fichas.ts')).investigarFicha(db, id(e))],
   ['POST', /^\/api\/empresas$/, async (b) => (await import('./empresas.ts')).ficharEmpresa(db, String(b.nombre ?? ''), b.datos ?? {})],
   ['POST', /^\/api\/entidades\/(\d+)\/acepciones$/, async (_, [e]) => ({ acepciones: await acepciones(db, id(e)) })],
   ['POST', /^\/api\/entidades\/(\d+)\/separar$/, (b, [e]) => separarEntidad(db, id(e), { nombre: String(b.nombre ?? ''), tipo: b.tipo, notas: b.notas ?? null, piezas: (Array.isArray(b.piezas) ? b.piezas : []).map(Number) })],

@@ -2023,6 +2023,52 @@ ${a.detalle ?? ''}`)
     resumen: (a) => `actualizó la ficha de ${a.nombre}`,
   },
   {
+    nombre: 'ver_ficha', familia: 'lectura',
+    descripcion: 'La ficha v2 de una empresa, proyecto o lugar: sus datos, órganos y equipo (quién firma), cuentas anuales con la solvencia que sale de ellas, clientes, cruces de esos clientes con sus proyectos (⚠ si es competencia o conflicto), su gente que aparece ahí con la última vez que se juntaron, y la historia de cada dato. Para «¿qué sé de X?», «¿quién firma en X?».',
+    parametros: S({ entidad: str('La empresa, proyecto o lugar (nombre o id)') }, ['entidad']),
+    ejecutar: async (a, { db }) => {
+      const id = /^\d+$/.test(String(a.entidad ?? '')) ? Number(a.entidad) : (await import('../personajes.ts')).entidadPorNombre(db, String(a.entidad ?? ''))
+      if (!id) return { no_encontrada: true, aviso: `No encuentro «${a.entidad}» entre tus entidades.` }
+      const f = (await import('../fichas.ts')).fichaDe(db, id)
+      return { ...f, historia: f.historia.slice(0, 15), vinculos: f.vinculos.map((v) => ({ nombre: v.nombre, rol: v.rol, es_su_gente: v.suGente, ultimo_contacto: v.ultimoContacto, ultima_vez_juntos: v.ultimaPieza, piezas: v.piezas })) }
+    },
+    resumen: (a) => `miró la ficha de ${recorte(String(a.entidad), 40)}`,
+  },
+  {
+    nombre: 'editar_ficha', familia: 'accion',
+    descripcion: 'Cambia la ficha v2 de una empresa, proyecto o lugar con lo que él cuenta (queda en la historia como «chat»): datos (empresa: razonSocial, cif, formaJuridica, constituida, actividad, direccion, web, redes, telefono, email; proyecto: queHace, estado, web, redes, direccion, email; lugar: direccion, horario, telefono, web, redes), una persona de los órganos o el equipo (vigente=false si dejó el cargo), un cliente, o las cuentas de un ejercicio. Para criterios, puntaje y cribado de una empresa, ficha_empresa.',
+    parametros: S({
+      entidad: str('La empresa, proyecto o lugar (nombre o id)'), datos: { type: 'object', description: 'campo → valor' },
+      persona: { type: 'object', properties: { nombre: { type: 'string' }, rol: { type: 'string' }, vigente: { type: 'boolean' } }, required: ['nombre'] },
+      cliente: str('Un cliente suyo'), cuentas: { type: 'object', properties: { ejercicio: { type: 'integer' }, ingresos: { type: 'number' }, resultado: { type: 'number' }, patrimonio: { type: 'number' }, activo: { type: 'number' }, empleados: { type: 'integer' }, depositadas: { type: 'string' } }, required: ['ejercicio'] },
+    }, ['entidad']),
+    ejecutar: async (a, { db }) => {
+      const id = /^\d+$/.test(String(a.entidad ?? '')) ? Number(a.entidad) : (await import('../personajes.ts')).entidadPorNombre(db, String(a.entidad ?? ''))
+      if (!id) return { no_encontrada: true, aviso: `No encuentro «${a.entidad}» entre tus entidades: creala primero (ficha_empresa para una empresa).` }
+      const f = await import('../fichas.ts')
+      if (a.datos && typeof a.datos === 'object') await f.guardarDatos(db, id, a.datos, { fuente: 'chat' })
+      if (a.persona?.nombre) f.anotarPersona(db, id, { nombre: a.persona.nombre, rol: a.persona.rol, vigente: a.persona.vigente !== false, fuente: 'chat' })
+      if (a.cliente) f.anotarCliente(db, id, { nombre: String(a.cliente), fuente: 'chat' })
+      if (a.cuentas?.ejercicio) f.anotarCuentas(db, id, { ...a.cuentas, fuente: 'chat' })
+      await f.alCorpus(db, id)
+      const x = f.fichaDe(db, id)
+      return { entidad: x.entidad.nombre, datos: Object.fromEntries(x.campos.filter((c) => c.valor != null).map((c) => [c.k, c.valor])), personas: x.personas.length, clientes: x.clientes.length, cruces: x.cruces, ultimos_cambios: x.historia.slice(0, 5) }
+    },
+    resumen: (a) => `actualizó la ficha de ${recorte(String(a.entidad), 40)}`,
+  },
+  {
+    nombre: 'investigar_ficha', familia: 'accion',
+    descripcion: 'Investiga la ficha de una empresa, proyecto o lugar en fuentes públicas (registros como el BORME, su web y sus páginas de clientes o equipo, prensa, perfiles que muestra un buscador) y en su corpus: llena los datos vacíos, suma órganos y equipo, cuentas anuales y clientes, cada cosa con su link; lo que no tiene fuente se descarta. Lo que él cargó no se pisa: si una fuente dice otra cosa, vuelve como discrepancia para que decida. Tarda unos segundos.',
+    parametros: S({ entidad: str('La empresa, proyecto o lugar (nombre o id)') }, ['entidad']),
+    ejecutar: async (a, { db }) => {
+      const id = /^\d+$/.test(String(a.entidad ?? '')) ? Number(a.entidad) : (await import('../personajes.ts')).entidadPorNombre(db, String(a.entidad ?? ''))
+      if (!id) return { no_encontrada: true, aviso: `No encuentro «${a.entidad}» entre tus entidades.` }
+      const { ficha, ...r } = await (await import('../fichas.ts')).investigarFicha(db, id)
+      return { ...r, solvencia: ficha.solvencia, cruces: ficha.cruces }
+    },
+    resumen: (a, r: any) => `investigó la ficha de ${recorte(String(a.entidad), 40)}${r?.fuentes ? ` (${r.fuentes} fuentes)` : ''}`,
+  },
+  {
     nombre: 'abrir_ficha_idea', familia: 'accion',
     descripcion: 'Cuando tira una idea grande y vaga («clonar Revolut», «quiero hacer todo eso»), en el mismo turno y sin que lo pida: la ficha de idea con cuatro campos (qué es; qué parte es código y qué parte es permiso o licencia; qué se puede probar en 7 días con lo que ya tiene; quién es el primer cliente o usuario real). Queda como side quest que vence en 7 días, atada al proyecto si lo hay. Mostrale la ficha en tu respuesta.',
     parametros: S({ idea: str('La idea, en una línea'), que_es: str('Qué es, concreto'), codigo_y_permiso: str('Qué parte es código y qué parte es licencia o permiso'), prueba_7_dias: str('Lo que se puede probar en 7 días con lo que ya tiene: verificable'), primer_cliente: str('El primer cliente o usuario real (con nombre si lo hay)'), proyecto: str('El proyecto al que pertenece, si hay') }, ['idea', 'prueba_7_dias']),
@@ -2898,10 +2944,10 @@ export const GRUPOS: Record<string, string[]> = {
   salud: ['crear_meditacion', 'ver_meditacion', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'ver_actividad', 'ver_uso_telefono', 'estimar_sueno', 'marcar_distracciones'],
   plata: ['ver_finanzas', 'fijar_meta_mes', 'ver_compras', 'marcar_compras', 'ver_monedero', 'asentar_en_monedero', 'atribuir_ingreso', 'ajustar_monedero', 'ver_mercados', 'anotar_cuotas', 'anotar_encuestas'],
   agenda: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'reservar', 'ver_reservas', 'actualizar_reserva', 'recordar_en_telefono', 'ver_recorrido', 'buscar_por_lugar', 'guardar_lugar', 'privacidad_recorrido', 'recorrido_rango', 'ver_escala'],
-  gente: ['buscar_contacto', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ficha_empresa'],
+  gente: ['buscar_contacto', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ficha_empresa', 'ver_ficha', 'editar_ficha', 'investigar_ficha'],
   aprender: ['crear_aprendizaje', 'crear_dominio', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma'],
   mente: ['responder_pregunta', 'votar_criba', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_hipotesis', 'probar_hipotesis', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas', 'audio_de_voz', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo'],
-  clientes: ['ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'extraccion_cliente', 'plan_extraccion', 'correo_extraccion', 'hoja_citable', 'ver_posicion_ias', 'pregunta_posicion_ias', 'medir_posicion_ias'],
+  clientes: ['ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'extraccion_cliente', 'plan_extraccion', 'correo_extraccion', 'hoja_citable', 'ver_ficha', 'investigar_ficha', 'ver_posicion_ias', 'pregunta_posicion_ias', 'medir_posicion_ias'],
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado', 'borrar_programado'],
   correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'marcar_correo_atendido', 'buscar_contacto'],
   drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'borrar_de_drive', 'barrer_documentos_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],

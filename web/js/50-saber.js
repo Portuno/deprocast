@@ -798,7 +798,8 @@ async function verEntidad(id) {
       ${e.notas ? `<div class="notas">${esc(e.notas)}</div>` : ''}
       <div class="fila" style="margin:12px 0 4px"><button class="btn btn-chico btn-primario" id="ent-preguntar">☿ Preguntarle a Mastropiero</button>${e.tipo === 'proyecto' ? '<button class="btn btn-chico" id="ent-espacio" title="Todo el proyecto en un lugar, y su equipo de agentes">🧪 Espacio y sandbox</button>' : ''}<button class="btn btn-chico" id="ent-grafo" title="El grafo de todo lo que tu archivo dice de esto">☍ Su grafo</button>${['proyecto', 'persona', 'empresa'].includes(e.tipo) ? '<button class="btn btn-chico" id="ent-hoja" title="Su fuente canónica: lo que una IA debería citar cuando alguien pregunte (solo con lo que Deprocast sabe de verdad)">📄 Hoja citable</button>' : ''}<button class="btn btn-chico" id="ent-unir" title="Es la misma que otra entidad: juntarlas en una">Unir con…</button>
         ${e.meta?.operador ? '<button class="btn btn-chico" id="ent-ficha-jugador">Tu ficha de jugador</button>' : e.tipo === 'persona' ? '<button class="btn btn-chico" id="ent-soy-yo" title="Marcar esta persona como vos: tu ficha de jugador y la suya pasan a ser una">Soy yo</button>' : ''}</div>
-      ${e.tipo === 'empresa' ? '<div id="ent-empresa" class="empresa-ficha"></div>' : ''}
+      ${['empresa', 'proyecto', 'lugar'].includes(e.tipo) ? '<div id="ent-ficha2" class="ficha2"></div>' : ''}
+      ${e.tipo === 'empresa' ? '<details class="empresa-det"><summary class="sub">Puntaje y cribado</summary><div id="ent-empresa" class="empresa-ficha"></div></details>' : ''}
       <div class="tabs chicas" id="ent-tabs">${[['corpus', 'Corpus'], ['ejes', 'Ejes'], ['misiones', 'Misiones'], ['historia', 'Historia'], ['inventario', 'Inventario']].map(([k, n]) => `<button data-etab="${k}" class="${k === entTab ? 'on' : ''}">${n}</button>`).join('')}</div>
       <div id="ent-ficha"></div>
       <div id="ent-corpus" ${entTab === 'corpus' ? '' : 'hidden'}>
@@ -819,6 +820,7 @@ async function verEntidad(id) {
     $$('#ent-tabs [data-etab]').forEach((b) => (b.onclick = () => { entTab = b.dataset.etab; pintarTab() }))
     pintarTab()
     if (e.tipo === 'empresa') pintarEmpresa(e.id)
+    if (['empresa', 'proyecto', 'lugar'].includes(e.tipo)) pintarFicha2(e.id)
     const soy = $('#ent-soy-yo')
     if (soy) soy.onclick = async () => {
       if (!(await confirmar(`¿${e.nombre} sos vos?`, { detalle: 'Su ficha y la tuya de jugador pasan a ser una sola.', si: 'Sí, soy yo' }))) return

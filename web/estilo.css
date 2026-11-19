@@ -3753,3 +3753,27 @@ audio.ar-previa { width: 100%; }
 .po-resp.no .po-veredicto { color: var(--tenue); }
 .po-frase { margin: 8px 0 4px; font-size: var(--t-3); }
 .po-crudo { max-height: 320px; overflow: auto; font-size: var(--t-3); background: var(--panel-2); border-radius: var(--r-m); padding: 8px 12px; }
+
+/* ─── Ficha v2 (Fragua 302): empresa, proyecto y lugar ─── */
+.ficha2 { display: grid; gap: var(--e-2); margin: var(--e-3) 0; padding: var(--e-4); border: 1px solid var(--linea); border-radius: var(--r-l); background: var(--panel-2); }
+.f2-cab { display: flex; flex-wrap: wrap; align-items: center; gap: var(--e-2); }
+.f2-cab .sub { margin: 0 var(--e-2) 0 0; }
+.f2-h { margin: var(--e-3) 0 0; font-size: var(--t-2); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--tenue); }
+.f2-datos { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: var(--e-2) var(--e-3); }
+.f2-datos .fila { grid-column: 1 / -1; }
+.f2-datos-ro { display: flex; flex-wrap: wrap; gap: var(--e-2) var(--e-4); font-size: var(--t-3); }
+.f2-fuente { font: var(--t-1) var(--mono); color: var(--debil); text-decoration: none; border: 1px solid var(--linea); border-radius: var(--r-s); padding: 0 4px; white-space: nowrap; }
+a.f2-fuente:hover { color: var(--acento-texto); border-color: var(--acento); }
+.f2-lista { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: var(--t-3); }
+.f2-lista li { line-height: 1.6; }
+.f2-agregar { display: flex; flex-wrap: wrap; gap: 6px; }
+.f2-agregar .campo-suelto { flex: 1 1 160px; min-width: 0; }
+.f2-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.f2-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 8px; border: 1px solid var(--linea); border-radius: var(--r-pill); font-size: var(--t-3); background: var(--panel); }
+.f2-cruces { margin: 0; padding-left: 18px; font-size: var(--t-3); }
+.f2-cruces li.alerta { color: var(--mal); }
+.f2-tabla { overflow-x: auto; }
+.f2-tabla td, .f2-tabla th { white-space: nowrap; }
+.f2-solvencia { margin: 4px 0 0; }
+.f2-historia summary, .empresa-det summary { cursor: pointer; }
+.empresa-det { margin: var(--e-2) 0; }

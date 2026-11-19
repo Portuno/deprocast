@@ -9,6 +9,7 @@
  */
 import type { Db } from './db.ts'
 import { anotarConexion, asegurarEntidad, leerEntidad } from './entidades.ts'
+import { alCorpus, anotarCambios } from './fichas.ts'
 
 export type Criterio = { nombre: string; peso: number; valor: number | null; nota?: string | null }
 export type Empresa = {
@@ -50,9 +51,9 @@ export function leerEmpresa(db: Db, id: number): Empresa & { id: number; nombre:
 }
 
 /** Cambia lo que venga (lo que no viene, queda) y recalcula el puntaje. */
-export function guardarEmpresa(db: Db, id: number, c: Partial<Omit<Empresa, 'puntaje' | 'actualizada' | 'cribado'>> & { cribado?: Partial<Empresa['cribado']>; criterio?: { nombre: string; valor?: number | null; peso?: number; nota?: string | null } }, ahora = Date.now()) {
+export function guardarEmpresa(db: Db, id: number, c: Partial<Omit<Empresa, 'puntaje' | 'actualizada' | 'cribado'>> & { cribado?: Partial<Empresa['cribado']>; criterio?: { nombre: string; valor?: number | null; peso?: number; nota?: string | null } }, ahora = Date.now(), fuente: string | null = 'a mano') {
   const actual = leerEmpresa(db, id)
-  const f: Empresa = { ...actual }
+  const f: Empresa = { ...actual, redes: [...actual.redes], criterios: actual.criterios.map((x) => ({ ...x })), cribado: { ...actual.cribado } }
   if (c.razonSocial !== undefined) f.razonSocial = texto(c.razonSocial, 200)
   if (c.cif !== undefined) f.cif = texto(c.cif, 20)?.toUpperCase().replace(/[\s-]/g, '') ?? null
   if (c.direccion !== undefined) f.direccion = texto(c.direccion, 300)
@@ -75,6 +76,9 @@ export function guardarEmpresa(db: Db, id: number, c: Partial<Omit<Empresa, 'pun
   f.actualizada = ahora
   const { id: _i, nombre: _n, maps: _m, ...guardar } = f as any
   db.prepare(`UPDATE entidades SET meta = json_set(COALESCE(meta, '{}'), '$.empresa', json(?)) WHERE id = ?`).run(JSON.stringify(guardar), id)
+  // La historia de cada dato (Fragua #302): qué cambió, de qué a qué y de dónde salió.
+  const vista = (x: Empresa) => ({ razonSocial: x.razonSocial, cif: x.cif, direccion: x.direccion, web: x.web, redes: x.redes, cotiza: x.cotiza?.ticker ?? null, puntaje: x.puntaje, autopuntaje: x.autopuntaje?.valor ?? null, 'cribado público': x.cribado.publico, 'cribado privado': x.cribado.privado, 'cribado personal': x.cribado.personal, ...Object.fromEntries(x.criterios.map((c) => [`criterio · ${c.nombre}`, c.valor])) })
+  if (anotarCambios(db, id, vista(actual), vista(f), fuente, ahora)) void alCorpus(db, id, ahora)
   return leerEmpresa(db, id)
 }
 
