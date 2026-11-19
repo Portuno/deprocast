@@ -2864,7 +2864,39 @@ ${a.detalle ?? ''}`)
   {
     nombre: 'ver_cuentas', familia: 'lectura', descripcion: 'Sus cuentas (red, usuario, modo: lectura, redacta o libre) y las publicaciones en cola o publicadas.',
     parametros: S({}),
-    ejecutar: (_, { db }) => ({ cuentas: listarCuentas(db).map((c) => ({ id: c.id, red: c.red, usuario: c.usuario, modo: c.modo, conector: c.conector })), cola: listarPublicaciones(db, { estados: ['borrador', 'aprobada'], limite: 20 }).map((p) => ({ id: p.id, cuenta: p.cuentaId, estado: p.estado, texto: recorte(p.texto, 200) })) }),
+    ejecutar: (_, { db }) => ({ cuentas: listarCuentas(db).map((c) => ({ id: c.id, red: c.red, usuario: c.usuario, modo: c.modo, conector: c.conector, de: c.agenteId ? `agente ${c.agenteId}` : 'suya', conexion: c.conectorEstado ?? undefined, error: c.conectorError ?? undefined, token: c.credencial.cargada ? c.credencial.pista : undefined })), cola: listarPublicaciones(db, { estados: ['borrador', 'aprobada'], limite: 20 }).map((p) => ({ id: p.id, cuenta: p.cuentaId, estado: p.estado, texto: recorte(p.texto, 200) })) }),
+  },
+  {
+    nombre: 'cuenta_de_agente', familia: 'accion',
+    descripcion: 'Le da (o le cambia) a un agente de la liga una cuenta propia en una red: queda con su nombre y escribe con su voz (sus instrucciones y el Markdown de la cuenta), presentándose como agente, nunca como él. Modo por defecto «redacta» (borradores para su ok). Abrir la cuenta en la red es a mano (teléfono y verificación); los tokens se cargan solo en la pantalla (Afuera → Cuentas), nunca por chat.',
+    parametros: S({ agente: str('id o nombre del agente'), red: str('La red (LinkedIn, Bluesky, Mastodon, X…)'), usuario: str('El usuario de la cuenta, ya creada'), cuenta: int('id de una cuenta que ya existe, para pasársela'), modo: str('Modo', { enum: ['lectura', 'redacta', 'libre'] }) }, ['agente']),
+    ejecutar: async (a, { db }) => {
+      const c = await import('../cuentas.ts')
+      const previa = a.cuenta ? c.leerCuenta(db, Number(a.cuenta)) : null
+      if (a.cuenta && !previa) return { error: `No existe la cuenta ${a.cuenta}` }
+      if (!previa && (!a.red || !a.usuario)) return { error: 'Falta la red y el usuario de la cuenta (o el id de una que ya exista)' }
+      const x = c.guardarCuenta(db, { id: previa?.id, red: previa?.red ?? a.red, usuario: previa?.usuario ?? a.usuario, modo: a.modo ?? previa?.modo ?? 'redacta', conector: previa?.conector ?? 'manual', agente: a.agente })
+      return { id: x.id, red: x.red, usuario: x.usuario, nombre: x.nombre, de: x.agenteId, modo: x.modo, falta: x.conector === 'manual' ? 'Para que publique sola: elegir el conector y cargar el token en Afuera → Cuentas.' : undefined }
+    },
+    resumen: (a) => `le dio una cuenta a ${a.agente}`,
+  },
+  {
+    nombre: 'registro_de_publicaciones', familia: 'lectura',
+    descripcion: 'Quién publicó qué y desde qué cuenta: sus cuentas y las de los agentes, quién lo aprobó (él, Mastropiero o el agente) y por dónde salió (a mano o Deprocast por la API), con el link.',
+    parametros: S({ cuenta: int('id de una cuenta'), agente: str('id o nombre de un agente; «yo» para las suyas'), limite: int('Cuántas (máx. 50)') }),
+    ejecutar: async (a, { db }) => (await import('../cuentas.ts')).registro(db, { cuentaId: a.cuenta, agente: a.agente === 'yo' ? null : a.agente ? (leer(db, a.agente)?.id ?? a.agente) : undefined, limite: Math.min(a.limite ?? 20, 50) }).map((x) => ({ ...x, texto: recorte(x.texto, 200), publicadaEn: new Date(x.publicadaEn).toLocaleString('es-AR') })),
+    resumen: (_, r) => `miró el registro de publicaciones → ${Array.isArray(r) ? r.length : 0}`,
+  },
+  {
+    nombre: 'verificar_cuentas', familia: 'accion',
+    descripcion: 'Revisa ya que sus cuentas de redes con token sigan conectadas (sin publicar nada). Dice cuáles se cayeron o no tienen token.',
+    parametros: S({}),
+    ejecutar: async (_, { db }) => {
+      const c = await import('../cuentas.ts')
+      const r = await c.verificarCuentas(db)
+      return { revisadas: r.revisadas, estado: c.listarCuentas(db).filter((x) => x.conector && c.CAMPOS_CONECTOR[x.conector]).map((x) => ({ red: x.red, usuario: x.usuario, conexion: x.conectorEstado, error: x.conectorError ?? undefined })) }
+    },
+    resumen: (_, r: any) => `revisó ${r?.revisadas ?? 0} cuentas de redes`,
   },
   {
     nombre: 'redactar_publicaciones', familia: 'accion', descripcion: 'Redacta publicaciones en su voz para una de sus cuentas. En modo «redacta» quedan como borrador para su ok; en «libre» se programan solas. Nunca en cuentas de lectura.',
@@ -2985,7 +3017,7 @@ export const GRUPOS: Record<string, string[]> = {
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus', 'ver_suenos_noche'],
   mapamundi: ['ver_mapamundi', 'disputar'],
   observatorio: ['seguir_tema', 'ver_observatorio', 'crear_campana', 'armar_campana', 'ver_posicion_ias', 'pregunta_posicion_ias', 'medir_posicion_ias'],
-  crear: ['armar_pdf', 'armar_presentacion', 'buscar_generados', 'reenviar_generado', 'difundir_idea', 'ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
+  crear: ['armar_pdf', 'armar_presentacion', 'buscar_generados', 'reenviar_generado', 'difundir_idea', 'ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'cuenta_de_agente', 'registro_de_publicaciones', 'verificar_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
 
 /** Los grupos que el mensaje ya anuncia (para no gastar una vuelta pidiéndolos). */

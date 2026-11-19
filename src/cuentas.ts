@@ -12,6 +12,9 @@ import path from 'node:path'
 import { json, resolverRuta, type Db } from './db.ts'
 import { memoriaParaPrompt } from './memoria.ts'
 import { pedirJson } from './modelo.ts'
+import { CONECTORES_API, ErrorRed, type Credencial } from './redes-conectores.ts'
+import { abrirSello, pista, sellar } from './secretos.ts'
+import { alias as aliasAgente, leer as leerAgenteLiga } from './roster.ts'
 
 export const MODOS = ['lectura', 'redacta', 'libre'] as const
 export type Modo = (typeof MODOS)[number]
@@ -22,11 +25,18 @@ export type Cuenta = {
   id: number; red: string; nombre: string | null; usuario: string; correo: string | null
   modo: Modo; conector: string | null; reglas: Reglas; oficio: Oficio | null; cupos: Cupo[]
   contexto: string | null; activa: boolean; creadaEn: number
+  /** De quién es (Fragua #224): un agente de la liga, o null si es suya. */
+  agenteId: string | null
+  /** La credencial nunca sale: si hay una cargada, sus últimos 4 caracteres; y si se pudo abrir con la clave de este servidor. */
+  credencial: { cargada: boolean; pista: string | null; legible: boolean }
+  /** Si el conector anda: ok, caido (el token venció o lo revocaron), sin_token; null = sin verificar todavía. */
+  conectorEstado: 'ok' | 'caido' | 'sin_token' | null; conectorError: string | null; conectorVisto: number | null
 }
 export type Agente = Cuenta & { markdown: string }
 export type Publicacion = {
   id: number; cuentaId: number; texto: string; tipo: string | null; estado: 'borrador' | 'aprobada' | 'publicada' | 'descartada' | 'fallo'
   programadaPara: number | null; publicadaEn: number | null; url: string | null; origen: string; error: string | null; creadaEn: number
+  aprobadaPor: string | null; publicadaPor: string | null
 }
 
 export const REDES: { id: string; nombre: string; oficio: Oficio }[] = [
@@ -35,6 +45,7 @@ export const REDES: { id: string; nombre: string; oficio: Oficio }[] = [
   { id: 'facebook', nombre: 'Facebook', oficio: 'operador' },
   { id: 'reddit', nombre: 'Reddit', oficio: 'operador' },
   { id: 'bluesky', nombre: 'Bluesky', oficio: 'operador' },
+  { id: 'mastodon', nombre: 'Mastodon', oficio: 'operador' },
   { id: 'instagram', nombre: 'Instagram', oficio: 'creador' },
   { id: 'tiktok', nombre: 'TikTok', oficio: 'creador' },
 ]
@@ -79,10 +90,14 @@ const deCuenta = (r: any): Cuenta => ({
   id: r.id, red: r.red, nombre: r.nombre ?? null, usuario: r.usuario, correo: r.correo ?? null, modo: r.modo, conector: r.conector,
   reglas: json(r.reglas, {}), oficio: r.oficio === 'operador' || r.oficio === 'creador' ? r.oficio : null,
   cupos: normalizarCupos(json(r.cupos, [])), contexto: r.contexto ?? null, activa: r.activa === 1, creadaEn: r.creada_en,
+  agenteId: r.agente_id ?? null,
+  credencial: (() => { const d = r.credencial ? abrirSello(r.credencial) : null; return { cargada: !!r.credencial, pista: pista(d), legible: !!d } })(),
+  conectorEstado: ['ok', 'caido', 'sin_token'].includes(r.conector_estado) ? r.conector_estado : null, conectorError: r.conector_error ?? null, conectorVisto: r.conector_visto ?? null,
 })
 const dePub = (r: any): Publicacion => ({
   id: r.id, cuentaId: r.cuenta_id, texto: r.texto, tipo: r.tipo ?? null, estado: r.estado, programadaPara: r.programada_para,
   publicadaEn: r.publicada_en, url: r.url, origen: r.origen, error: r.error, creadaEn: r.creada_en,
+  aprobadaPor: r.aprobada_por ?? null, publicadaPor: r.publicada_por ?? null,
 })
 
 /** Carpeta de los Markdown. Con la base en memoria (tests) cae en un temporal, salvo MASTRO_AGENTES. */
@@ -126,12 +141,22 @@ export function leerAgente(db: Db, id: number): Agente | null {
 }
 
 /** Conectores de publicación que existen hoy. Los que no tienen API oficial quedan en manual. */
-export const CONECTORES: Record<string, string> = { manual: 'Manual (copiás y la marcás publicada)', telegram_canal: 'Canal de Telegram (con el bot de Mastropiero como admin)' }
+export const CONECTORES: Record<string, string> = {
+  manual: 'Manual (copiás y la marcás publicada)', telegram_canal: 'Canal de Telegram (con el bot de Mastropiero como admin)',
+  // Fragua #224: las redes con API oficial y token (cifrado en la base).
+  ...Object.fromEntries(Object.values(CONECTORES_API).map((c) => [c.id, c.nombre])),
+}
+/** Lo que pide cada conector con token (para el formulario): nunca se devuelve lo que se cargó. */
+export const CAMPOS_CONECTOR = Object.fromEntries(Object.values(CONECTORES_API).map((c) => [c.id, c.campos]))
 
 export function guardarCuenta(db: Db, c: {
   id?: number; red: string; usuario: string; nombre?: string | null; correo?: string | null
   modo?: string; conector?: string | null; reglas?: Reglas; activa?: boolean; oficio?: string | null
   cupos?: Cupo[] | null; markdown?: string
+  /** De quién es: el id o el nombre de un agente de la liga; null = suya. */
+  agente?: string | null
+  /** La credencial del conector (se guarda cifrada); null la borra. */
+  credencial?: Credencial | null
 }, ahora = Date.now()): Cuenta {
   const modo = MODOS.includes(c.modo as Modo) ? c.modo as Modo : 'redacta'
   const conector = c.conector && CONECTORES[c.conector] ? c.conector : 'manual'
@@ -147,7 +172,18 @@ export function guardarCuenta(db: Db, c: {
   const reglas: Reglas = { ...(c.reglas ?? {}) }
   if (cupos.length) reglas.topeDia = cupos.reduce((s, x) => s + x.cantidad, 0)
   const activa = c.activa === false ? 0 : 1
-  const pack = [red, nombre, c.usuario.trim(), correo, modo, conector, JSON.stringify(reglas), oficio, JSON.stringify(cupos), activa]
+  // De quién es la cuenta: un agente de la liga tiene la suya, con su nombre y su voz.
+  let agenteId = previo?.agenteId ?? null
+  let nombreFinal = nombre
+  if (c.agente !== undefined) {
+    if (c.agente) {
+      const ag = leerAgenteLiga(db, String(c.agente))
+      if (!ag) throw new Error(`No existe el agente «${c.agente}»`)
+      agenteId = ag.id
+      nombreFinal = nombre ?? ag.nombre ?? ag.id
+    } else agenteId = null
+  }
+  const pack = [red, nombreFinal, c.usuario.trim(), correo, modo, conector, JSON.stringify(reglas), oficio, JSON.stringify(cupos), activa]
   let id = c.id
   if (id) {
     db.prepare('UPDATE cuentas SET red = ?, nombre = ?, usuario = ?, correo = ?, modo = ?, conector = ?, reglas = ?, oficio = ?, cupos = ?, activa = ? WHERE id = ?')
@@ -156,6 +192,14 @@ export function guardarCuenta(db: Db, c: {
     const r = db.prepare('INSERT INTO cuentas (red, nombre, usuario, correo, modo, conector, reglas, oficio, cupos, activa, creada_en) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(...pack, ahora)
     id = Number(r.lastInsertRowid)
+  }
+  db.prepare('UPDATE cuentas SET agente_id = ? WHERE id = ?').run(agenteId, id)
+  if (c.credencial !== undefined) {
+    // Lo que viene se suma a lo guardado (cambiar solo la clave no borra el usuario); null borra todo.
+    const vieja = c.credencial ? abrirSello((db.prepare('SELECT credencial FROM cuentas WHERE id = ?').get(id) as { credencial: string | null } | undefined)?.credencial) ?? {} : {}
+    const limpia = c.credencial ? { ...vieja, ...Object.fromEntries(Object.entries(c.credencial).map(([k, v]) => [k, String(v ?? '').trim()]).filter(([, v]) => v)) } : null
+    // Una credencial nueva (o borrada) vuelve el conector a «sin verificar»: la próxima revisión dice si anda.
+    db.prepare('UPDATE cuentas SET credencial = ?, conector_estado = ?, conector_error = NULL WHERE id = ?').run(limpia && Object.keys(limpia).length ? sellar(limpia) : null, limpia && Object.keys(limpia).length ? null : CONECTORES_API[conector] ? 'sin_token' : null, id)
   }
   if (typeof c.markdown === 'string') {
     const ruta = path.join(dirAgentes(), `${id}.md`)
@@ -199,7 +243,17 @@ export async function redactarPublicaciones(db: Db, cuentaId: number, o: { n?: n
   const recientes = listarPublicaciones(db, { cuentaId, estados: ['publicada', 'aprobada'], limite: 8 }).map((p) => `- ${p.texto.slice(0, 200)}`)
   const markdown = leerMarkdown(c.contexto).trim()
   const nombre = redDe(c.red)?.nombre ?? c.red
-  const { datos } = await pedirJson<{ publicaciones?: { texto?: string; tipo?: string }[] }>({ db, clase: 'mastropiero', agenteId: 'cuentas' }, SISTEMA, [
+  // La cuenta de un agente de la liga (Fragua #224) escribe con SU voz, y se presenta como lo que es.
+  const agente = c.agenteId ? leerAgenteLiga(db, c.agenteId) : null
+  const sistema = agente
+    ? `Redactás publicaciones para la cuenta propia de ${aliasAgente(agente)}, un agente de la liga de Mastropiero (Deprocast). En SU voz: la de sus instrucciones y su Markdown, no la del jugador.
+- Habla como el agente que es: nunca se hace pasar por el jugador ni por una persona.
+- Que aporte algo de su oficio, no autobombo. Adaptado a la red (largo, tono, hashtags solo si esa red los usa).
+- Nada inventado sobre hechos. No uses ni cites contraseñas.
+Sus instrucciones: ${agente.instrucciones}
+Forma: {"publicaciones": [{"texto": string, "tipo": string}]}`
+    : SISTEMA
+  const { datos } = await pedirJson<{ publicaciones?: { texto?: string; tipo?: string }[] }>({ db, clase: 'mastropiero', agenteId: 'cuentas' }, sistema, [
     `Cuenta: ${nombre}${c.nombre ? ` · ${c.nombre}` : ''}, ${c.usuario}. Temas: ${c.reglas.temas ?? 'los suyos'}. Tono: ${c.reglas.tono ?? 'el suyo'}.`,
     markdown ? `Contexto del agente (Markdown):\n${markdown.slice(0, 8000)}` : '',
     o.idea ? `Adaptá ESTA idea suya al idioma de ${nombre} (una sola pieza; no inventes otra idea ni le agregues hechos):\n«${o.idea}»` : o.tema ? `Esta vez, sobre: ${o.tema}` : '',
@@ -207,14 +261,15 @@ export async function redactarPublicaciones(db: Db, cuentaId: number, o: { n?: n
     o.idea ? `Cuántas: 1.${c.cupos.length ? ` El campo tipo: uno de ${c.cupos.map((x) => x.tipo).join(', ')}.` : ''}` : c.cupos.length
       ? `Una pieza por tipo, sin pasarte de la cantidad:\n${c.cupos.map((x) => `- ${x.tipo} (${x.clase}): ${x.cantidad}`).join('\n')}\nEl campo tipo tiene que ser exactamente uno de: ${c.cupos.map((x) => x.tipo).join(', ')}.`
       : `Cuántas: ${o.n ?? 3}.`,
-    `Lo que sabés de él:\n${memoriaParaPrompt(db, 50)}`,
+    agente ? '' : `Lo que sabés de él:\n${memoriaParaPrompt(db, 50)}`,
   ].filter(Boolean).join('\n'), { temperatura: 0.8, maxTokens: 2500 })
-  const alta = db.prepare(`INSERT INTO publicaciones (cuenta_id, texto, estado, tipo, origen, creada_en) VALUES (?, ?, ?, ?, ?, ?)`)
+  const alta = db.prepare(`INSERT INTO publicaciones (cuenta_id, texto, estado, tipo, origen, creada_en, aprobada_por) VALUES (?, ?, ?, ?, ?, ?, ?)`)
   const ids: number[] = []
   const libre = c.modo === 'libre' && !o.borrador
   const estado = libre ? 'aprobada' : 'borrador'
   const guardar = (texto: string, tipo: string | null) => {
-    ids.push(Number(alta.run(cuentaId, texto, estado, tipo, o.origen ?? 'mastropiero', ahora).lastInsertRowid))
+    // En una cuenta libre se aprueba sola: la aprobó el agente de la cuenta (o Mastropiero, si es suya).
+    ids.push(Number(alta.run(cuentaId, texto, estado, tipo, o.origen ?? 'mastropiero', ahora, libre ? (c.agenteId ?? 'mastropiero') : null).lastInsertRowid))
   }
   const items = (datos.publicaciones ?? []).filter((p) => typeof p?.texto === 'string' && p.texto.trim())
   if (o.idea) {
@@ -285,11 +340,11 @@ export function resolverPublicacion(db: Db, id: number, c: { accion: 'aprobar' |
   if (!p) throw new Error(`No existe la publicación ${id}`)
   if (c.accion === 'editar') db.prepare('UPDATE publicaciones SET texto = ? WHERE id = ?').run(String(c.texto ?? p.texto).trim(), id)
   if (c.accion === 'descartar') db.prepare(`UPDATE publicaciones SET estado = 'descartada' WHERE id = ?`).run(id)
-  if (c.accion === 'publicada') db.prepare(`UPDATE publicaciones SET estado = 'publicada', publicada_en = ?, url = ? WHERE id = ?`).run(ahora, c.url ?? null, id)
+  if (c.accion === 'publicada') db.prepare(`UPDATE publicaciones SET estado = 'publicada', publicada_en = ?, url = ?, publicada_por = 'operador', aprobada_por = COALESCE(aprobada_por, 'operador') WHERE id = ?`).run(ahora, c.url ?? null, id)
   if (c.accion === 'aprobar') {
     // Si ya traía hora (las piezas de una campaña van en su ventana), la respeta; si no, el próximo horario de la cuenta.
     const cuando = c.cuando ?? (p.programadaPara && p.programadaPara > ahora ? p.programadaPara : null)
-    db.prepare(`UPDATE publicaciones SET estado = 'aprobada', programada_para = ? WHERE id = ?`).run(cuando, id)
+    db.prepare(`UPDATE publicaciones SET estado = 'aprobada', programada_para = ?, aprobada_por = 'operador' WHERE id = ?`).run(cuando, id)
     if (!cuando) programar(db, id, ahora)
   }
   return leerPub(db, id)!
@@ -308,6 +363,17 @@ const conectores: Record<string, Conector> = {
     return { url: null }
   },
 }
+// Los conectores con API oficial (Fragua #224): abren la credencial cifrada de la cuenta; sin ella, la cuenta queda sin token.
+for (const api of Object.values(CONECTORES_API)) {
+  conectores[api.id] = async (c, texto) => api.publicar(credencialDe(c.id), texto)
+}
+/** La credencial de una cuenta, abierta (solo para el conector; nunca sale a la pantalla ni al modelo). */
+let leerCredencial: (id: number) => Credencial | null = () => null
+function credencialDe(id: number): Credencial {
+  const cred = leerCredencial(id)
+  if (!cred) throw new ErrorRed('La cuenta no tiene token cargado (o se cargó en otro servidor): cargalo de nuevo en Cuentas', true)
+  return cred
+}
 export function _probarConectores(c: Record<string, Conector>) {
   Object.assign(conectores, c)
 }
@@ -318,7 +384,9 @@ export function _probarConectores(c: Record<string, Conector>) {
  */
 export async function publicarPendientes(db: Db, ahora = Date.now()): Promise<Publicacion[]> {
   const hechas: Publicacion[] = []
-  for (const c of listarCuentas(db).filter((x) => x.activa && x.modo !== 'lectura' && x.conector && x.conector !== 'manual')) {
+  leerCredencial = (id) => abrirSello((db.prepare('SELECT credencial FROM cuentas WHERE id = ?').get(id) as { credencial: string | null } | undefined)?.credencial)
+  // Una cuenta caída (sin token, o el token venció) espera: lo aprobado queda aprobado hasta que se arregle.
+  for (const c of listarCuentas(db).filter((x) => x.activa && x.modo !== 'lectura' && x.conector && x.conector !== 'manual' && x.conectorEstado !== 'caido' && x.conectorEstado !== 'sin_token')) {
     const tope = c.reglas.topeDia ?? 3
     const inicio = new Date(ahora)
     inicio.setHours(0, 0, 0, 0)
@@ -327,13 +395,83 @@ export async function publicarPendientes(db: Db, ahora = Date.now()): Promise<Pu
       if (hoy >= tope) break
       try {
         const r = await conectores[c.conector!](c, p.texto)
-        db.prepare(`UPDATE publicaciones SET estado = 'publicada', publicada_en = ?, url = ?, error = NULL WHERE id = ?`).run(ahora, r.url, p.id)
+        db.prepare(`UPDATE publicaciones SET estado = 'publicada', publicada_en = ?, url = ?, error = NULL, publicada_por = ? WHERE id = ?`).run(ahora, r.url, `deprocast:${c.conector}`, p.id)
+        db.prepare(`UPDATE cuentas SET conector_estado = 'ok', conector_error = NULL, conector_visto = ? WHERE id = ?`).run(ahora, c.id)
         hoy++
       } catch (e) {
-        db.prepare(`UPDATE publicaciones SET estado = 'fallo', error = ? WHERE id = ?`).run(e instanceof Error ? e.message : String(e), p.id)
+        const msg = e instanceof Error ? e.message : String(e)
+        if (e instanceof ErrorRed && e.credencial) {
+          // El token no anda: la cuenta queda caída (el vigía avisa) y la publicación sigue aprobada, esperando.
+          db.prepare(`UPDATE cuentas SET conector_estado = ?, conector_error = ?, conector_visto = ? WHERE id = ?`).run(/no tiene token/.test(msg) ? 'sin_token' : 'caido', msg.slice(0, 300), ahora, c.id)
+          db.prepare(`UPDATE publicaciones SET error = ? WHERE id = ?`).run(msg.slice(0, 300), p.id)
+          hechas.push(leerPub(db, p.id)!)
+          break
+        }
+        db.prepare(`UPDATE publicaciones SET estado = 'fallo', error = ? WHERE id = ?`).run(msg, p.id)
       }
       hechas.push(leerPub(db, p.id)!)
     }
   }
   return hechas
+}
+
+// ─── conectores: verificar y el registro (Fragua #224) ─────────────────────
+
+/**
+ * Comprueba que el conector de una cuenta sigue andando (sin publicar nada): con token, le pregunta a la red quién es;
+ * sin token, la marca sin token. Devuelve el estado y lo deja anotado (el vigía lo mira).
+ */
+export async function verificarCuenta(db: Db, id: number, ahora = Date.now()): Promise<{ estado: 'ok' | 'caido' | 'sin_token'; cuenta?: string; error?: string }> {
+  const c = leerCuenta(db, id)
+  if (!c) throw new Error(`No existe la cuenta ${id}`)
+  const api = c.conector ? CONECTORES_API[c.conector] : undefined
+  if (!api) throw new Error(`${c.red} (${c.usuario}) no usa un conector con token`)
+  const guardar = (estado: string, error: string | null) => db.prepare('UPDATE cuentas SET conector_estado = ?, conector_error = ?, conector_visto = ? WHERE id = ?').run(estado, error, ahora, id)
+  const cred = abrirSello((db.prepare('SELECT credencial FROM cuentas WHERE id = ?').get(id) as { credencial: string | null }).credencial)
+  if (!cred) { guardar('sin_token', c.credencial.cargada ? 'El token se cargó en otro servidor (o se borró la clave): cargalo de nuevo' : 'No tiene token cargado'); return { estado: 'sin_token' } }
+  try {
+    const r = await api.verificar(cred)
+    guardar('ok', null)
+    return { estado: 'ok', cuenta: r.cuenta }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    // Un problema de red (no de credencial) no tumba la cuenta: se dice, y se vuelve a mirar en la próxima pasada.
+    if (e instanceof ErrorRed && e.credencial) { guardar('caido', msg.slice(0, 300)); return { estado: 'caido', error: msg } }
+    db.prepare('UPDATE cuentas SET conector_error = ?, conector_visto = ? WHERE id = ?').run(msg.slice(0, 300), ahora, id)
+    return { estado: c.conectorEstado ?? 'ok', error: msg }
+  }
+}
+
+/** Todas las cuentas activas con conector de token. Devuelve las que se cayeron en esta pasada (para avisar). */
+export async function verificarCuentas(db: Db, ahora = Date.now()): Promise<{ revisadas: number; caidas: Cuenta[] }> {
+  const cs = listarCuentas(db).filter((c) => c.activa && c.conector && CONECTORES_API[c.conector])
+  const caidas: Cuenta[] = []
+  for (const c of cs) {
+    const antes = c.conectorEstado
+    const r = await verificarCuenta(db, c.id, ahora).catch(() => null)
+    if (r && r.estado !== 'ok' && antes !== r.estado) caidas.push(leerCuenta(db, c.id)!)
+  }
+  return { revisadas: cs.length, caidas }
+}
+
+export type Asiento = { publicacion: number; cuenta: string; red: string; deQuien: string; texto: string; publicadaEn: number; url: string | null; aprobo: string | null; publico: string | null }
+
+/** El registro: quién publicó qué y desde qué cuenta (suya o de un agente), quién lo aprobó y por dónde salió. */
+export function registro(db: Db, f: { cuentaId?: number; agente?: string | null; desde?: number; limite?: number } = {}): Asiento[] {
+  const where = [`p.estado = 'publicada'`]
+  const args: (string | number)[] = []
+  if (f.cuentaId) where.push('p.cuenta_id = ?'), args.push(f.cuentaId)
+  if (f.agente === null) where.push('c.agente_id IS NULL')
+  else if (f.agente) where.push('c.agente_id = ?'), args.push(f.agente)
+  if (f.desde) where.push('p.publicada_en >= ?'), args.push(f.desde)
+  const quien = (x: string | null): string | null => {
+    if (x == null) return null
+    if (x === 'operador') return 'vos'
+    if (x === 'mastropiero') return 'Mastropiero'
+    if (x.startsWith('deprocast:')) return `Deprocast, por ${CONECTORES[x.slice(10)] ?? x.slice(10)}`
+    const a = leerAgenteLiga(db, x)
+    return a ? aliasAgente(a) : x
+  }
+  return (db.prepare(`SELECT p.id, p.texto, p.publicada_en, p.url, p.aprobada_por, p.publicada_por, c.red, c.usuario, c.agente_id FROM publicaciones p JOIN cuentas c ON c.id = p.cuenta_id WHERE ${where.join(' AND ')} ORDER BY p.publicada_en DESC LIMIT ?`).all(...args, f.limite ?? 100) as any[])
+    .map((r) => ({ publicacion: r.id, cuenta: r.usuario, red: redDe(r.red)?.nombre ?? r.red, deQuien: r.agente_id ? quien(r.agente_id)! : 'vos', texto: r.texto, publicadaEn: r.publicada_en, url: r.url, aprobo: quien(r.aprobada_por), publico: quien(r.publicada_por) }))
 }

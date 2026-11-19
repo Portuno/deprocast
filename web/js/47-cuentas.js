@@ -6,10 +6,11 @@ const MODO_TXT = { lectura: 'Solo lectura', redacta: 'Redacta (espera tu ok)', l
 async function montarCuentas() {
   $('#principal').innerHTML = `
     <div class="cabecera"><div class="cabecera-texto"><h1>Cuentas</h1>
-      <p>Varios agentes por red. Cada uno tiene usuario, correo y un contexto en Markdown. <b>lectura</b> solo lee, <b>redacta</b> espera tu ok y <b>libre</b> publica sola, sin pasarse de los cupos.</p></div>
-      <div class="fila"><button class="btn btn-primario" id="cu-idea" title="Una idea tuya, adaptada a cada una de tus cuentas (quedan en borrador)">💡 Una idea → mis redes</button><button class="btn" id="cu-nueva">+ Agente</button></div></div>
+      <p>Tus cuentas y las de tus agentes. <b>lectura</b> solo lee, <b>redacta</b> espera tu ok y <b>libre</b> publica sola, sin pasarse de los cupos. Para publicar sola, un token de la API de la red (se guarda cifrado); la contraseña de tu cuenta, nunca. Abrir una cuenta nueva en una red sigue siendo a mano.</p></div>
+      <div class="fila"><button class="btn btn-primario" id="cu-idea" title="Una idea tuya, adaptada a cada una de tus cuentas (quedan en borrador)">💡 Una idea → mis redes</button><button class="btn" id="cu-nueva">+ Cuenta</button></div></div>
     <div class="panel tg-panel" id="tg"></div>
-    <div class="redes" id="cu"></div>`
+    <div class="redes" id="cu"></div>
+    <section class="cu-registro"><h3 class="tl-h">Registro: quién publicó qué</h3><div id="cu-registro"><p class="tenue chico">Mirando…</p></div></section>`
   $('#cu-nueva').onclick = () => modalCuenta()
   $('#cu-idea').onclick = () => modalIdeaCuentas()
   traerCuentas()
@@ -60,8 +61,9 @@ async function traerCuentas() {
       <div class="fila">${p.estado === 'borrador' ? '<button class="btn btn-chico btn-primario" data-pa="aprobar">Aprobar</button><button class="btn btn-chico" data-pa="editar">✎</button>' : ''}
         ${p.estado !== 'publicada' && p.estado !== 'descartada' ? '<button class="btn btn-chico" data-pa="copiar">Copiar</button><button class="btn btn-chico" data-pa="publicada" title="Ya la publiqué">✓ Publicada</button><button class="btn btn-chico" data-pa="descartar">✕</button>' : ''}</div></div>`
     const tarjeta = (c) => `<article class="red-agente" data-cu="${c.id}">
-      <div class="fila"><h4>${esc(c.nombre || c.usuario)}</h4><span class="tipo-chip">${esc(MODO_TXT[c.modo] ?? c.modo)}</span>${c.contexto ? '<span class="tipo-chip">.md</span>' : ''}${c.activa ? '' : '<span class="tipo-chip">pausada</span>'}</div>
+      <div class="fila"><h4>${esc(c.nombre || c.usuario)}</h4><span class="tipo-chip">${esc(MODO_TXT[c.modo] ?? c.modo)}</span>${c.agenteId ? `<span class="tipo-chip" title="La cuenta propia del agente ${esc(c.agenteId)}: escribe con su voz">🤖 de un agente</span>` : ''}${c.contexto ? '<span class="tipo-chip">.md</span>' : ''}${c.activa ? '' : '<span class="tipo-chip">pausada</span>'}</div>
       <p class="tenue chico">${esc(c.usuario)}${c.correo ? ` · ${esc(c.correo)}` : ''}</p>
+      ${conexionCuenta(c)}
       ${(c.cupos ?? []).length ? `<div class="cupos">${c.cupos.map((x) => `<span class="cupo">${esc(x.tipo)} ${x.cantidad}</span>`).join('')}</div>` : ''}
       <div class="fila">${c.modo !== 'lectura' ? '<input class="campo-suelto" data-cu-tema placeholder="Tema (opcional)"><button class="btn btn-chico btn-primario" data-cu-redactar>Redactar</button>' : ''}<button class="btn btn-chico" data-cu-editar>Editar</button></div>
       ${pubs(c).length ? `<div class="pubs">${pubs(c).map(pub).join('')}</div>` : ''}</article>`
@@ -76,6 +78,12 @@ async function traerCuentas() {
     $$('[data-cu]', cont).forEach((el) => {
       const c = d.cuentas.find((x) => x.id === Number(el.dataset.cu))
       $('[data-cu-editar]', el).onclick = () => modalCuenta(c)
+      const v = $('[data-cu-verificar]', el)
+      if (v) v.onclick = () => trabajando(v, 'Probando…', async () => {
+        const r = await api(`/cuentas/${c.id}/verificar`, {})
+        toast(r.estado === 'ok' ? `Conectada${r.cuenta ? ` como ${esc(r.cuenta)}` : ''}` : r.estado === 'sin_token' ? 'No tiene token cargado' : `No anda: ${esc(r.error ?? '')}`, r.estado === 'ok' ? 'suave' : 'error')
+        traerCuentas()
+      })
       const r = $('[data-cu-redactar]', el)
       if (r) r.onclick = () => trabajando(r, 'Redactando…', async () => { await api(`/cuentas/${c.id}/redactar`, { n: 3, tema: $('[data-cu-tema]', el).value.trim() || null }); traerCuentas() })
     })
@@ -92,7 +100,28 @@ async function traerCuentas() {
         } catch (e) { error(e) }
       }))
     })
+    pintarRegistro()
   } catch (e) { error(e) }
+}
+
+/** Si la cuenta publica por API: su estado de conexión y el botón para probarla (Fragua #224). */
+function conexionCuenta(c) {
+  if (!cuentasDatos?.camposConector?.[c.conector]) return ''
+  const est = c.conectorEstado === 'ok' ? ['✓ conectada', 'ok'] : c.conectorEstado === 'caido' ? ['⚠ desconectada', 'mal'] : c.conectorEstado === 'sin_token' ? ['⚠ sin token', 'mal'] : ['sin verificar', '']
+  return `<div class="cu-conexion ${est[1]}"><span>${est[0]}</span>${c.credencial?.pista ? `<small class="tenue">token ${esc(c.credencial.pista)}</small>` : ''}${c.conectorVisto ? `<small class="tenue">${esc(haceCuanto(c.conectorVisto))}</small>` : ''}
+    <button class="btn btn-chico" data-cu-verificar>Probar</button>${c.conectorError && c.conectorEstado !== 'ok' ? `<small class="cu-error">${esc(c.conectorError)}</small>` : ''}</div>`
+}
+
+/** El registro: lo publicado, de quién es la cuenta, quién lo aprobó y por dónde salió. */
+async function pintarRegistro() {
+  const cont = $('#cu-registro')
+  if (!cont) return
+  let xs
+  try { xs = await api('/cuentas/registro?limite=40') } catch (e) { cont.innerHTML = ''; return error(e) }
+  if (!$('#cu-registro')) return
+  cont.innerHTML = xs.length ? `<div class="f2-tabla"><table class="lib-tabla"><thead><tr><th>Cuándo</th><th>Cuenta</th><th>De</th><th>Qué</th><th>Aprobó</th><th>Publicó</th></tr></thead><tbody>
+    ${xs.map((x) => `<tr><td>${esc(new Date(x.publicadaEn).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}</td><td>${esc(x.red)} · ${esc(x.cuenta)}</td><td>${esc(x.deQuien)}</td><td class="cu-que">${x.url ? `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.texto.slice(0, 90))}</a>` : esc(x.texto.slice(0, 90))}</td><td>${esc(x.aprobo ?? '—')}</td><td>${esc(x.publico ?? '—')}</td></tr>`).join('')}
+    </tbody></table></div>` : '<p class="tenue chico">Todavía no se publicó nada desde Deprocast.</p>'
 }
 
 function cuposDe(oficio) {
@@ -126,9 +155,10 @@ async function modalCuenta(c = null, redId = null) {
   const conocida = redes.some((r) => r.id === redActual)
   const cat = redes.find((r) => r.id === redActual || r.nombre.toLowerCase() === String(redActual).toLowerCase())
   const cupos = full?.cupos?.length ? full.cupos : cuposDe(cat?.oficio ?? 'operador')
-  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>${full?.id ? 'Agente' : 'Nuevo agente'}</h2>
-    <p class="tenue chico">El Markdown es la voz y el contexto de este agente. Las contraseñas de las redes no se guardan acá.</p>
+  abrirModal(`<button class="btn btn-chico cerrar" data-cerrar>✕</button><h2>${full?.id ? 'Cuenta' : 'Nueva cuenta'}</h2>
+    <p class="tenue chico">El Markdown es la voz y el contexto de la cuenta. La contraseña de tu cuenta de la red no va acá: para publicar sola, un token de su API (se guarda cifrado y no se vuelve a mostrar).</p>
     <div class="form-ing">
+      <label class="campo">De quién es<select id="cu-agente"><option value="">Tuya</option>${(cuentasDatos?.agentes ?? []).map((a) => `<option value="${esc(a.id)}" ${full?.agenteId === a.id ? 'selected' : ''}>🤖 ${esc(a.nombre)}</option>`).join('')}</select></label>
       <label class="campo">Red<select id="cu-red">${redes.map((r) => `<option value="${esc(r.id)}" ${redActual === r.id || String(redActual).toLowerCase() === r.nombre.toLowerCase() ? 'selected' : ''}>${esc(r.nombre)}</option>`).join('')}${!conocida && redActual ? `<option value="${esc(redActual)}" selected>${esc(redActual)}</option>` : ''}</select></label>
       <label class="campo">Nombre<input id="cu-nombre" value="${esc(full?.nombre ?? '')}" placeholder="Cómo lo ves en la grilla"></label>
       <label class="campo">Usuario<input id="cu-usuario" value="${esc(full?.usuario ?? '')}" placeholder="@usuario"></label>
@@ -136,6 +166,7 @@ async function modalCuenta(c = null, redId = null) {
       <label class="campo">Modo<select id="cu-modo">${(cuentasDatos?.modos ?? ['lectura', 'redacta', 'libre']).map((m) => `<option value="${m}" ${(full?.modo ?? 'redacta') === m ? 'selected' : ''}>${MODO_TXT[m]}</option>`).join('')}</select></label>
       <label class="campo">Publica por<select id="cu-conector">${Object.entries(cuentasDatos?.conectores ?? { manual: 'Manual' }).map(([k, v]) => `<option value="${k}" ${full?.conector === k ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select></label>
       <label class="campo fila g-2"><input type="checkbox" id="cu-activa" ${full?.activa === false ? '' : 'checked'}> Activa</label>
+      <div class="campo campo-ancho" id="cu-cred"></div>
       <label class="campo campo-ancho">Temas<input id="cu-temas" value="${esc(full?.reglas?.temas ?? '')}" placeholder="De qué habla este agente"></label>
       <label class="campo">Tono<input id="cu-tono" value="${esc(full?.reglas?.tono ?? '')}" placeholder="irónico, cercano, técnico…"></label>
       <label class="campo">Horas (libre)<input id="cu-horas" value="${esc((full?.reglas?.horas ?? [10, 19]).join(','))}"></label>
@@ -145,6 +176,15 @@ async function modalCuenta(c = null, redId = null) {
       <label class="campo campo-ancho">Contexto (.md)<textarea id="cu-md" class="cu-md" placeholder="# Voz&#10;De qué habla, qué no dice, a quién le contesta.">${esc(full?.markdown ?? '')}</textarea></label>
     </div>
     <div class="fila mt-3"><button class="btn btn-primario" id="cu-guardar">Guardar</button></div>`)
+  // La credencial del conector elegido: campos vacíos (lo cargado no se muestra), y la pista de lo que hay.
+  const pintarCred = () => {
+    const campos = cuentasDatos?.camposConector?.[$('#cu-conector').value]
+    $('#cu-cred').innerHTML = campos ? `<span>Credencial de la API ${full?.credencial?.cargada && full?.conector === $('#cu-conector').value ? `<small class="tenue">cargada (${esc(full.credencial.pista ?? '')}${full.credencial.legible ? '' : ', de otro servidor: cargala de nuevo'}) · dejá vacío para no cambiarla</small>` : '<small class="tenue">sin cargar</small>'}</span>
+      <div class="cu-cred">${campos.map((c) => `<label class="campo">${esc(c.n)}<input data-cred="${esc(c.k)}" type="${c.secreto ? 'password' : 'text'}" autocomplete="off" placeholder="${esc(c.ayuda ?? '')}"></label>`).join('')}</div>
+      ${full?.credencial?.cargada ? '<label class="chico"><input type="checkbox" id="cu-borrar-cred"> Borrar la credencial guardada</label>' : ''}` : ''
+  }
+  pintarCred()
+  $('#cu-conector').onchange = pintarCred
   const engancharQuitar = () => $$('#cu-cupos [data-quitar]').forEach((b) => (b.onclick = () => b.closest('.cu-cupo').remove()))
   engancharQuitar()
   $('#cu-sumar').onclick = () => {
@@ -164,7 +204,8 @@ async function modalCuenta(c = null, redId = null) {
       const catRed = redes.find((r) => r.id === red)
       await api('/cuentas', {
         id: full?.id, red, nombre: $('#cu-nombre').value.trim() || null, usuario: $('#cu-usuario').value, correo: $('#cu-correo').value.trim() || null,
-        modo: $('#cu-modo').value, conector: $('#cu-conector').value, activa: $('#cu-activa').checked,
+        modo: $('#cu-modo').value, conector: $('#cu-conector').value, activa: $('#cu-activa').checked, agente: $('#cu-agente').value || null,
+        credencial: Object.fromEntries($$('#cu-cred [data-cred]').map((i) => [i.dataset.cred, i.value.trim()])), borrarCredencial: !!$('#cu-borrar-cred')?.checked,
         oficio: catRed?.oficio ?? full?.oficio ?? null, cupos: leerCupos(), markdown: $('#cu-md').value,
         reglas: { temas: $('#cu-temas').value.trim() || undefined, tono: $('#cu-tono').value.trim() || undefined, horas: $('#cu-horas').value.split(',').map(Number).filter((n) => n >= 0 && n < 24), chatId: $('#cu-chat').value.trim() || undefined },
       })

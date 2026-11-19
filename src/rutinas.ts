@@ -348,6 +348,12 @@ export const ACCIONES: Acciones = {
     const r = await (await import('./benchmark.ts')).correrBanco(db, { ahora })
     return r.veredictos.some((v) => v.rotar) ? `📏 **El banco de pruebas de la semana**\n\n${r.texto}` : null
   },
+  /** Cada mañana (Fragua #224): que sus cuentas de redes con token sigan conectadas. Solo dice algo si alguna se cayó. */
+  async redes(db, _fecha, ahora) {
+    const r = await (await import('./cuentas.ts')).verificarCuentas(db, ahora)
+    if (!r.caidas.length) return null
+    return `🔌 **Se ${r.caidas.length === 1 ? 'desconectó una cuenta' : `desconectaron ${r.caidas.length} cuentas`} de redes**\n\n${r.caidas.map((c) => `- ${c.red} (${c.usuario}): ${c.conectorEstado === 'sin_token' ? 'no tiene token' : c.conectorError ?? 'el token dejó de andar'}`).join('\n')}\n\nLo aprobado para esas cuentas queda esperando. Cargá el token de nuevo en Afuera → Cuentas.`
+  },
   /** Los lunes (Fragua #293): sus preguntas a varios modelos, sin contexto; si no cargó ninguna, nada (ni un token). */
   async posicion(db, _fecha, ahora) {
     const p = await import('./posicion.ts')

@@ -3798,3 +3798,12 @@ a.f2-fuente:hover { color: var(--acento-texto); border-color: var(--acento); }
 .lg-ficha { display: grid; gap: 10px; }
 .lg-elegir { border: 1px solid var(--linea); border-radius: var(--r-m); padding: 8px 10px; display: flex; flex-wrap: wrap; gap: 4px 14px; max-height: 220px; overflow: auto; }
 .lg-opcion { display: inline-flex; align-items: center; gap: 4px; font-size: var(--t-3); }
+
+/* ─── Cuentas de redes con token (Fragua 224) ─── */
+.cu-conexion { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--t-2); margin: 2px 0 6px; }
+.cu-conexion.ok > span { color: var(--ok); font-weight: 600; }
+.cu-conexion.mal > span { color: var(--mal); font-weight: 600; }
+.cu-error { flex-basis: 100%; color: var(--mal); }
+.cu-cred { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 8px; margin-top: 4px; }
+.cu-registro { margin-top: 22px; }
+.cu-registro .cu-que { white-space: normal; min-width: 220px; }

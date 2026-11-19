@@ -8,7 +8,7 @@ test('vigía · cada pieza con su estado, y el aviso por WhatsApp una vez cada 1
   const ahora = Date.now()
   // Todo tranquilo: nada «mal», y la ronda no avisa nada.
   let s = await estadoSistema(db, { commit: 'abc1234def', arranco: ahora - 3_600_000, ahora })
-  assert.deepEqual(s.piezas.map((p) => p.id), ['servidor', 'integridad', 'drive', 'whatsapp', 'taller', 'errores', 'gasto'])
+  assert.deepEqual(s.piezas.map((p) => p.id), ['servidor', 'integridad', 'drive', 'whatsapp', 'redes', 'taller', 'errores', 'gasto'])
   assert.match(s.piezas[0].detalle, /commit abc1234, arrancó hace 1 h/)
   assert.ok(!s.piezas.some((p) => p.estado === 'mal'))
   const dichos: string[] = []

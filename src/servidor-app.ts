@@ -693,8 +693,20 @@ const rutas: [string, RegExp, Ruta][] = [
     if (r.informe) mensajeDeMastropiero(db, conversacionHoy(db).id, `Cerré el Directo. ${r.informe}`)
     return r
   }],
-  ['GET', /^\/api\/cuentas$/, () => ({ cuentas: listarCuentas(db), publicaciones: listarPublicaciones(db, { limite: 200 }), modos: MODOS, conectores: CONECTORES, telegram: telegramConfigurado() })],
-  ['POST', /^\/api\/cuentas$/, (b) => guardarCuenta(db, { id: b.id ? Number(b.id) : undefined, red: b.red, usuario: b.usuario, modo: b.modo, conector: b.conector, reglas: b.reglas, activa: b.activa })],
+  ['GET', /^\/api\/cuentas$/, async () => {
+    const c = await import('./cuentas.ts')
+    // Los agentes de la liga (para darles una cuenta propia): sin los retirados.
+    const agentes = listar(db).map((f) => ({ id: f.id, nombre: alias(f), clase: f.clase }))
+    return { cuentas: listarCuentas(db), publicaciones: listarPublicaciones(db, { limite: 200 }), modos: MODOS, conectores: CONECTORES, camposConector: c.CAMPOS_CONECTOR, redes: c.REDES, cuposDefecto: c.CUPOS_DEFECTO, agentes, telegram: telegramConfigurado() }
+  }],
+  // Todo lo que manda el formulario (antes se perdían el nombre, el correo, los cupos y el Markdown), de quién es y su credencial.
+  ['POST', /^\/api\/cuentas$/, (b) => guardarCuenta(db, {
+    id: b.id ? Number(b.id) : undefined, red: b.red, usuario: b.usuario, nombre: b.nombre, correo: b.correo, modo: b.modo, conector: b.conector, reglas: b.reglas, activa: b.activa,
+    oficio: b.oficio, cupos: b.cupos, markdown: typeof b.markdown === 'string' ? b.markdown : undefined, agente: b.agente === undefined ? undefined : b.agente || null,
+    credencial: b.borrarCredencial ? null : b.credencial && typeof b.credencial === 'object' && Object.values(b.credencial).some((v) => String(v ?? '').trim()) ? b.credencial : undefined,
+  })],
+  ['POST', /^\/api\/cuentas\/(\d+)\/verificar$/, async (_, [c]) => (await import('./cuentas.ts')).verificarCuenta(db, id(c))],
+  ['GET', /^\/api\/cuentas\/registro$/, async (_, __, q) => (await import('./cuentas.ts')).registro(db, { cuentaId: num(q.get('cuenta')), agente: q.get('agente') === 'yo' ? null : q.get('agente') || undefined, limite: num(q.get('limite')) })],
   ['GET', /^\/api\/cuentas\/(\d+)$/, (_, [c]) => {
     const a = leerAgente(db, id(c))
     if (!a) throw new Error(`No existe la cuenta ${c}`)

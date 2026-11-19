@@ -58,6 +58,21 @@ async function whatsapp(db: Db): Promise<Pieza> {
     detalle: !w.vinculado ? 'Configurado, pero falta vincular tu número.' : w.ventanaAbierta ? 'Vinculado, ventana de 24 h abierta.' : 'Vinculado; la ventana de 24 h está cerrada (Mastropiero no te puede escribir primero).' }
 }
 
+/** Las cuentas de redes con conector de token (Fragua #224): una caída o sin token es un problema (y un aviso). */
+function redes(db: Db, ahora: number): Pieza {
+  const base = { id: 'redes', nombre: 'Cuentas de redes' }
+  if (!existe(db, 'cuentas')) return { ...base, estado: 'bien', detalle: 'Sin cuentas.', problemas: [] }
+  let cs: { id: number; red: string; usuario: string; conector_estado: string | null; conector_error: string | null; conector_visto: number | null }[] = []
+  try { cs = db.prepare(`SELECT id, red, usuario, conector_estado, conector_error, conector_visto FROM cuentas WHERE activa = 1 AND conector NOT IN ('manual', 'telegram_canal') AND conector IS NOT NULL`).all() as any[] } catch { /* base sin las columnas nuevas */ }
+  if (!cs.length) return { ...base, estado: 'bien', detalle: 'Ninguna publica por API (todas a mano o por Telegram).', problemas: [] }
+  const mal = cs.filter((c) => c.conector_estado === 'caido' || c.conector_estado === 'sin_token')
+  const problemas = mal.map((c) => ({ clave: `redes:${c.id}:${c.conector_estado}`, texto: c.conector_estado === 'sin_token' ? `${c.red} (${c.usuario}) no tiene token: cargalo en Afuera → Cuentas` : `${c.red} (${c.usuario}) se desconectó: ${(c.conector_error ?? '').slice(0, 120) || 'cargá el token de nuevo en Cuentas'}` }))
+  const sinVer = cs.filter((c) => !c.conector_estado).length
+  const ultima = Math.max(0, ...cs.map((c) => c.conector_visto ?? 0))
+  return { ...base, estado: problemas.length ? 'mal' : sinVer ? 'ojo' : 'bien', problemas,
+    detalle: `${cs.length - mal.length} de ${cs.length} conectadas${sinVer ? ` (${sinVer} sin verificar todavía)` : ''}${ultima ? `; revisadas hace ${hace(ahora - ultima)}` : ''}.` }
+}
+
 function taller(db: Db, ahora: number): Pieza {
   if (!existe(db, 'taller_cola')) return { id: 'taller', nombre: 'Taller', estado: 'bien', detalle: 'Sin uso todavía.', problemas: [] }
   const colgados = db.prepare(`SELECT id, titulo, empezado_en FROM taller_cola WHERE estado = 'haciendo' AND empezado_en < ?`).all(ahora - 45 * 60_000) as { id: number; titulo: string; empezado_en: number }[]
@@ -106,7 +121,7 @@ export async function estadoSistema(db: Db, o: { commit?: string | null; arranco
   const ahora = o.ahora ?? Date.now()
   const g = gasto(db, ahora)
   const e = await errores(db, ahora)
-  const piezas: Pieza[] = [servidor({ ...o, ahora }), integridad(db), drive(db, ahora), await whatsapp(db), taller(db, ahora), { ...e, grupos: undefined } as Pieza, piezaGasto(g, ahora)]
+  const piezas: Pieza[] = [servidor({ ...o, ahora }), integridad(db), drive(db, ahora), await whatsapp(db), redes(db, ahora), taller(db, ahora), { ...e, grupos: undefined } as Pieza, piezaGasto(g, ahora)]
   return { en: ahora, estado: peor(piezas.map((p) => p.estado)), piezas, gasto: g, errores: e.grupos, avisos: ajuste(db, 'vigia_whatsapp') !== '0' }
 }
 

@@ -2396,9 +2396,13 @@ const COLUMNAS_NUEVAS: Record<string, [string, string][]> = {
   ],
   cuentas: [
     ['nombre', 'TEXT'], ['correo', 'TEXT'], ['oficio', 'TEXT'], ['cupos', 'TEXT'], ['contexto', 'TEXT'],
+    // Fragua #224: de quién es (un agente de la liga, o null: él), su credencial cifrada y si el conector anda.
+    ['agente_id', 'TEXT'], ['credencial', 'TEXT'], ['conector_estado', 'TEXT'], ['conector_error', 'TEXT'], ['conector_visto', 'INTEGER'],
   ],
   publicaciones: [
     ['tipo', 'TEXT'],
+    // El registro (Fragua #224): quién la aprobó y quién la publicó (él a mano, o Deprocast por el conector).
+    ['aprobada_por', 'TEXT'], ['publicada_por', 'TEXT'],
     ['adjunto', 'TEXT'], // un archivo que va con la publicación (el video del Estudio)
   ],
   obras: [
@@ -2502,6 +2506,7 @@ const RUTINAS_SISTEMA = [
   { id: 'cronica', nombre: 'La crónica del día entra al corpus', hora: '23:55', dias: '0123456', accion: 'cronica' },
   { id: 'gnosis', nombre: 'Síntesis de la semana: patrones como quántomos', hora: '21:30', dias: '0', accion: 'gnosis' },
   { id: 'benchmark', nombre: 'El Benchmarkeador: el banco de pruebas contra los motores', hora: '04:30', dias: '1', accion: 'benchmark' },
+  { id: 'redes', nombre: 'Tus cuentas de redes siguen conectadas (sin tokens del modelo; avisa si alguna se cayó)', hora: '08:10', dias: '0123456', accion: 'redes' },
   { id: 'posicion', nombre: 'Tu posición en las IAs: tus preguntas a varios modelos, sin contexto (solo si cargaste preguntas)', hora: '09:30', dias: '1', accion: 'posicion' },
 ]
 /** La única plantilla de run de fábrica: genérica, sin nada del operador. */
