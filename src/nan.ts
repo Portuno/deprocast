@@ -250,7 +250,12 @@ type Decision = { accion: 'reintentar'; esperaMs: number; razonarPoco?: boolean;
 /** Tope de salida al reintentar algo que se cortó por largo (Fragua #243): el doble, hasta acá. */
 export const TOPE_SALIDA = 65_536
 
-export function decidir(r: Respuesta, modelo: string, n: { server: number; rate: number; trunc: number; largo?: number }): Decision {
+/** Un 402 que no es falta de saldo sino que NaN no pudo consultarlo (Fragua #314): su servicio de saldo no contesta. */
+export const saldoCaido = (r: Respuesta) => r.status === 402 && /allowance service is not reachable|allowance service.*(unreachable|unavailable|timed? ?out)/i.test(r.body)
+/** Las esperas ante ese 402 transitorio, compartidas por toda la cadena (si el servicio está caído, lo está para todos). */
+export const ESPERAS_SALDO = [5_000, 15_000, 45_000]
+
+export function decidir(r: Respuesta, modelo: string, n: { server: number; rate: number; trunc: number; largo?: number; saldo?: number }): Decision {
   if (truncada(r)) {
     if (n.trunc < 1 && OBEDECEN_ESFUERZO.has(modelo)) return { accion: 'reintentar', esperaMs: 0, razonarPoco: true }
     // Cortado por largo no es un error del pedido (Fragua #243): una vez más con el doble de lugar; después, el siguiente.
@@ -260,6 +265,7 @@ export function decidir(r: Respuesta, modelo: string, n: { server: number; rate:
   // Un tope de salida que el modelo no acepta (el del reintento largo) no es motivo para cortar la cadena entera.
   if (r.status === 400 && /max_tokens|max_completion_tokens|maximum.*tokens|too (many|large).*tokens/i.test(r.body)) return { accion: 'siguiente' }
   if (r.status === 401) return { accion: 'cortar', motivo: 'NaN 401: revisá NAN_API_KEY' }
+  if (saldoCaido(r)) return (n.saldo ?? 0) < ESPERAS_SALDO.length ? { accion: 'reintentar', esperaMs: ESPERAS_SALDO[n.saldo ?? 0] } : { accion: 'siguiente' }
   if (r.status === 402) return { accion: 'siguiente' }
   if (r.status === 429) return n.rate >= 4 ? { accion: 'siguiente' } : { accion: 'reintentar', esperaMs: Math.min(30_000, 400 * 2 ** n.rate) }
   // Sin red: el siguiente modelo tampoco llegaría; mejor esperar un poco (2, 5 y 10 s) y volver a probar.
@@ -306,14 +312,16 @@ function anotar(l: Llamada, modelo: string, r: Respuesta, ms: number) {
 async function recorrer(l: Llamada, modelos: string[], llamar: (modelo: string, razonarPoco: boolean, masLargo: boolean) => Promise<Respuesta>) {
   if (!modelos.length) throw new Error(`La clase ${l.clase} no tiene cadena NaN`)
   const motivos: string[] = []
+  let saldo = 0 // las esperas por el servicio de saldo caído valen para toda la cadena, no por modelo
   for (const modelo of modelos) {
-    const n = { server: 0, rate: 0, trunc: 0, largo: 0 }
+    const n = { server: 0, rate: 0, trunc: 0, largo: 0, saldo: 0 }
     let razonarPoco = false, masLargo = false
     for (;;) {
       const t0 = Date.now()
       const r = await llamar(modelo, razonarPoco, masLargo)
       anotar(l, modelo, r, Date.now() - t0)
       if (r.status >= 200 && r.status < 300 && !truncada(r)) return { modelo, r }
+      n.saldo = saldo
       const d = decidir(r, modelo, n)
       if (d.accion === 'cortar') throw new Error(d.motivo)
       if (d.accion === 'siguiente') {
@@ -323,6 +331,7 @@ async function recorrer(l: Llamada, modelos: string[], llamar: (modelo: string, 
       }
       if (d.masLargo) (n.largo++, (masLargo = true))
       else if (d.razonarPoco) (n.trunc++, (razonarPoco = true))
+      else if (saldoCaido(r)) saldo++
       else if (r.status === 429) n.rate++
       else n.server++
       if (d.esperaMs) await dormir(d.esperaMs)
@@ -335,7 +344,7 @@ async function recorrer(l: Llamada, modelos: string[], llamar: (modelo: string, 
 export function motivoDe(r: Respuesta): string {
   if (truncada(r)) return 'se cortó por largo'
   const dicho = String(r.json?.error?.message ?? r.body ?? '').replace(/\s+/g, ' ').trim().slice(0, 120)
-  const que = r.status === 402 ? 'sin saldo' : r.status === 429 ? 'demasiados pedidos' : r.status === SIN_RED ? 'sin conexión' : r.status >= 500 ? 'el servidor falló' : r.status === 400 ? 'pedido rechazado' : `respondió ${r.status}`
+  const que = saldoCaido(r) ? 'NaN no pudo consultar el saldo' : r.status === 402 ? 'sin saldo' : r.status === 429 ? 'demasiados pedidos' : r.status === SIN_RED ? 'sin conexión' : r.status >= 500 ? 'el servidor falló' : r.status === 400 ? 'pedido rechazado' : `respondió ${r.status}`
   return `${que} (${r.status}${dicho ? `: ${dicho}` : ''})`
 }
 

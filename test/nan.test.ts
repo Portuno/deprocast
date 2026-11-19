@@ -235,3 +235,28 @@ test('#242: la Fragua no se pierde porque fallen sus dos motores: Flash sin resp
   assert.equal(r.modelo, M.pro, 'queda registrado quién contestó')
   assert.deepEqual(pedidos.map((p) => p.body.model), [M.deepseek, M.deepseek, M.deepseek, M.mimo, M.mimo, M.pro])
 })
+
+test('Fragua #314: el 402 «allowance service is not reachable» es transitorio: espera 5, 15 y 45 s (en toda la cadena) antes de rendirse', async () => {
+  const db = abrir(':memory:')
+  const { nanChat, M: Ms } = await import('../src/nan.ts')
+  const caido = () => ({ status: 402, json: { error: { message: '402: allowance service is not reachable' } } })
+  const esperas: number[] = []
+  const pedidos: string[] = []
+  const guion = [caido, caido, () => ({ status: 200, json: { choices: [{ message: { content: 'volvió el saldo' } }], usage: { prompt_tokens: 5, completion_tokens: 2 } } })]
+  _probar(async (_url, init) => { pedidos.push(JSON.parse(String(init.body)).model); const r: any = (guion.shift() ?? caido)(); return { status: r.status, body: JSON.stringify(r.json), json: r.json } }, async (ms) => { esperas.push(ms) })
+  const r = await nanChat({ db, clase: 'auditor', agenteId: 'x' }, { mensajes: [{ role: 'user', content: 'hola' }], temperatura: 0, maxTokens: 10, json: false })
+  assert.equal(r.texto, 'volvió el saldo')
+  assert.deepEqual(esperas, [5000, 15_000], 'reintenta el mismo modelo con espera creciente')
+  assert.deepEqual(pedidos, [Ms.deepseek, Ms.deepseek, Ms.deepseek])
+
+  // Si sigue caído: tres esperas en total (no tres por modelo), después prueba el resto de la cadena y lo dice claro.
+  esperas.length = 0; pedidos.length = 0
+  _probar(async (_url, init) => { pedidos.push(JSON.parse(String(init.body)).model); const x = caido(); return { status: x.status, body: JSON.stringify(x.json), json: x.json } }, async (ms) => { esperas.push(ms) })
+  await assert.rejects(nanChat({ db, clase: 'auditor', agenteId: 'x' }, { mensajes: [{ role: 'user', content: 'hola' }], temperatura: 0, maxTokens: 10, json: false }), (e: Error) => {
+    assert.match(e.message, /NaN no pudo consultar el saldo/)
+    assert.doesNotMatch(e.message, /sin saldo/)
+    return true
+  })
+  assert.deepEqual(esperas, [5000, 15_000, 45_000])
+  assert.deepEqual(pedidos, [Ms.deepseek, Ms.deepseek, Ms.deepseek, Ms.deepseek, Ms.glm], 'el siguiente modelo se prueba una vez, sin volver a esperar')
+})
