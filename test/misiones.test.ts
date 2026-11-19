@@ -378,14 +378,22 @@ test('el jugador también es una entidad: una sola ficha, y «Soy yo» une lo an
   assert.equal(pj(db, `entidad:${yo}`).clave, `entidad:${yo}`, 'solo una persona es el jugador')
 })
 
-test('primarias: el % sale de lo hecho (bandas, aportes, misiones, piezas y plata del proyecto); a mano solo si lo corrige', async () => {
+test('primarias (Fragua #319): el % sale solo de sus bandas y arranca en 0; lo demás del proyecto es un estimado aparte; a mano solo si lo corrige', async () => {
   const { avanceDe, crearMision, actualizarMision, progresoInferido, semanaDe } = await import('../src/misiones.ts')
   const { insertar } = await import('../src/corpus.ts')
   const db = abrir(':memory:')
   const proy = asegurarEntidad(db, { tipo: 'proyecto', nombre: 'Proyecto Prueba' })
   const ahora = Date.now()
   const p = crearMision(db, { personaje: 'jugador', asignadaPor: 'jugador', nivel: 'primaria', titulo: 'Empujar el proyecto', entidadId: proy, semana: semanaDe(ahora), estado: 'activa' })
-  assert.deepEqual([avanceDe(db, p.id).progreso, avanceDe(db, p.id).auto], [0, true])
+  assert.deepEqual([avanceDe(db, p.id).progreso, avanceDe(db, p.id).auto, avanceDe(db, p.id).deQue], [0, true, 'sin bandas todavía'])
+  // Sin bandas, el proyecto movido (una misión cerrada, una pieza) no es progreso: es un estimado aparte.
+  const antes = crearMision(db, { personaje: 'jugador', asignadaPor: 'jugador', nivel: 'terciaria', titulo: 'Llamar', entidadId: proy, estado: 'activa' })
+  actualizarMision(db, antes.id, { estado: 'hecha' })
+  assert.equal(avanceDe(db, p.id).progreso, 0)
+  assert.ok(avanceDe(db, p.id).estimado! > 0, 'lo del proyecto queda como estimado')
+  // Un valor que trae de la propuesta con que nació (sin que él lo fijara) no es piso.
+  const heredada = crearMision(db, { personaje: 'jugador', asignadaPor: 'jugador', nivel: 'primaria', titulo: 'Heredada', progreso: 38, estado: 'activa' })
+  assert.deepEqual([avanceDe(db, heredada.id).progreso, avanceDe(db, heredada.id).estimado], [0, 38])
   for (const e of ['hecha', 'hecha', 'parcial']) {
     const b = crearMision(db, { personaje: 'jugador', asignadaPor: 'jugador', nivel: 'secundaria', titulo: 'banda', padreId: p.id, estado: 'activa' })
     actualizarMision(db, b.id, { estado: e as any })
@@ -394,9 +402,10 @@ test('primarias: el % sale de lo hecho (bandas, aportes, misiones, piezas y plat
   actualizarMision(db, otra.id, { estado: 'hecha' })
   insertar(db, { fuente: 'operador', titulo: 'Avance', contenido: 'escribí la escena', nivel: 'propia', fecha: new Date().toISOString().slice(0, 10), entidades: [proy], origenId: 't:1' })
   const av = avanceDe(db, p.id)
-  assert.deepEqual(av.senales, { bandas: 2.5, aportes: 0, misiones: 1, piezas: 1, movimientos: 0 })
-  assert.equal(av.progreso, progresoInferido(av.senales!))
-  assert.ok(av.progreso > 40 && av.progreso < 95, `${av.progreso}`)
+  assert.deepEqual(av.senales, { bandas: 2.5, aportes: 0, misiones: 2, piezas: 1, movimientos: 0 })
+  assert.equal(av.progreso, 83, '2 hechas y 1 a medias de 3 bandas')
+  assert.equal(av.deQue, '2 de 3 bandas (1 a medias)')
+  assert.equal(av.estimado, undefined, 'si las bandas dicen más, no hay estimado aparte')
 
   actualizarMision(db, p.id, { progreso: 20 })
   assert.deepEqual([avanceDe(db, p.id).progreso, avanceDe(db, p.id).auto], [20, false], 'lo que corrige él manda')

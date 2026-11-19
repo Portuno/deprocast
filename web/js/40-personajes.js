@@ -163,7 +163,7 @@ async function traerMisiones() {
         ${m.estado === 'sugerida'
           ? `<div class="mp-acc"><button class="btn btn-chico btn-primario" data-m-estado="activa">Aceptar</button><button class="btn btn-chico" data-m-editar>Cambiar</button><button class="btn btn-chico" data-m-estado="descartada" title="Descartar">✕</button></div>`
           : `<div class="mp-avance"><span class="mp-barra"><i style="width:${m.avance.progreso}%"></i></span><b>${m.avance.progreso}%</b></div>
-             <small class="tenue">${m.avance.bandas.total ? `${m.avance.bandas.hechas} bandas · ${m.avance.minutos} min` : 'sin bandas todavía'}</small>
+             <small class="tenue" title="El % sale solo de sus bandas">${esc(m.avance.deQue ?? '')}${m.avance.minutos ? ` · ${m.avance.minutos} min` : ''}${m.avance.estimado != null ? ` · estimado ~${m.avance.estimado}%` : ''}</small>
              ${m.avance.previos?.length ? `<small class="mp-previo" title="${esc(m.avance.previos.map((p) => `${p.titulo}${p.fecha ? ` (${p.fecha})` : ''}`).join('\n'))}">↳ Ya empezaste: ${m.avance.previos.length} ${m.avance.previos.length === 1 ? 'cosa' : 'cosas'} de antes</small>` : ''}
              <div class="mp-acc">${m.estado === 'activa' ? '<button class="btn btn-chico" data-m-estado="hecha" title="Cumplida">✓</button>' : '<button class="btn btn-chico" data-m-estado="activa" title="Reabrir">↺</button>'}<button class="btn btn-chico" data-m-detalle title="Avance, ayudantes y aportes">⋯</button><button class="btn btn-chico" data-m-editar title="Cambiar">✎</button><button class="btn btn-chico" data-m-estado="descartada" title="Descartar">✕</button></div>`}
       </article>`
@@ -233,10 +233,10 @@ function detallePrimaria(m, recargar) {
       <h2>${esc(m.titulo)}</h2>
       ${m.detalle ? `<p>${esc(m.detalle)}</p>` : ''}
       ${m.entidadId ? `<p><a href="#" class="ref" data-ref-ent="${m.entidadId}">ver el proyecto</a></p>` : ''}
-      <div class="p-avance"><span class="mp-barra"><i style="width:${m.avance.progreso}%"></i></span><b>${m.avance.progreso}%</b><small class="tenue">${m.avance.auto ? 'según lo hecho' : 'lo fijaste vos'}</small>
+      <div class="p-avance"><span class="mp-barra"><i style="width:${m.avance.progreso}%"></i></span><b>${m.avance.progreso}%</b><small class="tenue">${m.avance.auto ? `de ${esc(m.avance.deQue ?? 'lo hecho')}` : 'lo fijaste vos'}</small>
         ${m.avance.auto ? '<button class="btn btn-chico" data-m-corregir title="Si el número no refleja lo que pasó">Corregir</button>' : '<button class="btn btn-chico" data-m-auto title="Que lo calcule de lo hecho">↺ Automático</button>'}</div>
       <div class="p-avance" data-m-slider hidden><input type="range" min="0" max="100" step="5" value="${m.avance.progreso}" data-m-prog><b>${m.avance.progreso}%</b></div>
-      ${m.avance.auto && m.avance.senales ? `<small class="tenue">${senalesTexto(m.avance.senales)}</small><br>` : ''}
+      ${m.avance.auto && m.avance.estimado != null ? `<small class="tenue" title="No es progreso: lo que sugieren otras señales, sin bandas hechas que lo respalden">Estimado ~${m.avance.estimado}% · ${senalesTexto(m.avance.senales ?? {})}</small><br>` : ''}
       <small class="tenue">${m.avance.bandas.total ? `${m.avance.bandas.hechas} bandas hechas${m.avance.bandas.parciales ? `, ${m.avance.bandas.parciales} a medias` : ''} · ${m.avance.minutos} min de foco` : 'Todavía sin bandas'}</small>
       ${m.estado === 'activa' ? ayudantesHTML(m) : ''}
     </div>`)
@@ -664,5 +664,5 @@ async function fichaPersonaje(cont, clave, { tabs = ['misiones', 'historia', 'in
 function senalesTexto(s) {
   const n = (x, uno, varios) => (x ? `${String(x).replace('.5', '½')} ${x === 1 ? uno : varios}` : '')
   const partes = [n(s.bandas, 'banda', 'bandas'), n(s.aportes, 'aporte', 'aportes'), n(s.misiones, 'misión del proyecto', 'misiones del proyecto'), n(s.piezas, 'pieza tuya', 'piezas tuyas'), n(s.movimientos, 'movimiento', 'movimientos')].filter(Boolean)
-  return partes.length ? `Sale de: ${partes.join(' · ')}` : 'Todavía no hay nada hecho que la empuje.'
+  return partes.length ? `Señales: ${partes.join(' · ')}` : 'Todavía no hay nada hecho que la empuje.'
 }

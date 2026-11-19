@@ -281,7 +281,11 @@ export function asegurarPrincipal(db: Db, clave: string): Mision | null {
 // ─── progreso ───────────────────────────────────────────────────────────
 
 export type Senales = { bandas: number; aportes: number; misiones: number; piezas: number; movimientos: number; previo?: number }
-export type Avance = { progreso: number; bandas: { hechas: number; parciales: number; no: number; total: number }; minutos: number; auto: boolean; senales?: Senales; previos?: { piezaId: number; titulo: string; fecha: string | null }[] }
+/**
+ * deQue: de dónde sale el número, para auditarlo de un vistazo («2 de 6 bandas»). estimado: lo que sugieren las otras
+ * señales (piezas, misiones y plata del proyecto, lo de antes, un valor heredado), que no es progreso y se muestra aparte.
+ */
+export type Avance = { progreso: number; bandas: { hechas: number; parciales: number; no: number; total: number }; minutos: number; auto: boolean; deQue: string; estimado?: number; senales?: Senales; previos?: { piezaId: number; titulo: string; fecha: string | null }[] }
 
 /**
  * Lo hecho que empuja una primaria (o la principal): sus bandas, los aportes de sus ayudantes y, si es de un proyecto,
@@ -314,9 +318,21 @@ export function progresoInferido(s: Senales): number {
   return Math.min(95, Math.round(100 * (1 - Math.exp(-trabajo / 4))))
 }
 
+/** «2 de 6 bandas (1 a medias)»: de qué sale el progreso automático de una primaria. */
+export function textoBandas(b: Avance['bandas']): string {
+  if (!b.total) return 'sin bandas todavía'
+  return `${b.hechas} de ${b.total} banda${b.total === 1 ? '' : 's'}${b.parciales ? ` (${b.parciales} a medias)` : ''}`
+}
+
+/** El progreso de una primaria: solo sus bandas (hechas enteras, a medias la mitad) sobre las que tiene; sin bandas, 0. */
+export function progresoDeBandas(b: Avance['bandas']): number {
+  return b.total ? Math.min(95, Math.round((100 * (b.hechas + b.parciales / 2)) / b.total)) : 0
+}
+
 /**
- * El progreso de una secundaria es su estado. El de una primaria se infiere de lo hecho (no hay que elegirlo), salvo
- * que él lo haya corregido a mano; lo que él había marcado antes queda como piso. Sus hijas suman foco (bandas y minutos).
+ * El progreso de una secundaria es su estado. El de una primaria sale solo de lo hecho en ella (Fragua #319): sus bandas
+ * sobre las que tiene, arrancando en 0, sin piso heredado de la propuesta con que nació; salvo que él lo corrija a mano.
+ * Lo demás que la empuja (aportes, piezas y misiones del proyecto, lo de antes, un valor viejo) va como «estimado», aparte.
  */
 export function avanceDe(db: Db, id: number): Avance {
   const m = leerMision(db, id)
@@ -325,13 +341,17 @@ export function avanceDe(db: Db, id: number): Avance {
   const cuenta = (e: string) => hijas.filter((h) => h.estado === e).length
   const minutos = hijas.reduce((s, h) => s + (h.estado === 'hecha' ? h.minutos : h.estado === 'parcial' ? h.minutos / 2 : 0), 0)
   const base = { bandas: { hechas: cuenta('hecha'), parciales: cuenta('parcial'), no: cuenta('no'), total: hijas.length }, minutos: Math.round(minutos) }
-  if (m.nivel === 'secundaria' || m.nivel === 'terciaria') return { progreso: m.estado === 'hecha' ? 100 : m.estado === 'parcial' ? 50 : m.progreso, ...base, auto: false }
-  if (m.estado === 'hecha') return { progreso: 100, ...base, auto: false }
+  const deQue = textoBandas(base.bandas)
+  if (m.nivel === 'secundaria' || m.nivel === 'terciaria') return { progreso: m.estado === 'hecha' ? 100 : m.estado === 'parcial' ? 50 : m.progreso, ...base, auto: false, deQue: m.estado }
+  if (m.estado === 'hecha') return { progreso: 100, ...base, auto: false, deQue: 'cumplida' }
   const manual = (db.prepare('SELECT progreso_manual FROM misiones WHERE id = ?').get(id) as { progreso_manual: number | null }).progreso_manual === 1
-  if (manual) return { progreso: m.progreso, ...base, auto: false }
+  if (manual) return { progreso: m.progreso, ...base, auto: false, deQue: 'lo fijaste vos' }
   const senales = senalesDe(db, m, hijas)
   const previos = senales.previo ? (db.prepare(`SELECT pieza_id AS piezaId, titulo, fecha FROM previos WHERE tipo = 'mision' AND ref_id = ? ORDER BY fecha DESC`).all(m.id) as any[]) : undefined
-  return { progreso: Math.max(m.progreso, progresoInferido(senales)), ...base, auto: true, senales, ...(previos ? { previos } : {}) }
+  const progreso = progresoDeBandas(base.bandas)
+  // El valor guardado sin que él lo fijara (de la propuesta, de una migración) ya no es piso: a lo sumo, un estimado.
+  const estimado = Math.max(m.progreso, progresoInferido(senales))
+  return { progreso, ...base, auto: true, deQue, ...(estimado > progreso ? { estimado } : {}), senales, ...(previos ? { previos } : {}) }
 }
 
 export function conAvance(db: Db, ms: Mision[]) {
@@ -1239,7 +1259,7 @@ export function metricasSemana(db: Db, semana: string) {
   for (const x of secundarias.filter((s) => s.estado === 'hecha')) porCategoria[x.categoria ?? 'sin categoría'] = (porCategoria[x.categoria ?? 'sin categoría'] ?? 0) + (x.minutos ?? 0)
   return {
     semana, desde, hasta, runs: runs.length, secundarias: cuentas(secundarias), terciariasHechas: terciarias,
-    primarias: primarias.map((p) => ({ id: p.id, titulo: p.titulo, estado: p.estado, progreso: p.avance.progreso, bandas: p.avance.bandas.hechas, minutos: p.avance.minutos })),
+    primarias: primarias.map((p) => ({ id: p.id, titulo: p.titulo, estado: p.estado, progreso: p.avance.progreso, deQue: p.avance.deQue, bandas: p.avance.bandas.hechas, minutos: p.avance.minutos })),
     minutosPorCategoria: porCategoria, pendientesDeOtros: deOtros.map((x) => ({ id: x.id, titulo: x.titulo, quien: x.personaje, vence: x.vence })),
   }
 }
@@ -1254,7 +1274,7 @@ export async function reporteSemana(db: Db, semana = semanaDe(), o: { ahora?: nu
   const ahora = o.ahora ?? Date.now()
   const met = metricasSemana(db, semana)
   const base = `Semana ${semana}: ${met.runs} runs, ${met.secundarias.hechas} de ${met.secundarias.total} bandas hechas (${met.secundarias.minutos} minutos de foco), ${met.terciariasHechas} side quests cumplidas.`
-  let texto = [base, ...met.primarias.map((p) => `- ${p.titulo}: ${p.progreso}% · ${p.bandas} bandas · ${p.minutos} min`)].join('\n')
+  let texto = [base, ...met.primarias.map((p) => `- ${p.titulo}: ${p.progreso}% (${p.deQue}) · ${p.minutos} min`)].join('\n')
   if (o.conModelo !== false) {
     try {
       const { datos } = await pedirJson<{ texto?: string }>({ db, clase: 'mastropiero', agenteId: 'reporte' }, `${SISTEMA_REPORTE_SEMANA}
@@ -1346,7 +1366,7 @@ export function misionesParaPrompt(db: Db, ahora = Date.now(), mensaje = ''): st
     principal ? `Su misión principal: ${principal.titulo}${principal.detalle ? ` — ${principal.detalle}` : ''}` : `Todavía no fijó su misión principal${candidatas.length ? ` (le sugeriste: ${candidatas.map((c) => c.titulo).join(' / ')})` : ''}.`,
     primarias.length ? `Primarias de esta semana (el id es para tus herramientas, no se lo digas):\n${primarias.map((p) => {
       const ayudantes = listarMisiones(db, { padreId: p.id, nivel: 'primaria', estados: ['activa'] }).filter((m) => m.personaje.startsWith('agente:')).map((m) => m.personaje.slice(7))
-      return `- (id ${p.id}) ${p.titulo} [${p.estado === 'sugerida' ? 'sugerida, sin aceptar' : `${p.avance.progreso}%, ${p.avance.bandas.hechas} bandas`}]${ayudantes.length ? ` · ayudantes: ${ayudantes.join(', ')}` : ''}`
+      return `- (id ${p.id}) ${p.titulo} [${p.estado === 'sugerida' ? 'sugerida, sin aceptar' : `${p.avance.progreso}% (${p.avance.deQue})`}]${ayudantes.length ? ` · ayudantes: ${ayudantes.join(', ')}` : ''}`
     }).join('\n')}` : 'No tiene primarias esta semana (podés proponerlas).',
     vivo ? `Run en curso (${vivo.run.inicio}–${vivo.run.fin}): ${vivo.actual ? `ahora toca «${vivo.actual.titulo}», le quedan ${vivo.restan} min` : 'entre bandas'}${vivo.siguientes.length ? `; después: ${vivo.siguientes.map((m) => `${m.inicio} ${m.titulo}`).join(' · ')}` : ''}.`
       : propuesta?.estado === 'propuesta' ? `Hay una run propuesta para hoy (${propuesta.inicio}–${propuesta.fin}) que todavía no arrancó.` : 'No hay run en curso.',

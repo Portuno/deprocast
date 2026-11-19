@@ -188,7 +188,7 @@ function widgetQuests() {
   const lado = (hoyDatos.terciarias ?? []).filter((m) => m.estado === 'activa').slice(0, 3)
   return `<div class="hud-hero hud-norte"><small class="hud-etq">✦ North Star</small><h3 class="hud-titulo">${esc(hoyDatos.principal?.titulo ?? 'Sin fijar')}</h3></div>
     <small class="hud-etq">Primarias de la semana</small>
-    ${prims.length ? `<div class="hud-prims">${prims.map((m) => `<div class="hud-prim ${m.estado}"><div class="hud-fila"><span>${m.estado === 'hecha' ? '●' : m.estado === 'sugerida' ? '○' : '◐'} ${esc(corto(m.titulo, 40))}</span><span class="hud-num">${m.avance.progreso}%</span></div>${barraHud(m.avance.progreso, 100)}</div>`).join('')}</div>` : '<p class="hud-texto">Sin primarias esta semana.</p>'}
+    ${prims.length ? `<div class="hud-prims">${prims.map((m) => `<div class="hud-prim ${m.estado}"><div class="hud-fila"><span>${m.estado === 'hecha' ? '●' : m.estado === 'sugerida' ? '○' : '◐'} ${esc(corto(m.titulo, 40))}</span><span class="hud-num" title="${esc(m.avance.deQue ?? '')}">${m.avance.progreso}%</span></div>${barraHud(m.avance.progreso, 100)}</div>`).join('')}</div>` : '<p class="hud-texto">Sin primarias esta semana.</p>'}
     ${lado.length ? `<small class="hud-etq">Side quests</small>${lado.map((m) => `<div class="hud-fila hud-sq"><span>⚑ ${esc(corto(m.titulo, 36))}</span><button class="btn-link" data-hud-hecha="${m.id}" title="Cumplida">✓</button></div>`).join('')}` : ''}
     ${hudDatos?.bucles?.length ? `<small class="hud-etq">🔁 Sigue volviendo</small>${hudDatos.bucles.map((b) => filaBucle(b, true)).join('')}` : ''}
     ${pieHud('¿En qué primaria me conviene meter foco hoy?', 'misiones', 'Misiones')}`
