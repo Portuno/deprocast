@@ -60,6 +60,7 @@ const vista = (r: Fila) => ({ id: r.id, hilo: r.hilo, de: r.de, para: r.para, as
 export async function bandeja(db: Db, o: { filtro?: Filtro; q?: string; dias?: number; limite?: number } = {}) {
   const desde = Date.now() - (o.dias ?? 30) * 86_400_000
   const limite = Math.min(o.limite ?? 80, 200)
+  try { cerrarContestados(db) } catch { /* sin la columna, en una base vieja */ }
   const base = `FROM correos WHERE fecha >= ? AND ruido = 0`
   const cuantos = {
     responder: (db.prepare(`SELECT COUNT(*) AS n ${base} AND suyo = 0 AND atendido = 0 AND json_extract(triaje, '$.pide_respuesta') = 1`).get(desde) as { n: number }).n,
@@ -122,6 +123,15 @@ export async function guardarBorrador(db: Db, id: string, texto: string) {
   const r = await crearBorrador(db, { responderA: id, cuerpo: texto })
   marcarAtendido(db, id, true)
   return r
+}
+
+/**
+ * Lo que él ya contestó sale solo de lo pendiente (Fragua #316/#317): un mail de otro con una respuesta suya después,
+ * en el mismo hilo, está atendido (antes se miraba solo el último de la contraparte y se le proponía contestar algo que
+ * ya había contestado). Devuelve cuántos cerró.
+ */
+export function cerrarContestados(db: Db): number {
+  return Number(db.prepare(`UPDATE correos SET atendido = 1 WHERE suyo = 0 AND atendido = 0 AND EXISTS (SELECT 1 FROM correos r WHERE r.hilo = correos.hilo AND r.suyo = 1 AND r.fecha > correos.fecha)`).run().changes)
 }
 
 export function marcarAtendido(db: Db, id: string, si: boolean) {

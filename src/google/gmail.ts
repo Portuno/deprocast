@@ -99,6 +99,8 @@ async function traer(db: Db, ids: string[]): Promise<number> {
       const c = correoDe(m)
       if (c.etiquetas.includes('SPAM') || c.etiquetas.includes('TRASH')) continue
       guardar(db, c)
+      // Una respuesta suya cierra lo anterior de ese hilo (Fragua #317): no se le vuelve a proponer contestarlo.
+      if (c.suyo) db.prepare('UPDATE correos SET atendido = 1 WHERE hilo = ? AND suyo = 0 AND fecha < ?').run(c.hilo, c.fecha)
       alCorpus(db, c)
       n++
     }
@@ -169,12 +171,19 @@ export async function sincronizarGmail(db: Db, o: { dias?: number; max?: number 
 
 const fila = (r: any) => ({ id: r.id, hilo: r.hilo, de: r.de, para: r.para, asunto: r.asunto, fecha: new Date(r.fecha).toISOString(), leido: !!r.leido, suyo: !!r.suyo, extracto: r.extracto })
 
+/** Si él ya contestó ese mail (una respuesta suya después, en el mismo hilo): cuándo y qué dijo. */
+function contestadoDe(db: Db, r: { hilo: string; fecha: number; suyo: number }) {
+  if (r.suyo) return null
+  const x = db.prepare('SELECT fecha, cuerpo FROM correos WHERE hilo = ? AND suyo = 1 AND fecha > ? ORDER BY fecha DESC LIMIT 1').get(r.hilo, r.fecha) as { fecha: number; cuerpo: string } | undefined
+  return x ? { fecha: new Date(x.fecha).toISOString(), dijo: sinCitas(x.cuerpo).slice(0, 200) } : null
+}
+
 /** Su bandeja: lo que le llegó (sin ruido), lo no leído primero. */
 export function verMails(db: Db, o: { noLeidos?: boolean; dias?: number; limite?: number } = {}) {
   const desde = Date.now() - (o.dias ?? 7) * 86_400_000
   const filas = db.prepare(`SELECT * FROM correos WHERE suyo = 0 AND ruido = 0 AND fecha >= ? AND etiquetas LIKE '%INBOX%' ${o.noLeidos ? 'AND leido = 0' : ''} ORDER BY leido, fecha DESC LIMIT ?`).all(desde, Math.min(o.limite ?? 25, 100))
   const total = db.prepare(`SELECT COUNT(*) AS n FROM correos WHERE suyo = 0 AND ruido = 0 AND leido = 0 AND etiquetas LIKE '%INBOX%'`).get() as { n: number }
-  return { no_leidos: total.n, sincronizado: Number(ajuste(db, 'gmail_sincronizado')) || null, correos: filas.map(fila) }
+  return { no_leidos: total.n, sincronizado: Number(ajuste(db, 'gmail_sincronizado')) || null, correos: (filas as any[]).map((r) => { const ya = contestadoDe(db, r); return { ...fila(r), ...(ya ? { ya_contestado: ya } : {}) } }) }
 }
 
 /** Buscar en su Gmail en vivo, con la sintaxis de Gmail (from:, subject:, has:attachment, newer_than:…). */
@@ -192,7 +201,11 @@ export async function leerMail(db: Db, id: string) {
     guardar(db, c)
     r = db.prepare('SELECT * FROM correos WHERE id = ?').get(id)
   }
-  return { ...fila(r), cuerpo: r.cuerpo, link: `https://mail.google.com/mail/u/0/#all/${r.id}` }
+  // El hilo entero (Fragua #317): lo de él también, no solo el último de la contraparte.
+  const hilo = (db.prepare('SELECT id, de, fecha, suyo, cuerpo FROM correos WHERE hilo = ? ORDER BY fecha').all(r.hilo) as any[])
+    .map((x) => ({ id: x.id, de: x.suyo ? 'él' : x.de, fecha: new Date(x.fecha).toISOString(), texto: sinCitas(x.cuerpo).slice(0, x.id === r.id ? 0 : 600) }))
+  const ya = contestadoDe(db, r)
+  return { ...fila(r), cuerpo: r.cuerpo, link: `https://mail.google.com/mail/u/0/#all/${r.id}`, ...(hilo.length > 1 ? { hilo } : {}), ...(ya ? { ya_contestado: ya } : {}) }
 }
 
 const encabezado = (s: string) => (/^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=`)

@@ -70,8 +70,31 @@ export function sugeridasParaPrompt(db: Db, cid: number | null | undefined, ahor
   ].filter(Boolean).join('\n\n')
 }
 
-const HECHO = /^(ya (la|lo|las|los|esa|ese|eso) (hice|termine|resolvi|mande|complete|hicimos|cerre)|ya (hice|termine|mande|resolvi|complete)|ya (la|lo) tengo|ya (esta|quedo|fue)( hech[ao]| list[ao])?|hech[ao]s?|list[ao],? (ya )?(la|lo) hice|terminad[ao]|completad[ao]|done)\b/
+const HECHO = /^(ya (la|lo|las|los|esa|ese|eso|le|les) (hice|termine|resolvi|mande|complete|hicimos|cerre|conteste|respondi|escribi)|ya (hice|termine|mande|resolvi|complete|conteste|respondi)|ya (la|lo) tengo|ya (esta|quedo|fue)( hech[ao]| list[ao])?|hech[ao]s?|list[ao],? (ya )?(la|lo) hice|terminad[ao]|completad[ao]|done)\b/
 const DESCARTAR = /(no (me )?(la|lo|las|los) (vuelvas a |sigas )?(sugerir|sugieras|recomiendes|propongas|menciones)|sacal[ao]s?|descartal[ao]s?|borral[ao]s?|no (la|lo) voy a hacer|ya no va|olvidal[ao])/
+
+/** Los correos sin atender que le nombró hace poco en esta charla. */
+function correosNombrados(db: Db, cid: number, ahora: number): { ref: string; titulo: string }[] {
+  try {
+    return db.prepare(`SELECT m.ref, m.titulo FROM chat_mencionados m JOIN correos c ON c.id = m.ref WHERE m.conversacion_id = ? AND m.tipo = 'correo' AND m.en >= ? AND c.atendido = 0 ORDER BY m.en DESC`).all(cid, ahora - VENTANA) as any[]
+  } catch { return [] }
+}
+
+/**
+ * «Ya les contesté» sobre un mail que le nombró hace poco (Fragua #316/#317): si es uno solo (o lo nombra), sale de lo
+ * pendiente en el acto y no se le vuelve a proponer. Si hay varios y no se sabe cuál, null (lo resuelve el modelo).
+ */
+function cerrarCorreoNombrado(db: Db, cid: number, t: string, ahora: number): string | null {
+  const cs = correosNombrados(db, cid, ahora)
+  if (!cs.length) return null
+  const palabras = new Set(t.split(' ').filter((w) => w.length >= 5))
+  const nombra = cs.filter((c) => normal(c.titulo).split(' ').some((w) => w.length >= 5 && palabras.has(w)))
+  const elegido = nombra.length === 1 ? nombra[0] : cs.length === 1 ? cs[0] : null
+  if (!elegido) return null
+  db.prepare('UPDATE correos SET atendido = 1 WHERE id = ?').run(elegido.ref)
+  db.prepare("DELETE FROM chat_mencionados WHERE conversacion_id = ? AND tipo = 'correo' AND ref = ?").run(cid, elegido.ref)
+  return `✅ Listo: «${elegido.titulo}» ya no queda como pendiente. No te lo vuelvo a proponer.`
+}
 
 /**
  * El carril rápido: «ya la hice» o «sacala» sobre algo que le sugirió hace poco. Si se sabe de qué misión habla (la
@@ -83,8 +106,10 @@ export function resolverRapido(db: Db, cid: number, texto: string, ahora = Date.
   const hecho = HECHO.test(t)
   const descartar = !hecho && DESCARTAR.test(t)
   if (!hecho && !descartar) return null
+  // «Ya les contesté» habla de un mail antes que de una misión.
+  if (hecho && /(conteste|respondi|escribi)/.test(t)) { const r = cerrarCorreoNombrado(db, cid, t, ahora); if (r) return r }
   const s = vigentes(db, cid, ahora)
-  if (!s.length) return null
+  if (!s.length) return hecho ? cerrarCorreoNombrado(db, cid, t, ahora) : null
   // La que nombra (alguna palabra de su título de 5+ letras), o la única de la última respuesta.
   const palabras = new Set(t.split(' ').filter((w) => w.length >= 5))
   const nombra = s.filter((x) => normal(x.titulo).split(' ').some((w) => w.length >= 5 && palabras.has(w)))
