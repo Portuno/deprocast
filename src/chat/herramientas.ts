@@ -301,7 +301,7 @@ export const HERRAMIENTAS: Herramienta[] = [
   // ─── Gmail (plan v35): leer, buscar y dejar borradores (nunca envía) ───
   {
     nombre: 'ver_mails', familia: 'lectura',
-    descripcion: 'Su bandeja de Gmail: lo que le llegó estos días (sin promociones, redes ni spam), lo no leído primero, con remitente, asunto y extracto. Para «¿qué me llegó?», «¿tengo algo para contestar?». Si Google no está conectado, decile que lo conecte en Apps conectadas.',
+    descripcion: 'Su bandeja de Gmail: lo que le llegó estos días (sin promociones, redes ni spam), lo no leído primero, con remitente, asunto y extracto (y «ya_contestado» si él ya respondió en el hilo: eso no es pendiente). Para «¿qué me llegó?», «¿tengo algo para contestar?». Si Google no está conectado, decile que lo conecte en Apps conectadas.',
     parametros: S({ no_leidos: { type: 'boolean', description: 'Solo lo no leído' }, dias: int('De los últimos N días (7 por defecto)'), limite: int('Cuántos (máx. 100)') }),
     ejecutar: async (a, { db }) => { const { googleConectado } = await import('../google/oauth.ts'); if (!googleConectado(db)) return { error: 'Google no está conectado: se conecta en Apps conectadas.' }; return (await import('../google/gmail.ts')).verMails(db, { noLeidos: !!a.no_leidos, dias: a.dias, limite: a.limite }) },
     resumen: (_, r) => `miró tu correo → ${r?.no_leidos ?? 0} sin leer`,
@@ -315,7 +315,7 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'leer_mail', familia: 'lectura',
-    descripcion: 'Un mail completo de su Gmail (por id, de ver_mails o buscar_mails): remitente, destinatarios, asunto, fecha, texto y link.',
+    descripcion: 'Un mail completo de su Gmail (por id, de ver_mails o buscar_mails): remitente, destinatarios, asunto, fecha, texto, link y el hilo entero (lo suyo también). Si trae «ya_contestado», él ya respondió: no le propongas contestarlo.',
     parametros: S({ id: str('id del mail') }, ['id']),
     ejecutar: async (a, { db }) => { const m = await (await import('../google/gmail.ts')).leerMail(db, a.id); return { ...m, cuerpo: recorte(m.cuerpo, 8000) } },
     resumen: (_, r) => `leyó el mail «${r?.asunto ?? ''}»`,
@@ -958,11 +958,21 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'ver_entidad', familia: 'lectura',
-    descripcion: 'Una entidad: notas, alias, con quién aparece y las piezas que la mencionan.',
-    parametros: S({ id: int('id de la entidad') }, ['id']),
+    descripcion: 'Una entidad: notas, alias, con quién aparece y las piezas que la mencionan. Por id, o por nombre si no sabés el id (o el id no aparece).',
+    parametros: S({ id: int('id de la entidad'), nombre: str('Nombre o alias (si no tenés el id, o para sugerir parecidas si el id no existe)') }),
     ejecutar: (a, { db }) => {
-      const e = leerEntidad(db, a.id)
-      if (!e) return { error: `No existe la entidad ${a.id}` }
+      // Un id que no está (fusionada, borrada o mal copiado) no es un fallo del servidor (Fragua #315): se dice y se
+      // sugieren las parecidas por nombre, sin la clave «error» (que la registraría como fallo).
+      let e = a.id ? leerEntidad(db, Number(a.id)) : null
+      const nombre = String(a.nombre ?? '').trim()
+      if (!e && nombre) {
+        const xs = listarEntidades(db, { q: nombre, limite: 6 })
+        const exacta = xs.find((x) => x.nombre.toLowerCase() === nombre.toLowerCase() || x.alias.some((al) => al.toLowerCase() === nombre.toLowerCase()))
+        if (exacta || xs.length === 1) e = exacta ?? xs[0]
+        else return { no_encontrada: true, aviso: a.id ? `No existe la entidad ${a.id}; por el nombre hay ${xs.length || 'ninguna'} parecida${xs.length === 1 ? '' : 's'}.` : `Ninguna se llama exactamente «${nombre}».`,
+          sugerencias: xs.map((x) => ({ id: x.id, tipo: x.tipo, nombre: x.nombre, piezas: x.piezas })) }
+      }
+      if (!e) return { no_encontrada: true, aviso: a.id ? `No existe la entidad ${a.id} (puede haberse fusionado con otra). No reintentes con el mismo id: pasá el nombre o buscala con listar_entidades.` : 'Falta el id o el nombre.', sugerencias: [] }
       return { ...e, aparece_con: coocurrencias(db, e.id, 10).map((x) => ({ id: x.id, tipo: x.tipo, nombre: x.nombre, piezas_compartidas: x.compartidas })),
         piezas: listarPiezas(db, { entidad: e.id, limite: 12 }).piezas.map((p) => piezaCorta(p, 160)) }
     },
