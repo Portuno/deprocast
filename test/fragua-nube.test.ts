@@ -161,6 +161,28 @@ test('Mobile 1.0 · bloque 5: todo archivo de la app móvil que leen los tests v
   assert.ok(!COPIAR.some((c) => /node_modules|dist/.test(c)), 'nada armado ni dependencias')
 })
 
+test('Fragua #318: lo que el código importa fuera de src (vendor/) viaja en la copia de la nube', async () => {
+  const { COPIAR } = await import('../src/fragua-nube.ts')
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const cubierto = (ruta: string) => COPIAR.some((c) => ruta === c || ruta.startsWith(`${c}/`))
+  const importados = new Set<string>()
+  const ir = (d: string) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const r = path.join(d, e.name)
+      if (e.isDirectory()) { ir(r); continue }
+      if (!r.endsWith('.ts')) continue
+      for (const m of fs.readFileSync(r, 'utf8').matchAll(/import\((['"])(\.\.?\/[^'"]+)\1\)|from\s+(['"])(\.\.?\/[^'"]+)\3/g)) {
+        const rel = path.relative('.', path.resolve(d, m[2] ?? m[4])).split(path.sep).join('/')
+        if (!rel.startsWith('..')) importados.add(rel)
+      }
+    }
+  }
+  ir('src')
+  assert.ok([...importados].some((x) => x.startsWith('vendor/')), 'presentacion.ts importa vendor/')
+  for (const r of importados) assert.ok(cubierto(r), `src importa ${r}, pero la copia de la nube no lo lleva (sumalo a COPIAR)`)
+})
+
 test('la forja corre el typecheck y la suite sin trabar el servidor (antes, 330 s congelado en la nube)', async () => {
   let latidos = 0
   const reloj = setInterval(() => latidos++, 20)
