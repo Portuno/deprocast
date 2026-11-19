@@ -3777,3 +3777,24 @@ a.f2-fuente:hover { color: var(--acento-texto); border-color: var(--acento); }
 .f2-solvencia { margin: 4px 0 0; }
 .f2-historia summary, .empresa-det summary { cursor: pointer; }
 .empresa-det { margin: var(--e-2) 0; }
+
+/* ─── Los Logos (Fragua 235) ─── */
+.lg-grilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); gap: 12px; margin-bottom: 18px; }
+.lg-carta { display: flex; flex-direction: column; gap: 6px; background: var(--panel); border: 1px solid var(--linea); border-radius: var(--r-l); padding: 12px 14px; }
+.lg-cab { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.lg-cab b { font-size: var(--t-5); margin-right: 4px; }
+.lg-fuentes { display: flex; flex-wrap: wrap; gap: 4px; }
+.lg-fuente { font: var(--t-1) var(--mono); border: 1px solid var(--linea); border-radius: var(--r-s); padding: 1px 6px; color: var(--tenue); }
+.lg-fuente.vacia { color: var(--aviso); border-color: var(--aviso); }
+.lg-sin { font-size: var(--t-2); color: var(--aviso); }
+.lg-sabe { margin: 0; font-size: var(--t-3); }
+.lg-sabe small { margin-right: 4px; text-transform: uppercase; letter-spacing: .05em; }
+.lg-preguntar { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.lg-preguntar .campo-suelto { flex: 1 1 200px; min-width: 0; }
+.lg-texto { background: var(--panel-2); border-radius: var(--r-m); padding: 8px 12px; font-size: var(--t-3); }
+.lg-deriva { margin: 6px 0 0; font-size: var(--t-3); }
+.lg-nuevo { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+.lg-nuevo .campo-suelto { flex: 1 1 180px; min-width: 0; }
+.lg-ficha { display: grid; gap: 10px; }
+.lg-elegir { border: 1px solid var(--linea); border-radius: var(--r-m); padding: 8px 10px; display: flex; flex-wrap: wrap; gap: 4px 14px; max-height: 220px; overflow: auto; }
+.lg-opcion { display: inline-flex; align-items: center; gap: 4px; font-size: var(--t-3); }

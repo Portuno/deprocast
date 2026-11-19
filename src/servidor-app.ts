@@ -1494,6 +1494,15 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/archivo$/, async (_, __, q) => (await import('./archivo.ts')).listarGenerados(db, { q: q.get('q'), tipo: q.get('tipo'), origen: q.get('origen'), entidad: num(q.get('entidad')) ?? null, desde: q.get('desde'), hasta: q.get('hasta'), limite: num(q.get('limite')), saltar: num(q.get('saltar')) })],
   ['GET', /^\/api\/archivo\/(\d+)$/, async (_, [n]) => { const g = (await import('./archivo.ts')).leerGenerado(db, id(n)); if (!g) throw new Error('No existe eso en el Archivo'); return g }],
   ['POST', /^\/api\/archivo\/(\d+)\/reenviar$/, async (_, [n]) => (await import('./archivo.ts')).reenviarGenerado(db, id(n))],
+  // Los Logos (Fragua #235): la familia, forjar uno (o sumar un agente con su nombre), cambiar su ficha, preguntarle.
+  ['GET', /^\/api\/logos$/, async () => {
+    const l = await import('./logos.ts')
+    const fuentes = db.prepare(`SELECT f.id, f.nombre, (SELECT COUNT(*) FROM corpus c WHERE c.fuente = f.id AND c.estado != 'retirada') AS piezas FROM fuentes f ORDER BY piezas DESC, f.nombre`).all()
+    return { familia: l.FAMILIA_LOGOS, logos: l.listarLogos(db), plantillas: Object.values(l.PLANTILLAS), fuentes }
+  }],
+  ['POST', /^\/api\/logos$/, async (b) => { const l = await import('./logos.ts'); return b.agente ? l.sumarALogos(db, String(b.agente), b) : l.forjarLogos(db, b) }],
+  ['POST', /^\/api\/logos\/([\w%-]+)$/, async (b, [a]) => (await import('./logos.ts')).editarLogos(db, decodeURIComponent(a), b)],
+  ['POST', /^\/api\/logos\/([\w%-]+)\/preguntar$/, async (b, [a]) => (await import('./logos.ts')).preguntarALogos(db, decodeURIComponent(a), String(b.pregunta ?? ''))],
   // La posición en las IAs (Fragua #293): la portada, el tablero de un proyecto, sus preguntas y medir ya.
   ['GET', /^\/api\/posicion$/, async () => { const p = await import('./posicion.ts'); return { tableros: p.tableros(db), modelos: p.modelosPosicion(db) } }],
   ['GET', /^\/api\/posicion\/(\d+)$/, async (_, [n]) => (await import('./posicion.ts')).tablero(db, id(n))],

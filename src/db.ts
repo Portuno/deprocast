@@ -1207,6 +1207,27 @@ CREATE TABLE IF NOT EXISTS posicion_respuestas (
   UNIQUE (pregunta_id, modelo, semana)
 );
 CREATE INDEX IF NOT EXISTS posicion_respuestas_entidad ON posicion_respuestas (entidad_id, semana);
+-- Las familias de agentes (Fragua #235): una agrupación propia en el archivo con una regla de nombre común (Los Logos ·
+-- <rubro>). Cada miembro tiene su ficha de rubro: qué sabe, qué no, con qué fuentes trabaja y a quién deriva.
+CREATE TABLE IF NOT EXISTS agente_familias (
+  id TEXT PRIMARY KEY,
+  nombre TEXT NOT NULL,
+  regla TEXT NOT NULL,                 -- el nombre de cada miembro: «Los Logos · {rubro}»
+  descripcion TEXT,
+  creada_en INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agente_rubros (
+  agente_id TEXT PRIMARY KEY,
+  familia TEXT NOT NULL,
+  rubro TEXT NOT NULL,
+  sabe TEXT,
+  no_sabe TEXT,
+  fuentes TEXT,                        -- JSON: [{tipo: 'fuente' | 'dominio', id}] del corpus
+  deriva TEXT,                         -- JSON: a quién manda lo que no es suyo (otro rubro, un agente por nombre)
+  nombre_propio INTEGER NOT NULL DEFAULT 0, -- la excepción: un agente que entra a la familia con su nombre
+  creado_en INTEGER NOT NULL,
+  UNIQUE (familia, rubro)
+);
 -- La ficha v2 (Fragua #302): un molde para empresa, proyecto y lugar. La historia de cada dato (cuándo cambió, de qué a
 -- qué y de dónde salió); los órganos y el equipo, las cuentas anuales y la cartera de clientes, leídos de fuentes (cada
 -- fila con su link) y no escritos a mano.
