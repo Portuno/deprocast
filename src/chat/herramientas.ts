@@ -1317,6 +1317,24 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `habló con ${a.id}`,
   },
   {
+    nombre: 'ver_juego', familia: 'lectura',
+    descripcion: 'La liga como juego: la corrida de cada arquetipo (época, nivel geométrico Punto→Hexágono, puntos, influencia y lo que desbloqueó), sus artefactos, el diario de la corrida y el ranking de agentes de la semana. Cada punto es algo hecho de verdad (una línea positiva de la economía). Sin arquetipo, el tablero; con uno, su detalle.',
+    parametros: S({ arquetipo: int('El número del arquetipo (1–72), para su detalle') }),
+    ejecutar: async (_a, { db }) => {
+      const t = await (await import('../juego.ts')).tablero(db)
+      const corto = (x: (typeof t.arquetipos)[number]) => ({ arquetipo: x.arquetipo, nombre: x.nombre, corrida: x.numero, epoca: x.epoca, nivel: `${x.geometria.nombre} (${x.nivel}/6, ${x.enNivel}/10)`, alcanzado: x.alcanzado, puntos: x.puntos, influencia: x.influencia, recibido_de_vecinos: x.recibido, agentes: x.agentes.length, artefactos: x.artefactos.length })
+      if (_a.arquetipo) { const x = t.arquetipos.find((y) => y.arquetipo === Number(_a.arquetipo)); return x ? { ...corto(x), agentes: x.agentes, artefactos: x.artefactos.slice(0, 10), diario: x.diario.slice(0, 15), anteriores: x.anteriores, desbloqueado: t.geometria.slice(0, x.alcanzado).map((g) => `${g.nombre}: ${g.desbloquea}`) } : { error: `El arquetipo ${_a.arquetipo} no está en juego (no tiene agentes en su celda)` } }
+      return { semana: t.semana, arquetipos: t.arquetipos.map(corto), ranking: t.ranking.slice(0, 10), tienda: t.tienda }
+    },
+  },
+  {
+    nombre: 'comprar_en_juego', familia: 'accion',
+    descripcion: 'Compra en la tienda de un arquetipo con su influencia (solo si su nivel ya lo desbloqueó): entrenamiento (+1 a un atributo de un agente suyo; Línea), fichaje (forjar un agente de una clase en su celda; Cuadrado), indulto (sacar a un agente suyo de la banca; Pentágono). Hace el efecto de verdad: preguntale antes.',
+    parametros: S({ arquetipo: int('El número del arquetipo'), item: str('Qué', { enum: ['entrenamiento', 'fichaje', 'indulto'] }), agente: str('El agente (entrenamiento, indulto)'), atributo: str('El atributo (entrenamiento)'), clase: str('La clase (fichaje)') }, ['arquetipo', 'item']),
+    ejecutar: async (a, { db }) => (await import('../juego.ts')).comprar(db, Number(a.arquetipo), String(a.item), { agente: a.agente, atributo: a.atributo, clase: a.clase }),
+    resumen: (a, r: any) => r?.texto ?? `compró ${a.item} para el arquetipo ${a.arquetipo}`,
+  },
+  {
     nombre: 'ver_logos', familia: 'lectura',
     descripcion: 'Los Logos: la familia de agentes profesionales, uno por rubro (Los Logos · Laboral, · Mercantil, · Fiscal…). De cada uno: qué sabe, qué no, sus fuentes del corpus (con cuántas piezas; sin fuente lo declaran antes de contestar) y a quién deriva. También las plantillas de rubro para forjar uno nuevo.',
     parametros: S({}),
@@ -2999,7 +3017,7 @@ export const NUCLEO = [
   'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'proponer_mejora', 'deshacer_ultima_accion', 'ver_para_validar', 'validar', 'arrancar_bloque', 'terminar_bloque',
 ]
 export const GRUPOS: Record<string, string[]> = {
-  liga: ['ver_logos', 'forjar_logos', 'preguntar_a_logos', 'ver_rendimiento_liga', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ficha_arquetipo', 'ver_plantel', 'crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'ver_banco_de_pruebas', 'correr_banco_de_pruebas', 'comparar_motores', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
+  liga: ['ver_juego', 'comprar_en_juego', 'ver_logos', 'forjar_logos', 'preguntar_a_logos', 'ver_rendimiento_liga', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ficha_arquetipo', 'ver_plantel', 'crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'ver_banco_de_pruebas', 'correr_banco_de_pruebas', 'comparar_motores', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['ver_suenos_noche', 'al_diario', 'ver_diario', 'crear_dominio', 'retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_criterios', 'fijar_criterio', 'ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   // Lo que era «vida» (93 herramientas, unos 15.500 tokens), en grupos chicos: cada mensaje trae solo lo suyo.

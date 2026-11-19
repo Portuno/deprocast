@@ -283,9 +283,19 @@ export const ACCIONES: Acciones = {
   },
   async temporada(db, _fecha, ahora) {
     const semana = semanaDe(ahora - 86_400_000)
+    // El juego (Fragua #262): la semana queda guardada con el arquetipo de cada agente antes de que alguno se retire.
+    const juego = await import('./juego.ts')
+    try { juego.puntosDeSemana(db, semana, ahora) } catch (e) { console.error('  juego:', e instanceof Error ? e.message : e) }
     cerrarTemporada(db, semana, ahora)
+    let perdidas = ''
+    try {
+      const r = juego.revisarCorridas(db, semana, ahora)
+      juego.avanzar(db, ahora)
+      if (r.perdidas.length) perdidas = `🎲 **Corridas perdidas**: ${r.perdidas.map((p) => `arquetipo ${p.arquetipo} (${p.causa})`).join('; ')}. Empiezan de nuevo con su legado.`
+    } catch (e) { console.error('  juego:', e instanceof Error ? e.message : e) }
     // Las misiones evolucionan: se resuelven las rivalidades y el mejor de cada misión puede tener un rival (en la nube).
-    return (await import('./agentes/genoma.ts')).evolucionar(db, semana, ahora)
+    const evol = await (await import('./agentes/genoma.ts')).evolucionar(db, semana, ahora)
+    return [evol, perdidas].filter(Boolean).join('\n\n') || null
   },
   /** El domingo (en la nube): cada agente con misión escribe lo que aprendió; entra a su prompt. Los fijados, no. */
   async estrategias(db, _fecha, ahora) {

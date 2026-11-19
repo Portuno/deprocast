@@ -1506,6 +1506,9 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/archivo$/, async (_, __, q) => (await import('./archivo.ts')).listarGenerados(db, { q: q.get('q'), tipo: q.get('tipo'), origen: q.get('origen'), entidad: num(q.get('entidad')) ?? null, desde: q.get('desde'), hasta: q.get('hasta'), limite: num(q.get('limite')), saltar: num(q.get('saltar')) })],
   ['GET', /^\/api\/archivo\/(\d+)$/, async (_, [n]) => { const g = (await import('./archivo.ts')).leerGenerado(db, id(n)); if (!g) throw new Error('No existe eso en el Archivo'); return g }],
   ['POST', /^\/api\/archivo\/(\d+)\/reenviar$/, async (_, [n]) => (await import('./archivo.ts')).reenviarGenerado(db, id(n))],
+  // La liga como juego (Fragua #262): el tablero (corridas, avatares, rankings) y la tienda.
+  ['GET', /^\/api\/juego$/, async () => (await import('./juego.ts')).tablero(db)],
+  ['POST', /^\/api\/juego\/(\d+)\/comprar$/, async (b, [n]) => (await import('./juego.ts')).comprar(db, id(n), String(b.item ?? ''), { agente: b.agente, atributo: b.atributo, clase: b.clase })],
   // Los Logos (Fragua #235): la familia, forjar uno (o sumar un agente con su nombre), cambiar su ficha, preguntarle.
   ['GET', /^\/api\/logos$/, async () => {
     const l = await import('./logos.ts')

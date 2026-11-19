@@ -15,6 +15,7 @@ import { pedirJson } from './modelo.ts'
 import { CONECTORES_API, ErrorRed, type Credencial } from './redes-conectores.ts'
 import { abrirSello, pista, sellar } from './secretos.ts'
 import { alias as aliasAgente, leer as leerAgenteLiga } from './roster.ts'
+import { puedeLibre } from './juego.ts'
 
 export const MODOS = ['lectura', 'redacta', 'libre'] as const
 export type Modo = (typeof MODOS)[number]
@@ -182,6 +183,12 @@ export function guardarCuenta(db: Db, c: {
       agenteId = ag.id
       nombreFinal = nombre ?? ag.nombre ?? ag.id
     } else agenteId = null
+  }
+  // La cuenta de un agente publica sola solo si su arquetipo llegó al Pentágono (Fragua #262: el nivel desbloquea).
+  // Lo que ya estaba en libre antes, sigue.
+  if (agenteId && modo === 'libre' && !(previo?.modo === 'libre' && previo.agenteId === agenteId)) {
+    const p = puedeLibre(db, agenteId, ahora)
+    if (!p.si) throw new Error(p.porQue)
   }
   const pack = [red, nombreFinal, c.usuario.trim(), correo, modo, conector, JSON.stringify(reglas), oficio, JSON.stringify(cupos), activa]
   let id = c.id

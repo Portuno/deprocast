@@ -3807,3 +3807,26 @@ a.f2-fuente:hover { color: var(--acento-texto); border-color: var(--acento); }
 .cu-cred { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 8px; margin-top: 4px; }
 .cu-registro { margin-top: 22px; }
 .cu-registro .cu-que { white-space: normal; min-width: 220px; }
+
+/* ─── Corridas: la liga como juego (Fragua 262) ─── */
+.jg-ranking { margin-bottom: 16px; }
+.jg-ranking ol { margin: 6px 0 0; padding-left: 22px; display: grid; gap: 3px; font-size: var(--t-3); }
+.jg-ranking li small { margin-left: 6px; }
+.jg-pts { font-variant-numeric: tabular-nums; font-weight: 600; margin-left: 6px; }
+.jg-grilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 12px; }
+.jg-carta { display: flex; flex-direction: column; gap: 8px; background: var(--panel); border: 1px solid var(--linea); border-radius: var(--r-l); padding: 12px 14px; }
+.jg-cab { display: flex; gap: 12px; align-items: flex-start; }
+.jg-cab h3 { margin: 2px 0; font-size: var(--t-5); }
+.jg-linea { margin: 0; font-size: var(--t-3); }
+.jg-avatar { flex: none; }
+.jg-fig { fill: var(--acento-suave); stroke: var(--acento); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+circle.jg-fig { fill: var(--acento); }
+.jg-barra-fondo { fill: var(--linea); }
+.jg-barra { fill: var(--acento); }
+.jg-niveles { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.jg-niveles li { font-size: var(--t-1); font-family: var(--mono); border: 1px solid var(--linea); border-radius: var(--r-s); padding: 1px 6px; color: var(--debil); }
+.jg-niveles li.si { color: var(--texto); border-color: var(--acento); }
+.jg-agentes { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.jg-tienda { display: flex; flex-wrap: wrap; gap: 6px; }
+.jg-lista { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 3px; font-size: var(--t-3); }
+.jg-reglas { margin-top: 18px; }

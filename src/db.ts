@@ -1207,6 +1207,46 @@ CREATE TABLE IF NOT EXISTS posicion_respuestas (
   UNIQUE (pregunta_id, modelo, semana)
 );
 CREATE INDEX IF NOT EXISTS posicion_respuestas_entidad ON posicion_respuestas (entidad_id, semana);
+-- La liga como juego (Fragua #262): una corrida por arquetipo (roguelike: se pierde y se vuelve a empezar, con legado),
+-- que avanza por épocas; el diario de cada corrida (compras, drops, épocas: lo viejo se archiva, no se borra); los
+-- artefactos que quedan entre corridas; y los puntos de cada semana cerrada (de la economía: solo lo hecho de verdad).
+CREATE TABLE IF NOT EXISTS juego_corridas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  arquetipo INTEGER NOT NULL,
+  numero INTEGER NOT NULL,
+  empezada INTEGER NOT NULL,
+  terminada INTEGER,
+  causa TEXT,
+  legado REAL NOT NULL DEFAULT 0       -- influencia que trae de la corrida anterior
+);
+CREATE TABLE IF NOT EXISTS juego_diario (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  corrida_id INTEGER NOT NULL,
+  epoca INTEGER NOT NULL,
+  tipo TEXT NOT NULL,                  -- inicio | compra | drop | epoca | fin
+  texto TEXT NOT NULL,
+  costo REAL,
+  ref TEXT UNIQUE,
+  en INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS juego_artefactos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  arquetipo INTEGER NOT NULL,
+  corrida_id INTEGER NOT NULL,
+  epoca INTEGER NOT NULL,
+  nombre TEXT NOT NULL,
+  de_que TEXT NOT NULL,                -- el hecho real que lo dejó
+  ref TEXT NOT NULL UNIQUE,
+  en INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS juego_semanas (
+  semana TEXT NOT NULL,
+  agente TEXT NOT NULL,
+  arquetipo INTEGER,
+  puntos REAL NOT NULL,
+  detalle TEXT,                        -- JSON: [{motivo, monto}] (lo que sumó)
+  PRIMARY KEY (semana, agente)
+);
 -- Las familias de agentes (Fragua #235): una agrupación propia en el archivo con una regla de nombre común (Los Logos ·
 -- <rubro>). Cada miembro tiene su ficha de rubro: qué sabe, qué no, con qué fuentes trabaja y a quién deriva.
 CREATE TABLE IF NOT EXISTS agente_familias (

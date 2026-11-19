@@ -71,6 +71,7 @@ const VISTAS = {
   escalas: { montar: montarEscalas, refrescar: () => {} },
   monedero: { montar: montarMonedero, refrescar: () => {} },
   logos: { montar: montarLogos, refrescar: () => {} },
+  juego: { montar: montarJuego, refrescar: () => {} },
 }
 
 /**
@@ -111,7 +112,7 @@ const ESPACIOS = [
   { id: 'vida', nombre: 'Vida', ico: 'heart-pulse', tecla: 'v', vistas: [['salud', 'Salud'], ['meditacion', 'Meditación'], ['tudia', 'Tu día'], ['personas', 'Personas'], ['escalas', 'Diario por escalas'], ['compras', 'Compras'], ['reservas', 'Reservas'], ['monedero', 'Monedero'], ['capsulas', 'Cápsulas'], ['jugador', 'Jugador'], ['suenos', 'Sueños']] },
   { id: 'aprender', nombre: 'Aprender', ico: 'graduation-cap', tecla: 'a', vistas: [['aprender', 'Academia'], ['dominios', 'Dominios'], ['idiomas', 'Idiomas'], ['criba72', 'Criba del 72'], ['criba', 'Criba lúdica']] },
   { id: 'grafo', nombre: 'Grafo', ico: 'waypoints', tecla: 'r', vistas: [['grafo', 'Grafo'], ['grafos', 'Mis grafos'], ['grafosalud', 'Salud']] },
-  { id: 'agentes', nombre: 'Agentes', ico: 'bot', tecla: 'e', vistas: [['agsala', 'Sala'], ['agmisiones', 'Misiones'], ['programados', 'Programados'], ['agpistas', 'Pistas'], ['agtemporada', 'Temporada'], ['logos', 'Los Logos'], ['liga', 'Roster'], ['forja', 'Forja'], ['encargos', 'Encargos'], ['cementerio', 'Cementerio']] },
+  { id: 'agentes', nombre: 'Agentes', ico: 'bot', tecla: 'e', vistas: [['agsala', 'Sala'], ['agmisiones', 'Misiones'], ['programados', 'Programados'], ['agpistas', 'Pistas'], ['agtemporada', 'Temporada'], ['juego', 'Corridas'], ['logos', 'Los Logos'], ['liga', 'Roster'], ['forja', 'Forja'], ['encargos', 'Encargos'], ['cementerio', 'Cementerio']] },
   { id: 'mapamundi', nombre: 'Mapamundi', ico: 'hexagon', tecla: 'w', vistas: [['mapamundi', 'Mapamundi']] },
   { id: 'saber', nombre: 'Saber', ico: 'library', tecla: 's', vistas: [['corpus', 'Corpus'], ['prensa', 'Diario'], ['cuadernos', 'Cuadernos'], ['hojas', 'A mano'], ['libreria', 'Librería'], ['entidades', 'Entidades']] },
   { id: 'afuera', nombre: 'Afuera', ico: 'globe', tecla: 'f', vistas: [['feed', 'Feed'], ['taller', 'Taller'], ['radar', 'Radar'], ['mercados', 'Encuestas y cuotas'], ['observatorio', 'Observatorio'], ['posicion', 'Posición en IAs'], ['campanas', 'Campañas'], ['cuentas', 'Cuentas'], ['discovery', 'Discovery'], ['extracciones', 'Extracciones']] },
