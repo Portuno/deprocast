@@ -65,6 +65,7 @@ const VISTAS = {
   reservas: { montar: montarReservas, refrescar: () => {} },
   meditacion: { montar: montarMeditacion, refrescar: () => {} },
   vigia: { montar: montarVigia, refrescar: () => {} },
+  posicion: { montar: montarPosicion, refrescar: () => {} },
   mercados: { montar: montarMercados, refrescar: () => {} },
   extracciones: { montar: montarExtracciones, refrescar: () => {} },
   escalas: { montar: montarEscalas, refrescar: () => {} },
@@ -112,7 +113,7 @@ const ESPACIOS = [
   { id: 'agentes', nombre: 'Agentes', ico: 'bot', tecla: 'e', vistas: [['agsala', 'Sala'], ['agmisiones', 'Misiones'], ['programados', 'Programados'], ['agpistas', 'Pistas'], ['agtemporada', 'Temporada'], ['liga', 'Roster'], ['forja', 'Forja'], ['encargos', 'Encargos'], ['cementerio', 'Cementerio']] },
   { id: 'mapamundi', nombre: 'Mapamundi', ico: 'hexagon', tecla: 'w', vistas: [['mapamundi', 'Mapamundi']] },
   { id: 'saber', nombre: 'Saber', ico: 'library', tecla: 's', vistas: [['corpus', 'Corpus'], ['prensa', 'Diario'], ['cuadernos', 'Cuadernos'], ['hojas', 'A mano'], ['libreria', 'Librería'], ['entidades', 'Entidades']] },
-  { id: 'afuera', nombre: 'Afuera', ico: 'globe', tecla: 'f', vistas: [['feed', 'Feed'], ['taller', 'Taller'], ['radar', 'Radar'], ['mercados', 'Encuestas y cuotas'], ['observatorio', 'Observatorio'], ['campanas', 'Campañas'], ['cuentas', 'Cuentas'], ['discovery', 'Discovery'], ['extracciones', 'Extracciones']] },
+  { id: 'afuera', nombre: 'Afuera', ico: 'globe', tecla: 'f', vistas: [['feed', 'Feed'], ['taller', 'Taller'], ['radar', 'Radar'], ['mercados', 'Encuestas y cuotas'], ['observatorio', 'Observatorio'], ['posicion', 'Posición en IAs'], ['campanas', 'Campañas'], ['cuentas', 'Cuentas'], ['discovery', 'Discovery'], ['extracciones', 'Extracciones']] },
   { id: 'maquina', nombre: 'La máquina', ico: 'cog', tecla: 'm', vistas: [['vigia', 'Estado'], ['matriz', 'Matriz 72'], ['arquetipos', 'Arquetipos'], ['fragua', 'La Fragua'], ['revision', 'Revisión']] },
   { id: 'perfil', nombre: 'Perfil', ico: 'user', tecla: 'y', vistas: [['perfil', 'Perfil']] },
 ]

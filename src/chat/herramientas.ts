@@ -830,6 +830,43 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `armó la hoja citable de ${recorte(String(a.entidad), 40)}`,
   },
   {
+    nombre: 'ver_posicion_ias', familia: 'lectura',
+    descripcion: 'Si las IAs recomiendan un proyecto suyo: sus preguntas de cliente («¿qué productoras recomendás en …?»), la serie por semana (en cuántas respuestas lo nombran, mejor puesto, si esa semana cambió su hoja citable) y lo último de cada modelo con la frase. Sin entidad, la portada de todos los que mide.',
+    parametros: S({ entidad: str('El proyecto (nombre o id); vacío = todos') }),
+    ejecutar: async (a, { db }) => {
+      const p = await import('../posicion.ts')
+      if (!String(a.entidad ?? '').trim()) return { tableros: p.tableros(db), modelos: p.modelosPosicion(db) }
+      const t = p.tablero(db, a.entidad)
+      return { entidad: t.entidad.nombre, modelos: t.modelos, serie: t.serie, preguntas: t.preguntas.map((q) => ({ id: q.id, pregunta: q.pregunta, activa: q.activa, ultimas: q.ultimas.map((r) => ({ modelo: r.modelo, semana: r.semana, aparece: r.aparece, puesto: r.puesto, frase: r.fragmento })) })) }
+    },
+    resumen: (a) => `miró la posición en las IAs${a.entidad ? ` de ${recorte(String(a.entidad), 40)}` : ''}`,
+  },
+  {
+    nombre: 'pregunta_posicion_ias', familia: 'accion',
+    descripcion: 'Agrega (o quita, con quitar=id) una pregunta para medir si las IAs recomiendan un proyecto suyo. Escribila como la haría un cliente que no lo conoce, sin nombrar el proyecto: «¿qué productoras audiovisuales en Valencia recomendás para un spot?». Se mide los lunes; medir_posicion_ias lo hace ya.',
+    parametros: S({ entidad: str('El proyecto que se busca en las respuestas (nombre o id)'), pregunta: str('La pregunta, tal cual la haría un cliente'), quitar: int('id de una pregunta para dejar de medirla') }),
+    ejecutar: async (a, { db }) => {
+      const p = await import('../posicion.ts')
+      if (a.quitar) return p.quitarPregunta(db, Number(a.quitar))
+      if (!a.entidad || !a.pregunta) return { error: 'Falta el proyecto o la pregunta' }
+      const q = p.agregarPregunta(db, a.entidad, String(a.pregunta))
+      return { id: q.id, pregunta: q.pregunta, entidad: p.resolverEntidad(db, q.entidadId).nombre, preguntas: p.listarPreguntas(db, q.entidadId).length }
+    },
+    resumen: (a, r: any) => (a.quitar ? `dejó de medir la pregunta #${a.quitar}` : `sumó una pregunta para medir ${r?.entidad ?? ''} en las IAs`),
+  },
+  {
+    nombre: 'medir_posicion_ias', familia: 'accion',
+    descripcion: 'Mide ya la posición en las IAs (sus preguntas a varios modelos, sin contexto). Una vez por semana por pregunta y modelo: lo ya medido esta semana no se repite ni gasta.',
+    parametros: S({ entidad: str('Solo este proyecto (nombre o id); vacío = todos') }),
+    ejecutar: async (a, { db }) => {
+      const p = await import('../posicion.ts')
+      const entidadId = String(a.entidad ?? '').trim() ? p.resolverEntidad(db, a.entidad).id : null
+      const r = await p.medirPosicion(db, { entidadId })
+      return { ...r, parte: p.parteSemanal(db) }
+    },
+    resumen: (_, r: any) => `midió la posición en las IAs (${r?.nuevas ?? 0} respuestas nuevas)`,
+  },
+  {
     nombre: 'reservar', familia: 'accion',
     descripcion: '«Reservame en X para 6 el viernes a las 21», «sacame turno con el médico»: anota la reserva (sitio, fecha, hora, personas, teléfono, mail, link) y devuelve lo que hace falta para pedirla: el mail, el WhatsApp y el guion de la llamada, con links que abren cada cosa ya cargada. Él la manda (vos no mandás nada ni pagás señas). Si dice que ya la pidió, estado pedida: a las 48 h sin confirmar se le avisa. Si falta el contacto, buscalo (buscar_web) y pasáselo.',
     parametros: S({ sitio: str('El restaurante, el médico, el lugar'), fecha: str('YYYY-MM-DD'), hora: str('HH:MM'), personas: int('Cuántas personas'), telefono: str('Teléfono del sitio'), email: str('Mail del sitio'), link: str('Link de reservas o la web'), nota: str('Algo a pedir: terraza, celíaco, cumpleaños…'), estado: str('a_buscar (por defecto) o pedida si ya la pidió', { enum: ['a_buscar', 'pedida', 'confirmada'] }) }, ['sitio']),
@@ -2864,14 +2901,14 @@ export const GRUPOS: Record<string, string[]> = {
   gente: ['buscar_contacto', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ficha_empresa'],
   aprender: ['crear_aprendizaje', 'crear_dominio', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma'],
   mente: ['responder_pregunta', 'votar_criba', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_hipotesis', 'probar_hipotesis', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas', 'audio_de_voz', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo'],
-  clientes: ['ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'extraccion_cliente', 'plan_extraccion', 'correo_extraccion', 'hoja_citable'],
+  clientes: ['ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'extraccion_cliente', 'plan_extraccion', 'correo_extraccion', 'hoja_citable', 'ver_posicion_ias', 'pregunta_posicion_ias', 'medir_posicion_ias'],
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado', 'borrar_programado'],
   correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'marcar_correo_atendido', 'buscar_contacto'],
   drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'borrar_de_drive', 'barrer_documentos_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],
   web: ['ver_ranking_feed', 'ver_censo_canal', 'aprobar_censo_canal', 'seguir_en_feed', 'ver_feed', 'buscar_web', 'buscar_en', 'explorar', 'usar_alexandria', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'triar_oportunidades', 'redactar_oportunidad'],
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus', 'ver_suenos_noche'],
   mapamundi: ['ver_mapamundi', 'disputar'],
-  observatorio: ['seguir_tema', 'ver_observatorio', 'crear_campana', 'armar_campana'],
+  observatorio: ['seguir_tema', 'ver_observatorio', 'crear_campana', 'armar_campana', 'ver_posicion_ias', 'pregunta_posicion_ias', 'medir_posicion_ias'],
   crear: ['armar_pdf', 'armar_presentacion', 'buscar_generados', 'reenviar_generado', 'difundir_idea', 'ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
 

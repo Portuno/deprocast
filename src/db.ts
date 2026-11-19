@@ -1183,6 +1183,30 @@ CREATE TABLE IF NOT EXISTS generados (
   creado_en INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS generados_creado ON generados (creado_en);
+-- La posición en las IAs (Fragua #293): las preguntas que él quiere medir por proyecto («¿qué productoras recomendás
+-- en …?»), y cada semana la respuesta cruda de cada modelo, si lo nombra, en qué puesto y con qué frase.
+CREATE TABLE IF NOT EXISTS posicion_preguntas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entidad_id INTEGER NOT NULL,
+  pregunta TEXT NOT NULL,
+  activa INTEGER NOT NULL DEFAULT 1,
+  creada_en INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS posicion_respuestas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  pregunta_id INTEGER NOT NULL,
+  entidad_id INTEGER NOT NULL,
+  semana TEXT NOT NULL,                -- AAAA-Www: una por pregunta, modelo y semana
+  modelo TEXT NOT NULL,
+  texto TEXT NOT NULL,
+  aparece INTEGER NOT NULL,
+  puesto INTEGER,                      -- su lugar en la lista que armó el modelo (null si lo nombra fuera de una lista)
+  fragmento TEXT,
+  tokens INTEGER,
+  en INTEGER NOT NULL,
+  UNIQUE (pregunta_id, modelo, semana)
+);
+CREATE INDEX IF NOT EXISTS posicion_respuestas_entidad ON posicion_respuestas (entidad_id, semana);
 -- La Criba del 72 (plan v36): 72 frases en 36 pares de polos opuestos; él las vota del 1 al 6.
 CREATE TABLE IF NOT EXISTS cribas72 (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2408,6 +2432,7 @@ const RUTINAS_SISTEMA = [
   { id: 'cronica', nombre: 'La crónica del día entra al corpus', hora: '23:55', dias: '0123456', accion: 'cronica' },
   { id: 'gnosis', nombre: 'Síntesis de la semana: patrones como quántomos', hora: '21:30', dias: '0', accion: 'gnosis' },
   { id: 'benchmark', nombre: 'El Benchmarkeador: el banco de pruebas contra los motores', hora: '04:30', dias: '1', accion: 'benchmark' },
+  { id: 'posicion', nombre: 'Tu posición en las IAs: tus preguntas a varios modelos, sin contexto (solo si cargaste preguntas)', hora: '09:30', dias: '1', accion: 'posicion' },
 ]
 /** La única plantilla de run de fábrica: genérica, sin nada del operador. */
 const PLANTILLAS_SISTEMA = [

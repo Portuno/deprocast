@@ -348,6 +348,14 @@ export const ACCIONES: Acciones = {
     const r = await (await import('./benchmark.ts')).correrBanco(db, { ahora })
     return r.veredictos.some((v) => v.rotar) ? `📏 **El banco de pruebas de la semana**\n\n${r.texto}` : null
   },
+  /** Los lunes (Fragua #293): sus preguntas a varios modelos, sin contexto; si no cargó ninguna, nada (ni un token). */
+  async posicion(db, _fecha, ahora) {
+    const p = await import('./posicion.ts')
+    if (!p.listarPreguntas(db).length || !(await import('./nan.ts')).nanConfigurado()) return null
+    const r = await p.medirPosicion(db, { ahora })
+    if (r.fallas.length) console.error('  posición:', r.fallas.join(' · '))
+    return r.nuevas ? p.parteSemanal(db) : null
+  },
   async gnosis(db, fecha, ahora) {
     if (topeAlcanzado(db, ahora)) return null
     const r = await sintesisSemanal(db, fecha, ahora)

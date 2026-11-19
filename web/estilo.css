@@ -3694,7 +3694,7 @@ a.arq-celda { color: var(--texto); text-decoration: none; }
 .estado-chip.aviso { color: var(--aviso); border-color: color-mix(in srgb, var(--aviso) 45%, transparent); }
 .rev-tabla .n { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
-/* ─── Archivo (Fragua #320): todo lo generado ─── */
+/* ─── Archivo (Fragua 320): todo lo generado ─── */
 .ar-barra { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
 .ar-barra .ar-q { flex: 1 1 260px; min-width: 0; }
 .ar-barra select { max-width: 220px; }
@@ -3720,3 +3720,36 @@ audio.ar-previa { width: 100%; }
 .ar-marco { width: 100%; height: 60vh; border: 1px solid var(--linea); border-radius: var(--r-m); background: var(--fondo); }
 .ar-texto { max-height: 55vh; overflow: auto; background: var(--panel-2); border: 1px solid var(--linea); border-radius: var(--r-m); padding: 12px 16px; }
 @media (max-width: 720px) { .ar-tarjeta { grid-template-columns: 64px minmax(0, 1fr); } .ar-mini { width: 64px; height: 64px; } .ar-barra select, .ar-fecha { flex: 1 1 45%; max-width: none; } }
+
+/* ─── Posición en IAs (Fragua 293) ─── */
+.po-proyectos { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 10px; margin-bottom: 14px; }
+.po-proyecto { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; background: var(--panel); border: 1px solid var(--linea); border-radius: var(--r-l); padding: 12px 14px; color: var(--texto); cursor: pointer; font: inherit; }
+.po-proyecto:hover { border-color: var(--linea-2); }
+.po-proyecto.on { border-color: var(--acento); background: var(--panel-2); }
+.po-num { font-size: var(--t-8); font-weight: 600; font-variant-numeric: tabular-nums; }
+.po-nueva { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0; }
+.po-nueva .campo-suelto { flex: 0 1 220px; min-width: 0; }
+.po-nueva .po-nueva-preg { flex: 1 1 340px; }
+.po-cab { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 22px; }
+.po-cab h2 { margin: 0; font-size: var(--t-6); }
+.po-grafico { overflow-x: auto; margin: 10px 0 4px; }
+.po-grafico svg { display: block; }
+.po-barra { fill: var(--acento); }
+.po-cero { fill: var(--linea-2); }
+.po-hit { fill: transparent; }
+.po-col:hover .po-barra { fill: var(--acento-texto); }
+.po-grilla { stroke: var(--linea); stroke-width: 1; }
+.po-eje { fill: var(--debil); font: 11px var(--mono); }
+.po-val { fill: var(--texto); font: 600 11px var(--cuerpo); }
+.po-hoja { fill: var(--tenue); font: 10px var(--mono); }
+.po-tabla { margin-bottom: 16px; }
+.po-preg { background: var(--panel); border: 1px solid var(--linea); border-radius: var(--r-l); padding: 12px 14px; margin-bottom: 10px; }
+.po-preg-cab { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; margin-bottom: 8px; }
+.po-modelos { display: flex; flex-direction: column; gap: 6px; }
+.po-resp { border: 1px solid var(--linea); border-radius: var(--r-m); padding: 6px 10px; }
+.po-resp summary { display: flex; gap: 10px; align-items: baseline; cursor: pointer; flex-wrap: wrap; }
+.po-modelo { font: 500 var(--t-2) var(--mono); min-width: 90px; }
+.po-resp.si .po-veredicto { color: var(--ok); font-weight: 600; }
+.po-resp.no .po-veredicto { color: var(--tenue); }
+.po-frase { margin: 8px 0 4px; font-size: var(--t-3); }
+.po-crudo { max-height: 320px; overflow: auto; font-size: var(--t-3); background: var(--panel-2); border-radius: var(--r-m); padding: 8px 12px; }

@@ -1480,6 +1480,12 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/archivo$/, async (_, __, q) => (await import('./archivo.ts')).listarGenerados(db, { q: q.get('q'), tipo: q.get('tipo'), origen: q.get('origen'), entidad: num(q.get('entidad')) ?? null, desde: q.get('desde'), hasta: q.get('hasta'), limite: num(q.get('limite')), saltar: num(q.get('saltar')) })],
   ['GET', /^\/api\/archivo\/(\d+)$/, async (_, [n]) => { const g = (await import('./archivo.ts')).leerGenerado(db, id(n)); if (!g) throw new Error('No existe eso en el Archivo'); return g }],
   ['POST', /^\/api\/archivo\/(\d+)\/reenviar$/, async (_, [n]) => (await import('./archivo.ts')).reenviarGenerado(db, id(n))],
+  // La posición en las IAs (Fragua #293): la portada, el tablero de un proyecto, sus preguntas y medir ya.
+  ['GET', /^\/api\/posicion$/, async () => { const p = await import('./posicion.ts'); return { tableros: p.tableros(db), modelos: p.modelosPosicion(db) } }],
+  ['GET', /^\/api\/posicion\/(\d+)$/, async (_, [n]) => (await import('./posicion.ts')).tablero(db, id(n))],
+  ['POST', /^\/api\/posicion\/preguntas$/, async (b) => (await import('./posicion.ts')).agregarPregunta(db, b.entidad, String(b.pregunta ?? ''))],
+  ['POST', /^\/api\/posicion\/preguntas\/(\d+)\/quitar$/, async (_, [n]) => (await import('./posicion.ts')).quitarPregunta(db, id(n))],
+  ['POST', /^\/api\/posicion\/medir$/, async (b) => { const p = await import('./posicion.ts'); return p.medirPosicion(db, { entidadId: b.entidad ? p.resolverEntidad(db, b.entidad).id : null }) }],
   // El vigía (La máquina → Estado): cada pieza con su estado, y el aviso por WhatsApp prendido o no.
   ['GET', /^\/api\/vigia$/, async () => (await import('./vigia.ts')).estadoSistema(db, { commit: process.env.MASTRO_COMMIT ?? null, arranco: Date.parse(ARRANCO) })],
   ['POST', /^\/api\/vigia\/avisos$/, async (b) => { fijarAjuste(db, 'vigia_whatsapp', b.prender === false ? '0' : '1'); return { avisos: b.prender !== false } }],
