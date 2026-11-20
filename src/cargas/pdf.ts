@@ -1,8 +1,10 @@
 /**
  * PDF como carga, sin dependencia nueva. Saca el texto de los operadores Tj/TJ, e infla los streams
- * FlateDecode con zlib. Un escaneo no tiene texto: se avisa y no se inventa un OCR (eso sigue siendo una tanda de imágenes).
+ * FlateDecode con zlib. Un escaneo (o lo escrito a mano) casi no trae texto: la pieza entra igual y se lee con OCR por
+ * página, de fondo (Fragua #326, src/ocr-pdf.ts), con lo ilegible marcado por página.
  */
 import zlib from 'node:zlib'
+import { paginasDePdf, textoInsuficiente } from '../ocr-pdf.ts'
 import type { Analisis, Datos, Importador } from './tipos.ts'
 
 function desescapar(s: string): string {
@@ -56,21 +58,29 @@ export const pdf: Importador = {
   detectar: (d) => !!d.bin || /\.pdf$/i.test(d.nombre),
   analizar(d: Datos): Analisis {
     const texto = d.bin ? textoDePdf(d.bin) : ''
+    const paginas = d.bin ? paginasDePdf(d.bin) : 1
+    const ocr = textoInsuficiente(texto, paginas)
     return {
       importador: 'pdf',
       titulo: titulo(d.nombre),
-      descripcion: texto ? `${texto.length.toLocaleString('es-AR')} caracteres de texto.` : 'Sin texto extraíble.',
-      segmentos: texto
-        ? [{ id: 'documento', nombre: 'Documento', descripcion: 'Una pieza con el texto del PDF.', nivel: 'primaria', destino: 'corpus', cantidad: 1, porDefecto: true }]
-        : [],
+      descripcion: `${paginas} página${paginas === 1 ? '' : 's'}; ${texto ? `${texto.length.toLocaleString('es-AR')} caracteres de texto` : 'sin texto extraíble'}.`,
+      segmentos: ocr
+        ? [{ id: 'ocr', nombre: 'Leer con OCR', descripcion: 'Casi no trae texto (escaneo, fotocopia o escrito a mano): se lee con OCR página por página, de fondo, y lo ilegible queda marcado por página.', nivel: 'primaria', destino: 'corpus', cantidad: 1, porDefecto: true }]
+        : [{ id: 'documento', nombre: 'Documento', descripcion: 'Una pieza con el texto del PDF.', nivel: 'primaria', destino: 'corpus', cantidad: 1, porDefecto: true }],
       fuente: { id: 'pdf', nombre: 'PDF', nivel: 'primaria', padreId: null },
       nivelEditable: true,
-      avisos: texto ? [] : ['Este PDF no trae texto (puede ser un escaneo). Pasalo a imágenes y subilo como tanda.'],
+      avisos: ocr ? [`Este PDF casi no trae texto (${texto.trim().length} caracteres en ${paginas} página${paginas === 1 ? '' : 's'}): puede ser un escaneo o estar escrito a mano. Al cargarlo se lee con OCR por página (unos minutos).`] : [],
     }
   },
   ejecutar(d, ctx) {
     const texto = d.bin ? textoDePdf(d.bin) : ''
-    if (!texto || !ctx.quiere('documento')) return
+    const paginas = d.bin ? paginasDePdf(d.bin) : 1
+    if (textoInsuficiente(texto, paginas)) {
+      // Entra ya (con lo poco que traiga) y el OCR la completa de fondo.
+      if (ctx.quiere('ocr')) ctx.pieza('ocr', { nivel: ctx.opciones.nivel, titulo: titulo(d.nombre), contenido: texto.trim() || '(Leyendo con OCR, página por página: el texto llega en unos minutos.)', meta: { ocr: 'pendiente', ocrPaginas: paginas } })
+      return
+    }
+    if (!ctx.quiere('documento')) return
     ctx.pieza('documento', { nivel: ctx.opciones.nivel, titulo: titulo(d.nombre), contenido: texto })
   },
 }

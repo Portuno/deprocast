@@ -2741,6 +2741,8 @@ async function latidoPensar() {
 }
 deFondo(() => setInterval(latidoPensar, 15 * 60_000).unref())
 deFondo(() => setTimeout(latidoPensar, 60_000).unref())
+// Los PDF escaneados que quedaron con el OCR pendiente (Fragua #326): si la primera lectura falló, se reintenta.
+deFondo(() => setInterval(() => { const fin = marcar('ocr'); void import('./ocr-pdf.ts').then((o) => o.ocrPendientes(db)).catch((e) => console.error('  ocr:', e instanceof Error ? e.message : e)).finally(fin) }, 10 * 60_000).unref())
 // Los audios de Telegram o WhatsApp cuya transcripción falló se reintentan solos (Fragua #328).
 deFondo(() => setInterval(() => { const fin = marcar('audios'); void import('./telegram.ts').then((t) => t.reintentarAudios(db)).catch((e) => console.error('  audios:', e instanceof Error ? e.message : e)).finally(fin) }, 10 * 60_000).unref())
 

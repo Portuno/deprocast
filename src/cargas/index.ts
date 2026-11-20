@@ -193,6 +193,8 @@ export function ejecutar(db: Db, cargaId: number, o: Partial<Opciones>, ahora = 
     db.exec('ROLLBACK')
     throw e
   }
+  // Un PDF escaneado quedó con el OCR pendiente (Fragua #326): se lee de fondo, sin esperar a la próxima pasada.
+  if (imp.id === 'pdf') void import('../ocr-pdf.ts').then((o) => o.ocrPendientes(db)).catch((e) => console.error('  ocr:', e instanceof Error ? e.message : e))
   return leerCarga(db, cargaId)!
 }
 
