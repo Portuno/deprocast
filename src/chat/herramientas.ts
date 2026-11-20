@@ -735,7 +735,8 @@ export const HERRAMIENTAS: Herramienta[] = [
     ejecutar: async (a, { db }) => {
       const t = await import('../transcripciones.ts')
       const au = t.audioDe(db, { piezaId: a.pieza ?? undefined, segmentoId: a.segmento ?? undefined })
-      if (!au) return { error: 'No tengo el audio de eso (se guardan desde la versión que archiva el audio; las conversaciones con otros no se guardan).' }
+      // Sin audio archivado no es un fallo (Fragua #327): es lo esperable en lo viejo y en las conversaciones con otros.
+      if (!au) return { sin_audio: true, aviso: 'No tengo el audio de eso (se guardan desde la versión que archiva el audio; las conversaciones con otros no se guardan). Lo que hay es la transcripción de la pieza.' }
       if (a.que === 'retranscribir') { const v = await t.retranscribir(db, au.id, a.motor === 'whisper' ? 'whisper' : 'gemini'); return { nueva: { version: v.version, motor: v.motor, texto: v.texto }, nota: 'Quedó como otra versión; si es mejor, elegila.' } }
       if (a.que === 'elegir') { const v = t.elegirVersion(db, au.id, Number(a.version)); return { vigente: v.version, texto: v.texto } }
       return { audio: `/adjuntos/${au.archivo}`, versiones: t.versiones(db, au.id).map((v) => ({ version: v.version, motor: v.motor, fecha: new Date(v.creadaEn).toLocaleString('es-AR'), vigente: v.vigente, dudosos: v.dudosos, texto: v.segmentos.length ? t.textoMarcado(v.segmentos) : v.texto })) }

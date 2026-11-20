@@ -24,3 +24,13 @@ test('Fragua #315: ver_entidad con un id que no está no es un fallo; sugiere pa
   assert.equal((porNombre.resultado as any).id, doyou, 'el nombre exacto la trae entera')
   assert.equal(((await ver({ id: doyou })).resultado as any).nombre, 'Doyou Studio')
 })
+
+test('Fragua #327: audio_de_voz sobre una pieza sin audio archivado devuelve un aviso, no un fallo', async () => {
+  const db = abrir(':memory:')
+  const { insertar } = await import('../src/corpus.ts')
+  const id = insertar(db, { fuente: 'operador', titulo: 'Charla con alguien', contenido: 'texto transcripto', nivel: 'propia', origenId: 'charla:1' })!
+  const r = await ejecutarHerramienta(HERRAMIENTAS, 'audio_de_voz', JSON.stringify({ pieza: id }), { db, conversacionId: null })
+  assert.equal(r.ok, true)
+  assert.equal((r.resultado as any).sin_audio, true)
+  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM errores').get() as any).n, 0, 'no se registra como error')
+})
