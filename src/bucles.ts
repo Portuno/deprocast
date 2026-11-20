@@ -91,13 +91,18 @@ export async function juntarBucles(db: Db, o: { limite?: number; ahora?: number 
   const existentes = await bucleExistentes(db)
   const marcar = db.prepare('INSERT OR IGNORE INTO bucles_vistos (origen, bucle_id, en) VALUES (?, ?, ?)')
   let n = 0
-  for (const [i, m] of ms.entries()) {
-    if (i % 3 === 2) await new Promise<void>((ok) => setImmediate(ok)) // con miles de bucles, que no trabe el servidor
+  const ceder = () => new Promise<void>((ok) => setImmediate(ok))
+  for (const m of ms) {
+    // Con miles de bucles, que no trabe el servidor: se cede en cada mención y cada 3000 comparaciones (Fragua #324:
+    // de a tres menciones eran 14 mil cosenos de 1024 por vuelta, segundos enteros en la CPU de la nube).
+    await ceder()
     if (!m.texto) { marcar.run(m.origen, null, ahora); continue }
     const k = clave(m.texto)
     const v = vecs?.[conTexto.indexOf(m)] ?? null
     let mejor: { id: number; sim: number } | null = null
-    for (const b of existentes) {
+    for (let j = 0; j < existentes.length; j++) {
+      if (j && j % 3000 === 0) await ceder()
+      const b = existentes[j]
       // Los dos ya vienen normalizados: el coseno es un producto punto (sin volver a normalizar 14 mil veces por mención).
       const sim = b.clave === k ? 1 : v && b.vec ? cosenoNormalizados(v, b.vec) : 0
       if (sim >= PARECIDO && (!mejor || sim > mejor.sim)) mejor = { id: b.id, sim }

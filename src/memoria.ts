@@ -58,15 +58,36 @@ export function recordar(
   const tipo = esTipo(r.tipo) ? r.tipo : 'hecho'
   const horizonte = esHorizonte(r.horizonte) ? r.horizonte : null
   const n = normal(texto)
-  const igual = (db.prepare(`SELECT * FROM memoria WHERE estado = 'vigente'`).all() as any[]).find((x) => {
-    const m = normal(x.texto)
-    return m === n || (m.length > 24 && n.includes(m)) || (n.length > 24 && m.includes(n))
-  })
-  if (igual) return deFila(igual)
+  const vigentes = normalesVigentes(db)
+  const igual = vigentes.filas.find((x) => x.n === n || (x.n.length > 24 && n.includes(x.n)) || (n.length > 24 && x.n.includes(n)))
+  if (igual) { const ya = leerRecuerdo(db, igual.id); if (ya) return ya }
   const res = db.prepare(
     `INSERT INTO memoria (texto, tipo, horizonte, fecha, origen, pieza_id, estado, revisada, reemplaza, creada_por, creada_en) VALUES (?, ?, ?, ?, ?, ?, 'vigente', ?, ?, ?, ?)`,
   ).run(texto, tipo, horizonte, r.fecha ?? fechaLocal(ahora), r.origen ?? null, r.piezaId ?? null, r.revisada ? 1 : 0, r.reemplaza ?? null, r.creadaPor ?? 'operador', ahora)
-  return leerRecuerdo(db, Number(res.lastInsertRowid))!
+  const id = Number(res.lastInsertRowid)
+  // Al día sin rehacerlo: se suma el nuevo y la firma pasa a la de ahora.
+  vigentes.filas.push({ id, n })
+  vigentes.firma = firmaVigentes(db)
+  return leerRecuerdo(db, id)!
+}
+
+/**
+ * Los recuerdos vigentes con su texto normalizado, en memoria (Fragua #324): para no guardar uno repetido, antes se
+ * leían y normalizaban todos (miles) en cada recuerdo nuevo, y el destilado guarda hasta tres por unidad: segundos de
+ * CPU en la nube. Se rehace solo si cambiaron (cuántos vigentes, el id más alto, el último cambio de estado).
+ */
+const cacheNormales = new WeakMap<Db, { firma: string; filas: { id: number; n: string }[] }>()
+function firmaVigentes(db: Db): string {
+  const f = db.prepare(`SELECT COUNT(*) AS n, COALESCE(MAX(id), 0) AS m, COALESCE(SUM(id), 0) AS s FROM memoria WHERE estado = 'vigente'`).get() as { n: number; m: number; s: number }
+  return `${f.n}:${f.m}:${f.s}`
+}
+function normalesVigentes(db: Db) {
+  const firma = firmaVigentes(db)
+  const ya = cacheNormales.get(db)
+  if (ya && ya.firma === firma) return ya
+  const c = { firma, filas: (db.prepare(`SELECT id, texto FROM memoria WHERE estado = 'vigente'`).all() as { id: number; texto: string }[]).map((x) => ({ id: x.id, n: normal(x.texto) })) }
+  cacheNormales.set(db, c)
+  return c
 }
 
 /** Corregir no borra: la versión vieja queda como corregida y la nueva la reemplaza. */

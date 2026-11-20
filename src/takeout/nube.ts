@@ -539,7 +539,22 @@ export function juntarDestilados(ds: any[]): Destilado {
 }
 
 /** El catálogo de entidades para el modelo y para enlazar: nombre o alias normalizado → entidad. */
-function catalogo(db: Db): { texto: string; buscar: (nombre: string) => { id: number; tipo: string } | null } {
+/**
+ * El catálogo de entidades, reusado entre unidades (Fragua #324): armarlo leía todas las entidades con sus alias y
+ * recorría la tabla entera con json_extract en cada unidad destilada —seis carriles a la vez—, segundos de servidor
+ * trabado en la nube. Se rehace si cambiaron las entidades (cuántas, el id más alto) o a los dos minutos.
+ */
+const catalogos = new WeakMap<Db, { firma: string; en: number; c: ReturnType<typeof armarCatalogo> }>()
+function catalogo(db: Db, ahora = Date.now()): ReturnType<typeof armarCatalogo> {
+  const f = db.prepare('SELECT COUNT(*) AS n, COALESCE(MAX(id), 0) AS m FROM entidades').get() as { n: number; m: number }
+  const firma = `${f.n}:${f.m}`
+  const ya = catalogos.get(db)
+  if (ya && ya.firma === firma && ahora - ya.en < 120_000) return ya.c
+  const c = armarCatalogo(db)
+  catalogos.set(db, { firma, en: ahora, c })
+  return c
+}
+function armarCatalogo(db: Db): { texto: string; buscar: (nombre: string) => { id: number; tipo: string } | null } {
   const filas = db.prepare(`SELECT id, tipo, nombre, alias FROM entidades WHERE tipo IN ('persona', 'proyecto', 'agrupacion', 'lugar') ORDER BY tipo, nombre`).all() as { id: number; tipo: string; nombre: string; alias: string | null }[]
   const mapa = new Map<string, { id: number; tipo: string }>()
   for (const f of filas) for (const n of [f.nombre, ...(json<string[]>(f.alias, []) ?? [])]) if (claveDe(n)) mapa.set(claveDe(n), { id: f.id, tipo: f.tipo })

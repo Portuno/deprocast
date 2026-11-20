@@ -117,9 +117,39 @@ async function hacerItems(db: Db): Promise<boolean> {
   }
 }
 
-/** La próxima unidad a destilar: la de más prioridad y, entre esas, la más nueva. */
-export function siguienteDestilado(db: Db) {
-  return db.prepare(`SELECT d.pieza_id, d.lote, d.intentos FROM takeout_destilado d JOIN corpus c ON c.id = d.pieza_id WHERE d.lote = ? AND d.estado = 'pendiente' ORDER BY d.prioridad DESC, c.fecha DESC LIMIT 1`).get(REPROCESO) as { pieza_id: number; lote: string; intentos: number } | undefined
+/**
+ * La próxima unidad a destilar: la de más prioridad y, entre esas, la más nueva. Ordenar todas las pendientes (con el
+ * cruce al corpus para la fecha) costaba en la nube cerca de un segundo de CPU, y lo pedía cada carril en cada vuelta
+ * (Fragua #324): ahora se ordenan de a 300 y se van tomando de esa cola (la que otro carril ya tomó se saltea sola).
+ */
+const colaDestilado = new WeakMap<Db, { ids: number[]; en: number }>()
+export function siguienteDestilado(db: Db, ahora = Date.now()) {
+  let c = colaDestilado.get(db)
+  const una = db.prepare(`SELECT pieza_id, lote, intentos FROM takeout_destilado WHERE pieza_id = ? AND lote = ? AND estado = 'pendiente'`)
+  for (let vuelta = 0; vuelta < 2; vuelta++) {
+    if (!c || !c.ids.length || ahora - c.en > 120_000) {
+      c = { ids: (db.prepare(`SELECT d.pieza_id AS id FROM takeout_destilado d JOIN corpus c ON c.id = d.pieza_id WHERE d.lote = ? AND d.estado = 'pendiente' ORDER BY d.prioridad DESC, c.fecha DESC LIMIT 300`).all(REPROCESO) as { id: number }[]).map((r) => r.id), en: ahora }
+      colaDestilado.set(db, c)
+    }
+    while (c.ids.length) {
+      const fila = una.get(c.ids.shift()!, REPROCESO) as { pieza_id: number; lote: string; intentos: number } | undefined
+      if (fila) return fila
+    }
+    c.en = 0 // se vació: una sola vuelta más, con la cola nueva
+  }
+  return undefined
+}
+/** Para las pruebas (y si se encola algo urgente): que la próxima pida la cola de nuevo. */
+export function olvidarColaDestilado(db: Db) { colaDestilado.delete(db) }
+
+/** ¿Hay algo importado esperando destilar? (Un EXISTS, y vale 30 s: armar el avance de cada lote en cada vuelta trababa.) */
+const hayImportado = new WeakMap<Db, { si: boolean; en: number }>()
+function importadoEsperando(db: Db, ahora = Date.now()): boolean {
+  const ya = hayImportado.get(db)
+  if (ya && ahora - ya.en < 30_000) return ya.si
+  const si = !!db.prepare(`SELECT 1 FROM takeout_destilado INDEXED BY takeout_destilado_hecho WHERE estado IN ('pendiente', 'procesando') AND lote != ? LIMIT 1`).get(REPROCESO)
+  hayImportado.set(db, { si, en: ahora })
+  return si
 }
 
 async function hacerDestilado(db: Db): Promise<boolean> {
@@ -230,7 +260,7 @@ export async function trabajarReproceso(db: Db): Promise<void> {
       if (vuelta++ % 20 === 0) await encolarDeAPoco(db)
       // No espera al Takeout: los pasajes y los vectores siguen, y dos carriles ayudan a destilar lo importado
       // (lo importado primero: es lo que acabás de subir).
-      const conImportado = takeoutTrabajando() || importadoPendiente(db).destilado > 0
+      const conImportado = takeoutTrabajando() || importadoEsperando(db)
       const hizo = await Promise.all(Array.from({ length: CARRILES }, async (_, carril) => {
         const pasos = carril === 0 ? [hacerPasajes, hacerItems, hacerDestilado]
           : conImportado && carril <= 2 ? [hacerImportado, hacerDestilado, hacerPasajes]
