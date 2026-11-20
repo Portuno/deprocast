@@ -18,8 +18,8 @@ export function paginasDePdf(bin: Buffer): number {
   return Math.max(1, (bin.toString('latin1').match(/\/Type\s*\/Page(?![a-z])/g) ?? []).length)
 }
 
-/** ¿El texto que trae alcanza? Menos de 40 caracteres por página es un escaneo (o casi): un PDF de texto corto, no. */
-export const textoInsuficiente = (texto: string, paginas: number) => texto.replace(/\s+/g, ' ').trim().length < 40 * Math.max(1, paginas)
+/** ¿El texto que trae alcanza? Menos de 10 caracteres por página es un escaneo (o casi): un PDF de texto, aunque sea corto, no. */
+export const textoInsuficiente = (texto: string, paginas: number) => texto.replace(/\s+/g, ' ').trim().length < 10 * Math.max(1, paginas)
 
 /** Lo más que se le manda a Gemini de una (sus datos en línea). */
 const MAX_BYTES = 19 * 1024 * 1024

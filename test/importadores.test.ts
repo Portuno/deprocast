@@ -143,7 +143,7 @@ function pdfCon(texto: string): Buffer {
   return Buffer.concat([Buffer.from(cabeza), datos, Buffer.from('endstream\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n')])
 }
 
-test('pdf: saca el texto comprimido; un escaneo avisa y no entra', () => {
+test('pdf: saca el texto comprimido; un escaneo avisa y entra para leerse con OCR (Fragua #326)', () => {
   const db = abrir(':memory:')
   const c = subir(db, 'nota.pdf', pdfCon('Hola desde el pdf'))
   assert.equal(c.importador, 'pdf')
@@ -155,6 +155,6 @@ test('pdf: saca el texto comprimido; un escaneo avisa y no entra', () => {
   assert.equal(p.contenido, 'Hola desde el pdf')
 
   const vacio = subir(db, 'escaneo.pdf', Buffer.from('%PDF-1.4\n1 0 obj\n<< >>\nendobj\n%%EOF\n'))
-  assert.match(vacio.analisis!.avisos[0], /no trae texto/)
-  assert.equal(vacio.analisis!.segmentos.length, 0)
+  assert.match(vacio.analisis!.avisos[0], /no trae texto.*OCR por página/)
+  assert.deepEqual(vacio.analisis!.segmentos.map((s) => s.id), ['ocr'])
 })
