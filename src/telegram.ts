@@ -1071,11 +1071,34 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
   if (msg.document) return archivo(db, msg.document)
   const voz = msg.voice ?? msg.audio
   if (voz) {
-    const { datos, nombre } = await bajarDe(voz.file_id)
-    const t = await transcribir(db, datos, nombre.endsWith('.oga') ? nombre.replace(/\.oga$/, '.ogg') : nombre)
+    // Cada audio queda anotado apenas llega (Fragua #328): si algo falla, no se pierde en silencio y el chat sabe en qué
+    // estado está (no contesta «no me llegó»). Lo que él pida sobre él mientras tanto queda esperando.
+    const A = await import('./audios-entrantes.ts')
+    const ent = A.registrarAudio(db, { canal: nombreCanal(), nombre: String(voz.file_name ?? `nota de voz ${fechaLocal()} ${new Date().toTimeString().slice(0, 5)}`), duracion: voz.duration ?? null, tamano: voz.file_size ?? null, ref: voz.file_unique_id ?? voz.file_id })
+    if ((voz.file_size ?? 0) > A.LIMITE_BOT) {
+      A.marcar(db, ent.id, 'grande', { error: `pesa ${A.mb(voz.file_size)}; el bot baja hasta 20 MB` })
+      return decir(`🎙 ${A.describir(ent)} pesa más de lo que ${nombreCanal()} me deja bajar (20 MB): no lo puedo escuchar. Mandámelo partido en dos, o subilo desde la app del celular. Lo que me pidas sobre ese audio queda esperando.`)
+    }
+    let datos: Buffer, nombre: string
+    try { ({ datos, nombre } = await bajarDe(voz.file_id)) } catch (e) {
+      const m = e instanceof Error ? e.message : String(e)
+      A.marcar(db, ent.id, 'fallo', { error: m, intento: true })
+      return decir(`⚠ No pude bajar ${A.describir(ent)}: ${m}. Mandámelo de nuevo (o subilo desde la app). Lo que me pidas sobre ese audio queda esperando.`)
+    }
+    const nombreAudio = nombre.endsWith('.oga') ? nombre.replace(/\.oga$/, '.ogg') : nombre
+    A.marcar(db, ent.id, 'transcribiendo')
+    let t: string
+    try { t = await A.transcribirPorTramos(datos, nombreAudio, voz.duration ?? null, (d, n) => transcribir(db, d, n)) } catch (e) {
+      // Falló: el audio queda guardado y se reintenta solo (reintentarAudios); avisa con el nombre del archivo.
+      const m = e instanceof Error ? e.message : String(e)
+      A.guardarCopia(db, ent.id, datos, nombreAudio)
+      A.marcar(db, ent.id, 'en_cola', { error: m, intento: true })
+      return decir(`⏳ Recibí ${A.describir(ent)}, pero la transcripción falló (${m.slice(0, 160)}). Lo guardé y lo reintento solo; te aviso cuando esté. Lo que me pidas sobre ese audio queda esperando.`)
+    }
     // A su Drive (carpeta Mastropiero/Audios), con la transcripción.
-    void import('./google/drive.ts').then((d) => d.alDrive(db, { datos, nombre: nombre.replace(/\.oga$/, '.ogg'), tipo: 'audio', origen: nombreCanal(), descripcion: t })).catch(() => {})
-    if (!t.trim()) return decir('No entendí el audio.')
+    void import('./google/drive.ts').then((d) => d.alDrive(db, { datos, nombre: nombreAudio, tipo: 'audio', origen: nombreCanal(), descripcion: t })).catch(() => {})
+    if (!t.trim()) { A.marcar(db, ent.id, 'fallo', { error: 'no se entendió nada' }); return decir('No entendí el audio.') }
+    A.marcar(db, ent.id, 'transcripto', { error: null })
     // Un audio que cuenta un sueño («soñé que…») va a Sueños, no a la charla.
     if (PARECE_SUENO.test(t)) return guardarSuenoTelegram(db, { texto: t })
     // Una nota larga es material (una caminata pensando en voz alta): queda como pieza suya, además de lo que se haga con ella.
@@ -1089,9 +1112,12 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
     if (g?.repetida) await decir(`🎙 Ya lo tenía: es la nota${g.repetida.fecha ? ` del ${g.repetida.fecha.slice(8, 10)}/${g.repetida.fecha.slice(5, 7)}` : ''} (#${g.repetida.id}). No la guardo de nuevo.`)
     else if (pieza) await decir(`🎙 Guardé tu nota de voz${voz.duration ? ` (${Math.max(1, Math.round(voz.duration / 60))} min)` : ''} en tu corpus, como tuya.`)
     const guardada = pieza ?? g?.repetida?.id
+    if (guardada) A.marcar(db, ent.id, 'transcripto', { piezaId: guardada })
     const otras = voces ? ` En la grabación había ${voces.fondo ? 'un video o una grabación de fondo' : 'otras voces'}: abajo va solo lo que dijo él; lo demás no es suyo.` : ''
     const dicho = voces ? voces.suyo || '(No se pudo saber qué parte dijo él.)' : t
-    return conversar(db, guardada ? `(Nota de voz por ${nombreCanal()}, ya guardada en su corpus [#${guardada}].${otras} Si trae algo para anotar —una side quest, un gasto, una idea de proyecto— anotalo.) ${dicho}` : dicho, { porVoz: true })
+    const ordenes = A.tomarOrdenes(db, ent.id)
+    const esperando = ordenes.length ? ` Mientras este audio llegaba te pidió: ${ordenes.map((o, i) => `${i + 1}) ${o}`).join(' ')} — hacelo ahora.` : ''
+    return conversar(db, guardada ? `(Nota de voz por ${nombreCanal()}, ya guardada en su corpus [#${guardada}].${otras} Si trae algo para anotar —una side quest, un gasto, una idea de proyecto— anotalo.${esperando}) ${dicho}` : esperando ? `(${esperando.trim()}) ${dicho}` : dicho, { porVoz: true })
   }
   if (msg.photo?.length) {
     // Una foto (una comida, un ticket, la balanza…): se registra sola si es un registro; si no, se charla.
@@ -1201,4 +1227,41 @@ export function escucharTelegram(db: Db) {
 }
 export function dejarDeEscuchar() {
   estado.escuchando = false
+}
+
+// ─── los audios que quedaron en cola (Fragua #328) ────────────────────────
+
+/**
+ * Cada tanto: los audios cuya transcripción falló se reintentan desde la copia guardada (hasta 5 veces). Cuando uno
+ * sale, queda como nota suya, se avisa con su nombre y se hace lo que él pidió sobre ese audio mientras esperaba.
+ */
+export async function reintentarAudios(db: Db, ahora = Date.now()): Promise<number> {
+  const A = await import('./audios-entrantes.ts')
+  let hechos = 0
+  for (const a of A.sinResolver(db, ahora).filter((x) => x.estado === 'en_cola' && x.archivo)) {
+    if (a.intentos >= A.MAX_INTENTOS) {
+      A.marcar(db, a.id, 'fallo', { error: `${a.error ?? 'no se pudo transcribir'} (${a.intentos} intentos)` })
+      mensajeDeMastropiero(db, conversacionHoy(db).id, `⚠ No pude transcribir ${A.describir(a)} después de ${a.intentos} intentos (${(a.error ?? '').slice(0, 160)}). Mandámelo de nuevo o subilo desde la app.${a.ordenes.length ? ` Lo que pediste sobre él sigue anotado: ${a.ordenes.join(' · ')}.` : ''}`, { canales: true })
+      continue
+    }
+    let datos: Buffer
+    try { datos = fs.readFileSync(a.archivo!) } catch { A.marcar(db, a.id, 'fallo', { error: 'la copia guardada ya no está' }); continue }
+    A.marcar(db, a.id, 'transcribiendo')
+    let t: string
+    try { t = await A.transcribirPorTramos(datos, a.archivo!, a.duracion, (d, n) => transcribir(db, d, n)) } catch (e) {
+      A.marcar(db, a.id, 'en_cola', { error: e instanceof Error ? e.message : String(e), intento: true })
+      continue
+    }
+    if (!t.trim()) { A.marcar(db, a.id, 'fallo', { error: 'no se entendió nada' }); continue }
+    const g = guardarNotaDeVoz(db, t, a.duracion, a.ref)
+    const pieza = g.pieza ?? g.repetida?.id ?? null
+    A.marcar(db, a.id, 'transcripto', { error: null, piezaId: pieza })
+    A.borrarCopia(db, a.id)
+    void import('./google/drive.ts').then((d) => d.alDrive(db, { datos, nombre: a.nombre, tipo: 'audio', origen: a.canal, descripcion: t })).catch(() => {})
+    hechos++
+    const ordenes = A.tomarOrdenes(db, a.id)
+    mensajeDeMastropiero(db, conversacionHoy(db).id, `🎙 Ya transcribí ${A.describir(a)}${pieza ? `: quedó en tu corpus [#${pieza}]` : ''}.${ordenes.length ? ' Ahora hago lo que me pediste sobre él.' : ''}`, { canales: true })
+    if (ordenes.length) await enviar(db, conversacionHoy(db).id, `(Llegó la transcripción de ${A.describir(a)}${pieza ? `, guardada en su corpus [#${pieza}]` : ''}. Mientras llegaba pidió: ${ordenes.map((o, i) => `${i + 1}) ${o}`).join(' ')} — hacelo ahora, con esa transcripción.)\n\n${t.slice(0, 20_000)}`, { via: 'encargo' }).catch((e) => console.error('  audios:', e instanceof Error ? e.message : e))
+  }
+  return hechos
 }

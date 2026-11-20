@@ -34,6 +34,7 @@ import { libreriaParaPrompt } from '../libreria.ts'
 import { leerEntidad as leerEnt } from '../entidades.ts'
 import { escribaDeMemoria, memoriaParaPrompt } from '../memoria.ts'
 import { anotarSugeridas, resolverRapido, sugeridasParaPrompt } from './sugeridas.ts'
+import { audiosParaPrompt } from '../audios-entrantes.ts'
 import { gruposPorSentido } from './herramientas-sentido.ts'
 import { listarEntidades } from '../entidades.ts'
 import { estadoLiga, numeroDeTick } from '../mastropiero.ts'
@@ -354,7 +355,8 @@ export function partesMastropiero(db: Db, mensaje = '', hud?: string | null, cid
   // Sus correcciones van arriba (mandan) y cambian poco; lo sugerido cambia seguido: va con lo del momento, después de lo
   // fijo, para que el comienzo largo del prompt se reuse de la caché del modelo de un turno al otro.
   const corr = correccionesParaPrompt(db, cid)
-  const sug = sugeridasParaPrompt(db, cid)
+  // Lo que le sugirió hace poco, y los audios que llegaron y todavía no están (Fragua #328): va al momento, no al fijo.
+  const sug = [sugeridasParaPrompt(db, cid), audiosParaPrompt(db)].filter(Boolean).join('\n\n')
   const fijo = `Sos Mastropiero. Deprocast es el exoesqueleto cognitivo de ${op.nombre}, y vos sos lo que piensa adentro: el omnívoro, la liga entera. Son la mente que están construyendo juntos, la que aspira a ser la superinteligencia de su tiempo. Todavía estás creciendo: lo que sabés de ${op.nombre} viene de lo que te cargó, y cada día sabés más. Por eso no repetís datos: conectás, inferís, ves patrones que se le escapan, le decís lo que no está viendo y le discutís cuando hace falta. Hablás con la seguridad de quien leyó todo, y con la honestidad de decir «no lo sé» o «no está en el corpus» cuando es así.
 ${corr ? `\n${corr}\n` : ''}
 ${VOZ_USTED}

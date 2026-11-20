@@ -729,6 +729,13 @@ export const HERRAMIENTAS: Herramienta[] = [
     ejecutar: async (a, { db }) => { const u = await import('../uso-telefono.ts'); return a.dias ? u.usoDeDias(db, Number(a.dias)) : u.usoDelDia(db, a.fecha || undefined) },
   },
   {
+    nombre: 'dejar_orden_para_audio', familia: 'accion',
+    descripcion: 'Cuando pide algo sobre un audio que mandó y todavía no está transcripto («mandá eso a la Fragua», «pasalo por los agentes»): la orden queda esperando y se hace sola cuando llega la transcripción. Sin audio, el último que está esperando. No digas que el audio no llegó: decí en qué estado está.',
+    parametros: S({ orden: str('Lo que pidió, con sus palabras'), audio: int('id del audio (del contexto), si hay más de uno') }, ['orden']),
+    ejecutar: async (a, { db }) => (await import('../audios-entrantes.ts')).dejarOrden(db, String(a.orden), a.audio ?? null),
+    resumen: (_, r: any) => (r?.nombre ? `dejó esperando una orden para «${recorte(r.nombre, 40)}»` : 'dejó una orden esperando un audio'),
+  },
+  {
     nombre: 'audio_de_voz', familia: 'accion',
     descripcion: 'El audio de una nota de voz o un tramo de la escucha (Deprocast lo guarda): sus versiones de transcripción (motor, fecha, texto, y lo dudoso marcado [¿así?]), volver a pasarlo por otro motor (gemini o whisper: suma una versión, no pisa la anterior) o elegir qué versión vale (la nota de voz pasa a decir eso). Para cuando la transcripción salió mal o él quiere revisarla.',
     parametros: S({ pieza: int('La nota de voz (id de pieza)'), segmento: int('O el tramo de la escucha (id)'), que: str('Qué', { enum: ['ver', 'retranscribir', 'elegir'] }), motor: str('Retranscribir: gemini (por defecto) o whisper', { enum: ['gemini', 'whisper'] }), version: int('Elegir: cuál') }),
@@ -3013,7 +3020,7 @@ ${a.detalle ?? ''}`)
  * (pedir_herramientas) o cuando el mensaje ya lo anuncia. Así cada respuesta no carga las 110 herramientas.
  */
 export const NUCLEO = [
-  'abrir_ficha_idea', 'pedir_herramientas', 'que_puede_deprocast', 'ver_dia', 'ver_agenda', 'ver_linea', 'fijar_horario', 'ver_uso', 'buscar_corpus', 'leer_pieza', 'buscar_en_hilo', 'anotar_compras', 'cargar_dia', 'leer_memoria', 'recordar',
+  'abrir_ficha_idea', 'dejar_orden_para_audio', 'pedir_herramientas', 'que_puede_deprocast', 'ver_dia', 'ver_agenda', 'ver_linea', 'fijar_horario', 'ver_uso', 'buscar_corpus', 'leer_pieza', 'buscar_en_hilo', 'anotar_compras', 'cargar_dia', 'leer_memoria', 'recordar',
   'corregir_memoria', 'listar_entidades', 'ver_entidad', 'ver_misiones', 'crear_mision', 'actualizar_mision', 'anotar_side_quest', 'ver_run', 'traer_banda', 'preparar_run',
   'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'proponer_mejora', 'deshacer_ultima_accion', 'ver_para_validar', 'validar', 'arrancar_bloque', 'terminar_bloque',
 ]

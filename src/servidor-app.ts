@@ -2741,6 +2741,8 @@ async function latidoPensar() {
 }
 deFondo(() => setInterval(latidoPensar, 15 * 60_000).unref())
 deFondo(() => setTimeout(latidoPensar, 60_000).unref())
+// Los audios de Telegram o WhatsApp cuya transcripción falló se reintentan solos (Fragua #328).
+deFondo(() => setInterval(() => { const fin = marcar('audios'); void import('./telegram.ts').then((t) => t.reintentarAudios(db)).catch((e) => console.error('  audios:', e instanceof Error ? e.message : e)).finally(fin) }, 10 * 60_000).unref())
 
 // Vectores: de a tandas, lo que falta (lo propio primero). Barato, pero respeta el tope diario si lo hay.
 let vectorizando = false

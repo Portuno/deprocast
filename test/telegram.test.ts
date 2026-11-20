@@ -248,3 +248,44 @@ test('#265: un timeout que la vuelta siguiente resuelve no es un error; tres seg
     console.error = antes
   }
 })
+
+test('Fragua #328: un audio que no se puede bajar o transcribir no se pierde en silencio; lo pedido sobre él espera y se hace cuando llega', async () => {
+  const db = abrir(':memory:')
+  const { yo, enviados } = bot()
+  const A = await import('../src/audios-entrantes.ts')
+  const { reintentarAudios } = await import('../src/telegram.ts')
+
+  // Más de lo que el bot puede bajar: lo dice con el nombre del archivo, sin intentar bajarlo.
+  let bajadas = 0
+  _probarTelegram({ bajar: async (id) => { bajadas++; return { datos: Buffer.from(`audio ${id}`), nombre: 'a.m4a' } } })
+  await procesarActualizacion(db, yo({ audio: { file_id: 'g1', file_unique_id: 'ug1', file_name: 'grande.m4a', duration: 1500, file_size: 32 * 1024 * 1024 } }))
+  assert.equal(bajadas, 0)
+  assert.match(enviados.at(-1).text, /«grande\.m4a» \(25 min, 32 MB\) pesa más de lo que Telegram me deja bajar/)
+  assert.equal(A.sinResolver(db)[0].estado, 'grande')
+
+  // La transcripción falla: queda en cola con su copia, y el chat sabe en qué estado está (no dice que no llegó).
+  _probarTelegram({ transcribir: async () => { throw new Error('Whisper 504') } })
+  await procesarActualizacion(db, yo({ audio: { file_id: 'm1', file_unique_id: 'um1', file_name: '20261119_184023.m4a', duration: 300, file_size: 5_000_000 } }))
+  assert.match(enviados.at(-1).text, /Recibí «20261119_184023\.m4a» \(5 min, 4,8 MB\), pero la transcripción falló \(Whisper 504\)\. Lo guardé y lo reintento solo/)
+  const enCola = A.sinResolver(db).find((a) => a.nombre === '20261119_184023.m4a')!
+  assert.equal(enCola.estado, 'en_cola')
+  assert.ok(enCola.archivo && fs.existsSync(enCola.archivo), 'la copia queda en disco')
+  assert.match(A.audiosParaPrompt(db), /NO digas que no llegaron[\s\S]*«20261119_184023\.m4a» \(5 min, 4,8 MB\) por Telegram: en cola/)
+
+  // Él pide algo sobre ese audio: queda esperando.
+  A.dejarOrden(db, 'Mandar a la fragua eso', enCola.id)
+
+  // El reintento de fondo lo transcribe, lo guarda como nota suya, avisa y hace lo pedido.
+  const vistos: string[] = []
+  _probarModelo(async (_l, o) => { vistos.push(String((o.mensajes.at(-1) as any).content)); return { texto: 'Hecho.', llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1 } })
+  _probarTelegram({ transcribir: async () => 'Pensé en los agentes visuales y en la Fragua. '.repeat(30) })
+  assert.equal(await reintentarAudios(db), 1)
+  const listo = A.leerAudio(db, enCola.id)!
+  assert.equal(listo.estado, 'transcripto')
+  assert.ok(listo.piezaId)
+  assert.equal(listo.archivo, null, 'la copia se borra')
+  assert.ok((db.prepare(`SELECT texto FROM mensajes WHERE rol = 'asistente'`).all() as any[]).some((m) => /Ya transcribí «20261119_184023\.m4a»/.test(m.texto)), 'avisa en Hoy (y de ahí a sus canales) con el nombre')
+  assert.ok(vistos.some((v) => /Mientras llegaba pidió: 1\) Mandar a la fragua eso/.test(v)), 'hace lo que pidió')
+  assert.deepEqual(A.tomarOrdenes(db, enCola.id), [], 'una sola vez')
+  _probarTelegram({ transcribir: async () => 'Mandé el mail', bajar: async (id) => ({ datos: Buffer.from(`audio ${id}`), nombre: 'voz.oga' }) })
+})

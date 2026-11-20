@@ -1207,6 +1207,24 @@ CREATE TABLE IF NOT EXISTS posicion_respuestas (
   UNIQUE (pregunta_id, modelo, semana)
 );
 CREATE INDEX IF NOT EXISTS posicion_respuestas_entidad ON posicion_respuestas (entidad_id, semana);
+-- Los audios que llegan por Telegram o WhatsApp (Fragua #328): cada uno anotado apenas llega, con su estado, para que
+-- uno que falla no se pierda en silencio; lo que él pide sobre un audio que todavía no está queda esperando.
+CREATE TABLE IF NOT EXISTS audios_entrantes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  canal TEXT NOT NULL,
+  nombre TEXT NOT NULL,
+  duracion INTEGER,
+  tamano INTEGER,
+  ref TEXT,
+  estado TEXT NOT NULL,                -- recibido | transcribiendo | transcripto | en_cola | grande | fallo
+  error TEXT,
+  archivo TEXT,                        -- la copia local mientras espera transcribirse (se borra al terminar)
+  intentos INTEGER NOT NULL DEFAULT 0,
+  pieza_id INTEGER,
+  ordenes TEXT NOT NULL DEFAULT '[]',  -- JSON: lo que pidió sobre este audio mientras no estaba
+  creado INTEGER NOT NULL,
+  actualizado INTEGER NOT NULL
+);
 -- La liga como juego (Fragua #262): una corrida por arquetipo (roguelike: se pierde y se vuelve a empezar, con legado),
 -- que avanza por épocas; el diario de cada corrida (compras, drops, épocas: lo viejo se archiva, no se borra); los
 -- artefactos que quedan entre corridas; y los puntos de cada semana cerrada (de la economía: solo lo hecho de verdad).
