@@ -1506,6 +1506,10 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/archivo$/, async (_, __, q) => (await import('./archivo.ts')).listarGenerados(db, { q: q.get('q'), tipo: q.get('tipo'), origen: q.get('origen'), entidad: num(q.get('entidad')) ?? null, desde: q.get('desde'), hasta: q.get('hasta'), limite: num(q.get('limite')), saltar: num(q.get('saltar')) })],
   ['GET', /^\/api\/archivo\/(\d+)$/, async (_, [n]) => { const g = (await import('./archivo.ts')).leerGenerado(db, id(n)); if (!g) throw new Error('No existe eso en el Archivo'); return g }],
   ['POST', /^\/api\/archivo\/(\d+)\/reenviar$/, async (_, [n]) => (await import('./archivo.ts')).reenviarGenerado(db, id(n))],
+  // Oficios nuevos como arquetipos (Fragua #323): las plantillas y lo pendiente, proponer, aceptar (en otra celda) o descartar.
+  ['GET', /^\/api\/oficios$/, async () => { const o = await import('./oficios.ts'); return { plantillas: o.PLANTILLAS_OFICIO, pendientes: o.pendientes(db), agentes: listar(db).filter((f) => f.clase === 'generativo' && f.estado !== 'prueba').map((f) => ({ id: f.id, nombre: alias(f) })) } }],
+  ['POST', /^\/api\/oficios$/, async (b) => (await import('./oficios.ts')).proponerOficio(db, { ...b, origen: 'pantalla' })],
+  ['POST', /^\/api\/oficios\/(\d+)$/, async (b, [n]) => (await import('./oficios.ts')).resolverOficio(db, id(n), b.accion === 'descartar' ? 'descartar' : 'aceptar', { celda: b.celda ? Number(b.celda) : null })],
   // La liga como juego (Fragua #262): el tablero (corridas, avatares, rankings) y la tienda.
   ['GET', /^\/api\/juego$/, async () => (await import('./juego.ts')).tablero(db)],
   ['POST', /^\/api\/juego\/(\d+)\/comprar$/, async (b, [n]) => (await import('./juego.ts')).comprar(db, id(n), String(b.item ?? ''), { agente: b.agente, atributo: b.atributo, clase: b.clase })],

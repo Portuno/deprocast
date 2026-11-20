@@ -18,6 +18,7 @@ import {
   PRUEBA_EXITOS, PRUEBA_FALLOS, RACHA_BANCA, retirar, type Ficha,
 } from './roster.ts'
 import { efectos, NIVEL_BAUTISMO, nivelDe, XP_POR_ASIGNACION, XP_POR_EXITO } from './xp.ts'
+import { esTitular } from './oficios.ts'
 
 export const MASTROPIERO = 'mastropiero'
 
@@ -126,7 +127,7 @@ export function purgar(db: Db, ahora: number, ev: Evento[] = []) {
     // Nunca una clase sin nadie (plan v30): el último listo de su clase no se purga.
     if (f.estado !== 'banca' && !listar(db, { clase: f.clase }).some((x) => x.id !== f.id && x.estado !== 'banca')) continue
     // Los de una familia (Los Logos, Fragua #235) se consultan a pedido, no corren el bus: no se purgan por no correr.
-    if (db.prepare('SELECT 1 FROM agente_rubros WHERE agente_id = ?').get(f.id)) continue
+    if (db.prepare('SELECT 1 FROM agente_rubros WHERE agente_id = ?').get(f.id) || esTitular(db, f.id)) continue // y los titulares de un arquetipo (Fragua #323)
     const jugados = new Set((dias.all(desde, ahora) as { d: string }[]).map((r) => r.d))
     jugados.add(hoy) // este tick también es un día de liga
     jugados.delete(fechaLocal(desde)) // el día en que corrió no cuenta como día sin correr

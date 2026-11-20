@@ -5,6 +5,7 @@
  */
 import { ajuste, fechaLocal, fijarAjuste, json, type Db } from './db.ts'
 import { suenosParaBandeja } from './sonador.ts'
+import { oficiosParaBandeja } from './oficios.ts'
 import { propuestosParaBandeja } from './tesoro.ts'
 import { CLAVES_TIPO, TIPOS, aciertoDe, anotar, estadoSombra, fijarModo, hechoSolo, leerDecision, modoDe } from './decisiones.ts'
 import { deshacerCaptura } from './captura.ts'
@@ -122,6 +123,11 @@ export function bandeja(db: Db, ahora = Date.now()) {
     const tp = propuestosParaBandeja(db)
     if (tp.n) g.push({ tipo: 'tesoro', nombre: 'El Tesorero propone (tu firma)', n: tp.n, peso: 2, ir: null, acciones: [['aceptar', '✓ Firmar'], ['descartar', '✕']], items: tp.items })
   } catch { /* sin las tablas todavía */ }
+  // Oficios nuevos (Fragua #323): entran al plantel como arquetipos, con la celda sugerida; el nombre lo pone él.
+  try {
+    const of = oficiosParaBandeja(db)
+    if (of.n) g.push({ tipo: 'oficio', nombre: 'Oficios nuevos para el plantel (arquetipos)', n: of.n, peso: 2, ir: null, acciones: [['aceptar', '✓ Abrir la celda'], ['descartar', '✕']], items: of.items })
+  } catch { /* sin la tabla todavía */ }
   // Lo que soñó de noche (El Soñador, Fragua #275 y #276): podas, fusiones y puentes, para aceptar o descartar.
   try {
     const sn = suenosParaBandeja(db)
@@ -182,6 +188,7 @@ export async function resolverBandeja(db: Db, tipo: string, id: number | string,
   if (tipo === 'recuerdo') return accion === 'aceptar' ? revisar(db, id) : archivar(db, id)
   if (tipo === 'tesoro') return (await import('./tesoro.ts')).firmar(db, id, accion === 'aceptar', ahora)
   if (tipo === 'sueno') return (await import('./sonador.ts')).resolverSueno(db, id, accion, ahora)
+  if (tipo === 'oficio') return (await import('./oficios.ts')).resolverOficio(db, Number(id), accion === 'aceptar' ? 'aceptar' : 'descartar', {}, ahora)
   if (tipo === 'aprender') {
     const ac = await import('./academia.ts')
     return accion === 'aceptar' ? ac.aceptarSugerencia(db, id, ahora) : ac.descartarSugerencia(db, id)

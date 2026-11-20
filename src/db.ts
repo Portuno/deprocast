@@ -1207,6 +1207,24 @@ CREATE TABLE IF NOT EXISTS posicion_respuestas (
   UNIQUE (pregunta_id, modelo, semana)
 );
 CREATE INDEX IF NOT EXISTS posicion_respuestas_entidad ON posicion_respuestas (entidad_id, semana);
+-- Los oficios nuevos (Fragua #323): un oficio pedido entra al plantel como arquetipo (no como un generativo que se
+-- descarta), primero como propuesta en Para validar con su celda sugerida; el nombre propio lo pone él.
+CREATE TABLE IF NOT EXISTS oficios_propuestos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  oficio TEXT NOT NULL,
+  elemento TEXT,
+  maneja TEXT,
+  ejemplo TEXT,
+  instruccion TEXT,                    -- lo que hace el agente de ese oficio (cómo revisa, qué devuelve)
+  celda INTEGER NOT NULL,              -- 1..72: la sugerida (él la puede mover al aceptar)
+  fila INTEGER,
+  columna INTEGER,
+  agente_id TEXT,                      -- un generativo que asciende a ese arquetipo
+  origen TEXT NOT NULL,                -- chat | pantalla | ascenso
+  estado TEXT NOT NULL DEFAULT 'propuesta', -- propuesta | aceptada | descartada
+  creada_en INTEGER NOT NULL,
+  resuelta_en INTEGER
+);
 -- Los audios que llegan por Telegram o WhatsApp (Fragua #328): cada uno anotado apenas llega, con su estado, para que
 -- uno que falla no se pierda en silencio; lo que él pide sobre un audio que todavía no está queda esperando.
 CREATE TABLE IF NOT EXISTS audios_entrantes (

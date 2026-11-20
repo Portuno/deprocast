@@ -126,8 +126,35 @@ async function montarArquetipos() {
   })
   $('#arq').innerHTML = `<p class="tenue">${con} de 72 con nombre · ${d.arquetipos.filter((a) => a.construida).length} páginas construidas. Para nombrar uno: entrá a su página, o decile a Mastropiero «la celda 12 es El Modista».</p>
     <div class="esq-grilla-caja"><div class="matriz esq-matriz">${grilla}</div></div>
+    <section id="oficios-nuevos" class="seccion"></section>
     <section id="plantel" class="seccion"></section>`
+  void pintarOficiosNuevos()
   void pintarPlantel()
+}
+
+/**
+ * Oficios nuevos (Fragua #323): un oficio pedido entra al plantel como arquetipo, no como un generativo descartable.
+ * Se propone (una plantilla o uno propio), queda en Para validar con su celda sugerida, y el nombre lo ponés vos.
+ */
+async function pintarOficiosNuevos() {
+  const cont = $('#oficios-nuevos')
+  if (!cont) return
+  let d
+  try { d = await api('/oficios') } catch (e) { return error(e) }
+  if (!$('#oficios-nuevos')) return
+  const enCola = new Set(d.pendientes.map((p) => p.oficio.toLowerCase()))
+  cont.innerHTML = `<h2>Oficios nuevos</h2>
+    <p class="tenue chico">Un oficio que vas a necesitar seguido (un filtro de revisión, un especialista) entra como arquetipo con su celda, su elemento y su instrucción. Queda en Para validar; el nombre propio se lo ponés en su página.</p>
+    <div class="chips">${Object.entries(d.plantillas).filter(([, p]) => !enCola.has(p.oficio.toLowerCase())).map(([k, p]) => `<button class="chip" data-of-plantilla="${esc(k)}" title="${esc(p.maneja)}">+ ${esc(p.oficio)}</button>`).join('')}</div>
+    <form class="lg-nuevo" id="of-nuevo"><input class="campo-suelto" name="oficio" placeholder="Otra profesión (Traductor jurídico, Curador visual…)" required><input class="campo-suelto" name="maneja" placeholder="Qué maneja, en una línea"><input class="campo-suelto" name="ejemplo" placeholder="Un ejemplo concreto">
+      ${d.agentes.length ? `<select class="campo-suelto" name="agente"><option value="">Sin ascenso</option>${d.agentes.map((a) => `<option value="${esc(a.id)}">Asciende ${esc(a.nombre)}</option>`).join('')}</select>` : ''}<button class="btn btn-chico">Proponer</button></form>
+    ${d.pendientes.length ? `<ul class="f2-lista">${d.pendientes.map((p) => `<li><b>${esc(p.oficio)}</b> → celda ${p.celda}${p.elemento ? ` · ${esc(p.elemento)}` : ''}${p.agenteId ? ` · asciende ${esc(p.agenteId)}` : ''}
+      <span class="fila g-1"><input type="number" min="1" max="72" value="${p.celda}" data-of-celda="${p.id}" title="Otra celda" class="campo-suelto of-celda"><button class="btn btn-chico btn-primario" data-of-aceptar="${p.id}">Abrir la celda</button><button class="btn btn-chico" data-of-descartar="${p.id}">✕</button></span></li>`).join('')}</ul>` : ''}`
+  const proponer = async (cuerpo) => { try { const p = await api('/oficios', cuerpo); toast(`Propuesto: ${esc(p.oficio)} en la celda ${p.celda}<small>Queda en Para validar.</small>`, 'suave'); pintarOficiosNuevos() } catch (e) { error(e) } }
+  $$('[data-of-plantilla]', cont).forEach((b) => (b.onclick = () => proponer({ plantilla: b.dataset.ofPlantilla })))
+  $('#of-nuevo').onsubmit = (ev) => { ev.preventDefault(); const f = Object.fromEntries(new FormData(ev.target)); proponer({ oficio: f.oficio, maneja: f.maneja || null, ejemplo: f.ejemplo || null, agente: f.agente || null }) }
+  $$('[data-of-aceptar]', cont).forEach((b) => (b.onclick = async () => { try { const r = await api(`/oficios/${b.dataset.ofAceptar}`, { accion: 'aceptar', celda: $(`[data-of-celda="${b.dataset.ofAceptar}"]`).value }); toast(`Celda ${r.arquetipo} abierta${r.ascendio ? `: asciende ${esc(r.ascendio)}` : ''}<small>Ponele el nombre propio en su página.</small>`, 'suave'); montarArquetipos() } catch (e) { error(e) } }))
+  $$('[data-of-descartar]', cont).forEach((b) => (b.onclick = async () => { try { await api(`/oficios/${b.dataset.ofDescartar}`, { accion: 'descartar' }); pintarOficiosNuevos() } catch (e) { error(e) } }))
 }
 
 async function montarDominios() {

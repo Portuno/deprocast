@@ -18,11 +18,20 @@ export const ESTADOS_PLANTEL = ['vacío', 'nombrado', 'en prueba', 'activo'] as 
 export type EstadoPlantel = (typeof ESTADOS_PLANTEL)[number]
 export type Ficha = { n: number; nombre: string | null; oficio: string | null; elemento: Elemento | null; fila: number | null; columna: number | null; maneja: string | null; ejemplo: string | null; estado: EstadoPlantel }
 
+const asegurados = new WeakSet<Db>()
 function asegurar(db: Db) {
+  if (asegurados.has(db)) return
   db.exec(`CREATE TABLE IF NOT EXISTS arquetipo_fichas (
     n INTEGER PRIMARY KEY, oficio TEXT, elemento TEXT, fila INTEGER, columna INTEGER, maneja TEXT, ejemplo TEXT, estado TEXT, actualizada_en INTEGER NOT NULL)`)
+  // Fragua #323: la instrucción del oficio y el titular (un generativo que ascendió a este arquetipo).
+  const cols = new Set((db.prepare('PRAGMA table_info(arquetipo_fichas)').all() as { name: string }[]).map((c) => c.name))
+  if (!cols.has('instruccion')) db.exec('ALTER TABLE arquetipo_fichas ADD COLUMN instruccion TEXT')
+  if (!cols.has('titular')) db.exec('ALTER TABLE arquetipo_fichas ADD COLUMN titular TEXT')
+  asegurados.add(db)
 }
 
+/** Que la tabla de fichas exista (con sus columnas nuevas) antes de consultarla desde afuera. */
+export const asegurarFichas = (db: Db) => asegurar(db)
 const sinTildes = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
 const sinArticulo = (s: string) => sinTildes(s).replace(/^(el|la|los|las|un|una)\s+/, '')
 
@@ -77,7 +86,8 @@ export function fijarFicha(db: Db, n: number, c: { oficio?: string | null; eleme
       const v = esOficio(o)
       if (!v.ok) throw new Error(v.porQue)
       // Un oficio no puede ser el nombre propio de nadie.
-      const filas = db.prepare(`SELECT clave, nombre FROM paginas WHERE tipo = 'arquetipo' AND nombre IS NOT NULL`).all() as { clave: string; nombre: string }[]
+      let filas: { clave: string; nombre: string }[] = []
+      try { filas = db.prepare(`SELECT clave, nombre FROM paginas WHERE tipo = 'arquetipo' AND nombre IS NOT NULL`).all() as { clave: string; nombre: string }[] } catch { /* sin páginas todavía: nadie tiene nombre */ }
       const choca = filas.find((x) => sinArticulo(x.nombre) === sinArticulo(o))
       if (choca) throw new Error(`«${o}» ya es el nombre propio del arquetipo ${choca.clave}: un oficio no puede ser un nombre.`)
     }

@@ -3830,3 +3830,5 @@ circle.jg-fig { fill: var(--acento); }
 .jg-tienda { display: flex; flex-wrap: wrap; gap: 6px; }
 .jg-lista { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 3px; font-size: var(--t-3); }
 .jg-reglas { margin-top: 18px; }
+
+.of-celda { width: 5em; }
