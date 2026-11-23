@@ -144,9 +144,12 @@ function exigirConfirmacion(a: { confirmado?: boolean }, que: string) {
 
 const RAIZ = [path.resolve(import.meta.dirname, '..', '..'), process.cwd()].find((d) => fs.existsSync(path.join(d, 'README.md'))) ?? path.resolve(import.meta.dirname, '..', '..')
 
-export function lineamientos(seccion?: string) {
+export async function lineamientos(seccion?: string) {
+  const { taxonomiaMarkdown } = await import('../taxonomia.ts') // a demanda: el registro importa medio sistema y esto evita el ciclo
   const readme = fs.existsSync(path.join(RAIZ, 'README.md')) ? fs.readFileSync(path.join(RAIZ, 'README.md'), 'utf8') : ''
   const secciones = readme.split(/\n(?=## )/).map((s) => ({ titulo: (s.match(/^##? (.+)/)?.[1] ?? 'Intro').trim(), texto: s.trim() }))
+  // Fragua #321: la taxonomía no se escribe a mano en el README; se regenera desde el registro cada vez que se lee.
+  secciones.push({ titulo: 'Taxonomía', texto: taxonomiaMarkdown() })
   const codigo = fs.readdirSync(path.join(RAIZ, 'src'), { recursive: true }).map(String).filter((f) => f.endsWith('.ts')).sort().map((f) => {
     const t = fs.readFileSync(path.join(RAIZ, 'src', f), 'utf8')
     const doc = t.match(/\/\*\*([\s\S]*?)\*\//)?.[1].replace(/^\s*\* ?/gm, '').replace(/\s+/g, ' ').trim() ?? ''
@@ -156,7 +159,7 @@ export function lineamientos(seccion?: string) {
     const s = secciones.find((x) => x.titulo.toLowerCase().includes(seccion.toLowerCase()))
     return s ? { seccion: s.titulo, texto: s.texto } : { error: `No hay sección «${seccion}»`, secciones: secciones.map((x) => x.titulo) }
   }
-  return { secciones: secciones.map((x) => x.titulo), readme: recorte(readme, 14000), mapa_del_codigo: codigo }
+  return { secciones: secciones.map((x) => x.titulo), readme: recorte(readme, 14000), mapa_del_codigo: codigo, taxonomia: 'Pedí la sección «Taxonomía» (o usá ver_taxonomia) para ver todos los tipos de clasificación.' }
 }
 
 // ─── el catálogo ────────────────────────────────────────────────────────
@@ -1056,6 +1059,23 @@ export const HERRAMIENTAS: Herramienta[] = [
   {
     nombre: 'ver_cronica', familia: 'lectura', descripcion: 'Los últimos eventos de la liga, tick por tick.', parametros: S({ limite: int('Cuántos (máx. 80)') }),
     ejecutar: (a, { db }) => cronica(db, Math.min(a.limite ?? 30, 80)),
+  },
+  {
+    nombre: 'ver_taxonomia', familia: 'lectura',
+    descripcion: 'El catálogo canónico de tipos de clasificación (Fragua #321): por familia (archivo, mundo, actores, trabajo, vida, salidas, criterios), cada tipo con sus valores, dónde vive, qué herramientas lo leen y lo escriben y su estado. Con auditar: true revisa además la base (valores usados que no están declarados, números fuera de rango) y dice qué no cierra. Usalo antes de afirmar qué valores admite algo.',
+    parametros: S({ q: str('Filtra por nombre, id o valor (opcional)'), auditar: { type: 'boolean', description: 'Revisar también la base' } }),
+    ejecutar: async (a, { db }) => {
+      const { auditar, catalogo } = await import('../taxonomia.ts')
+      const hallazgos = a.auditar ? (await auditar(db, HERRAMIENTAS.map((h) => h.nombre))).hallazgos : undefined
+      const c = catalogo(hallazgos)
+      const q = String(a.q ?? '').trim().toLowerCase()
+      const pasa = (t: { id: string; nombre: string; descripcion?: string; valoresTexto: string }) => !q || [t.id, t.nombre, t.descripcion ?? '', t.valoresTexto].some((x) => x.toLowerCase().includes(q))
+      return {
+        resumen: c.resumen,
+        familias: c.familias.map((f) => ({ familia: f.id, tipos: f.tipos.filter(pasa).map((t) => ({ id: t.id, nombre: t.nombre, valores: t.valoresTexto, donde: t.tabla ? `${t.tabla}.${t.columna}` : t.modulo, lee: t.lee, escribe: t.escribe, estado: t.estado })) })).filter((f) => f.tipos.length),
+        hallazgos: c.hallazgos.filter((h) => !q || h.tipo.includes(q)).slice(0, 60),
+      }
+    },
   },
   {
     nombre: 'leer_lineamientos', familia: 'lectura',
@@ -3049,7 +3069,7 @@ export const NUCLEO = [
   'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'proponer_mejora', 'deshacer_ultima_accion', 'ver_para_validar', 'validar', 'arrancar_bloque', 'terminar_bloque',
 ]
 export const GRUPOS: Record<string, string[]> = {
-  liga: ['autoanalisis', 'crear_oficio', 'ver_juego', 'comprar_en_juego', 'ver_logos', 'forjar_logos', 'preguntar_a_logos', 'ver_rendimiento_liga', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ficha_arquetipo', 'ver_plantel', 'crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'ver_banco_de_pruebas', 'correr_banco_de_pruebas', 'comparar_motores', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
+  liga: ['autoanalisis', 'crear_oficio', 'ver_juego', 'comprar_en_juego', 'ver_logos', 'forjar_logos', 'preguntar_a_logos', 'ver_rendimiento_liga', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ficha_arquetipo', 'ver_plantel', 'crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'ver_taxonomia', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'ver_banco_de_pruebas', 'correr_banco_de_pruebas', 'comparar_motores', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['ver_suenos_noche', 'al_diario', 'ver_diario', 'crear_dominio', 'retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_criterios', 'fijar_criterio', 'ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   // Lo que era «vida» (93 herramientas, unos 15.500 tokens), en grupos chicos: cada mensaje trae solo lo suyo.

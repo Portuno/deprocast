@@ -1507,6 +1507,8 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/archivo\/(\d+)$/, async (_, [n]) => { const g = (await import('./archivo.ts')).leerGenerado(db, id(n)); if (!g) throw new Error('No existe eso en el Archivo'); return g }],
   ['POST', /^\/api\/archivo\/(\d+)\/reenviar$/, async (_, [n]) => (await import('./archivo.ts')).reenviarGenerado(db, id(n))],
   // Oficios nuevos como arquetipos (Fragua #323): las plantillas y lo pendiente, proponer, aceptar (en otra celda) o descartar.
+  ['GET', /^\/api\/taxonomia$/, async () => (await import('./taxonomia.ts')).catalogo()],
+  ['GET', /^\/api\/taxonomia\/auditoria$/, async () => { const t = await import('./taxonomia.ts'); const { HERRAMIENTAS } = await import('./chat/herramientas.ts'); return t.catalogo((await t.auditar(db, HERRAMIENTAS.map((h) => h.nombre))).hallazgos) }],
   ['GET', /^\/api\/oficios$/, async () => { const o = await import('./oficios.ts'); return { plantillas: o.PLANTILLAS_OFICIO, pendientes: o.pendientes(db), agentes: listar(db).filter((f) => f.clase === 'generativo' && f.estado !== 'prueba').map((f) => ({ id: f.id, nombre: alias(f) })) } }],
   ['POST', /^\/api\/oficios$/, async (b) => (await import('./oficios.ts')).proponerOficio(db, { ...b, origen: 'pantalla' })],
   ['POST', /^\/api\/oficios\/(\d+)$/, async (b, [n]) => (await import('./oficios.ts')).resolverOficio(db, id(n), b.accion === 'descartar' ? 'descartar' : 'aceptar', { celda: b.celda ? Number(b.celda) : null })],

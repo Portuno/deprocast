@@ -117,7 +117,7 @@ test('el perfil del operador sale de lo cargado, no del código', () => {
 
 test('propone mejoras y lee sus lineamientos', async () => {
   const db = abrir(':memory:')
-  const l = lineamientos() as any
+  const l = await lineamientos() as any
   assert.ok(l.secciones.includes('Corpus'))
   assert.ok(l.mapa_del_codigo.some((x: any) => x.archivo === 'src/chat/index.ts'))
   guion([

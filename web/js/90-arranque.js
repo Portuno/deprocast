@@ -40,6 +40,7 @@ const VISTAS = {
   libreria: { montar: montarLibreria, refrescar: () => {} },
   fragua: { montar: montarFragua, refrescar: refrescarFragua },
   revision: { montar: montarRevision, refrescar: () => {} },
+  taxonomia: { montar: montarTaxonomia, refrescar: () => {} },
   perfil: { montar: montarPerfil, refrescar: () => {} },
   correo: { montar: montarCorreo, refrescar: () => {} },
   archivo: { montar: montarArchivo, refrescar: () => {} },
@@ -116,7 +117,7 @@ const ESPACIOS = [
   { id: 'mapamundi', nombre: 'Mapamundi', ico: 'hexagon', tecla: 'w', vistas: [['mapamundi', 'Mapamundi']] },
   { id: 'saber', nombre: 'Saber', ico: 'library', tecla: 's', vistas: [['corpus', 'Corpus'], ['prensa', 'Diario'], ['cuadernos', 'Cuadernos'], ['hojas', 'A mano'], ['libreria', 'Librería'], ['entidades', 'Entidades']] },
   { id: 'afuera', nombre: 'Afuera', ico: 'globe', tecla: 'f', vistas: [['feed', 'Feed'], ['taller', 'Taller'], ['radar', 'Radar'], ['mercados', 'Encuestas y cuotas'], ['observatorio', 'Observatorio'], ['posicion', 'Posición en IAs'], ['campanas', 'Campañas'], ['cuentas', 'Cuentas'], ['discovery', 'Discovery'], ['extracciones', 'Extracciones']] },
-  { id: 'maquina', nombre: 'La máquina', ico: 'cog', tecla: 'm', vistas: [['vigia', 'Estado'], ['matriz', 'Matriz 72'], ['arquetipos', 'Arquetipos'], ['fragua', 'La Fragua'], ['revision', 'Revisión']] },
+  { id: 'maquina', nombre: 'La máquina', ico: 'cog', tecla: 'm', vistas: [['vigia', 'Estado'], ['matriz', 'Matriz 72'], ['arquetipos', 'Arquetipos'], ['fragua', 'La Fragua'], ['revision', 'Revisión'], ['taxonomia', 'Taxonomía']] },
   { id: 'perfil', nombre: 'Perfil', ico: 'user', tecla: 'y', vistas: [['perfil', 'Perfil']] },
 ]
 // En la cuenta de un usuario, La Fragua no va: mejora el código de Deprocast y solo la usa el dueño.

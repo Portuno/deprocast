@@ -3832,3 +3832,11 @@ circle.jg-fig { fill: var(--acento); }
 .jg-reglas { margin-top: 18px; }
 
 .of-celda { width: 5em; }
+
+/* La taxonomía (Fragua 321) */
+.tax-barra { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.tax-buscar { flex: 1; margin: 0; }
+.tax-tipo { padding: 10px 0; border-top: 1px solid var(--linea); }
+.tax-cab { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.tax-valores { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+.tax-hallazgos { margin: 4px 0 0; padding-left: 18px; color: var(--malo, var(--tenue)); }
