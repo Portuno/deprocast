@@ -287,12 +287,33 @@ export function nuevaPersona(db: Db, p: { nombre: string; clase?: string; estado
 
 // ─── personas en proyectos ──────────────────────────────────────────────
 
-/** La pone en un proyecto (o una agrupación) con su rol y cuánto importa ahí. Repetir actualiza. */
+/** Dónde puede estar una persona: un proyecto, una empresa o una agrupación (Fragua #332). */
+const DONDE_ESTA = ['proyecto', 'empresa', 'agrupacion']
+const sinTildes = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
+
+/**
+ * El proyecto (o empresa, o agrupación) por id, nombre o alias; si no hay uno exacto, el único que empieza así. Nunca
+ * devuelve una persona aunque se llame igual: antes se resolvía contra cualquier entidad y editar_persona fallaba con
+ * «Eso no es un proyecto».
+ */
+export function proyectoDePersona(db: Db, q: string | number): number | null {
+  const filas = db.prepare(`SELECT id, nombre, alias FROM entidades WHERE tipo IN (${DONDE_ESTA.map(() => '?').join(', ')})`).all(...DONDE_ESTA) as { id: number; nombre: string; alias: string | null }[]
+  if (typeof q === 'number' || /^\d+$/.test(String(q))) return filas.find((f) => f.id === Number(q))?.id ?? null
+  const n = sinTildes(String(q))
+  if (!n) return null
+  const nombres = (f: (typeof filas)[number]) => [f.nombre, ...(() => { try { return JSON.parse(f.alias ?? '[]') as string[] } catch { return [] } })()].map(sinTildes)
+  const exacta = filas.find((f) => nombres(f).includes(n))
+  if (exacta) return exacta.id
+  const empiezan = filas.filter((f) => nombres(f).some((x) => x.startsWith(n)))
+  return empiezan.length === 1 ? empiezan[0].id : null
+}
+
+/** La pone en un proyecto (o una empresa, o una agrupación) con su rol y cuánto importa ahí. Repetir actualiza. */
 export function vincularAProyecto(db: Db, personaId: number, proyectoId: number, o: { rol?: string | null; importancia?: number | null; notas?: string | null } = {}, ahora = Date.now()): EnProyecto[] {
   const p = db.prepare('SELECT tipo FROM entidades WHERE id = ?').get(personaId) as any
   const x = db.prepare('SELECT tipo FROM entidades WHERE id = ?').get(proyectoId) as any
   if (!p || (p.tipo !== 'persona' && p.tipo !== 'agrupacion')) throw new Error('Eso no es una persona')
-  if (!x || (x.tipo !== 'proyecto' && x.tipo !== 'agrupacion')) throw new Error('Eso no es un proyecto')
+  if (!x || !DONDE_ESTA.includes(x.tipo)) throw new Error(x?.tipo === 'persona' ? 'Eso es una persona, no un proyecto: para vincular dos personas usá el vínculo' : 'Eso no es un proyecto')
   if (personaId === proyectoId) throw new Error('No puede estar en sí misma')
   db.prepare(`INSERT INTO persona_proyecto (persona_id, proyecto_id, rol, importancia, notas, desde) VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT (persona_id, proyecto_id) DO UPDATE SET rol = COALESCE(excluded.rol, rol), importancia = COALESCE(excluded.importancia, importancia), notas = COALESCE(excluded.notas, notas)`)

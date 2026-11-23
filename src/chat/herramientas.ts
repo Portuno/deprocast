@@ -20,7 +20,7 @@ import { agenteDeCapas } from '../estudio.ts'
 import { procesarAnotaciones } from '../anotaciones.ts'
 import { crearAprendizaje, listarAprendizajes, prepararRepaso, recursosDe, registrarPractica } from '../aprender.ts'
 import { CATEGORIAS, listarMovimientos, registrarMovimiento, resumenMes, resumenPorProyecto, ritmoMeta } from '../finanzas.ts'
-import { CLASES_PERSONA, desvincularDeProyecto, ESTADOS_PERSONA, grafoPersonas, guardarRelacion, leerPersona, nuevaPersona, personas, VINCULOS, vincularAProyecto } from '../personas.ts'
+import { CLASES_PERSONA, desvincularDeProyecto, ESTADOS_PERSONA, grafoPersonas, guardarRelacion, leerPersona, nuevaPersona, personas, proyectoDePersona, VINCULOS, vincularAProyecto } from '../personas.ts'
 import { guardarYo } from '../yo.ts'
 import { archivar, corregir, HORIZONTES, memoriaVigente, recordar, TIPOS_MEMORIA } from '../memoria.ts'
 import { leerJornada, progreso } from '../jornada.ts'
@@ -1576,13 +1576,17 @@ ${a.detalle ?? ''}`)
       const id = /^\d+$/.test(String(a.persona)) ? Number(a.persona) : personaPorNombre(db, String(a.persona), { sinJugador: true })
       if (!id) throw new Error(`No encuentro a «${a.persona}» entre las personas (si es nueva, nueva_persona)`)
       guardarRelacion(db, id, { vinculo: a.vinculo, nivel: a.nivel, importancia: a.importancia, clase: a.clase, estado: a.estado, cadaDias: a.cada_dias, proxima: a.proxima, notas: a.notas, contacto: a.contacto || undefined })
+      // Fragua #332: un proyecto que no se encuentra no tira abajo lo demás (la relación ya se guardó); se avisa y sigue.
+      const avisos: string[] = []
       for (const x of Array.isArray(a.proyectos) ? a.proyectos : []) {
-        const pid = /^\d+$/.test(String(x?.proyecto)) ? Number(x.proyecto) : entidadPorNombre(db, String(x?.proyecto ?? ''))
-        if (!pid) throw new Error(`No encuentro el proyecto «${x?.proyecto}»`)
-        if (x.quitar) desvincularDeProyecto(db, id, pid)
-        else vincularAProyecto(db, id, pid, { rol: x.rol ?? null, importancia: x.importancia ?? null })
+        const pid = proyectoDePersona(db, x?.proyecto ?? '')
+        if (!pid) { avisos.push(`No encontré un proyecto, empresa o agrupación «${x?.proyecto}»: lo demás quedó guardado. Si es nuevo, crealo antes.`); continue }
+        try {
+          if (x.quitar) desvincularDeProyecto(db, id, pid)
+          else vincularAProyecto(db, id, pid, { rol: x.rol ?? null, importancia: x.importancia ?? null })
+        } catch (e) { avisos.push(`«${x?.proyecto}»: ${(e as Error).message}`) }
       }
-      return leerPersona(db, id)
+      return avisos.length ? { ...leerPersona(db, id), avisos } : leerPersona(db, id)
     },
     resumen: (a) => `actualizó a ${recorte(String(a.persona), 30)}`,
   },

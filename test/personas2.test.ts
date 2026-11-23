@@ -107,3 +107,23 @@ test('unir: todo lo de las dos queda en una (relación, proyectos, plata, oportu
   fusionarEntidades(db, yo2, [yo])
   assert.ok(leerEntidad(db, yo2)!.meta?.operador)
 })
+
+test('Fragua #332: editar_persona edita a una persona sin pedirle un proyecto; un proyecto que no está se avisa y lo demás queda', async () => {
+  const db = abrir(':memory:')
+  const { HERRAMIENTAS } = await import('../src/chat/herramientas.ts')
+  const editar = HERRAMIENTAS.find((h) => h.nombre === 'editar_persona')!
+  const ana = asegurarEntidad(db, { tipo: 'persona', nombre: 'Ana Pérez' })
+  asegurarEntidad(db, { tipo: 'persona', nombre: 'Taller Sur' }) // una persona que se llama como el proyecto
+  const taller = asegurarEntidad(db, { tipo: 'proyecto', nombre: 'Taller Sur' })
+  const acme = asegurarEntidad(db, { tipo: 'empresa', nombre: 'Acme' })
+
+  const solo = await editar.ejecutar({ persona: 'Ana Pérez', nivel: 7, notas: 'la del taller' }, { db } as any) as any
+  assert.equal(solo.nivel, 7)
+  assert.equal(solo.avisos, undefined)
+
+  const r = await editar.ejecutar({ persona: String(ana), proyectos: [{ proyecto: 'taller sur', rol: 'socia' }, { proyecto: 'Acme', rol: 'clienta' }, { proyecto: 'Ana Pérez' }, { proyecto: 'Inexistente' }] }, { db } as any) as any
+  assert.deepEqual(r.proyectos.map((x: any) => [x.id, x.rol]).sort(), [[acme, 'clienta'], [taller, 'socia']].sort())
+  assert.equal(r.avisos.length, 2)
+  assert.ok(r.avisos.every((x: string) => !/Eso no es un proyecto/.test(x)))
+  assert.match(r.avisos.join(' '), /«Inexistente»: lo demás quedó guardado|«Inexistente».*lo demás quedó guardado/)
+})
