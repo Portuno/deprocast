@@ -1432,6 +1432,12 @@ const rutas: [string, RegExp, Ruta][] = [
   ['GET', /^\/api\/arquetipos\/plantel$/, async () => { const a = await import('./arquetipos.ts'); const p = a.plantel(db); return { plantel: p.plantel, porEstado: p.porEstado, problemas: a.revisarPlantel(db), elementos: a.ELEMENTOS } }],
   ['GET', /^\/api\/arquetipos\/(\d+)\/ficha$/, async (_, [n]) => (await import('./arquetipos.ts')).fichaDe(db, id(n))],
   ['POST', /^\/api\/arquetipos\/(\d+)\/ficha$/, async (b, [n]) => (await import('./arquetipos.ts')).fijarFicha(db, id(n), b)],
+  // La run de un arquetipo (Fragua #330): canal, corte, bandas de 12 minutos y su bitácora.
+  ['GET', /^\/api\/arquetipos\/(\d+)\/run$/, async (_, [n]) => (await import('./arquetipo-run.ts')).runDeArquetipo(db, id(n))],
+  ['POST', /^\/api\/arquetipos\/(\d+)\/run$/, async (b, [n]) => (await import('./arquetipo-run.ts')).fijarRun(db, id(n), { canal: b.canal, corte: b.corte, umbral: b.umbral })],
+  ['POST', /^\/api\/arquetipos\/(\d+)\/run\/bandas$/, async (b, [n]) => (await import('./arquetipo-run.ts')).cargarBandas(db, id(n), Array.isArray(b.bandas) ? b.bandas : String(b.texto ?? '').split('\n').map((t) => ({ titulo: t.replace(/^[-*\d.)\s]+/, '') })), { origen: 'pantalla' })],
+  ['POST', /^\/api\/arquetipos\/bandas\/(\d+)$/, async (b, [n]) => (await import('./arquetipo-run.ts')).marcarBanda(db, id(n), String(b.estado ?? ''), b.resultado ?? null)],
+  ['POST', /^\/api\/arquetipos\/(\d+)\/run\/bitacora$/, async (b, [n]) => (await import('./arquetipo-run.ts')).anotar(db, id(n), String(b.texto ?? ''))],
   ['GET', /^\/api\/paginas\/dominios$/, async () => (await import('./paginas.ts')).listarPaginasDominio(db)],
   ['GET', /^\/api\/paginas\/(arquetipo|dominio)\/(\d+)$/, async (_, [t, c]) => { const p = await import('./paginas.ts'); return { pagina: p.leerPagina(db, t as any, c), datos: await p.datosDe(db, t as any, c) } }],
   ['POST', /^\/api\/paginas\/(arquetipo|dominio)\/(\d+)\/construir$/, async (_, [t, c]) => (await import('./paginas.ts')).construirPagina(db, t as any, c)],

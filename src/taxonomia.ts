@@ -14,6 +14,7 @@ import { CLASES } from './clases.ts'
 import { ROLES_AYUDANTE } from './ayudantes.ts'
 import { ELEMENTOS, ESTADOS_PLANTEL } from './arquetipos.ts'
 import { PLANTILLAS_OFICIO } from './oficios.ts'
+import { ESTADOS_BANDA_ARQUETIPO } from './arquetipo-run.ts'
 import { TIPOS_INVENTARIO } from './personajes.ts'
 import { CLASES_PERSONA, ESTADOS_PERSONA, VINCULOS } from './personas.ts'
 import { TIPOS_RELACION } from './linea.ts'
@@ -115,6 +116,7 @@ export function taxonomia(): Tipo[] {
     t({ id: 'arquetipo.estado', familia: 'actores', nombre: 'Estado en el plantel', valores: ESTADOS_PLANTEL, origen: 'ESTADOS_PLANTEL', modulo: 'src/arquetipos.ts', lee: ['ver_plantel'], escribe: ['ficha_arquetipo'] }),
     t({ id: 'arquetipo.celda', familia: 'actores', nombre: 'Celda del 72', descripcion: 'Fila (elemento) por columna; el oficio y el nombre propio van en la ficha.', valores: null, rango: [1, 72], origen: 'esquema de agentes', modulo: 'src/arquetipos.ts', tabla: 'agentes', columna: 'celda', lee: ['ver_plantel'], escribe: ['ficha_arquetipo', 'crear_oficio'] }),
     t({ id: 'oficio.plantilla', familia: 'actores', nombre: 'Plantilla de oficio', valores: claves(PLANTILLAS_OFICIO), origen: 'PLANTILLAS_OFICIO', modulo: 'src/oficios.ts', lee: ['ver_plantel'], escribe: ['crear_oficio'] }),
+    t({ id: 'arquetipo_banda.estado', familia: 'actores', nombre: 'Estado de una banda de arquetipo', descripcion: 'Las bandas de 12 minutos de la run de un arquetipo (sin cuerpo, día ni urgencia propia).', valores: ESTADOS_BANDA_ARQUETIPO, origen: 'ESTADOS_BANDA_ARQUETIPO', modulo: 'src/arquetipo-run.ts', tabla: 'arquetipo_bandas', columna: 'estado', lee: ['ver_run_arquetipo'], escribe: ['cargar_bandas_arquetipo', 'marcar_banda_arquetipo'] }),
     t({ id: 'logos.rubro', familia: 'actores', nombre: 'Rubro de Logos', descripcion: 'Los Logos se nombran por rubro: el rubro crece con el uso.', valores: null, origen: 'FAMILIA_LOGOS', modulo: 'src/logos.ts', tabla: 'agente_rubros', columna: 'rubro', lee: ['ver_logos', 'preguntar_a_logos'], escribe: ['forjar_logos'] }),
     t({ id: 'inventario.tipo', familia: 'actores', nombre: 'Tipo de inventario', valores: TIPOS_INVENTARIO, origen: 'TIPOS_INVENTARIO', modulo: 'src/personajes.ts', tabla: 'inventario', columna: 'tipo', lee: ['ver_personaje'], escribe: ['inventario_agregar', 'inventario_editar'] }),
     t({ id: 'persona.clase', familia: 'actores', nombre: 'Clase de persona', valores: CLASES_PERSONA, origen: 'CLASES_PERSONA', modulo: 'src/personas.ts', tabla: 'relaciones', columna: 'clase', lee: ['ver_persona', 'ver_personas'], escribe: ['editar_persona', 'nueva_persona'] }),

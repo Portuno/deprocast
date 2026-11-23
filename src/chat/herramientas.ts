@@ -1070,6 +1070,52 @@ export const HERRAMIENTAS: Herramienta[] = [
     },
   },
   {
+    nombre: 'ver_run_arquetipo', familia: 'lectura',
+    descripcion: 'La run de un arquetipo de la Matriz 72 (Fragua #330): su ficha (nombre, oficio, celda), su canal (interno o una cuenta), sus bandas de 12 minutos (pendientes y marcadas), su bitácora (qué corrió y con qué resultado) y su corte (hasta cuándo y con qué umbral, cuántos días faltan). Para «¿cómo viene el Modista?».',
+    parametros: S({ arquetipo: str('Número de celda (1–72), nombre propio («el Modista») u oficio') }, ['arquetipo']),
+    ejecutar: async (a, { db }) => {
+      const r = await import('../arquetipo-run.ts')
+      const n = await r.arquetipoDe(db, a.arquetipo)
+      return n ? r.runDeArquetipo(db, n) : { no_encontrado: true, aviso: `No encuentro el arquetipo «${a.arquetipo}» (número de celda, nombre propio u oficio).` }
+    },
+  },
+  {
+    nombre: 'cargar_bandas_arquetipo', familia: 'accion',
+    descripcion: 'Carga bandas a la run de un arquetipo (de 12 minutos salvo que se diga otra cosa): las que dejó escritas un PDF, un plan o él. No van a la run del jugador ni tienen día ni urgencia propia. Si el arquetipo no tenía run, se le abre con canal interno.',
+    parametros: S({
+      arquetipo: str('Número de celda, nombre propio u oficio'),
+      bandas: { type: 'array', items: { type: 'object', properties: { titulo: str('Qué hace en esa banda'), detalle: str('Detalle (opcional)'), minutos: int('Minutos (12 por defecto)') }, required: ['titulo'] } },
+      origen: str('De dónde salen (un PDF, el chat)'),
+    }, ['arquetipo', 'bandas']),
+    ejecutar: async (a, { db }) => {
+      const r = await import('../arquetipo-run.ts')
+      const n = await r.arquetipoDe(db, a.arquetipo)
+      if (!n) return { no_encontrado: true, aviso: `No encuentro el arquetipo «${a.arquetipo}».` }
+      return r.cargarBandas(db, n, Array.isArray(a.bandas) ? a.bandas : [], { origen: a.origen ?? 'chat' })
+    },
+    resumen: (a) => `cargó bandas a ${recorte(String(a.arquetipo), 30)}`,
+  },
+  {
+    nombre: 'marcar_banda_arquetipo', familia: 'accion',
+    descripcion: 'Marca una banda de la run de un arquetipo como hecha, parcial o no (o la vuelve a pendiente), con su resultado: queda en su bitácora.',
+    parametros: S({ banda: int('Id de la banda (de ver_run_arquetipo)'), estado: str('Estado', { enum: ['hecha', 'parcial', 'no', 'pendiente'] }), resultado: str('Qué salió') }, ['banda', 'estado']),
+    ejecutar: async (a, { db }) => (await import('../arquetipo-run.ts')).marcarBanda(db, Number(a.banda), String(a.estado), a.resultado ?? null),
+    resumen: (a) => `marcó la banda ${a.banda} ${a.estado}`,
+  },
+  {
+    nombre: 'fijar_run_arquetipo', familia: 'accion',
+    descripcion: 'Fija la run de un arquetipo: canal (interno, o cuenta:<rótulo> si habla por una cuenta), corte (AAAA-MM-DD, hasta cuándo) y umbral (con qué se juzga al corte); o anota una línea en su bitácora.',
+    parametros: S({ arquetipo: str('Número de celda, nombre propio u oficio'), canal: str('interno o cuenta:<rótulo>'), corte: str('AAAA-MM-DD'), umbral: str('Con qué se juzga («3 sesiones con resultado»)'), nota: str('Una línea para su bitácora') }, ['arquetipo']),
+    ejecutar: async (a, { db }) => {
+      const r = await import('../arquetipo-run.ts')
+      const n = await r.arquetipoDe(db, a.arquetipo)
+      if (!n) return { no_encontrado: true, aviso: `No encuentro el arquetipo «${a.arquetipo}».` }
+      if (a.canal !== undefined || a.corte !== undefined || a.umbral !== undefined) r.fijarRun(db, n, { canal: a.canal, corte: a.corte, umbral: a.umbral })
+      return a.nota ? r.anotar(db, n, String(a.nota)) : r.runDeArquetipo(db, n)
+    },
+    resumen: (a) => `ajustó la run de ${recorte(String(a.arquetipo), 30)}`,
+  },
+  {
     nombre: 'traer_musica_youtube', familia: 'accion',
     descripcion: 'Trae de su cuenta de YouTube (YouTube Premium / YouTube Music, con la conexión de Google, solo lectura) sus listas con sus temas y los temas que marcó «me gusta», como piezas suyas del corpus que se rehacen cada vez (Fragua #336). El historial de lo que escuchó no sale por la API: viene del Takeout que se sube en Cargas.',
     parametros: S({}),
@@ -3095,7 +3141,7 @@ export const NUCLEO = [
   'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'proponer_mejora', 'deshacer_ultima_accion', 'ver_para_validar', 'validar', 'arrancar_bloque', 'terminar_bloque',
 ]
 export const GRUPOS: Record<string, string[]> = {
-  liga: ['autoanalisis', 'crear_oficio', 'ver_juego', 'comprar_en_juego', 'ver_logos', 'forjar_logos', 'preguntar_a_logos', 'ver_rendimiento_liga', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ficha_arquetipo', 'ver_plantel', 'crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'ver_taxonomia', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'ver_banco_de_pruebas', 'correr_banco_de_pruebas', 'comparar_motores', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
+  liga: ['ver_run_arquetipo', 'cargar_bandas_arquetipo', 'marcar_banda_arquetipo', 'fijar_run_arquetipo', 'autoanalisis', 'crear_oficio', 'ver_juego', 'comprar_en_juego', 'ver_logos', 'forjar_logos', 'preguntar_a_logos', 'ver_rendimiento_liga', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ficha_arquetipo', 'ver_plantel', 'crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'ver_taxonomia', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'ver_banco_de_pruebas', 'correr_banco_de_pruebas', 'comparar_motores', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['ver_suenos_noche', 'al_diario', 'ver_diario', 'crear_dominio', 'retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_criterios', 'fijar_criterio', 'ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   // Lo que era «vida» (93 herramientas, unos 15.500 tokens), en grupos chicos: cada mensaje trae solo lo suyo.

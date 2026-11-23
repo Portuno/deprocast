@@ -212,6 +212,63 @@ async function pintarPlantel() {
 
 // Declaradas con «function»: la carga perezosa solo anuncia esas (con const, VISTAS no las encontraría al arrancar).
 function montarArquetipo(param) { return montarPaginaPropia('arquetipo', param) }
+
+// La run del arquetipo (Fragua #330): su canal, su corte, sus bandas de 12 minutos y su bitácora.
+let pestanaArq = 'pagina'
+const ESTADO_BANDA_ARQ = { hecha: ['ok', 'hecha'], parcial: ['aviso', 'a medias'], no: ['mal', 'no'], pendiente: ['', 'pendiente'] }
+async function pintarRunArquetipo(n) {
+  const cont = $('#arq-run')
+  if (!cont) return
+  let r
+  try { r = await api(`/arquetipos/${n}/run`) } catch (e) { return void (cont.innerHTML = `<p class="tenue">${esc(e.message)}</p>`) }
+  const cuenta = r.canal.startsWith('cuenta:') ? r.canal.slice(7) : ''
+  const corte = r.corte ? `${r.corte.slice(8, 10)}/${r.corte.slice(5, 7)}${r.vencida ? ' · <span class="estado-chip mal">vencida</span>' : r.diasAlCorte != null ? ` · faltan ${r.diasAlCorte} día${r.diasAlCorte === 1 ? '' : 's'}` : ''}` : 'sin corte'
+  const pend = r.bandas.filter((b) => b.estado === 'pendiente'), cerradas = r.bandas.filter((b) => b.estado !== 'pendiente')
+  cont.innerHTML = `
+    <section class="seccion"><div class="aca-sec-cab"><h3>Su run</h3><span class="tenue chico">${esc(r.ficha.nombre ?? `Arquetipo ${n}`)}${r.ficha.oficio ? ` · ${esc(r.ficha.oficio)}` : ''} · celda ${n} · ${r.sesiones} ${r.sesiones === 1 ? 'sesión' : 'sesiones'} ·${r.minutos} min · corte: ${corte}</span></div>
+      <form id="f-arq-run" class="arq-run-ajustes">
+        <label class="chico tenue">Canal<select name="canal"><option value="interno" ${cuenta ? '' : 'selected'}>Interno</option><option value="cuenta" ${cuenta ? 'selected' : ''}>Una cuenta</option></select></label>
+        <label class="chico tenue">Rótulo de la cuenta<input name="cuenta" class="campo-suelto" value="${esc(cuenta)}" placeholder="@modista" maxlength="80"></label>
+        <label class="chico tenue">Corte<input name="corte" class="campo-suelto" type="date" value="${esc(r.corte ?? '')}"></label>
+        <label class="chico tenue">Umbral<input name="umbral" class="campo-suelto" value="${esc(r.umbral ?? '')}" placeholder="3 sesiones con resultado" maxlength="200"></label>
+        <button class="btn btn-chico">Guardar</button>
+      </form></section>
+    <section class="seccion"><h3>Bandas <small class="tenue">(${pend.length} pendiente${pend.length === 1 ? '' : 's'}; sin cuerpo, día ni urgencia propia)</small></h3>
+      ${pend.length ? `<ul class="pag-lista">${pend.map((b) => `<li class="arq-banda" data-banda="${b.id}"><b>${esc(b.titulo)}</b><small class="tenue">${b.minutos} min${b.origen ? ` · de ${esc(b.origen)}` : ''}${b.detalle ? ` · ${esc(b.detalle)}` : ''}</small>
+        <div class="fila"><input class="campo-suelto arq-res" placeholder="Qué salió (opcional)" maxlength="300"><button class="btn btn-chico btn-primario" data-marcar="hecha">Hecha</button><button class="btn btn-chico" data-marcar="parcial">A medias</button><button class="btn btn-chico" data-marcar="no">No</button></div></li>`).join('')}</ul>` : '<p class="tenue">No tiene bandas pendientes.</p>'}
+      <form id="f-arq-bandas"><label class="chico tenue" for="arq-nuevas">Cargar bandas, una por línea (12 minutos cada una)</label><textarea id="arq-nuevas" class="campo-suelto" rows="3" placeholder="Probar tres ruedos con la tela nueva"></textarea><div class="fila"><button class="btn btn-chico">Cargar</button></div></form>
+      ${cerradas.length ? `<details><summary class="chico">Corridas (${cerradas.length})</summary><ul class="pag-lista">${cerradas.map((b) => `<li><b>${esc(b.titulo)}</b> <span class="estado-chip ${ESTADO_BANDA_ARQ[b.estado][0]}">${ESTADO_BANDA_ARQ[b.estado][1]}</span>${b.resultado ? `<small>${esc(b.resultado)}</small>` : ''}</li>`).join('')}</ul></details>` : ''}
+    </section>
+    <section class="seccion"><h3>Bitácora</h3>
+      <form id="f-arq-bit" class="fila"><input id="arq-linea" class="campo-suelto" placeholder="Una línea: qué corrió, qué aprendió" maxlength="500"><button class="btn btn-chico">Anotar</button></form>
+      ${r.bitacora.length ? `<ul class="pag-lista">${r.bitacora.map((x) => `<li>${esc(x.texto)}<small class="tenue">${fechaPag(x.en)}</small></li>`).join('')}</ul>` : '<p class="tenue">Todavía no corrió nada.</p>'}
+    </section>`
+  const recargar = () => pintarRunArquetipo(n)
+  $('#f-arq-run').onsubmit = async (e) => {
+    e.preventDefault()
+    const f = e.currentTarget
+    const canal = f.canal.value === 'cuenta' ? `cuenta:${f.cuenta.value.trim()}` : 'interno'
+    if (canal === 'cuenta:') return f.cuenta.focus()
+    try { await api(`/arquetipos/${n}/run`, { canal, corte: f.corte.value || null, umbral: f.umbral.value }); toast('Run guardada', 'suave'); recargar() } catch (x) { error(x) }
+  }
+  $('#f-arq-bandas').onsubmit = async (e) => {
+    e.preventDefault()
+    const texto = $('#arq-nuevas').value.trim()
+    if (!texto) return $('#arq-nuevas').focus()
+    try { await api(`/arquetipos/${n}/run/bandas`, { texto }); toast('Bandas cargadas', 'suave'); recargar() } catch (x) { error(x) }
+  }
+  $('#f-arq-bit').onsubmit = async (e) => {
+    e.preventDefault()
+    const texto = $('#arq-linea').value.trim()
+    if (!texto) return $('#arq-linea').focus()
+    try { await api(`/arquetipos/${n}/run/bitacora`, { texto }); recargar() } catch (x) { error(x) }
+  }
+  $$('[data-marcar]', cont).forEach((b) => (b.onclick = async () => {
+    const li = b.closest('[data-banda]')
+    b.disabled = true
+    try { await api(`/arquetipos/bandas/${li.dataset.banda}`, { estado: b.dataset.marcar, resultado: $('.arq-res', li).value }); recargar() } catch (x) { error(x); b.disabled = false }
+  }))
+}
 function montarDominio(param) { return montarPaginaPropia('dominio', param) }
 /** La ruta de la API de una página (tipo: arquetipo | dominio). */
 const urlPagina = (tipo, clave, extra = '') => `/paginas/${tipo}/${encodeURIComponent(clave)}${extra}`
@@ -250,7 +307,9 @@ function pintarPaginaPropia(tipo, clave, p, d) {
   raiz.innerHTML = `
     <div class="titulo pag-titulo"><div><small class="tenue">${esc(sub)}</small><h1>${esc(titulo)}</h1>${p.descripcion ? `<p>${esc(p.descripcion)}</p>` : ''}</div>
       <div class="fila">${esArq ? `<button class="btn btn-chico" data-nombrar>${p.nombre ? 'Cambiar el nombre' : 'Ponerle nombre'}</button>` : ''}${p.secciones.length ? `<button class="btn btn-chico" data-construir title="Rehacerla ahora con lo que pasa">${ico('refresh-cw')} Reconstruir</button>` : ''}</div></div>
-    <div class="pag-cuerpo">
+    ${esArq ? `<div class="pestanas" role="tablist"><button type="button" role="tab" data-pest="pagina" class="${pestanaArq === 'pagina' ? 'on' : ''}">Página</button><button type="button" role="tab" data-pest="run" class="${pestanaArq === 'run' ? 'on' : ''}">Run</button></div>
+    <div id="arq-run" class="arq-run" ${pestanaArq === 'run' ? '' : 'hidden'}><p class="tenue">Trayendo su run…</p></div>` : ''}
+    <div class="pag-cuerpo" ${esArq && pestanaArq === 'run' ? 'hidden' : ''}>
       <div class="pag-principal">${secciones}
         <form class="pag-instruir" data-instruir><label for="pag-instr"><b>Decile qué querés en esta página</b> <small class="tenue">(en tus palabras: «sumale una sección de proveedores», «sacá lo de las clases viejas»)</small></label>
           <div class="fila"><textarea id="pag-instr" rows="2" maxlength="1000" placeholder="Qué agregar, sacar o cambiar…"></textarea><button class="btn btn-primario">Construir</button></div></form>
@@ -261,6 +320,16 @@ function pintarPaginaPropia(tipo, clave, p, d) {
     </div>`
 
   if (esArq) void pintarFichaArquetipo(n)
+  if (esArq) {
+    $$('[data-pest]', raiz).forEach((b) => (b.onclick = () => {
+      pestanaArq = b.dataset.pest
+      $$('[data-pest]', raiz).forEach((x) => x.classList.toggle('on', x === b))
+      $('.pag-cuerpo', raiz).hidden = pestanaArq === 'run'
+      $('#arq-run').hidden = pestanaArq !== 'run'
+      if (pestanaArq === 'run') void pintarRunArquetipo(n)
+    }))
+    if (pestanaArq === 'run') void pintarRunArquetipo(n)
+  }
   const reconstruir = async (que) => {
     $$('[data-construir], [data-instruir] button', raiz).forEach((b) => { b.disabled = true; b.textContent = 'Construyendo…' })
     try {

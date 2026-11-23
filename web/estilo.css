@@ -3840,3 +3840,9 @@ circle.jg-fig { fill: var(--acento); }
 .tax-cab { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .tax-valores { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
 .tax-hallazgos { margin: 4px 0 0; padding-left: 18px; color: var(--malo, var(--tenue)); }
+
+/* La run del arquetipo (Fragua 330) */
+.arq-run-ajustes { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
+.arq-run-ajustes label { display: flex; flex-direction: column; gap: 2px; }
+.arq-banda .fila { margin-top: 4px; }
+.arq-res { flex: 1; margin: 0; }
