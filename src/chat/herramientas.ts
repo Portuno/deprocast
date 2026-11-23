@@ -325,10 +325,36 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'borrador_mail', familia: 'accion',
-    descripcion: 'Deja un BORRADOR en su Gmail (nunca lo envía: lo manda él). Para responder, pasá responder_a con el id del mail (va en el mismo hilo, al remitente). Escribilo en SU voz: como escribe él en sus mails (mirá los suyos con buscar_mails «in:sent» si hace falta), corto y directo. Después decile que quedó en Borradores.',
-    parametros: S({ cuerpo: str('El texto del mail, en su voz'), responder_a: str('id del mail al que responde'), para: str('Destinatario (si no es respuesta)'), asunto: str('Asunto (si no es respuesta)') }, ['cuerpo']),
-    ejecutar: async (a, { db }) => (await import('../google/gmail.ts')).crearBorrador(db, { cuerpo: a.cuerpo, responderA: a.responder_a || null, para: a.para, asunto: a.asunto }),
+    descripcion: 'Deja un BORRADOR en su Gmail (nunca lo envía: lo manda él). Para responder, pasá responder_a con el id del mail (va en el mismo hilo, al remitente). Con adjuntos: links o ids de archivos de su Drive (un presupuesto, un dossier, cartelería) que van ADJUNTOS, no como link; un Google Doc, Sheet o Slide sale como PDF. Escribilo en SU voz: como escribe él en sus mails (mirá los suyos con buscar_mails «in:sent» si hace falta), corto y directo. Después decile que quedó en Borradores.',
+    parametros: S({ cuerpo: str('El texto del mail, en su voz'), responder_a: str('id del mail al que responde'), para: str('Destinatario (si no es respuesta)'), asunto: str('Asunto (si no es respuesta)'), adjuntos: { type: 'array', items: { type: 'string' }, description: 'Links o ids de archivos de su Drive para adjuntar (los Docs van como PDF)' } }, ['cuerpo']),
+    ejecutar: async (a, { db }) => (await import('../google/gmail.ts')).crearBorrador(db, { cuerpo: a.cuerpo, responderA: a.responder_a || null, para: a.para, asunto: a.asunto, adjuntos: Array.isArray(a.adjuntos) ? a.adjuntos : a.adjuntos ? [String(a.adjuntos)] : [] }),
     resumen: (_, r) => `dejó un borrador para ${r?.para ?? '…'} en tu Gmail`,
+  },
+  {
+    nombre: 'ordenar_mails', familia: 'accion',
+    descripcion: 'Cambia mails en su Gmail de verdad (Fragua #337): archivar (sale de la bandeja de entrada, no se borra), marcar leído o no leído, poner o sacar una etiqueta (si no existe, se crea). Por ids de mail (de ver_mails o buscar_mails). Nunca borra ni envía.',
+    parametros: S({ ids: { type: 'array', items: { type: 'string' }, description: 'Ids de los mails' }, archivar: bool('Sacarlos de la bandeja de entrada'), leido: bool('true: leídos; false: no leídos'), etiqueta: str('Etiqueta para poner'), quitar_etiqueta: str('Etiqueta para sacar') }, ['ids']),
+    ejecutar: async (a, { db }) => (await import('../google/gmail-orden.ts')).modificarMails(db, Array.isArray(a.ids) ? a.ids : [String(a.ids)], { archivar: !!a.archivar, leido: typeof a.leido === 'boolean' ? a.leido : undefined, sumar: a.etiqueta ? [String(a.etiqueta)] : [], quitar: a.quitar_etiqueta ? [String(a.quitar_etiqueta)] : [] }),
+    resumen: (a) => `ordenó ${Array.isArray(a.ids) ? a.ids.length : 1} mail(s) en tu Gmail`,
+  },
+  {
+    nombre: 'regla_de_correo', familia: 'accion',
+    descripcion: 'Las reglas guardadas para ordenar su Gmail (Fragua #337): crear una (por remitente —mail, dominio o nombre, varios con coma—, parte del asunto o categoría: promociones, social, foros, notificaciones, personal) que archive, marque leído o etiquete; o una de lista blanca (dejar: true) para lo que tiene que quedar en la bandeja aunque otra regla lo agarre (clientes, equipo, facturas, eventos con fecha). También listar o borrar. Las aplica aplicar_reglas_correo.',
+    parametros: S({ accion: str('Qué hacer', { enum: ['crear', 'listar', 'borrar'] }), nombre: str('Nombre corto'), de: str('Remitentes (parte del mail, dominio o nombre; varios con coma)'), asunto: str('Partes del asunto (varias con coma)'), categoria: str('Categoría de Gmail', { enum: ['promociones', 'social', 'foros', 'notificaciones', 'personal'] }), dejar: bool('Lista blanca: queda en la bandeja'), archivar: bool('Archivar'), leido: bool('Marcar leído'), etiqueta: str('Etiqueta para poner'), id: int('Id de la regla (para borrar)') }, ['accion']),
+    ejecutar: async (a, { db }) => {
+      const o = await import('../google/gmail-orden.ts')
+      if (a.accion === 'listar') return { reglas: o.reglas(db) }
+      if (a.accion === 'borrar') return { borrada: o.borrarRegla(db, Number(a.id)), reglas: o.reglas(db) }
+      return { creada: o.guardarRegla(db, { nombre: a.nombre, de: a.de, asunto: a.asunto, categoria: a.categoria, dejar: !!a.dejar, archivar: !!a.archivar, leido: !!a.leido, etiqueta: a.etiqueta }), reglas: o.reglas(db) }
+    },
+    resumen: (a) => `${a.accion === 'listar' ? 'miró' : a.accion === 'borrar' ? 'borró' : 'guardó'} una regla de correo`,
+  },
+  {
+    nombre: 'aplicar_reglas_correo', familia: 'accion',
+    descripcion: 'Aplica sus reglas de correo a lo que está en la bandeja de entrada de su Gmail (los últimos días, 7 por defecto): primero la lista blanca, que no se toca; después archiva, marca leído o etiqueta según cada regla. Devuelve qué hizo, mail por mail. Con probar: true dice qué haría sin cambiar nada. Es lo que corre el encargo «Archivar o marcar como leído».',
+    parametros: S({ dias: int('Cuántos días hacia atrás (7)'), probar: bool('Solo decir qué haría') }),
+    ejecutar: async (a, { db }) => (await import('../google/gmail-orden.ts')).aplicarReglas(db, { dias: a.dias ?? 7, probar: !!a.probar }),
+    resumen: (a, r) => `${a.probar ? 'probó' : 'aplicó'} las reglas de correo${r?.cambiados != null ? ` → ${r.cambiados}` : ''}`,
   },
   {
     nombre: 'buscar_contacto', familia: 'lectura',
@@ -3153,7 +3179,7 @@ export const GRUPOS: Record<string, string[]> = {
   mente: ['responder_pregunta', 'votar_criba', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_hipotesis', 'probar_hipotesis', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas', 'audio_de_voz', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo'],
   clientes: ['ver_encargos', 'crear_encargo', 'puntuar_area', 'guia_de_entrevista', 'armar_asis', 'armar_tobe', 'hoja_de_valor', 'extraccion_cliente', 'plan_extraccion', 'correo_extraccion', 'hoja_citable', 'ver_ficha', 'investigar_ficha', 'preguntar_a_logos', 'ver_posicion_ias', 'pregunta_posicion_ias', 'medir_posicion_ias'],
   programados: ['programar_encargo', 'ver_programados', 'cambiar_programado', 'borrar_programado'],
-  correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'marcar_correo_atendido', 'buscar_contacto'],
+  correo: ['ver_mails', 'buscar_mails', 'leer_mail', 'borrador_mail', 'marcar_correo_atendido', 'buscar_contacto', 'ordenar_mails', 'regla_de_correo', 'aplicar_reglas_correo'],
   drive: ['buscar_en_drive', 'leer_de_drive', 'guardar_en_drive', 'borrar_de_drive', 'barrer_documentos_drive', 'leer_hoja', 'escribir_hoja', 'agregar_filas', 'crear_hoja'],
   web: ['ver_ranking_feed', 'ver_censo_canal', 'aprobar_censo_canal', 'seguir_en_feed', 'ver_feed', 'buscar_web', 'buscar_en', 'explorar', 'usar_alexandria', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'triar_oportunidades', 'redactar_oportunidad'],
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus', 'ver_suenos_noche'],
@@ -3181,7 +3207,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/bucle|pendiente|sigue volviendo|identidad|evidencia|historia vieja|creencia|sue[ñn]os|so[ñn][eé]|modelo|qu[eé] har[ií]a|bitácora|gemelo|hip[oó]tesis|brújula|brujula|criba|p[aá]gina|arquetipo|matriz 72|pregunta/.test(t)) g.push('mente')
   if (/cliente|encargo|discovery|as-is|to-be|kpi|transformaci|extracci|citable/.test(t)) g.push('clientes')
   if (/\bcada (lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|d[ií]a|ma[ñn]ana|noche|semana|mes|\d+ horas|hora)|todos los (d[ií]as|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bados|domingos)|todas las (ma[ñn]anas|noches)|program[aá]|encargo programado|de lunes a viernes/.test(t)) g.push('programados')
-  if (/\bmails?\b|correo|gmail|bandeja|inbox|borrador|me escribi[oó]|contest(ar|[aá]le) a/.test(t)) g.push('correo')
+  if (/\bmails?\b|correo|gmail|bandeja|inbox|borrador|me escribi[oó]|contest(ar|[aá]le) a|archiv[aá]|etiquet|le[ií]dos?\b|bolet[ií]n|newsletter|digest/.test(t)) g.push('correo')
   if (/drive|planilla|sheets?\b|hoja de c[aá]lculo|spreadsheet|excel|docs\.google/.test(t)) g.push('drive')
   if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal|reddit|subreddit|github|repo\b|twitter|tweet|tuit|linkedin|instagram|facebook/.test(t)) g.push('web')
   if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo|mis redes|difund|\bpdf\b|informe|documento/.test(t)) g.push('crear')

@@ -8,7 +8,7 @@
 import { ajuste, fijarAjuste, type Db } from '../db.ts'
 import { ingerir } from '../mastropiero.ts'
 import { asegurarFuente } from '../corpus.ts'
-import { llamarGoogle } from './oauth.ts'
+import { llamarGoogle, llamarGoogleCrudo } from './oauth.ts'
 
 const API = 'https://gmail.googleapis.com/gmail/v1/users/me'
 /** Lo que no se muestra como correo para atender (queda guardado igual). */
@@ -211,22 +211,54 @@ export async function leerMail(db: Db, id: string) {
 const encabezado = (s: string) => (/^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=`)
 
 /** El mail en crudo (RFC 822) para Gmail. */
-export function mimeDe(d: { para: string; asunto: string; cuerpo: string; enRespuestaA?: string | null }): string {
-  const lineas = [
+export type Adjunto = { nombre: string; mime: string; datos: Buffer }
+const en76 = (b: Buffer) => b.toString('base64').replace(/.{76}/g, '$&\r\n')
+
+export function mimeDe(d: { para: string; asunto: string; cuerpo: string; enRespuestaA?: string | null; adjuntos?: Adjunto[] }): string {
+  const cabecera = [
     `To: ${d.para}`,
     `Subject: ${encabezado(d.asunto)}`,
     'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset=UTF-8',
-    'Content-Transfer-Encoding: base64',
     ...(d.enRespuestaA ? [`In-Reply-To: ${d.enRespuestaA}`, `References: ${d.enRespuestaA}`] : []),
-    '',
-    Buffer.from(d.cuerpo, 'utf8').toString('base64').replace(/.{76}/g, '$&\r\n'),
   ]
-  return lineas.join('\r\n')
+  if (!d.adjuntos?.length) {
+    return [...cabecera, 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', en76(Buffer.from(d.cuerpo, 'utf8'))].join('\r\n')
+  }
+  // Con adjuntos (Fragua #338): multipart/mixed, el texto primero y cada archivo como adjunto.
+  const limite = `deprocast-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
+  const partes = [
+    [`--${limite}`, 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', en76(Buffer.from(d.cuerpo, 'utf8'))].join('\r\n'),
+    ...d.adjuntos.map((a) => {
+      const nombre = encabezado(a.nombre).replace(/"/g, '')
+      return [`--${limite}`, `Content-Type: ${a.mime}; name="${nombre}"`, `Content-Disposition: attachment; filename="${nombre}"`, 'Content-Transfer-Encoding: base64', '', en76(a.datos)].join('\r\n')
+    }),
+  ]
+  return [...cabecera, `Content-Type: multipart/mixed; boundary="${limite}"`, '', ...partes, `--${limite}--`, ''].join('\r\n')
+}
+
+const DRIVE = 'https://www.googleapis.com/drive/v3/files'
+/** Los de Google (Docs, Sheets, Slides, dibujos) no son archivos: se mandan como PDF. */
+const COMO_PDF = /^application\/vnd\.google-apps\.(document|spreadsheet|presentation|drawing)$/
+/** Gmail deja hasta 25 MB por mail; el base64 lo infla un tercio. */
+export const TOPE_ADJUNTOS = 18 * 1024 * 1024
+
+/** Un archivo de su Drive (link o id) listo para adjuntar; un Google Doc, Sheet o Slide sale como PDF. */
+export async function adjuntoDeDrive(db: Db, entrada: string): Promise<Adjunto> {
+  const { idDeArchivo } = await import('./drive.ts')
+  const id = idDeArchivo(entrada)
+  const meta = await llamarGoogle<{ name: string; mimeType: string; size?: string }>(db, `${DRIVE}/${encodeURIComponent(id)}?fields=name,mimeType,size&supportsAllDrives=true`)
+  if (meta.mimeType === 'application/vnd.google-apps.folder') throw new Error(`«${meta.name}» es una carpeta: adjuntá los archivos de adentro.`)
+  if (COMO_PDF.test(meta.mimeType)) {
+    const datos = await llamarGoogleCrudo(db, `${DRIVE}/${encodeURIComponent(id)}/export?mimeType=application%2Fpdf`)
+    return { nombre: /\.pdf$/i.test(meta.name) ? meta.name : `${meta.name}.pdf`, mime: 'application/pdf', datos }
+  }
+  if (/^application\/vnd\.google-apps\./.test(meta.mimeType)) throw new Error(`«${meta.name}» es un archivo de Google que no se puede pasar a PDF: mandá el link en el cuerpo.`)
+  if (Number(meta.size) > TOPE_ADJUNTOS) throw new Error(`«${meta.name}» pesa más de lo que Gmail deja adjuntar: mandá el link en el cuerpo.`)
+  return { nombre: meta.name, mime: meta.mimeType || 'application/octet-stream', datos: await llamarGoogleCrudo(db, `${DRIVE}/${encodeURIComponent(id)}?alt=media&supportsAllDrives=true`) }
 }
 
 /** Un borrador en su Gmail (nunca se envía). Si responde a un mail, va en el mismo hilo. */
-export async function crearBorrador(db: Db, d: { para?: string; asunto?: string; cuerpo: string; responderA?: string | null }) {
+export async function crearBorrador(db: Db, d: { para?: string; asunto?: string; cuerpo: string; responderA?: string | null; adjuntos?: string[] | null }) {
   let para = d.para?.trim() ?? ''
   let asunto = d.asunto?.trim() ?? ''
   let hilo: string | undefined
@@ -241,9 +273,22 @@ export async function crearBorrador(db: Db, d: { para?: string; asunto?: string;
   }
   if (!para) throw new Error('¿A quién? Falta el destinatario.')
   if (!d.cuerpo.trim()) throw new Error('El borrador está vacío.')
-  const raw = Buffer.from(mimeDe({ para, asunto: asunto || '(sin asunto)', cuerpo: d.cuerpo, enRespuestaA })).toString('base64url')
-  const r = await llamarGoogle<any>(db, `${API}/drafts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: { raw, ...(hilo ? { threadId: hilo } : {}) } }) })
-  return { borrador: r.id, para, asunto, link: 'https://mail.google.com/mail/u/0/#drafts', nota: 'Quedó como borrador en tu Gmail: revisalo y mandalo vos.' }
+  // Los adjuntos de Drive (Fragua #338): se bajan (los Docs como PDF) antes de armar el borrador; si uno falla, no se arma.
+  const adjuntos: Adjunto[] = []
+  for (const x of (d.adjuntos ?? []).filter((y) => String(y ?? '').trim())) adjuntos.push(await adjuntoDeDrive(db, String(x)))
+  const peso = adjuntos.reduce((s, a) => s + a.datos.length, 0)
+  if (peso > TOPE_ADJUNTOS) throw new Error(`Los adjuntos suman ${Math.round(peso / 1024 / 1024)} MB y Gmail no deja más de 25 por mail: mandá alguno como link en el cuerpo.`)
+  const mime = mimeDe({ para, asunto: asunto || '(sin asunto)', cuerpo: d.cuerpo, enRespuestaA, adjuntos })
+  let r: any
+  if (mime.length < 4_000_000) {
+    r = await llamarGoogle<any>(db, `${API}/drafts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ message: { raw: Buffer.from(mime).toString('base64url'), ...(hilo ? { threadId: hilo } : {}) } }) })
+  } else {
+    // Grande: por la subida de Gmail (multipart: el hilo en el JSON, el mail entero aparte).
+    const limite = `subida-${Date.now().toString(36)}`
+    const cuerpo = [`--${limite}`, 'Content-Type: application/json; charset=UTF-8', '', JSON.stringify({ message: hilo ? { threadId: hilo } : {} }), `--${limite}`, 'Content-Type: message/rfc822', '', mime, `--${limite}--`, ''].join('\r\n')
+    r = await llamarGoogle<any>(db, `https://gmail.googleapis.com/upload/gmail/v1/users/me/drafts?uploadType=multipart`, { method: 'POST', headers: { 'content-type': `multipart/related; boundary=${limite}` }, body: cuerpo })
+  }
+  return { borrador: r.id, para, asunto, ...(adjuntos.length ? { adjuntos: adjuntos.map((a) => a.nombre) } : {}), link: 'https://mail.google.com/mail/u/0/#drafts', nota: `Quedó como borrador en tu Gmail${adjuntos.length ? ` con ${adjuntos.length === 1 ? 'el adjunto' : `${adjuntos.length} adjuntos`}` : ''}: revisalo y mandalo vos.` }
 }
 
 export function estadoGmail(db: Db) {

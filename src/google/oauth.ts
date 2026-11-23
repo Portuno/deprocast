@@ -14,6 +14,8 @@ export const ALCANCES = [
   'openid', 'email', 'profile',
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.compose',
+  // Archivar, etiquetar y marcar leído (Fragua #337). No deja borrar ni enviar.
+  'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/drive.readonly',
   // Escribir solo lo que crea Deprocast (la carpeta Mastropiero y lo que va adentro).
   'https://www.googleapis.com/auth/drive.file',
