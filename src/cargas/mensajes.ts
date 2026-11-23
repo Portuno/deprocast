@@ -112,6 +112,20 @@ export const instagram: Importador = {
 
 // ─── Claude y Gemini ────────────────────────────────────────────────────
 
+/**
+ * El texto de un mensaje del exporte de Claude, venga como venga (Fragua #334): con text, con text vacío y el contenido
+ * en bloques, solo con bloques de herramienta (sin texto), o null. Sin texto que leer, null: el mensaje se omite.
+ */
+export function textoDeMensajeClaude(m: unknown): string | null {
+  if (!m || typeof m !== 'object') return null
+  const x = m as { text?: unknown; content?: unknown }
+  const directo = typeof x.text === 'string' ? x.text.trim() : ''
+  if (directo) return directo
+  const bloques = Array.isArray(x.content) ? x.content : []
+  const deBloques = bloques.map((b: any) => (b && typeof b.text === 'string' ? b.text.trim() : '')).filter(Boolean).join(' ')
+  return deBloques || null
+}
+
 export const claude: Importador = {
   id: 'claude', nombre: 'Exporte de Claude',
   detectar: (d) => Array.isArray(d.json) && d.json.some((c: any) => Array.isArray(c?.chat_messages)),
@@ -122,7 +136,11 @@ export const claude: Importador = {
   }),
   ejecutar(d, ctx) {
     for (const c of d.json) {
-      const ms = (c.chat_messages ?? []).map((m: any) => `${m.sender === 'human' ? 'YO' : 'CLAUDE'}: ${m.text ?? (m.content ?? []).map((x: any) => x.text ?? '').join(' ')}`).filter((x: string) => x.length > 6)
+      if (!c || typeof c !== 'object') continue
+      const ms = (Array.isArray(c.chat_messages) ? c.chat_messages : []).map((m: any) => {
+        const t = textoDeMensajeClaude(m)
+        return t ? `${m.sender === 'human' ? 'YO' : 'CLAUDE'}: ${t}` : null
+      }).filter((x: string | null): x is string => !!x)
       if (!ms.length) continue
       ctx.pieza('conversaciones', { nivel: ctx.opciones.nivel, titulo: `Claude · ${c.name || 'sin título'}`, contenido: ms.join('\n\n'), fecha: c.created_at ?? null, origenId: `claude:${c.uuid ?? c.name}`, etiquetas: ['claude'] })
     }
@@ -141,7 +159,8 @@ export const gemini: Importador = {
     }
   },
   ejecutar(d, ctx) {
-    const xs = d.json.filter((x: any) => /gemini|bard/i.test(String(x?.header ?? '')))
+    // Sin título o sin fecha no hay pedido que guardar (Fragua #334): se omite en vez de entrar como «undefined».
+    const xs = d.json.filter((x: any) => /gemini|bard/i.test(String(x?.header ?? '')) && typeof x?.title === 'string' && x.title.trim() && /^\d{4}-\d{2}-\d{2}/.test(String(x?.time ?? '')))
     const dias = new Map<string, string[]>()
     for (const x of xs) dias.set(String(x.time).slice(0, 10), [...(dias.get(String(x.time).slice(0, 10)) ?? []), `[${String(x.time).slice(11, 16)}] ${String(x.title).replace(/^Prompted\s+|^Pediste\s+/i, '')}`])
     for (const [dia, ps] of dias) ctx.pieza('dias', { nivel: ctx.opciones.nivel, titulo: `Gemini · ${dia}`, contenido: ps.reverse().join('\n'), fecha: dia, origenId: `gemini:${dia}`, etiquetas: ['gemini'] })

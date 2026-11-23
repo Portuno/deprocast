@@ -77,6 +77,35 @@ test('claude y gemini: conversaciones e historial de pedidos', () => {
   assert.equal(ps.find((p) => p.titulo === 'Gemini · 2026-10-01')!.contenido, '[08:00] receta de pizza\n[09:00] cómo hacer pan')
 })
 
+test('Fragua #334: mensajes sin contenido en Claude y Gemini se omiten sin romper el historial', () => {
+  const db = abrir(':memory:')
+  const cl = subir(db, 'conversations.json', JSON.stringify([
+    { uuid: 'u2', name: 'Con huecos', created_at: '2026-10-02T10:00:00Z', chat_messages: [
+      null,
+      { sender: 'human' },
+      { sender: 'human', text: '', content: [{ type: 'text', text: 'Lo dije en bloques' }] },
+      { sender: 'assistant', text: '', content: [{ type: 'tool_use', name: 'buscar' }, null] },
+      { sender: 'assistant', text: 'Respuesta con texto' },
+    ] },
+    { uuid: 'u3', name: 'Vacía', chat_messages: [{ sender: 'human' }] },
+    { uuid: 'u4', name: 'Sin lista' },
+  ]))
+  assert.equal(cl.importador, 'claude')
+  ejecutar(db, cl.id, { pipeline: 'ninguna' })
+  const ge = subir(db, 'MyActivity.json', JSON.stringify([
+    { header: 'Gemini Apps', title: 'Prompted algo que sí', time: '2026-10-03T09:00:00Z' },
+    { header: 'Gemini Apps', time: '2026-10-03T08:00:00Z' },
+    { header: 'Gemini Apps', title: 'Prompted sin fecha' },
+  ]))
+  ejecutar(db, ge.id, { pipeline: 'ninguna' })
+  const ps = listarPiezas(db, { limite: 20 }).piezas
+  const conHuecos = ps.find((p) => p.titulo === 'Claude · Con huecos')
+  assert.ok(conHuecos, 'la conversación con mensajes vacíos entra igual')
+  assert.equal(conHuecos.contenido, 'YO: Lo dije en bloques\n\nCLAUDE: Respuesta con texto')
+  assert.ok(!ps.some((p) => p.titulo === 'Claude · Vacía' || p.titulo === 'Claude · Sin lista'), 'sin mensajes con texto no hay pieza')
+  assert.equal(ps.find((p) => p.titulo === 'Gemini · 2026-10-03')?.contenido, '[09:00] algo que sí')
+})
+
 test('correo: mbox con enviados y recibidos, cabeceras codificadas y quoted-printable', () => {
   const mbox = `From 1@x Thu Oct 01 10:00:00 +0000 2026
 X-Gmail-Labels: Recibidos,Importante
