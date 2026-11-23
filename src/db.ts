@@ -1207,6 +1207,18 @@ CREATE TABLE IF NOT EXISTS posicion_respuestas (
   UNIQUE (pregunta_id, modelo, semana)
 );
 CREATE INDEX IF NOT EXISTS posicion_respuestas_entidad ON posicion_respuestas (entidad_id, semana);
+-- El autoanálisis (Fragua #322): cada corrida guardada con sus números por métrica, para restar contra la anterior y
+-- contra la primera (la línea base).
+CREATE TABLE IF NOT EXISTS autoanalisis (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  version INTEGER NOT NULL,
+  fecha TEXT NOT NULL,
+  desde INTEGER NOT NULL,
+  hasta INTEGER NOT NULL,
+  datos TEXT NOT NULL,                 -- JSON: {metricas: {id: número | null}, listas: {id: string[]}}
+  pieza_id INTEGER,
+  creado INTEGER NOT NULL
+);
 -- Los oficios nuevos (Fragua #323): un oficio pedido entra al plantel como arquetipo (no como un generativo que se
 -- descarta), primero como propuesta en Para validar con su celda sugerida; el nombre propio lo pone él.
 CREATE TABLE IF NOT EXISTS oficios_propuestos (
@@ -2582,6 +2594,7 @@ const RUTINAS_SISTEMA = [
   { id: 'cronica', nombre: 'La crónica del día entra al corpus', hora: '23:55', dias: '0123456', accion: 'cronica' },
   { id: 'gnosis', nombre: 'Síntesis de la semana: patrones como quántomos', hora: '21:30', dias: '0', accion: 'gnosis' },
   { id: 'benchmark', nombre: 'El Benchmarkeador: el banco de pruebas contra los motores', hora: '04:30', dias: '1', accion: 'benchmark' },
+  { id: 'autoanalisis', nombre: 'El autoanálisis de la semana: los mismos números de siempre, contra la anterior y la línea base', hora: '22:00', dias: '0', accion: 'autoanalisis' },
   { id: 'redes', nombre: 'Tus cuentas de redes siguen conectadas (sin tokens del modelo; avisa si alguna se cayó)', hora: '08:10', dias: '0123456', accion: 'redes' },
   { id: 'posicion', nombre: 'Tu posición en las IAs: tus preguntas a varios modelos, sin contexto (solo si cargaste preguntas)', hora: '09:30', dias: '1', accion: 'posicion' },
 ]

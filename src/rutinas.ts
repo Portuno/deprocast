@@ -358,6 +358,14 @@ export const ACCIONES: Acciones = {
     const r = await (await import('./benchmark.ts')).correrBanco(db, { ahora })
     return r.veredictos.some((v) => v.rotar) ? `📏 **El banco de pruebas de la semana**\n\n${r.texto}` : null
   },
+  /** El domingo a la noche (Fragua #322): el autoanálisis de la semana, guardado y comparado. Sin modelo. */
+  async autoanalisis(db, _fecha, ahora) {
+    const { correrAutoanalisis, cambiosQueConvienen, corridas } = await import('./autoanalisis.ts')
+    const r = await correrAutoanalisis(db, { ahora })
+    const cs = corridas(db)
+    const cambios = cambiosQueConvienen(r.metricas, cs.at(-2)?.metricas ?? null)
+    return `📊 **Autoanálisis de la semana (v${r.version})**${r.piezaId ? ` [#${r.piezaId}]` : ''}\n\n${cambios.length ? `Tres cosas para cambiar:\n${cambios.map((c, i) => `${i + 1}. ${c}`).join('\n')}` : cs.length > 1 ? 'Nada empeoró más de un 10 % contra la semana anterior.' : 'Es la primera corrida: queda como línea base.'}`
+  },
   /** Cada mañana (Fragua #224): que sus cuentas de redes con token sigan conectadas. Solo dice algo si alguna se cayó. */
   async redes(db, _fecha, ahora) {
     const r = await (await import('./cuentas.ts')).verificarCuentas(db, ahora)

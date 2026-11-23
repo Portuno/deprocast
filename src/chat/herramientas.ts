@@ -1325,6 +1325,23 @@ export const HERRAMIENTAS: Herramienta[] = [
     resumen: (a) => `habló con ${a.id}`,
   },
   {
+    nombre: 'autoanalisis', familia: 'accion',
+    descripcion: 'El autoanálisis: Mastropiero se mide a sí mismo y al sistema con los mismos bloques de siempre (uso, velocidad del chat, aciertos, cuerpo, archivo, liga, su voz, feed y tres cosas para cambiar), cada número contra la corrida anterior y contra la primera (la línea base), con signo; lo que falta dice «sin dato». que=correr lo corre ahora y lo guarda versionado en el corpus; que=ver trae el último. Corre solo los domingos a la noche. Contestá con los números, nunca conclusiones sin el número.',
+    parametros: S({ que: str('correr o ver', { enum: ['correr', 'ver'] }), dias: int('Período en días (7 por defecto)') }),
+    ejecutar: async (a, { db }) => {
+      const x = await import('../autoanalisis.ts')
+      if (a.que !== 'correr') {
+        const u = x.corridas(db).at(-1)
+        if (!u) return { sin_corridas: true, aviso: 'Todavía no hay ninguno: corré uno (que=correr) y queda como línea base.' }
+        const p = u.piezaId ? db.prepare('SELECT contenido FROM corpus WHERE id = ?').get(u.piezaId) as { contenido: string } | undefined : undefined
+        return { version: u.version, fecha: u.fecha, pieza: u.piezaId, reporte: recorte(p?.contenido ?? JSON.stringify(u.metricas), 12_000) }
+      }
+      const r = await x.correrAutoanalisis(db, { dias: a.dias })
+      return { version: r.version, pieza: r.piezaId, reporte: recorte(r.markdown, 12_000) }
+    },
+    resumen: (a, r: any) => (a.que === 'correr' ? `corrió el autoanálisis (v${r?.version ?? '?'})` : 'miró el último autoanálisis'),
+  },
+  {
     nombre: 'crear_oficio', familia: 'accion',
     descripcion: 'Cuando pide un agente de un oficio nuevo (que alguien revise lo visual, la experiencia, la gamificación…): en vez de forjar un generativo descartable, propone el oficio como arquetipo de la Matriz 72 con su celda sugerida, su elemento, qué maneja, un ejemplo y la instrucción de oficio. Queda en Para validar: él la acepta o la mueve, y el nombre propio lo pone él (nunca lo inventes). Plantillas: visual (Diseñador visual), experiencia (Investigador de experiencia), gamificacion (Diseñador de juegos), que revisan piezas y devuelven hallazgos numerados con su criterio de aprobación. Con agente: un generativo que ya pasó la prueba asciende a ese arquetipo (conserva lo aprendido). El oficio es una profesión («Diseñador de juegos»), no un concepto («gamificación»).',
     parametros: S({ plantilla: str('visual, experiencia o gamificacion'), oficio: str('La profesión, si no es de plantilla'), elemento: str('Elemento del Gnosis', { enum: ['partícula', 'materia', 'campo', 'onda', 'tiempo-espacio', 'posición'] }), maneja: str('Qué maneja, en una línea'), ejemplo: str('Un ejemplo concreto'), instruccion: str('Lo que hace (cómo trabaja, qué devuelve)'), agente: str('Un generativo que asciende a este oficio (id o nombre)') }),
@@ -3032,7 +3049,7 @@ export const NUCLEO = [
   'marcar_mision', 'registrar_salud', 'registrar_movimiento', 'proponer_mejora', 'deshacer_ultima_accion', 'ver_para_validar', 'validar', 'arrancar_bloque', 'terminar_bloque',
 ]
 export const GRUPOS: Record<string, string[]> = {
-  liga: ['crear_oficio', 'ver_juego', 'comprar_en_juego', 'ver_logos', 'forjar_logos', 'preguntar_a_logos', 'ver_rendimiento_liga', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ficha_arquetipo', 'ver_plantel', 'crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'ver_banco_de_pruebas', 'correr_banco_de_pruebas', 'comparar_motores', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
+  liga: ['autoanalisis', 'crear_oficio', 'ver_juego', 'comprar_en_juego', 'ver_logos', 'forjar_logos', 'preguntar_a_logos', 'ver_rendimiento_liga', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo', 'ficha_arquetipo', 'ver_plantel', 'crear_mision_agente', 'ver_misiones_agentes', 'instruir_agente', 'marcar_pista', 'contexto_pista', 'ver_proyecto', 'armar_sandbox', 'estado_general', 'listar_agentes', 'ver_agente', 'listar_caidos', 'ver_bus', 'ver_encargo', 'ver_cronica', 'ver_economia', 'leer_lineamientos', 'listar_propuestas', 'resolver_propuestas', 'leer_bitacora_desarrollo', 'ver_banco_de_pruebas', 'correr_banco_de_pruebas', 'comparar_motores', 'forjar_agente', 'proponer_nombres', 'bautizar_agente', 'crear_proyecto', 'publicar_encargo', 'correr_ticks', 'hablar_con_agente', 'cambiar_estado_agente', 'retirar_agente', 'pausar_ingesta', 'reanudar_ingesta', 'forjar_mejora'],
   corpus: ['ver_suenos_noche', 'al_diario', 'ver_diario', 'crear_dominio', 'retirar_pieza', 'corregir_pieza', 'procesar_anotaciones', 'no_son_lo_mismo', 'listar_fuentes', 'listar_quantomos', 'listar_cargas', 'ver_duplicados', 'ingerir', 'crear_fuente', 'crear_quantomo', 'sellar_quantomo', 'pedir_mejora_quantomo', 'resolver_propuesta_quantomo', 'editar_entidad', 'fusionar_entidades', 'deshacer_carga', 'olvidar'],
   misiones: ['ver_criterios', 'fijar_criterio', 'ver_reportes', 'ver_informe', 'sugerir_misiones', 'proponer_primarias', 'asignar_mision', 'rehacer_run', 'arrancar_run', 'cerrar_run', 'reporte_semanal', 'procesar_jugador', 'fijar_principal', 'sumar_ayudante', 'quitar_ayudante', 'pedir_aportes', 'ver_aportes', 'ver_personaje', 'escribir_historia', 'inventario_agregar', 'inventario_editar'],
   // Lo que era «vida» (93 herramientas, unos 15.500 tokens), en grupos chicos: cada mensaje trae solo lo suyo.
