@@ -18,10 +18,11 @@ import { texto } from './texto.ts'
 import { claude, correo, gemini, instagram, whatsapp } from './mensajes.ts'
 import { pdf } from './pdf.ts'
 import { spotify } from './spotify.ts'
+import { youtubeMusica } from './youtube-musica.ts'
 import { borrarEscuchasDeCarga } from '../musica.ts'
 
 /** En orden: los formatos reconocibles antes que el texto genérico. */
-export const IMPORTADORES: Importador[] = [deprocastRespaldo, deprocastQuantomos, deprocastFicha, whatsapp, instagram, claude, gemini, correo, spotify, csv, pdf, texto]
+export const IMPORTADORES: Importador[] = [deprocastRespaldo, deprocastQuantomos, deprocastFicha, whatsapp, instagram, claude, gemini, correo, spotify, youtubeMusica, csv, pdf, texto]
 
 export function dirCargas(): string {
   return path.resolve(process.env.MASTRO_CARGAS ?? path.join(process.cwd(), 'data', 'cargas'))
@@ -54,7 +55,7 @@ function leerDatos(nombre: string, ruta: string): Datos {
 
 function importadorDe(d: Datos): Importador {
   const imp = IMPORTADORES.find((i) => i.detectar(d))
-  if (!imp) throw new Error(`No sé leer "${d.nombre}". Formatos: respaldo y fichas de Deprocast, chats de WhatsApp e Instagram, Claude, Gemini, correo (.mbox/.eml), datos de Spotify (.zip o .json), CSV, PDF, Word, PowerPoint, Excel, OpenDocument, texto y Markdown.`)
+  if (!imp) throw new Error(`No sé leer "${d.nombre}". Formatos: respaldo y fichas de Deprocast, chats de WhatsApp e Instagram, Claude, Gemini, correo (.mbox/.eml), datos de Spotify o de YouTube Music (.zip o .json de Takeout), CSV, PDF, Word, PowerPoint, Excel, OpenDocument, texto y Markdown.`)
   return imp
 }
 

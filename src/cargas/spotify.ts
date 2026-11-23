@@ -89,7 +89,7 @@ export const spotify: Importador = {
     if (x.escuchas.length && (ctx.quiere('meses') || ctx.quiere('gusto'))) {
       const { meses } = guardarEscuchas(ctx.db, x.escuchas, ctx.cargaId)
       if (ctx.quiere('meses')) for (const mes of meses) {
-        const contenido = resumenDelMes(ctx.db, mes)
+        const contenido = resumenDelMes(ctx.db, mes, 'spotify')
         if (contenido) ponerPieza(ctx, 'meses', { titulo: `Escuchas · ${mes}`, contenido, fecha: `${mes}-01`, origenId: `spotify:mes:${mes}`, etiquetas: ['spotify', 'música'] })
       }
       const gusto = ctx.quiere('gusto') ? gustoEnTexto(ctx.db) : null

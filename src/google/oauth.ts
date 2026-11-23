@@ -21,6 +21,8 @@ export const ALCANCES = [
   'https://www.googleapis.com/auth/calendar',
   'https://www.googleapis.com/auth/contacts.readonly',
   'https://www.googleapis.com/auth/tasks',
+  // Sus listas y sus «me gusta» de YouTube Music, solo lectura (Fragua #336).
+  'https://www.googleapis.com/auth/youtube.readonly',
 ]
 const AUTORIZAR = 'https://accounts.google.com/o/oauth2/v2/auth'
 const TOKEN = 'https://oauth2.googleapis.com/token'

@@ -1062,12 +1062,19 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     nombre: 'gusto_musical', familia: 'lectura',
-    descripcion: 'La música que lo acompaña, declarada por uso (Fragua #325): de sus escuchas de Spotify, los artistas y temas que más escucha, los últimos 90 días del historial, lo que sube, qué suena según la hora y las horas por mes. Con artista: cuánto lo escucha y sus temas. Usalo para recomendar o armar algo con su criterio y no con el promedio de nadie.',
+    descripcion: 'La música que lo acompaña, declarada por uso (Fragua #325 y #336): de sus escuchas de YouTube Music (o Spotify), los artistas y temas que más escucha, los últimos 90 días del historial, lo que sube, qué suena según la hora y las horas por mes. Con artista: cuánto lo escucha y sus temas. Usalo para recomendar o armar algo con su criterio y no con el promedio de nadie.',
     parametros: S({ artista: str('Un artista puntual (opcional)') }),
     ejecutar: async (a, { db }) => {
       const { gustoMusical } = await import('../musica.ts')
-      return gustoMusical(db, { artista: a.artista ? String(a.artista) : undefined }) ?? { sin_datos: true, como: 'Todavía no hay escuchas. Que pida sus datos en spotify.com/account/privacy («Historial extendido de reproducción» o los datos de la cuenta) y suba el .zip en Cargas; conviene repetirlo cada tanto.' }
+      return gustoMusical(db, { artista: a.artista ? String(a.artista) : undefined }) ?? { sin_datos: true, como: 'Todavía no hay escuchas. Escucha en YouTube Premium: que pida en Google Takeout «YouTube y YouTube Music» (el historial) y suba el .zip en Cargas; sus listas y «me gusta» se traen con traer_musica_youtube. Si usara Spotify, el .zip de spotify.com/account/privacy también entra.' }
     },
+  },
+  {
+    nombre: 'traer_musica_youtube', familia: 'accion',
+    descripcion: 'Trae de su cuenta de YouTube (YouTube Premium / YouTube Music, con la conexión de Google, solo lectura) sus listas con sus temas y los temas que marcó «me gusta», como piezas suyas del corpus que se rehacen cada vez (Fragua #336). El historial de lo que escuchó no sale por la API: viene del Takeout que se sube en Cargas.',
+    parametros: S({}),
+    ejecutar: async (_a, { db }) => (await import('../youtube-musica.ts')).traerDeLaCuenta(db),
+    resumen: () => 'trajo su música de YouTube',
   },
   {
     nombre: 'ver_taxonomia', familia: 'lectura',
@@ -3105,7 +3112,7 @@ export const GRUPOS: Record<string, string[]> = {
   web: ['ver_ranking_feed', 'ver_censo_canal', 'aprobar_censo_canal', 'seguir_en_feed', 'ver_feed', 'buscar_web', 'buscar_en', 'explorar', 'usar_alexandria', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'triar_oportunidades', 'redactar_oportunidad'],
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus', 'ver_suenos_noche'],
   mapamundi: ['ver_mapamundi', 'disputar'],
-  musica: ['gusto_musical'],
+  musica: ['gusto_musical', 'traer_musica_youtube'],
   observatorio: ['seguir_tema', 'ver_observatorio', 'crear_campana', 'armar_campana', 'ver_posicion_ias', 'pregunta_posicion_ias', 'medir_posicion_ias'],
   crear: ['armar_pdf', 'armar_presentacion', 'buscar_generados', 'reenviar_generado', 'difundir_idea', 'ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'cuenta_de_agente', 'registro_de_publicaciones', 'verificar_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
@@ -3133,7 +3140,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal|reddit|subreddit|github|repo\b|twitter|tweet|tuit|linkedin|instagram|facebook/.test(t)) g.push('web')
   if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo|mis redes|difund|\bpdf\b|informe|documento/.test(t)) g.push('crear')
   if (/mapamundi|hex[aá]gono|disputa|grande de la historia|\bzama\b|sagunto/.test(t)) g.push('mapamundi')
-  if (/m[uú]sica|spotify|escuch[eéoa] |canci[oó]n|artista|playlist|lista de reproducci|banda sonora|\bdisco\b|[aá]lbum/.test(t)) g.push('musica')
+  if (/m[uú]sica|spotify|youtube music|youtube premium|escuch[eéoa] |canci[oó]n|artista|playlist|lista de reproducci|banda sonora|\bdisco\b|[aá]lbum/.test(t)) g.push('musica')
   if (/grafo|mis temas|de qu[eé] hablo|qu[eé] conecta|me repito|mis zonas|zonas de mi|bisagra|hueco/.test(t)) g.push('grafo')
   if (/observatorio|qu[eé] se dice|narrativa|hashtag|tendencia|segu[ií] (el|al|a la) tema|segu[ií]me|campa[ñn]a/.test(t)) g.push('observatorio')
   return g
