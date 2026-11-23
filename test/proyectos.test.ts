@@ -31,7 +31,8 @@ test('espacio de proyecto: junta lo que hay del proyecto (corpus, historia, misi
   crearProyecto(db, 'Proyecto Faro')
   assert.equal(vincularProyectos(db), 1, 'el proyecto de la liga se vincula por alias')
   assert.ok(espacioDeProyecto(db, faro).liga)
-  assert.ok(GRUPOS.liga.includes('ver_proyecto') && GRUPOS.liga.includes('armar_sandbox'))
+  // Fragua #339: los proyectos tienen su grupo chico; «mi proyecto» ya no trae la liga entera.
+  assert.ok(GRUPOS.proyectos.includes('ver_proyecto') && GRUPOS.proyectos.includes('armar_sandbox'))
 })
 
 test('sandbox: propone agentes y encargos (no forja ni publica nada) y, si hace falta, crea el proyecto en la liga', async () => {

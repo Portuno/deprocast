@@ -383,8 +383,15 @@ export function personaEnUnaLinea(p: Persona): string {
 }
 
 /** Para Mastropiero: quién es quién en su vida (lo que él definió) y a quién le debe un contacto. Vacío si no definió nada. */
-export function personasParaPrompt(db: Db, ahora = Date.now()): string {
-  const ps = personas(db, {}, ahora).filter((p) => p.vinculo || p.proxima || p.vencida || (p.nivel ?? 0) >= 9 || (p.importancia ?? 0) >= 9 || p.proyectos.length)
+export function personasParaPrompt(db: Db, ahora = Date.now(), o: { soloNombradasEn?: string } = {}): string {
+  // Poda (Fragua #339): la gente que él marcó con importancia 0 no viaja.
+  let ps = personas(db, {}, ahora).filter((p) => p.importancia !== 0 && (p.vinculo || p.proxima || p.vencida || (p.nivel ?? 0) >= 9 || (p.importancia ?? 0) >= 9 || p.proyectos.length))
+  if (o.soloNombradasEn !== undefined) {
+    // Por demanda: solo las que nombró en este mensaje (por su nombre, su primer nombre o un alias).
+    const t = ` ${o.soloNombradasEn.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9ñ ]/g, ' ')} `
+    const n = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+    ps = ps.filter((p) => [p.nombre, p.nombre.split(' ')[0], ...(p.alias ?? [])].map(n).some((x) => x.length >= 3 && t.includes(` ${x} `)))
+  }
   if (!ps.length) return ''
   const peso = (p: Persona) => Math.max(p.nivel ?? 0, p.importancia ?? 0) + (p.vencida ? 3 : 0) + (p.proxima ? 1 : 0)
   const lineas = [...ps].sort((a, b) => peso(b) - peso(a)).slice(0, 16).map((p) => `- ${personaEnUnaLinea(p)}${p.diasSinContacto != null ? `: último contacto hace ${p.diasSinContacto} días` : ''}${p.vencida ? ' — quería verla más seguido' : ''}${p.proxima ? `; próximo: ${p.proxima}` : ''}`)

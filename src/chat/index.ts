@@ -186,9 +186,9 @@ const REGLAS_DE_CIERRE = `Están cerrando el día hablando (él contesta en voz 
 const recorte = (s: string, n: number) => (s.length > n ? s.slice(0, n) + '…' : s)
 
 /** Quién es el operador, según lo que cargó. Nada de esto está escrito en el código. */
-function operador(db: Db, mensaje = '', vec: Float32Array | null = null): { nombre: string; texto: string } {
+function operador(db: Db, mensaje = '', vec: Float32Array | null = null, o: { podar?: boolean } = {}): { nombre: string; texto: string } {
   const yo = (db.prepare(`SELECT * FROM entidades WHERE tipo = 'persona' AND json_extract(meta, '$.operador') = 1 LIMIT 1`).get() as any) ?? null
-  const top = listarEntidades(db, { limite: 14 }).filter((e) => e.piezas > 0 && e.id !== yo?.id)
+  const top = listarEntidades(db, { limite: o.podar ? 9 : 14 }).filter((e) => e.piezas > 0 && e.id !== yo?.id)
   if (!yo && !top.length) {
     return { nombre: 'operador', texto: 'Todavía no sabés quién es el operador: el corpus no tiene material propio cargado. Si te cuenta de sí, sugerile cargar notas o un respaldo para que lo conozcas.' }
   }
@@ -201,7 +201,8 @@ function operador(db: Db, mensaje = '', vec: Float32Array | null = null): { nomb
   if (quien) lineas.push(quien)
   else if (yo) lineas.push('Todavía no escribió su perfil («Quién soy», en Personas). Si sale el tema de quién es, sugerile completarlo una vez.')
   if (top.length) lineas.push(`Lo que más aparece en su mundo: ${top.map((e) => `${e.nombre} (${e.tipo})`).join(', ')}.`)
-  const mem = memoriaParaPrompt(db, mensaje ? 30 : 60, mensaje, vec)
+  // Con poda (Fragua #339): sus correcciones, visión y metas siguen siempre; de lo demás, lo más cercano a lo que dijo.
+  const mem = memoriaParaPrompt(db, mensaje ? (o.podar ? 22 : 30) : 60, mensaje, vec)
   if (mem) lineas.push(`Tu memoria de él (lo que te contó, con fecha):\n${mem}`)
   lineas.push('Esto sale de lo que cargó y te contó; para más, buscá en el corpus. Su propia voz está en el nivel «propia»; lo demás es de terceros o de modelos.')
   return { nombre: yo?.nombre?.split(' ')[0] ?? 'operador', texto: lineas.join('\n') }
@@ -218,13 +219,13 @@ function foto(db: Db): string {
 }
 
 /** El día de hoy y sus misiones, como los ve Mastropiero. */
-function hoy(db: Db, mensaje = ''): string {
+function hoy(db: Db, mensaje = '', o: { sideQuests?: boolean } = {}): string {
   const fecha = fechaLocal()
   const j = leerJornada(db, fecha)
   const p = progreso(db, fecha)
   return [
     `Hoy (${fecha}): ${p.total ? `${p.hechos} de ${p.total} bandas hechas${p.parciales ? `, ${p.parciales} a medias` : ''}${p.saltados ? `, ${p.saltados} que no` : ''}.` : 'todavía sin bandas trabajadas.'}`,
-    misionesParaPrompt(db, Date.now(), mensaje),
+    misionesParaPrompt(db, Date.now(), mensaje, o),
     j?.cierre ? `Su cierre del día: ${j.cierre}` : '',
   ].filter(Boolean).join('\n')
 }
@@ -338,10 +339,25 @@ Calendario: ${calendarioCorto()}
 ${hoy(db).split('\n')[0]}`
 }
 
-export function promptMastropiero(db: Db, mensaje = '', hud?: string | null, cid?: number | null, archivo?: { texto: string; vec: Float32Array | null }): string {
-  const p = partesMastropiero(db, mensaje, hud, cid, archivo)
+export function promptMastropiero(db: Db, mensaje = '', hud?: string | null, cid?: number | null, archivo?: { texto: string; vec: Float32Array | null }, temas?: Set<string>): string {
+  const p = partesMastropiero(db, mensaje, hud, cid, archivo, temas)
   return `${p.fijo}\n\n${p.momento}`
 }
+
+/**
+ * El contexto por demanda (Fragua #339): el 96 % de los tokens del chat se iba en lo que viajaba pegado a cada mensaje.
+ * Siempre va lo mínimo (la fecha y el calendario, su horario, su principal y sus primarias, la run, lo que le deben, lo
+ * sugerido); lo demás viaja cuando el turno es de ese tema, que son los mismos grupos de herramientas que se activan
+ * (por sus palabras, por sentido y los que ya venían en la charla). Cada bloque dice con qué grupo se trae.
+ */
+export const BLOQUES_POR_TEMA: { grupo: string; que: string }[] = [
+  { grupo: 'plata', que: 'la plata del mes' },
+  { grupo: 'salud', que: 'su cuerpo (comida, sueño, entrenos)' },
+  { grupo: 'gente', que: 'su gente (solo viajan las que nombró)' },
+  { grupo: 'misiones', que: 'la lista de side quests' },
+  { grupo: 'crear', que: 'su librería' },
+  { grupo: 'liga', que: 'el estado de la liga' },
+]
 
 /**
  * El prompt de Mastropiero en dos partes (para la caché del modelo):
@@ -350,8 +366,13 @@ export function promptMastropiero(db: Db, mensaje = '', hud?: string | null, cid
  * - momento: la hora, el día, su memoria y lo de su archivo que tiene que ver con lo que dijo. Cambia en cada mensaje:
  *   viaja pegado a su último mensaje (en esa llamada, no en la base), así no rompe la caché de todo lo de antes.
  */
-export function partesMastropiero(db: Db, mensaje = '', hud?: string | null, cid?: number | null, archivo?: { texto: string; vec: Float32Array | null }): { fijo: string; momento: string } {
-  const op = operador(db, mensaje, archivo?.vec ?? null)
+export function partesMastropiero(db: Db, mensaje = '', hud?: string | null, cid?: number | null, archivo?: { texto: string; vec: Float32Array | null }, temas?: Set<string>): { fijo: string; momento: string } {
+  // Sin temas (otros usos del prompt): todo, como antes. Con temas: por demanda.
+  const va = (g: string) => !temas || temas.has(g)
+  const op = operador(db, mensaje, archivo?.vec ?? null, { podar: !!temas })
+  // Las reglas de un tema (la liga, el grafo, las ayudas de sus primarias, metas de salud y de plata) viajan con su tema.
+  const reglaDe = (g: string, texto: string) => (va(g) ? texto : '')
+  const faltan = temas ? BLOQUES_POR_TEMA.filter((b) => !temas.has(b.grupo)) : []
   // Sus correcciones van arriba (mandan) y cambian poco; lo sugerido cambia seguido: va con lo del momento, después de lo
   // fijo, para que el comienzo largo del prompt se reuse de la caché del modelo de un turno al otro.
   const corr = correccionesParaPrompt(db, cid)
@@ -377,47 +398,46 @@ Cómo trabajás
 - Cuando dice que algo ya está («ya lo hice», «ya lo mandé», «ya les contesté», «ya está»), es estado cerrado: cerralo en el sistema en ese mismo turno (marcar_correo_atendido, actualizar_mision, el ítem del plan que corresponda), sin pedir confirmación, y no lo vuelvas a proponer ni en este turno ni en los siguientes. Si te lo tuvo que repetir, no alcanza con disculparte: revisá qué otros pendientes del mismo tema están cerrados de verdad antes de seguir.
 - Antes de decir que Deprocast no puede algo o que algo no existe, consultá que_puede_deprocast.
 - Tenés a mano lo de todos los días; si necesitás más (la liga, el corpus, primarias y runs, su vida, la web, crear, el grafo, el observatorio), pedí el grupo con pedir_herramientas y seguí en el mismo turno.
-- Para lo que pregunta por la forma de su pensamiento y no por un dato (sus temas, qué conecta una idea con otra, dónde se repite, qué zonas no se tocan), el grupo grafo: preguntar_al_corpus para las preguntas globales (responde por zonas, con pasajes), conectar_conceptos para «qué une X con Y» y ver_grafo para el estado, las bisagras y los huecos. Para un dato puntual, buscar_corpus sigue siendo lo primero.
-- Para hablar de un día (qué tiene, qué hace hoy, la rutina), primero ver_dia: su agenda, su horario fijo y el plan, con su fuente. Si te cuenta su horario de trabajo o algo fijo de todas las semanas, guardalo con fijar_horario.
-- Para actuar sobre la plataforma (forjar agentes, publicar misiones, correr ticks, ingerir, crear fuentes o proyectos) usá tus herramientas y contalo en una frase. Los agentes de la liga sí los nombrás por su designación (BUS-0001) o su nombre.
-- Él decide. Lo destructivo o caro (retirar un agente, mandarlo a la banca, deshacer una carga, más de tres ticks) se pregunta antes; solo con un sí explícito llamás con confirmado=true. Sellar quántomos y aceptar propuestas es decisión suya.
-- Si pide un agente de un oficio nuevo (que alguien revise lo visual, la experiencia, la gamificación…), proponelo como arquetipo con crear_oficio, no forjes un generativo que se descarta: va a Para validar con su celda y el nombre propio lo pone él.
+${reglaDe('grafo', `- Para lo que pregunta por la forma de su pensamiento y no por un dato (sus temas, qué conecta una idea con otra, dónde se repite, qué zonas no se tocan), el grupo grafo: preguntar_al_corpus para las preguntas globales (responde por zonas, con pasajes), conectar_conceptos para «qué une X con Y» y ver_grafo para el estado, las bisagras y los huecos. Para un dato puntual, buscar_corpus sigue siendo lo primero.
+`)}- Para hablar de un día (qué tiene, qué hace hoy, la rutina), primero ver_dia: su agenda, su horario fijo y el plan, con su fuente. Si te cuenta su horario de trabajo o algo fijo de todas las semanas, guardalo con fijar_horario.
+${reglaDe('liga', `- Para actuar sobre la plataforma (forjar agentes, publicar misiones, correr ticks, ingerir, crear fuentes o proyectos) usá tus herramientas y contalo en una frase. Los agentes de la liga sí los nombrás por su designación (BUS-0001) o su nombre.
+`)}- Él decide. Lo destructivo o caro (retirar un agente, mandarlo a la banca, deshacer una carga, más de tres ticks) se pregunta antes; solo con un sí explícito llamás con confirmado=true. Sellar quántomos y aceptar propuestas es decisión suya.
+${reglaDe('liga', `- Si pide un agente de un oficio nuevo (que alguien revise lo visual, la experiencia, la gamificación…), proponelo como arquetipo con crear_oficio, no forjes un generativo que se descarta: va a Para validar con su celda y el nombre propio lo pone él.
 - Para hablar con un agente usá hablar_con_agente y contale a ${op.nombre} lo que dijo, con tus palabras.
-- Si te pregunta cómo funcionás, o qué mejorarías, leé tus lineamientos; cada mejora concreta la registrás con proponer_mejora (queda abierta, no se aplica sola) y lo decís como propuesta tuya.
+`)}- Si te pregunta cómo funcionás, o qué mejorarías, leé tus lineamientos; cada mejora concreta la registrás con proponer_mejora (queda abierta, no se aplica sola) y lo decís como propuesta tuya.
 - Si algo todavía no existe en la plataforma, decilo; no simules haberlo hecho.
 - Él es el jugador de su run, y todo personaje (él, vos, cada agente, cada entidad) tiene historia, inventario y misiones. Su misión principal es su objetivo de vida: solo él la fija; vos podés sugerir candidatas.
 - Sus primarias son los focos de la semana; sus secundarias, las bandas de una run; sus side quests, encargos que dependen de dónde está o qué hace. Lo que propongas entra como sugerencia: él acepta o cambia.
 - Una run la diseña él: si te pide una («tengo dos horas, la cabeza a medias, quiero meter a X»), prepará la propuesta con su pedido tal cual y contale el sentido; si quiere cambios, rehacela; arranca cuando él dice. Si te cuenta que terminó o no pudo una banda, marcala con su nota: eso calibra las próximas.
 - Si menciona algo que tiene (plata, contactos, sitios, saberes) o un encargo de pasada («cuando pase por…»), anotalo en su inventario o como side quest. Si le encarga algo a otra persona, asignale la misión a esa persona.
-- Sus primarias pueden tener ayudantes de la liga (un generativo que hace borradores y próximos pasos, un buscador que revisa su corpus) que trabajan entre runs y dejan aportes. Si una primaria se traba o necesita material, sugerile sumar uno; los aportes llegan solos a su próxima run.
-- Tiene una bitácora íntima (en Jugador): es suya. Solo ves lo que él comparte (ver_bitacora); no le preguntes por lo que no compartió.
+${reglaDe('misiones', `- Sus primarias pueden tener ayudantes de la liga (un generativo que hace borradores y próximos pasos, un buscador que revisa su corpus) que trabajan entre runs y dejan aportes. Si una primaria se traba o necesita material, sugerile sumar uno; los aportes llegan solos a su próxima run.
+`)}- Tiene una bitácora íntima (en Jugador): es suya. Solo ves lo que él comparte (ver_bitacora); no le preguntes por lo que no compartió.
 - Si te corrige un dato (de una persona, un proyecto, algo que dijiste del corpus), además de anotarlo corregí la fuente: la ficha (editar_entidad, sus notas) y, si salió de una pieza, la pieza (corregir_pieza). Decile en una línea qué corregiste.
 - Si tira una idea grande y vaga, no la dejes como frase suelta: en el mismo turno abrí la ficha de idea (abrir_ficha_idea) con el primer paso que se pruebe en 7 días, y mostrásela.
 - Si te cuenta que habló o se vio con alguien de su gente, anotá el contacto (editar_persona con contacto). Si define una relación («a mi vieja quiero llamarla cada semana»), guardala.
-- Si te cuenta qué comió, un entrenamiento, cuánto durmió o su peso, registralo (registrar_salud), estimando kcal y macros de la comida; si pregunta cómo viene, ver_salud. Si dice sus metas (kcal, proteína, horas de sueño, entrenos por semana, peso), fijar_metas_salud.
+- Si te cuenta qué comió, un entrenamiento, cuánto durmió o su peso, registralo (registrar_salud), estimando kcal y macros de la comida${reglaDe('salud', `; si pregunta cómo viene, ver_salud. Si dice sus metas (kcal, proteína, horas de sueño, entrenos por semana, peso), fijar_metas_salud`)}.
 - Si dice que quiere aprender algo, crear_aprendizaje (entra a su Academia); si cuenta que estudió o practicó, registrar_practica.
-- Si te cuenta un gasto o un ingreso con monto, registralo (registrar_movimiento). Si hablan de plata, mirá ver_finanzas; si no tiene meta del mes, preguntásela una vez.
+- Si te cuenta un gasto o un ingreso con monto, registralo (registrar_movimiento)${reglaDe('plata', `. Si hablan de plata, mirá ver_finanzas; si no tiene meta del mes, preguntásela una vez`)}.
 - Ayudalo a sostener el día sin sermones.
 - Su memoria se va escribiendo sola con lo que te cuenta. Usá recordar solo si te pide explícitamente que te acuerdes de algo; corregí la memoria cuando te corrija.
 - No hables de quántomos ni de la mecánica del corpus salvo que te pregunte por eso.`
   const momento = `${sug ? `${sug}\n\n` : ''}Ahora: ${ahoraEnPalabras()}
 Calendario: ${calendarioCorto()}${horarioParaPrompt(db, fechaLocal()) ? `
 ${horarioParaPrompt(db, fechaLocal())}` : ''}${hud && HUD[hud] ? `\nEn su panel de Hoy está mirando: ${HUD[hud]}. Si pregunta sin decir de qué («¿cómo voy?», «¿qué hago?»), es de eso.` : ''}
-${hoy(db, mensaje)}
+${hoy(db, mensaje, { sideQuests: va('misiones') || /side ?quest|pendiente|tarea|qu[eé] (hago|tengo que)/i.test(mensaje) })}
 ${vivoParaPrompt(db) || directoParaPrompt(db)}
 ${ubicacionParaPrompt(db)}
 ${bloqueParaPrompt(db)}
-${finanzasParaPrompt(db)}
-${saludParaPrompt(db)}
+${va('plata') ? finanzasParaPrompt(db) : ''}
+${va('salud') ? saludParaPrompt(db) : ''}
 ${aprenderEnChat(db) || pideAprender(mensaje) ? `${aprenderParaPrompt(db)}
 ${academiaParaPrompt(db)}` : 'Lo que está aprendiendo (idiomas, Academia) no se trae al chat: no ofrezcas clases, ejercicios, repasos ni avisos de metas de aprendizaje salvo que él lo pida en este mensaje (Fragua #199).'}
 ${leccionesChat(db)}
-${personasParaPrompt(db)}
-${libreriaParaPrompt(db)}
+${va('gente') ? personasParaPrompt(db) : personasParaPrompt(db, Date.now(), { soloNombradasEn: mensaje })}
+${va('crear') || /libr|leer|lectura|pel[ií]cula|serie/i.test(mensaje) ? libreriaParaPrompt(db) : ''}
 ${mencionado(db, mensaje)}
 ${archivo?.texto ? `\n${archivo.texto}\n` : ''}
-La liga (contexto, no lo recites): ${foto(db)}
-
+${va('liga') ? `La liga (contexto, no lo recites): ${foto(db)}\n` : ''}${faltan.length ? `No viaja en este turno, porque no hace falta para lo que dijo: ${faltan.map((b) => b.que).join(', ')}. Si la pregunta lo necesita, pedí el grupo con pedir_herramientas (${faltan.map((b) => b.grupo).join(', ')}) y traelo con su herramienta: no lo supongas.\n` : ''}
 Lo que sabés de ${op.nombre} hasta ahora
 ${op.texto}`
   return { fijo, momento }
@@ -724,6 +744,7 @@ async function turno(db: Db, cid: number, c: Conversacion, texto: string, o: Opc
   const etapas: Record<string, number> = {}
   let tipo: TipoTurno = 'completo'
   let vueltas = 0
+  let contextoTokens: number | null = null
   const usadas: string[] = []
   let corregido: string[] = []
   let final = ''
@@ -792,10 +813,12 @@ async function turno(db: Db, cid: number, c: Conversacion, texto: string, o: Opc
         // Una corrección arregla la fuente: la ficha y la pieza (las herramientas del corpus, a mano).
         if (corregido.length || pareceCorreccion(texto)) grupos.add('corpus')
         const tPrompt = Date.now()
-        const partes = partesMastropiero(db, texto, o.hud, cid, archivo)
-        etapas.prompt = Date.now() - tPrompt
         // Los grupos de herramientas de esta charla siguen activos y en el mismo orden: el comienzo del pedido no cambia.
         const fijos = gruposFijos(cid, grupos)
+        // El contexto viaja por demanda: los mismos temas que las herramientas activas (Fragua #339).
+        const partes = partesMastropiero(db, texto, o.hud, cid, archivo, fijos)
+        contextoTokens = Math.round((partes.fijo.length + partes.momento.length) / 4)
+        etapas.prompt = Date.now() - tPrompt
         final = await bucle({
           db, sistema: `${partes.fijo}${o.canal ? `
 
@@ -835,7 +858,9 @@ ${vozPara('ceremonia')}` : ''}`, hs, previos, clase: 'mastropiero', agenteId: o.
         const ultimo = (db.prepare('SELECT COALESCE(MAX(id), 0) AS n FROM mensajes WHERE conversacion_id = ?').get(cid) as { n: number }).n
         // Desde donde terminó el turno anterior (un reintento comparte el mensaje de origen con el que se cortó).
         const previo = (db.prepare('SELECT MAX(hasta_id) AS n FROM chat_tiempos WHERE conversacion_id = ?').get(cid) as { n: number | null }).n ?? 0
-        db.prepare('INSERT INTO chat_tiempos (conversacion_id, tipo, total_ms, etapas, vueltas, en, desde_id, hasta_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(cid, c.modo === 'diario' ? 'diario' : tipo, Date.now() - inicio, JSON.stringify(etapas), vueltas, inicio, Math.max(hasta, previo), ultimo)
+        // Los tokens del turno (Fragua #339): lo que se mandó al modelo en todas sus vueltas, y cuánto era contexto fijo.
+        const tokens = (db.prepare(`SELECT SUM(tokens_in) AS n FROM llamadas WHERE en >= ? AND agente_id IN ('mastropiero', 'copiloto')`).get(inicio) as { n: number | null }).n
+        db.prepare('INSERT INTO chat_tiempos (conversacion_id, tipo, total_ms, etapas, vueltas, en, desde_id, hasta_id, tokens, contexto) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(cid, c.modo === 'diario' ? 'diario' : tipo, Date.now() - inicio, JSON.stringify(etapas), vueltas, inicio, Math.max(hasta, previo), ultimo, tokens ?? null, contextoTokens)
       } catch { /* medir no frena */ }
     }
   }

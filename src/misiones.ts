@@ -1352,7 +1352,7 @@ export function seguimientos(db: Db, ahora = Date.now()): Mision[] {
 // ─── para Mastropiero ───────────────────────────────────────────────────
 
 /** El bloque de misiones del prompt: corto, lo que importa ahora. */
-export function misionesParaPrompt(db: Db, ahora = Date.now(), mensaje = ''): string {
+export function misionesParaPrompt(db: Db, ahora = Date.now(), mensaje = '', o: { sideQuests?: boolean } = {}): string {
   const principal = principalDe(db, 'jugador')
   const candidatas = listarMisiones(db, { personaje: 'jugador', nivel: 'principal', estados: ['sugerida'] })
   const primarias = conAvance(db, listarMisiones(db, { personaje: 'jugador', nivel: 'primaria', semana: semanaDe(ahora), estados: ['activa', 'hecha', 'parcial', 'sugerida'] }))
@@ -1370,7 +1370,9 @@ export function misionesParaPrompt(db: Db, ahora = Date.now(), mensaje = ''): st
     }).join('\n')}` : 'No tiene primarias esta semana (podés proponerlas).',
     vivo ? `Run en curso (${vivo.run.inicio}–${vivo.run.fin}): ${vivo.actual ? `ahora toca «${vivo.actual.titulo}», le quedan ${vivo.restan} min` : 'entre bandas'}${vivo.siguientes.length ? `; después: ${vivo.siguientes.map((m) => `${m.inicio} ${m.titulo}`).join(' · ')}` : ''}.`
       : propuesta?.estado === 'propuesta' ? `Hay una run propuesta para hoy (${propuesta.inicio}–${propuesta.fin}) que todavía no arrancó.` : 'No hay run en curso.',
-    terciarias.length ? `Side quests abiertas:\n${terciarias.map((m) => `- ${m.titulo}${m.disparador ? ` (se activa: ${Object.values(m.disparador).filter(Boolean).join(', ')})` : ''}`).join('\n')}` : '',
+    terciarias.length ? (o.sideQuests === false
+      ? `Tiene ${terciarias.length}${terciarias.length === 10 ? ' o más' : ''} side quests abiertas (la lista viaja cuando se habla de sus pendientes; ver_misiones la trae).`
+      : `Side quests abiertas:\n${terciarias.map((m) => `- ${m.titulo}${m.disparador ? ` (se activa: ${Object.values(m.disparador).filter(Boolean).join(', ')})` : ''}`).join('\n')}`) : '',
     tocan.length ? `⚑ Lo que acaba de decir toca el disparador de: ${tocan.map((m) => `«${m.titulo}»`).join(', ')}. Recordáselo en una línea, natural.` : '',
     deben.length ? `Seguimientos vencidos (cosas que otros le deben): ${deben.map((m) => `${nombre(m.personaje)}: ${m.titulo} (vencía ${diaSemana(m.vence)})`).join(' · ')}.` : '',
   ].filter(Boolean).join('\n')

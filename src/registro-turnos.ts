@@ -9,11 +9,11 @@
 import { fechaLocal, type Db } from './db.ts'
 
 export type Resultado = 'acierto' | 'desvio' | 'error' | null
-type Fila = { id: number; conversacion_id: number; tipo: string; total_ms: number; vueltas: number; en: number; desde_id: number | null; hasta_id: number | null }
+type Fila = { id: number; conversacion_id: number; tipo: string; total_ms: number; vueltas: number; en: number; desde_id: number | null; hasta_id: number | null; tokens: number | null; contexto: number | null }
 
 /** Los turnos de los últimos días, cada uno con lo que pasó en su ventana de tiempo. */
 export function turnos(db: Db, dias = 14, ahora = Date.now(), limite = 400) {
-  const filas = db.prepare(`SELECT id, conversacion_id, tipo, total_ms, vueltas, en, desde_id, hasta_id FROM chat_tiempos WHERE en >= ? ORDER BY en DESC, id DESC LIMIT ?`).all(ahora - dias * 86_400_000, limite) as Fila[]
+  const filas = db.prepare(`SELECT id, conversacion_id, tipo, total_ms, vueltas, en, desde_id, hasta_id, tokens, contexto FROM chat_tiempos WHERE en >= ? ORDER BY en DESC, id DESC LIMIT ?`).all(ahora - dias * 86_400_000, limite) as Fila[]
   // Por los ids que abarca el turno; los turnos viejos (sin ids), por su ventana de tiempo.
   const porIds = db.prepare(`SELECT id, rol, herramienta, texto FROM mensajes WHERE conversacion_id = ? AND id > ? AND id <= ? ORDER BY id`)
   const enVentana = db.prepare(`SELECT id, rol, herramienta, texto FROM mensajes WHERE conversacion_id = ? AND en >= ? AND en <= ? ORDER BY id`)
@@ -26,7 +26,7 @@ export function turnos(db: Db, dias = 14, ahora = Date.now(), limite = 400) {
     const v = ultima ? (fb.get(String(ultima.id)) as { valor: number; nota: string | null } | undefined) : undefined
     const resultado: Resultado = error ? 'error' : v ? (v.valor > 0 ? 'acierto' : 'desvio') : null
     return {
-      en: f.en, fecha: fechaLocal(f.en), tipo: f.tipo, ms: f.total_ms, vueltas: f.vueltas, herramientas, resultado,
+      en: f.en, fecha: fechaLocal(f.en), tipo: f.tipo, ms: f.total_ms, vueltas: f.vueltas, herramientas, resultado, tokens: f.tokens ?? null, contexto: f.contexto ?? null,
       causa: error ? (error.texto ?? '').slice(0, 200) : v?.nota ?? null, respuesta: ultima ? (ultima.texto ?? '').slice(0, 160) : null,
     }
   })
@@ -43,6 +43,8 @@ export function registroTurnos(db: Db, dias = 14, ahora = Date.now()) {
   const dia = [...porDia].sort((a, b) => a[0].localeCompare(b[0])).map(([fecha, xs]) => ({
     fecha, turnos: xs.length, aciertos: xs.filter((t) => t.resultado === 'acierto').length, desvios: xs.filter((t) => t.resultado === 'desvio').length,
     errores: xs.filter((t) => t.resultado === 'error').length, tasa: tasa(xs), msMediana: mediana(xs.map((t) => t.ms)),
+    // Fragua #339: cuántos tokens se lleva un turno, y cuánto de eso es el contexto que viaja con cada mensaje.
+    tokensMediana: mediana(xs.map((t) => t.tokens).filter((x): x is number => x != null)), contextoMediana: mediana(xs.map((t) => t.contexto).filter((x): x is number => x != null)),
   }))
   const porTipo = [...ts.reduce((m, t) => m.set(t.tipo, [...(m.get(t.tipo) ?? []), t.ms]), new Map<string, number[]>())]
     .map(([tipo, ms]) => ({ tipo, n: ms.length, msMediana: mediana(ms) })).sort((a, b) => b.n - a.n)
