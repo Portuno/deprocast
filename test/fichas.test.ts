@@ -122,3 +122,24 @@ test('Fragua #302: investigar llena lo vacío con fuente, descarta lo que no la 
   assert.equal(crit.criterios.find((c: any) => c.nombre === 'Solvencia').valor, 4, 'la solvencia del puntaje sale de las cuentas')
   assert.ok(f.piezaId, 'la ficha investigada queda en el corpus')
 })
+
+test('Fragua #335: una persona no tiene ficha, pero ver_ficha, editar_ficha e investigar_ficha contestan sin error y el corpus no se queja', async () => {
+  const db = abrir(':memory:')
+  const { HERRAMIENTAS } = await import('../src/chat/herramientas.ts')
+  const { asegurarEntidad } = await import('../src/entidades.ts')
+  const { alCorpus } = await import('../src/fichas.ts')
+  const ana = asegurarEntidad(db, { tipo: 'persona', nombre: 'Ana Pérez' })
+  const errores: unknown[] = []
+  const antes = console.error
+  console.error = (...x: unknown[]) => { errores.push(x) }
+  try {
+    for (const nombre of ['ver_ficha', 'editar_ficha', 'investigar_ficha']) {
+      const r = await HERRAMIENTAS.find((h) => h.nombre === nombre)!.ejecutar({ entidad: 'Ana Pérez', datos: { web: 'https://ejemplo.org' } }, { db } as any) as any
+      assert.equal(r.sin_ficha, true, nombre)
+      assert.equal(r.error, undefined, `${nombre}: no es un fallo`)
+      assert.match(r.aviso, /es una persona.*editar_persona/)
+    }
+    assert.equal(await alCorpus(db, ana), null)
+  } finally { console.error = antes }
+  assert.deepEqual(errores, [], 'el puente ficha → corpus no registra error')
+})

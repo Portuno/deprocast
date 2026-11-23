@@ -39,6 +39,21 @@ export type Cuentas = { ejercicio: number; ingresos: number | null; resultado: n
 export type ClienteFicha = { id: number; nombre: string; clienteId: number | null; fuente: string | null; fecha: string | null }
 export type Cambio = { campo: string; antes: string | null; despues: string | null; fuente: string | null; en: number }
 
+/**
+ * Fragua #335: si una entidad no tiene ficha (una persona, un concepto), la respuesta controlada en vez del error que
+ * hacía que la herramienta se reintentara en bucle. null si sí tiene ficha.
+ */
+export function sinFicha(db: Db, id: number): { sin_ficha: true; tipo: string; aviso: string } | null {
+  const e = leerEntidad(db, id)
+  if (!e || TIPOS_FICHA.includes(e.tipo as TipoFicha)) return null
+  return {
+    sin_ficha: true, tipo: e.tipo,
+    aviso: e.tipo === 'persona'
+      ? `«${e.nombre}» es una persona: las personas no tienen ficha de empresa, proyecto o lugar. Lo suyo (vínculo, nivel, notas, en qué proyectos está) se ve con ver_persona y se cambia con editar_persona.`
+      : `«${e.nombre}» es ${e.tipo === 'concepto' ? 'un concepto' : `de tipo «${e.tipo}»`}: no tiene ficha (solo empresas, proyectos y lugares). Mirala con ver_entidad y cambiala con editar_entidad.`,
+  }
+}
+
 const tipoDe = (t: string): TipoFicha => {
   if (!TIPOS_FICHA.includes(t as TipoFicha)) throw new Error(`Las entidades de tipo «${t}» no tienen ficha (solo empresa, proyecto y lugar)`)
   return t as TipoFicha
@@ -293,6 +308,7 @@ export function fichaComoMarkdown(f: ReturnType<typeof fichaDe>, extra: { empres
 
 /** La ficha entra (o se reescribe) en el corpus como pieza viva, solo si cambió. Devuelve el id de la pieza. */
 export async function alCorpus(db: Db, id: number, ahora = Date.now()): Promise<number | null> {
+  if (sinFicha(db, id)) return null // una persona no tiene ficha: no es un error, no hay nada que pasar al corpus
   try {
     const f = fichaDe(db, id)
     const empresa = f.entidad.tipo === 'empresa' ? ((leerEntidad(db, id)!.meta as any)?.empresa ?? null) : null

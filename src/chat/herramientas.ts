@@ -2142,6 +2142,8 @@ ${a.detalle ?? ''}`)
     ejecutar: async (a, { db }) => {
       const id = /^\d+$/.test(String(a.entidad ?? '')) ? Number(a.entidad) : (await import('../personajes.ts')).entidadPorNombre(db, String(a.entidad ?? ''))
       if (!id) return { no_encontrada: true, aviso: `No encuentro «${a.entidad}» entre tus entidades.` }
+      const sin = (await import('../fichas.ts')).sinFicha(db, id)
+      if (sin) return sin
       const f = (await import('../fichas.ts')).fichaDe(db, id)
       return { ...f, historia: f.historia.slice(0, 15), vinculos: f.vinculos.map((v) => ({ nombre: v.nombre, rol: v.rol, es_su_gente: v.suGente, ultimo_contacto: v.ultimoContacto, ultima_vez_juntos: v.ultimaPieza, piezas: v.piezas })) }
     },
@@ -2159,6 +2161,8 @@ ${a.detalle ?? ''}`)
       const id = /^\d+$/.test(String(a.entidad ?? '')) ? Number(a.entidad) : (await import('../personajes.ts')).entidadPorNombre(db, String(a.entidad ?? ''))
       if (!id) return { no_encontrada: true, aviso: `No encuentro «${a.entidad}» entre tus entidades: creala primero (ficha_empresa para una empresa).` }
       const f = await import('../fichas.ts')
+      const sin = f.sinFicha(db, id)
+      if (sin) return sin
       if (a.datos && typeof a.datos === 'object') await f.guardarDatos(db, id, a.datos, { fuente: 'chat' })
       if (a.persona?.nombre) f.anotarPersona(db, id, { nombre: a.persona.nombre, rol: a.persona.rol, vigente: a.persona.vigente !== false, fuente: 'chat' })
       if (a.cliente) f.anotarCliente(db, id, { nombre: String(a.cliente), fuente: 'chat' })
@@ -2176,6 +2180,8 @@ ${a.detalle ?? ''}`)
     ejecutar: async (a, { db }) => {
       const id = /^\d+$/.test(String(a.entidad ?? '')) ? Number(a.entidad) : (await import('../personajes.ts')).entidadPorNombre(db, String(a.entidad ?? ''))
       if (!id) return { no_encontrada: true, aviso: `No encuentro «${a.entidad}» entre tus entidades.` }
+      const sin = (await import('../fichas.ts')).sinFicha(db, id)
+      if (sin) return sin
       const { ficha, ...r } = await (await import('../fichas.ts')).investigarFicha(db, id)
       return { ...r, solvencia: ficha.solvencia, cruces: ficha.cruces }
     },
