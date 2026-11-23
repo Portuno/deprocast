@@ -86,6 +86,9 @@ export async function traerDeLaCuenta(db: Db, ahora = Date.now()): Promise<{ lis
   asegurarFuenteYoutubeMusica(db)
   let listas: any[]
   try { listas = await paginas<any>(db, `${API}/playlists?part=snippet,contentDetails&mine=true`) } catch (e) {
+    const m = e instanceof Error ? e.message : String(e)
+    // Un 403 puede ser que la API no está prendida en su proyecto de Google Cloud, no que falte el permiso.
+    if ((e as { status?: number }).status === 403 && /has not been used|is disabled|accessNotConfigured|SERVICE_DISABLED/i.test(m)) return { sin_permiso: true as const, aviso: 'Falta activar la «YouTube Data API v3» en tu proyecto de Google Cloud (el mismo del cliente de Google de Deprocast): APIs y servicios → Biblioteca → YouTube Data API v3 → Habilitar. Después probá de nuevo.' }
     if ((e as { status?: number }).status === 403) return sinPermiso
     throw e
   }

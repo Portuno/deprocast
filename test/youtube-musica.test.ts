@@ -97,4 +97,15 @@ test('Fragua #336: traer_musica_youtube trae listas y «me gusta» de la cuenta;
   assert.equal(lista.contenido, '# Para entrenar\n_1 temas._\n\n1. Nocturno — Trío Tres')
   assert.match((db.prepare(`SELECT contenido FROM corpus WHERE origen_id = 'youtube-musica:me-gusta'`).get() as any).contenido, /- Balada — Solista Dos$/)
   assert.deepEqual(await traer.ejecutar({}, { db } as any), { listas: 1, temas: 1, meGusta: 1, nuevas: 0, cambiadas: 0 }, 'traerlas de nuevo sin cambios no duplica')
+
+  // Si la API no está prendida en su proyecto de Google Cloud, lo dice (no «volvé a conectar»).
+  _probarYoutubeMusica(async () => { throw Object.assign(new Error('Google 403: YouTube Data API v3 has not been used in project 123 before or it is disabled.'), { status: 403 }) })
+  assert.match((await traer.ejecutar({}, { db } as any) as any).aviso, /activar la «YouTube Data API v3»/)
+})
+
+test('Fragua #336: un Takeout con el historial en HTML (lo que viene si no se elige JSON) dice cómo pedirlo bien', () => {
+  const db = abrir(':memory:')
+  const c = subir(db, 'takeout-html.zip', zip({ 'Takeout/YouTube y YouTube Music/historial/historial-de-reproducciones.html': '<html><body>Has visto…</body></html>' }))
+  assert.equal(c.importador, 'youtube-musica')
+  assert.ok(c.analisis!.avisos.some((a) => /vino en HTML.*JSON/.test(a)))
 })

@@ -12,9 +12,11 @@ import { parsearCsv } from './csv.ts'
 import type { Contexto, Datos, Importador, Segmento } from './tipos.ts'
 
 type Lista = { nombre: string; temas: string[]; sinNombre: number }
-type Export = { escuchas: Escucha[]; listas: Lista[]; biblioteca: string[]; archivos: string[] }
+type Export = { escuchas: Escucha[]; listas: Lista[]; biblioteca: string[]; archivos: string[]; historialHtml: boolean }
 
 const HISTORIAL = /(watch-history|historial[-_ ]de[-_ ]reproducciones)\.json$/i
+/** Takeout trae el historial en HTML si no se elige JSON: no se puede leer bien, hay que pedirlo de nuevo. */
+const HISTORIAL_HTML = /(watch-history|historial[-_ ]de[-_ ]reproducciones)\.html$/i
 const BIBLIOTECA = /(music library songs|canciones de la biblioteca[^/]*)\.csv$/i
 const LISTA = /(playlists|listas de reproducci[oó]n)\/[^/]+\.csv$/i
 
@@ -42,7 +44,7 @@ function listaDe(nombre: string, texto: string, titulos: Map<string, string>): L
 }
 
 function leerExport(d: Datos): Export {
-  const out: Export = { escuchas: [], listas: [], biblioteca: [], archivos: [] }
+  const out: Export = { escuchas: [], listas: [], biblioteca: [], archivos: [], historialHtml: false }
   const titulos = new Map<string, string>() // id de video → «tema — artista», para nombrar lo de las listas
   const historial = (nombre: string, j: unknown[]) => {
     for (const x of j) {
@@ -57,6 +59,7 @@ function leerExport(d: Datos): Export {
   if (esZip(d)) {
     const z = zipDeBuffer(d.bin!)
     const leer = (e: (typeof z.entradas)[number]) => z.leer(e).toString('utf8').replace(/^﻿/, '')
+    out.historialHtml = z.entradas.some((x) => HISTORIAL_HTML.test(x.nombre)) && !z.entradas.some((x) => HISTORIAL.test(x.nombre))
     for (const e of z.entradas.filter((x) => !x.dir && HISTORIAL.test(x.nombre))) {
       try { historial(e.nombre.split('/').pop()!, JSON.parse(leer(e))) } catch { /* un archivo roto no frena el resto */ }
     }
@@ -71,7 +74,7 @@ function leerExport(d: Datos): Export {
 }
 
 function zipDeYoutube(d: Datos): boolean {
-  try { return zipDeBuffer(d.bin!).entradas.some((e) => HISTORIAL.test(e.nombre) || BIBLIOTECA.test(e.nombre) || (LISTA.test(e.nombre) && /youtube/i.test(e.nombre))) } catch { return false }
+  try { return zipDeBuffer(d.bin!).entradas.some((e) => HISTORIAL.test(e.nombre) || HISTORIAL_HTML.test(e.nombre) || BIBLIOTECA.test(e.nombre) || (LISTA.test(e.nombre) && /youtube/i.test(e.nombre))) } catch { return false }
 }
 
 function ponerPieza(ctx: Contexto, seg: string, p: Omit<NuevaPieza, 'fuente' | 'cargaId'> & { origenId: string }): void {
@@ -88,7 +91,8 @@ export const youtubeMusica: Importador = {
     const x = leerExport(d)
     const meses = new Set(x.escuchas.map((e) => e.en.slice(0, 7)))
     const avisos = ['YouTube no dice cuánto sonó cada tema: las horas son estimadas (3,5 min por reproducción); el orden por veces es exacto.']
-    if (!x.escuchas.length) avisos.push('No trae historial de reproducciones con música: en Takeout marcá «YouTube y YouTube Music» → historial.')
+    if (x.historialHtml) avisos.push('El historial vino en HTML (es lo que Takeout manda si no se cambia): volvé a pedirlo eligiendo JSON. En takeout.google.com → «YouTube y YouTube Music» → «Varios formatos» → historial → JSON.')
+    else if (!x.escuchas.length) avisos.push('No trae historial de reproducciones con música: en Takeout marcá «YouTube y YouTube Music» → historial (en JSON).')
     const sinNombre = x.listas.reduce((s, l) => s + l.sinNombre, 0)
     if (sinNombre) avisos.push(`${sinNombre} temas de las listas no aparecen en el historial: van sin nombre (Takeout solo da el id). Traé las listas desde la cuenta con traer_musica_youtube.`)
     return {
