@@ -1061,6 +1061,15 @@ export const HERRAMIENTAS: Herramienta[] = [
     ejecutar: (a, { db }) => cronica(db, Math.min(a.limite ?? 30, 80)),
   },
   {
+    nombre: 'gusto_musical', familia: 'lectura',
+    descripcion: 'La música que lo acompaña, declarada por uso (Fragua #325): de sus escuchas de Spotify, los artistas y temas que más escucha, los últimos 90 días del historial, lo que sube, qué suena según la hora y las horas por mes. Con artista: cuánto lo escucha y sus temas. Usalo para recomendar o armar algo con su criterio y no con el promedio de nadie.',
+    parametros: S({ artista: str('Un artista puntual (opcional)') }),
+    ejecutar: async (a, { db }) => {
+      const { gustoMusical } = await import('../musica.ts')
+      return gustoMusical(db, { artista: a.artista ? String(a.artista) : undefined }) ?? { sin_datos: true, como: 'Todavía no hay escuchas. Que pida sus datos en spotify.com/account/privacy («Historial extendido de reproducción» o los datos de la cuenta) y suba el .zip en Cargas; conviene repetirlo cada tanto.' }
+    },
+  },
+  {
     nombre: 'ver_taxonomia', familia: 'lectura',
     descripcion: 'El catálogo canónico de tipos de clasificación (Fragua #321): por familia (archivo, mundo, actores, trabajo, vida, salidas, criterios), cada tipo con sus valores, dónde vive, qué herramientas lo leen y lo escriben y su estado. Con auditar: true revisa además la base (valores usados que no están declarados, números fuera de rango) y dice qué no cierra. Usalo antes de afirmar qué valores admite algo.',
     parametros: S({ q: str('Filtra por nombre, id o valor (opcional)'), auditar: { type: 'boolean', description: 'Revisar también la base' } }),
@@ -3086,6 +3095,7 @@ export const GRUPOS: Record<string, string[]> = {
   web: ['ver_ranking_feed', 'ver_censo_canal', 'aprobar_censo_canal', 'seguir_en_feed', 'ver_feed', 'buscar_web', 'buscar_en', 'explorar', 'usar_alexandria', 'leer_pagina', 'guardar_link', 'importar_youtube', 'ver_youtube', 'buscar_oportunidades', 'ver_oportunidades', 'triar_oportunidades', 'redactar_oportunidad'],
   grafo: ['ver_grafo', 'conectar_conceptos', 'preguntar_al_corpus', 'ver_suenos_noche'],
   mapamundi: ['ver_mapamundi', 'disputar'],
+  musica: ['gusto_musical'],
   observatorio: ['seguir_tema', 'ver_observatorio', 'crear_campana', 'armar_campana', 'ver_posicion_ias', 'pregunta_posicion_ias', 'medir_posicion_ias'],
   crear: ['armar_pdf', 'armar_presentacion', 'buscar_generados', 'reenviar_generado', 'difundir_idea', 'ver_cuadernos', 'crear_cuaderno', 'preguntar_cuaderno', 'ver_libreria', 'agregar_obra', 'recomendar_lectura', 'proponer_puentes', 'crear_en_taller', 'iterar_en_taller', 'editar_en_estudio', 'ver_taller', 'ver_cuentas', 'cuenta_de_agente', 'registro_de_publicaciones', 'verificar_cuentas', 'redactar_publicaciones', 'ver_directo'],
 }
@@ -3113,6 +3123,7 @@ export function gruposDelMensaje(mensaje: string): string[] {
   if (/https?:\/\/|internet|busc[aá] en la web|oportunidad|radar|link|youtube|canal|reddit|subreddit|github|repo\b|twitter|tweet|tuit|linkedin|instagram|facebook/.test(t)) g.push('web')
   if (/cuaderno|librer|libro|taller|video|juego|publicaci|post|cuenta|directo|mis redes|difund|\bpdf\b|informe|documento/.test(t)) g.push('crear')
   if (/mapamundi|hex[aá]gono|disputa|grande de la historia|\bzama\b|sagunto/.test(t)) g.push('mapamundi')
+  if (/m[uú]sica|spotify|escuch[eéoa] |canci[oó]n|artista|playlist|lista de reproducci|banda sonora|\bdisco\b|[aá]lbum/.test(t)) g.push('musica')
   if (/grafo|mis temas|de qu[eé] hablo|qu[eé] conecta|me repito|mis zonas|zonas de mi|bisagra|hueco/.test(t)) g.push('grafo')
   if (/observatorio|qu[eé] se dice|narrativa|hashtag|tendencia|segu[ií] (el|al|a la) tema|segu[ií]me|campa[ñn]a/.test(t)) g.push('observatorio')
   return g
@@ -3125,7 +3136,7 @@ export function activas(hs: Herramienta[], grupos: Set<string>): Herramienta[] {
 }
 
 /** Lo que puede usar un agente de la liga cuando conversa: leer, nunca actuar. */
-export const PARA_AGENTES = ['buscar_corpus', 'leer_pieza', 'listar_quantomos', 'listar_entidades', 'ver_entidad']
+export const PARA_AGENTES = ['buscar_corpus', 'leer_pieza', 'listar_quantomos', 'listar_entidades', 'ver_entidad', 'gusto_musical']
 
 /**
  * Las mismas que activas(), pero en el orden en que llegaron los grupos (el núcleo primero): si un grupo se suma, sus

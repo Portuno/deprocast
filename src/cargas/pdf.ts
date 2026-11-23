@@ -55,7 +55,7 @@ const titulo = (nombre: string) => nombre.replace(/\.pdf$/i, '')
 export const pdf: Importador = {
   id: 'pdf',
   nombre: 'PDF',
-  detectar: (d) => !!d.bin || /\.pdf$/i.test(d.nombre),
+  detectar: (d) => (!!d.bin && d.bin.subarray(0, 5).toString('latin1') === '%PDF-') || /\.pdf$/i.test(d.nombre),
   analizar(d: Datos): Analisis {
     const texto = d.bin ? textoDePdf(d.bin) : ''
     const paginas = d.bin ? paginasDePdf(d.bin) : 1
