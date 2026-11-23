@@ -195,6 +195,7 @@ function pintarIndicadorDirecto() {
 
 const ICONO_MOMENTO = { pantalla: '▣', voz: '🗣', medio: '♪' }
 const GRUPOS_DIRECTO = [
+  ['hecha', 'Ya hechas (lo hiciste en el acto)', 'Hecha'],
   ['cumplida', 'Parecen hechas', 'Hecha'],
   ['banda', 'Bandas', 'Hecha'],
   ['tarea', 'Tareas nuevas', 'Side quest'],
@@ -215,6 +216,7 @@ function subtituloProp(p) {
   }
   if (p.tipo === 'conexion') return p.detalle || ''
   if (p.tipo === 'medio') return [p.tipoEntidad, p.detalle].filter(Boolean).join(' · ')
+  if (p.tipo === 'hecha') return [p.detalle, p.sigue ? `sigue: ${p.sigue}` : ''].filter(Boolean).join(' · ')
   return p.detalle || ''
 }
 
@@ -246,7 +248,9 @@ function tableroDirecto(s) {
       ${xs.map((p) => p.tipo === 'entidad' && p.estado === 'pendiente' ? filaEntidad(p) : `<div class="sq ${p.estado}" data-prop="${esc(p.id)}"><span><b>${esc(p.titulo)}</b>${subtituloProp(p) ? `<small>${esc(subtituloProp(p))}</small>` : ''}</span>
         ${p.estado === 'pendiente'
           ? `<span class="fila"><button class="btn btn-chico btn-primario" data-acc="aceptar">${verbo}</button><button class="btn btn-chico" data-acc="rechazar" title="Descartar">✕</button></span>`
-          : `<em class="dir-ok"${p.sola ? ' title="Entró sola: las ideas y lo que miraste no esperan tu ok"' : ''}>✓${p.sola ? ' <small>sola</small>' : ''}</em>`}</div>`).join('')}
+          : p.tipo === 'hecha'
+            ? '<em class="dir-ok" title="Lo hiciste en el acto: nace hecha, no espera tu ok">✓ <small>hecho</small></em>'
+            : `<em class="dir-ok"${p.sola ? ' title="Entró sola: las ideas y lo que miraste no esperan tu ok"' : ''}>✓${p.sola ? ' <small>sola</small>' : ''}</em>`}</div>`).join('')}
     </section>`
   }).join('')
   const quedan = pendDirecto(s).length
@@ -309,7 +313,7 @@ function engancharTablero(raiz) {
       try {
         const r = await api(`/directo/${sesion}/propuesta`, { ids, accion: btn.dataset.acc, cambios })
         aplicarEnPantalla(sesion, r.propuestas)
-        const verbos = { tarea: 'Side quest anotada', cumplida: 'Marcada hecha', banda: 'Banda hecha', entidad: 'Entidad anotada', conexion: 'Conexión anotada', idea: 'Quedó en la memoria', medio: 'Entró al corpus' }
+        const verbos = { tarea: 'Side quest anotada', hecha: 'Anotada como hecha', cumplida: 'Marcada hecha', banda: 'Banda hecha', entidad: 'Entidad anotada', conexion: 'Conexión anotada', idea: 'Quedó en la memoria', medio: 'Entró al corpus' }
         const uno = r.propuestas.length === 1 ? r.propuestas[0] : null
         toast(btn.dataset.acc === 'rechazar' ? (r.propuestas.length > 1 ? 'Descartadas' : 'Descartada') : (uno ? verbos[uno.tipo] ?? 'Anotado' : `${r.propuestas.length} anotadas`), 'suave')
         refrescar()

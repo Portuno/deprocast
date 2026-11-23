@@ -189,3 +189,33 @@ test('entidades que ya existen: mal escritas, con apodo o incompletas se reconoc
   assert.ok(listarEntidades(db, { q: 'Calle Cuba 24' }).some((e) => e.nombre === 'Calle Cuba 24'), 'se anota con el nombre corregido')
   assert.ok(!listarEntidades(db, { q: 'Cuva' }).length)
 })
+
+test('Fragua #331: lo que hizo en el acto nace hecho (con su proyecto y a la vista), no como pendiente; lo que desbloquea queda como lo que sigue', async () => {
+  const db = abrir(':memory:')
+  db.prepare(`UPDATE ajustes SET valor = '0' WHERE clave = 'directo_auto'`).run() // aun sin nada automático
+  const { asegurarEntidad } = await import('../src/entidades.ts')
+  const ymant = asegurarEntidad(db, { tipo: 'empresa', nombre: 'YMANT' })
+  _probarDirecto({ vision: async () => ({ app: 'Outlook', actividad: 'mandando un mail', tema: 'Kleos', detalle: 'a Incidencias de YMANT', nota: 'pide la app de Kleos' }), transcribir: async () => '' })
+  const s = iniciarDirecto(db, ['pantalla'], T)
+  await registrarCuadro(db, s.id, img, 'image/jpeg', min(0))
+  _probarModelo(async () => ({
+    texto: JSON.stringify({
+      texto: 'Mandaste el pedido de Kleos.', ideas: [], cumplidas: [], bandas: [], entidades: [], conexiones: [], consumido: [],
+      // El modelo la pone en los dos lados: igual no entra como pendiente.
+      tareas: ['Pedir a Incidencias de YMANT la app de Kleos en este ordenador'],
+      hechas: [{ hecho: 'Pedir a Incidencias de YMANT la app de Kleos en este ordenador', evidencia: 'el mail salió desde Outlook', proyecto: 'YMANT', sigue: 'Usar Kleos en este ordenador' }],
+    }), llamadas: [], razonamiento: null, modelo: 'falso', tokens: 1,
+  }))
+  const c = await cerrarDirecto(db, s.id, { ahora: min(10), escriba: false })
+  const props = (c.resumen as { propuestas: { tipo: string; titulo: string; estado: string; detalle: string | null }[] }).propuestas
+  const pendientes = props.filter((p) => p.estado === 'pendiente')
+  assert.deepEqual(pendientes.map((p) => [p.tipo, p.titulo]), [['tarea', 'Usar Kleos en este ordenador']], 'solo queda lo que sigue')
+  assert.match(pendientes[0].detalle!, /Sigue de lo que ya hiciste: Pedir a Incidencias/)
+  assert.equal(props.find((p) => p.tipo === 'hecha')?.estado, 'aceptada')
+  const m = listarMisiones(db, { nivel: 'terciaria' }).find((x) => /Kleos en este ordenador/.test(x.titulo) && /^Pedir/.test(x.titulo))!
+  assert.equal(m.estado, 'hecha')
+  assert.equal((db.prepare('SELECT entidad_id FROM misiones WHERE id = ?').get(m.id) as any).entidad_id, ymant, 'colgada de su proyecto')
+  assert.match(m.detalle ?? '', /el mail salió/)
+  assert.match(avisoDeCierre(c), /Ya hecho: pedir a Incidencias de YMANT la app de Kleos/)
+  assert.equal(propuestasPendientes(db), 1)
+})

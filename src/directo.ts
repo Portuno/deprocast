@@ -178,7 +178,8 @@ export function metricas(ms: Momento[]) {
 const SISTEMA_INFORME = `Sos Mastropiero y cerrás un Directo: lo que viste y escuchaste mientras el jugador trabajaba.
 - «texto»: dos o tres párrafos cortos, separados por una línea en blanco. Castellano rioplatense, con ritmo de charla: qué hizo, adónde se le fue el foco, y si eso empujó sus misiones o fue paseo. Sin listas y sin repetir tareas, nombres ni títulos: eso va en los otros campos.
 - «ideas»: frases suyas que valen recordar, cortas, con sus palabras.
-- «tareas»: encargos nuevos que dijo («tengo que…», «después llamo a…»), cortos y en infinitivo. No repitas side quests que ya tiene abiertas.
+- «tareas»: encargos nuevos que dijo y que quedan PENDIENTES («tengo que…», «después llamo a…»), cortos y en infinitivo. No repitas side quests que ya tiene abiertas. Si en el mismo acto lo hizo, no es tarea: va en «hechas».
+- «hechas»: lo que ejecutó en este Directo, donde la acción que viste ES el verbo de la tarea (mandó el mail a X pidiendo Y, creó el evento, hizo o pidió la reserva, mandó el presupuesto, pagó, subió el archivo). Cada una: {hecho: en infinitivo («Pedir a Incidencias la app de Kleos»), evidencia: qué se vio que lo prueba (el mail salió, el evento quedó en el calendario), proyecto: el proyecto o entidad de la que es (o null), sigue: lo que ese acto desbloquea y queda por hacer («Usar Kleos en este ordenador»), o null}. Solo con evidencia del acto; la intención sin acto es tarea.
 - «cumplidas»: ids (números de la lista) de side quests que en este Directo quedaron hechas. Solo con evidencia. Si no, [].
 - «bandas»: ids de bandas de la run que parecen hechas. Solo con evidencia. Si no, [].
 - «entidades»: personas, proyectos, lugares o conceptos suyos que aparecieron y NO están en la lista de conocidas. No anotes apps ni sitios genéricos (Chrome, Instagram, Gmail, YouTube, X, VS Code). tipo: persona | proyecto | agrupacion | dominio | lugar | concepto. alias solo si dijo que son el mismo.
@@ -186,14 +187,14 @@ const SISTEMA_INFORME = `Sos Mastropiero y cerrás un Directo: lo que viste y es
 - «consumido»: cada video, canción o lectura identificable: {titulo, tipo, resumen, relacion (con qué proyecto o meta conecta, o null)}.
 - Si te paso lo anotado en tramos anteriores o lo que ya propusiste, no lo repitas en los otros campos.
 - No inventes: solo lo que está en los momentos.
-Forma: {"texto": string, "ideas": [string], "tareas": [string], "cumplidas": [number], "bandas": [number], "entidades": [{"nombre": string, "tipo": string, "nota": string, "alias": [string]}], "conexiones": [{"de": string, "con": string, "relacion": string, "tipoDe": string, "tipoCon": string}], "consumido": [{"titulo": string, "tipo": string, "resumen": string, "relacion": string | null}]}`
+Forma: {"texto": string, "ideas": [string], "tareas": [string], "hechas": [{"hecho": string, "evidencia": string, "proyecto": string | null, "sigue": string | null}], "cumplidas": [number], "bandas": [number], "entidades": [{"nombre": string, "tipo": string, "nota": string, "alias": [string]}], "conexiones": [{"de": string, "con": string, "relacion": string, "tipoDe": string, "tipoCon": string}], "consumido": [{"titulo": string, "tipo": string, "resumen": string, "relacion": string | null}]}`
 
 /** El mismo informe, para una hora de un Directo que sigue prendido. */
 const SISTEMA_TRAMO = SISTEMA_INFORME
   .replace(/^Sos Mastropiero y cerrás un Directo: [^\n]*/, 'Sos Mastropiero y vas anotando un Directo que sigue prendido: te paso un tramo (la última hora, más o menos) de lo que viste y escuchaste mientras el jugador trabajaba.')
   .replace('- «texto»: dos o tres párrafos cortos', '- «texto»: uno o dos párrafos cortos sobre este tramo')
 
-export type TipoPropuesta = 'tarea' | 'cumplida' | 'banda' | 'entidad' | 'conexion' | 'idea' | 'medio'
+export type TipoPropuesta = 'tarea' | 'hecha' | 'cumplida' | 'banda' | 'entidad' | 'conexion' | 'idea' | 'medio'
 export type Propuesta = {
   id: string
   tipo: TipoPropuesta
@@ -213,9 +214,12 @@ export type Propuesta = {
   parecida?: { id: number; nombre: string; tipo: string } | null
   /** Al aceptar: la entidad que ya existe a la que se suma como alias (null = es una nueva). */
   vincular?: number | null
+  /** Una «hecha» (Fragua #331): el proyecto o entidad de la que cuelga, y la tarea que dejó desbloqueada. */
+  entidadId?: number | null
+  sigue?: string | null
 }
 
-const TIPOS_PROP = new Set<TipoPropuesta>(['tarea', 'cumplida', 'banda', 'entidad', 'conexion', 'idea', 'medio'])
+const TIPOS_PROP = new Set<TipoPropuesta>(['tarea', 'hecha', 'cumplida', 'banda', 'entidad', 'conexion', 'idea', 'medio'])
 
 export function propuestasDe(s: { resumen: Record<string, unknown> | null }): Propuesta[] {
   const xs = s.resumen?.propuestas
@@ -236,7 +240,11 @@ export function avisoDeCierre(s: Sesion): string {
   const desde = new Date(s.inicio).toTimeString().slice(0, 5)
   const hasta = s.fin ? new Date(s.fin).toTimeString().slice(0, 5) : ''
   const cuando = hasta ? `${desde}–${hasta}` : desde
-  const entraron = solas ? ` ${solas === 1 ? 'Una idea o algo que miraste entró solo' : `${solas} ideas y cosas que miraste entraron solas`} (lo podés revisar en Memoria y el corpus).` : ''
+  // Lo que hizo en el acto se dice, para que se vea que el sistema lo reconoció (Fragua #331).
+  const hechas = propuestasDe(s).filter((p) => p.tipo === 'hecha' && p.estado === 'aceptada')
+  const solasSinHechas = propuestasDe(s).filter((p) => p.sola && p.tipo !== 'hecha').length
+  const entraron = (solasSinHechas ? ` ${solasSinHechas === 1 ? 'Una idea o algo que miraste entró solo' : `${solasSinHechas} ideas y cosas que miraste entraron solas`} (lo podés revisar en Memoria y el corpus).` : '')
+    + (hechas.length ? ` Ya hecho: ${hechas.map((p) => `${p.titulo.charAt(0).toLowerCase()}${p.titulo.slice(1)}`).join('; ')}.` : '')
   return n
     ? `Cerré el Directo (${cuando}). Hay ${n} ${n === 1 ? 'cosa' : 'cosas'} para aceptar o descartar en Directo: tareas, personas y conexiones esperan tu ok.${entraron}`
     : `Cerré el Directo (${cuando}).${entraron || ' No quedó nada nuevo para anotar.'}`
@@ -247,7 +255,8 @@ const SOLAS = new Set<TipoPropuesta>(['idea', 'medio', 'tarea', 'cumplida', 'ban
 function aceptarSolas(db: Db, sesionId: number, ahora: number) {
   // Las que van solas: las de siempre (ideas y medios, salvo directo_auto = 0) y los tipos que él pasó a «auto» porque aciertan.
   const s = leerSesion(db, sesionId)
-  const ids = s ? propuestasDe(s).filter((p) => p.estado === 'pendiente' && SOLAS.has(p.tipo) && haceSolo(db, `directo:${p.tipo}`)).map((p) => p.id) : []
+  // Lo que ya hizo nace hecho (Fragua #331): no espera su ok ni pasa por Para validar, sea cual sea el ajuste.
+  const ids = s ? propuestasDe(s).filter((p) => p.estado === 'pendiente' && (p.tipo === 'hecha' || (SOLAS.has(p.tipo) && haceSolo(db, `directo:${p.tipo}`)))).map((p) => p.id) : []
   if (ids.length) resolverPropuestas(db, sesionId, ids, 'aceptar', ahora, { sola: true })
 }
 
@@ -279,6 +288,15 @@ const pareceIgual = (a: string, b: string) => {
 }
 const GENERICO = new Set(['instagram', 'chrome', 'gmail', 'youtube', 'google', 'twitter', 'vs code', 'vscode', 'cursor', 'vivaldi', 'firefox', 'whatsapp', 'spotify', 'telegram'])
 
+/** Una entidad por nombre o alias exacto, sin tildes ni mayúsculas. */
+function entidadExacta(db: Db, nombre: string): number | null {
+  const n = norm(nombre)
+  for (const r of db.prepare('SELECT id, nombre, alias FROM entidades').all() as { id: number; nombre: string; alias: string | null }[]) {
+    if (norm(r.nombre) === n || json<string[]>(r.alias, []).some((a) => norm(a) === n)) return r.id
+  }
+  return null
+}
+
 function armarPropuestas(db: Db, informe: Record<string, unknown>, met: ReturnType<typeof metricas>, abiertas: Map<number, string>, bandas: Map<number, string>): Propuesta[] {
   const buscador = buscadorDeEntidades(db)
   const conocidas = new Set<string>()
@@ -304,9 +322,34 @@ function armarPropuestas(db: Db, informe: Record<string, unknown>, met: ReturnTy
     p.misionId = mid
     alta(p)
   }
+  // Lo ejecutado en el acto nace hecho; lo que desbloquea queda como la tarea que sigue (Fragua #331).
+  const hechos: string[] = []
+  const siguen: { titulo: string; de: string }[] = []
+  for (const h of (Array.isArray(informe.hechas) ? informe.hechas : []).slice(0, 8)) {
+    if (!h || typeof h !== 'object') continue
+    const hecho = String((h as any).hecho ?? '').trim().slice(0, 160)
+    if (hecho.length < 4) continue
+    const p = base('hecha', hecho)
+    p.detalle = String((h as any).evidencia ?? '').trim().slice(0, 240) || null
+    const proyecto = String((h as any).proyecto ?? '').trim()
+    p.entidadId = proyecto ? (buscador.parecida(proyecto, [])?.id ?? entidadExacta(db, proyecto)) : null
+    const sigue = String((h as any).sigue ?? '').trim().slice(0, 160)
+    p.sigue = sigue.length >= 4 ? sigue : null
+    hechos.push(hecho)
+    if (p.sigue) siguen.push({ titulo: p.sigue, de: hecho })
+    alta(p)
+  }
   for (const t of frases(informe.tareas)) {
     if (titulosAbiertos.some((a) => pareceIgual(a, t))) continue
+    if (hechos.some((h) => pareceIgual(h, t))) continue // la misma, ya hecha: no entra como pendiente
+    if (siguen.some((x) => pareceIgual(x.titulo, t))) continue
     alta(base('tarea', t))
+  }
+  for (const x of siguen) {
+    if (titulosAbiertos.some((a) => pareceIgual(a, x.titulo))) continue
+    const p = base('tarea', x.titulo)
+    p.detalle = `Sigue de lo que ya hiciste: ${x.de}.`
+    alta(p)
   }
   for (const e of (Array.isArray(informe.entidades) ? informe.entidades : []).slice(0, 8)) {
     if (!e || typeof e !== 'object') continue
@@ -362,7 +405,14 @@ function armarPropuestas(db: Db, informe: Record<string, unknown>, met: ReturnTy
 function aplicarPropuesta(db: Db, p: Propuesta, s: Sesion, ahora: number, sola = false): Record<string, unknown> | null {
   const fecha = fechaLocal(s.inicio)
   if (p.tipo === 'tarea') {
-    const m = anotarSideQuest(db, { titulo: p.titulo, detalle: `Lo dijiste en el Directo del ${fecha}.`, creadaPor: 'directo' }, ahora)
+    const m = anotarSideQuest(db, { titulo: p.titulo, detalle: p.detalle ?? `Lo dijiste en el Directo del ${fecha}.`, creadaPor: 'directo' }, ahora)
+    return { que: 'mision', id: m.id, estado: 'descartada' }
+  }
+  if (p.tipo === 'hecha') {
+    // Nace hecha, con su evidencia y colgada de su proyecto: queda el registro de que el sistema lo reconoció.
+    const m = anotarSideQuest(db, { titulo: p.titulo, detalle: `Hecho en el Directo del ${fecha}${p.detalle ? `: ${p.detalle}` : ''}.`, creadaPor: 'directo' }, ahora)
+    if (p.entidadId) db.prepare('UPDATE misiones SET entidad_id = ? WHERE id = ? AND entidad_id IS NULL').run(p.entidadId, m.id)
+    if (m.estado !== 'hecha') actualizarMision(db, m.id, { estado: 'hecha' }, { por: 'directo', ahora })
     return { que: 'mision', id: m.id, estado: 'descartada' }
   }
   if (p.tipo === 'cumplida' || p.tipo === 'banda') {
