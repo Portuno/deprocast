@@ -107,11 +107,29 @@ export function tomarOrdenes(db: Db, id: number): string[] {
 
 // ─── transcribir por tramos ────────────────────────────────────────────────
 
+/** Por debajo de esto un audio no llega a diez minutos ni en opus de WhatsApp (unos 16 kbps): no hace falta medirlo. */
+const TAMANO_PARA_MEDIR = 1_000_000
+
+/** La duración en segundos de lo que dice ffmpeg; null si no está o no la pudo leer. */
+export function duracionDeAudio(datos: Buffer, nombre: string): number | null {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mastro-dur-'))
+  try {
+    const entrada = path.join(dir, `a${path.extname(nombre) || '.ogg'}`)
+    fs.writeFileSync(entrada, datos)
+    const r = spawnSync('ffmpeg', ['-hide_banner', '-i', entrada], { encoding: 'utf8', timeout: 30_000 })
+    const d = /Duration: (\d+):(\d+):([\d.]+)/.exec(r.stderr ?? '')
+    return d ? +d[1] * 3600 + +d[2] * 60 + +d[3] : null
+  } catch { return null } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+}
+
 /**
  * Lo de más de diez minutos se parte en tramos de diez (ffmpeg, sin recodificar) y se transcribe por partes: un corte
  * no tira los dieciocho minutos enteros. Sin ffmpeg, o si partir falla, va entero.
  */
 export async function transcribirPorTramos(datos: Buffer, nombre: string, duracion: number | null, transcribir: (d: Buffer, n: string) => Promise<string>): Promise<string> {
+  // WhatsApp no manda la duración (Fragua #333): si el archivo da para más de diez minutos, se mide antes de mandarlo
+  // entero, que en un audio largo es donde la transcripción salía cortada.
+  if (!duracion && datos.length > TAMANO_PARA_MEDIR) duracion = duracionDeAudio(datos, nombre)
   if (!duracion || duracion <= 600) return transcribir(datos, nombre)
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mastro-audio-'))
   try {

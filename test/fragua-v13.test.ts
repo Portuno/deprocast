@@ -109,6 +109,36 @@ test('Telegram: un 502 o un timeout al mandar se reintenta (un 400 no), y una no
   assert.ok(tg.guardarNotaDeVoz(db, `${texto} Y algo nuevo que agrego al final, bastante distinto de lo anterior y largo de verdad para cambiar todo.`.repeat(2), 200, 'f3').pieza, 'una nota distinta sí entra')
 })
 
+test('Fragua #333: una nota de voz larga se guarda entera; si había quedado cortada y llega completa, se completa la misma pieza', async () => {
+  const tg = await import('../src/telegram.ts')
+  const db = abrir(':memory:')
+  const frase = 'Estuve ordenando los papeles del taller y algunas cosas están escritas a mano y a la máquina, otras en la tableta. '
+  const larga = frase.repeat(220).trim() // unos 25.000 caracteres: más que cualquier tope de vista
+  const a = tg.guardarNotaDeVoz(db, larga, 1500, 'larga')
+  assert.equal((db.prepare('SELECT contenido FROM corpus WHERE id = ?').get(a.pieza) as any).contenido, larga, 'se persiste completa, sin recorte')
+
+  const entera = `${frase.repeat(3)}Y al final decidí pasar todo a limpio el domingo.`
+  const cortada = entera.slice(0, entera.indexOf('a la máquina', frase.length * 2) + 'a la má'.length) // «…a mano y a la má»
+  const c = tg.guardarNotaDeVoz(db, cortada, null, 'w1')
+  assert.ok(c.pieza)
+  const d = tg.guardarNotaDeVoz(db, entera, null, 'w2')
+  assert.equal(d.pieza, null, 'no crea otra pieza')
+  assert.equal(d.completada?.id, c.pieza)
+  const p = db.prepare('SELECT contenido, meta FROM corpus WHERE id = ?').get(c.pieza) as any
+  assert.equal(p.contenido, entera)
+  assert.match(p.meta, /había quedado cortada/)
+  assert.equal(tg.guardarNotaDeVoz(db, entera, null, 'w3').repetida?.id, c.pieza, 'mandarla otra vez ya es repetida')
+})
+
+test('Fragua #333: un audio sin duración (WhatsApp) que pesa como para más de diez minutos se mide antes de transcribirlo', async () => {
+  const A = await import('../src/audios-entrantes.ts')
+  const vistos: number[] = []
+  const chico = await A.transcribirPorTramos(Buffer.alloc(1000), 'a.ogg', null, async (d) => { vistos.push(d.length); return 'hola' })
+  assert.equal(chico, 'hola')
+  assert.deepEqual(vistos, [1000], 'lo chico va entero, sin medir')
+  assert.equal(A.duracionDeAudio(Buffer.from('no es audio'), 'x.ogg'), null, 'si no se puede medir, null (y va entero)')
+})
+
 test('chat: lo ya leído en vueltas anteriores viaja recortado; sin tope de vueltas, pero la misma llamada repetida cierra el turno (Fragua #190)', async () => {
   const C = await import('../src/chat/index.ts')
   const largo = 'x'.repeat(5000)

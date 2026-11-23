@@ -10,7 +10,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import crypto from 'node:crypto'
 import { anotarUso } from './uso.ts'
-import { asegurarFuente, insertar } from './corpus.ts'
+import { asegurarFuente, corregirPieza, insertar } from './corpus.ts'
 import { escribaDeMemoria } from './memoria.ts'
 import fs from 'node:fs'
 import { ajuste, fechaLocal, fijarAjuste, type Db } from './db.ts'
@@ -529,13 +529,41 @@ function notaQueYaEstaba(db: Db, normal: string, huella: string): { id: number; 
 }
 
 /**
- * Una nota de voz larga queda como pieza suya (con fecha) y el escriba saca recuerdos y side quests de ella. Si es una
- * que ya estaba (la reenvió), no entra de nuevo: se cuenta el reenvío en la original.
+ * Una nota guardada cortada que esta nueva completa (Fragua #333): empieza igual, es más corta, y todo lo suyo (menos
+ * la última palabra, que pudo quedar a la mitad: «a la má») está al comienzo de la nueva. Mira las del último año.
  */
-export function guardarNotaDeVoz(db: Db, texto: string, segundos: number | null, id: string | null, paraEscriba?: string): { pieza: number | null; repetida: { id: number; fecha: string | null } | null } {
+function notaCortadaQueCompleta(db: Db, normal: string, ahora = Date.now()): { id: number; fecha: string | null } | null {
+  if (normal.length < 200) return null
+  const viejas = db.prepare(`SELECT id, fecha, contenido FROM corpus WHERE fuente = 'voz' AND creado_en >= ? AND length(contenido) < ? AND estado != 'retirada' ORDER BY id DESC LIMIT 300`)
+    .all(ahora - 365 * 86_400_000, Math.ceil(normal.length * 1.2)) as { id: number; fecha: string | null; contenido: string }[]
+  for (const v of viejas) {
+    // Una que termina con su punto está entera: la nueva que la repite y sigue es otra nota, no la misma completa.
+    if (/[.!?…»")\]]\s*$/.test(v.contenido)) continue
+    const n = textoDeVozNormal(v.contenido.replace(/^\[[^\]]+\]\s*/gm, ''))
+    const sinUltima = n.replace(/\s*\S+$/, '')
+    if (sinUltima.length >= 150 && n.length < normal.length * 0.97 && normal.startsWith(sinUltima)) return { id: v.id, fecha: v.fecha }
+  }
+  return null
+}
+
+/**
+ * Una nota de voz larga queda como pieza suya (con fecha) y el escriba saca recuerdos y side quests de ella. Si es una
+ * que ya estaba (la reenvió), no entra de nuevo: se cuenta el reenvío en la original. Si la que estaba había quedado
+ * cortada y esta la completa, se corrige la que estaba con el texto entero (Fragua #333): el texto se guarda siempre
+ * completo, sin recortes.
+ */
+export function guardarNotaDeVoz(db: Db, texto: string, segundos: number | null, id: string | null, paraEscriba?: string): { pieza: number | null; repetida: { id: number; fecha: string | null } | null; completada?: { id: number; fecha: string | null } } {
   asegurarFuente(db, { id: 'voz', nombre: 'Notas de voz', nivel: 'propia', descripcion: 'Lo que grabás caminando o pensando en voz alta.' })
   const normal = textoDeVozNormal(texto)
   const huella = crypto.createHash('sha1').update(normal).digest('hex')
+  const cortada = notaCortadaQueCompleta(db, normal)
+  if (cortada) {
+    corregirPieza(db, cortada.id, texto, 'La nota llegó de nuevo, completa: la que estaba había quedado cortada', 'mastropiero')
+    db.prepare(`UPDATE corpus SET meta = json_set(COALESCE(meta, '{}'), '$.huella', ?), datos = json_set(COALESCE(datos, '{}'), '$.segundos', ?) WHERE id = ?`).run(huella, segundos, cortada.id)
+    const suyo = paraEscriba ?? texto
+    if (suyo.trim()) void escribaDeMemoria(db, suyo, null, { pieza: cortada.id }).catch(() => [])
+    return { pieza: null, repetida: null, completada: cortada }
+  }
   const ya = notaQueYaEstaba(db, normal, huella)
   if (ya) {
     db.prepare(`UPDATE corpus SET meta = json_set(COALESCE(meta, '{}'), '$.reenvios', COALESCE(json_extract(meta, '$.reenvios'), 0) + 1) WHERE id = ?`).run(ya.id)
@@ -1109,9 +1137,10 @@ export async function procesarActualizacion(db: Db, u: any): Promise<unknown> {
     const g = larga ? guardarNotaDeVoz(db, voces?.contenido ?? t, voz.duration ?? null, voz.file_unique_id ?? voz.file_id, voces ? voces.suyo : undefined) : null
     const pieza = g?.pieza ?? null
     if (PARECE_REGISTRO.test(t) && (await registrarYContar(db, await clasificar(db, { texto: t }).catch(() => null), { texto: t }))) return
-    if (g?.repetida) await decir(`🎙 Ya lo tenía: es la nota${g.repetida.fecha ? ` del ${g.repetida.fecha.slice(8, 10)}/${g.repetida.fecha.slice(5, 7)}` : ''} (#${g.repetida.id}). No la guardo de nuevo.`)
+    if (g?.completada) await decir(`🎙 Completé la nota${g.completada.fecha ? ` del ${g.completada.fecha.slice(8, 10)}/${g.completada.fecha.slice(5, 7)}` : ''} (#${g.completada.id}): la que tenía había quedado cortada; ahora está entera.`)
+    else if (g?.repetida) await decir(`🎙 Ya lo tenía: es la nota${g.repetida.fecha ? ` del ${g.repetida.fecha.slice(8, 10)}/${g.repetida.fecha.slice(5, 7)}` : ''} (#${g.repetida.id}). No la guardo de nuevo.`)
     else if (pieza) await decir(`🎙 Guardé tu nota de voz${voz.duration ? ` (${Math.max(1, Math.round(voz.duration / 60))} min)` : ''} en tu corpus, como tuya.`)
-    const guardada = pieza ?? g?.repetida?.id
+    const guardada = pieza ?? g?.completada?.id ?? g?.repetida?.id
     if (guardada) A.marcar(db, ent.id, 'transcripto', { piezaId: guardada })
     const otras = voces ? ` En la grabación había ${voces.fondo ? 'un video o una grabación de fondo' : 'otras voces'}: abajo va solo lo que dijo él; lo demás no es suyo.` : ''
     const dicho = voces ? voces.suyo || '(No se pudo saber qué parte dijo él.)' : t

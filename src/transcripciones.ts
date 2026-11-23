@@ -134,9 +134,11 @@ async function transcribirConGemini(db: Db, audio: Buffer, nombre: string): Prom
   const mime = /\.opus$|\.ogg$/i.test(nombre) ? 'audio/ogg' : /\.wav$/i.test(nombre) ? 'audio/wav' : /\.mp3$/i.test(nombre) ? 'audio/mpeg' : 'audio/mp4'
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
     method: 'POST', headers: { 'content-type': 'application/json', 'x-goog-api-key': clave }, signal: AbortSignal.timeout(180_000),
-    body: JSON.stringify({ contents: [{ parts: [{ inline_data: { mime_type: mime, data: audio.toString('base64') } }, { text: 'Transcribí literal, palabra por palabra, lo que se dice en este audio (castellano rioplatense, puede mezclar otros idiomas). Sin resumir, sin corregir, sin comentarios. Lo que no se entiende, [inaudible]. Solo el texto.' }] }], generationConfig: { temperature: 0 } }),
+    body: JSON.stringify({ contents: [{ parts: [{ inline_data: { mime_type: mime, data: audio.toString('base64') } }, { text: 'Transcribí literal, palabra por palabra, lo que se dice en este audio (castellano rioplatense, puede mezclar otros idiomas). Sin resumir, sin corregir, sin comentarios. Lo que no se entiende, [inaudible]. Solo el texto.' }] }], generationConfig: { temperature: 0, maxOutputTokens: 65_536 } }),
   })
   const j = await r.json().catch(() => null) as any
   if (!r.ok) throw new Error(`Gemini ${r.status}: ${String(j?.error?.message ?? '').slice(0, 160)}`)
+  // Fragua #333: si el motor se quedó sin lugar, la transcripción viene cortada a la mitad de una palabra; no se usa.
+  if (j?.candidates?.[0]?.finishReason === 'MAX_TOKENS') throw new Error('Gemini cortó la transcripción antes del final (audio demasiado largo para una sola pasada)')
   return String(j?.candidates?.[0]?.content?.parts?.map((p: any) => p.text ?? '').join('') ?? '').trim()
 }
