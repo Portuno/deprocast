@@ -79,7 +79,9 @@ export const ACCIONES: Acciones = {
       'Cuando quieras arrancamos una run: decime cuánto tiempo tenés y cómo estás.',
     ].filter(Boolean)
     fijarResumen(db, fecha, partes.slice(1, -1).join(' ') || 'Día sin nada agendado.', ahora)
-    return partes.join(' ')
+    // Lo que se le manda va por puntos (Fragua #329); el resumen de la jornada queda como estaba.
+    const { parteDeLaManana } = await import('./parte-manana.ts')
+    return parteDeLaManana(db, { fecha, ahora, eventos })
   },
   async cierre(db, fecha, ahora) {
     const j = leerJornada(db, fecha)
@@ -342,7 +344,11 @@ export const ACCIONES: Acciones = {
     if (telegramActivo()) {
       try { enAudio = await mandarAudio(await sintetizar(guion), 'La mañana', '🎧 La mañana. Contestame con una nota de voz.') } catch { /* sin voz: va el texto */ }
     }
-    mensajeDeMastropiero(db, conversacionHoy(db).id, `🎧 **La mañana**${enAudio ? ' (te lo mandé en audio por Telegram)' : ''}\n\n${guion}`, { canales: !enAudio })
+    // El guion es para escuchar; lo que se lee va por puntos, con la pregunta del audio al final (Fragua #329).
+    const { parteDeLaManana } = await import('./parte-manana.ts')
+    const { eventos } = await agendaDelDia(fecha).catch(() => ({ eventos: [] as { titulo: string; inicio: number; todoElDia: boolean; lugar: string | null }[] }))
+    const pregunta = guion.match(/[^.!?¿¡]*¿[^?]+\?\s*$/)?.[0].trim() ?? null
+    mensajeDeMastropiero(db, conversacionHoy(db).id, `🎧 **La mañana**${enAudio ? ' (te lo mandé en audio por Telegram)' : ''}\n\n${parteDeLaManana(db, { fecha, ahora, eventos, saludo: false })}${pregunta ? `\n\n${pregunta}` : ''}`, { canales: !enAudio })
     await preguntarSueno(db, ahora).catch(() => {})
     return null
   },
