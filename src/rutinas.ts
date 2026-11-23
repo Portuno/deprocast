@@ -437,7 +437,7 @@ export const ACCIONES: Acciones = {
 }
 
 /** Corre lo que toca. Cada rutina se marca antes de correr: si falla no se repite en loop, y el error queda dicho en «Hoy». */
-export async function correrRutinas(db: Db, ahora = Date.now(), acciones: Acciones = ACCIONES): Promise<{ id: string; ok: boolean; mensaje: string | null }[]> {
+export async function correrRutinas(db: Db, ahora = Date.now(), acciones: Acciones = ACCIONES, o: { marca?: (nombre: string) => () => void } = {}): Promise<{ id: string; ok: boolean; mensaje: string | null }[]> {
   const hoy = fechaLocal(ahora)
   // Con un pedido suyo sin contestar (de los últimos 45 minutos), las rutinas esperan a la respuesta: un parte de la
   // mañana o un aviso en el medio parecía la respuesta a otro tema (Fragua #237). Salen en la próxima vuelta.
@@ -448,8 +448,10 @@ export async function correrRutinas(db: Db, ahora = Date.now(), acciones: Accion
     db.prepare('UPDATE rutinas SET ultima_fecha = ? WHERE id = ?').run(hoy, r.id)
     const accion = acciones[r.accion]
     if (!accion) continue
+    // Cada rutina con su nombre en el vigía (Fragua #324): un bloqueo dice «rutina:huecos», no solo «rutinas».
+    const fin = o.marca?.(`rutina:${r.id}`)
     try {
-      const mensaje = await enFondo(() => accion(db, hoy, ahora))
+      const mensaje = await enFondo(() => accion(db, hoy, ahora)).finally(() => fin?.())
       // Las del domingo van al informe semanal (si está prendido y todavía no salió), no sueltas a Hoy.
       const inf = mensaje ? await import('./informe.ts') : null
       if (mensaje && inf!.vaAlInforme(db, r.id, hoy)) inf!.guardarAviso(db, r.id, mensaje, ahora)

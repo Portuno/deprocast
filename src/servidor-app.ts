@@ -2670,8 +2670,11 @@ async function latido() {
   const finMarca = marcar('rutinas')
   try {
     // Lo nuevo (primarias, aprendizajes, metas) busca lo que ya había hecho hacia eso. En la nube (o sin NaN: por palabras).
-    if (enLaNube() || !nanConfigurado()) await (await import('./evidencia.ts')).buscarPreviosPendientes(db).catch((e) => console.error('  previos:', e instanceof Error ? e.message : e))
-    for (const r of await correrRutinas(db)) console.log(`  ⏰ rutina ${r.id}: ${r.ok ? 'hecha' : 'falló'}${r.mensaje ? ` — ${r.mensaje.slice(0, 80)}` : ''}`)
+    if (enLaNube() || !nanConfigurado()) {
+      const fin = marcar('previos')
+      await (await import('./evidencia.ts')).buscarPreviosPendientes(db).catch((e) => console.error('  previos:', e instanceof Error ? e.message : e)).finally(fin)
+    }
+    for (const r of await correrRutinas(db, Date.now(), undefined, { marca: marcar })) console.log(`  ⏰ rutina ${r.id}: ${r.ok ? 'hecha' : 'falló'}${r.mensaje ? ` — ${r.mensaje.slice(0, 80)}` : ''}`)
   } catch (e) {
     console.error('  ⏰ rutinas:', e instanceof Error ? e.message : e)
   } finally {
