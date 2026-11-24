@@ -1,6 +1,6 @@
 /**
  * Rasgos de un cuadro de audio (plan v33, paso 3): lo que necesita la conciencia acústica, calculado en el teléfono sobre
- * el PCM crudo, sin modelos ni red. Puro y compartido con la app (src/conciencia/rasgos.ts del repo deprocast-movil, copia exacta).
+ * el PCM crudo, sin modelos ni red. Puro y compartido con la app (src/conciencia/rasgos.ts del repo depromobile, copia exacta).
  * - db: el nivel (RMS en dBFS).
  * - banda: qué parte de la energía cae en la banda de la voz (300–3.400 Hz), con dos filtros de un polo.
  * - zcr: cruces por cero por muestra (la voz tiene pocos; el siseo y el viento, muchos).

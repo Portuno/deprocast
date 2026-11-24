@@ -1,6 +1,6 @@
 /**
  * El movimiento (plan v33, paso 3): con el acelerómetro solo (en Android el podómetro depende de Google, que en un Huawei
- * no está). Puro y compartido con la app (src/conciencia/movimiento.ts del repo deprocast-movil, copia exacta).
+ * no está). Puro y compartido con la app (src/conciencia/movimiento.ts del repo depromobile, copia exacta).
  * - caminando: picos de aceleración (sin la gravedad) a ritmo de paso, 1,2 a 2,6 por segundo, sostenidos ~3 s.
  * - levantado: lo llevaste hacia la cara (un giro grande del eje vertical en menos de medio segundo).
  * - pasos: los picos que caen mientras camina (al arrancar a caminar se suman los que lo confirmaron).

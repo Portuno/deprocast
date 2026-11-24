@@ -146,7 +146,7 @@ export async function prsMergeadosDesde(desde: string): Promise<CommitRef[]> {
 
 // ─── el taller de copia ─────────────────────────────────────────────────
 
-// La app móvil vive en su propio repo desde Mobile 2.0 (Portuno/deprocast-movil): la copia ya no la lleva.
+// La app móvil vive en su propio repo desde Mobile 2.0 (Portuno/depromobile): la copia ya no la lleva.
 // vendor/: las librerías empaquetadas (pptxgenjs); sin eso, el test de presentaciones fallaba en cada forja (Fragua #318).
 export const COPIAR = ['src', 'web', 'test', 'scripts', 'docs', 'vendor', 'package.json', 'tsconfig.json', 'README.md']
 
