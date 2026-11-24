@@ -4,7 +4,7 @@
 
 let saludFecha = null
 // hoyISO y corrDia viven en 05-comun.js (las usan otras vistas).
-const ICONO_SALUD = { comida: '🍽', ejercicio: '💪', sueno: '😴', medida: '⚖', sintoma: '🩹', otro: '·' }
+const ICONO_SALUD = { comida: '🍽', ejercicio: '💪', sueno: '😴', medida: '⚖', sintoma: '🩹', animo: '🙂', otro: '·' }
 const CALIDAD = ['', 'mal', 'bien', 'muy bien']
 
 function barraMeta(etiqueta, valor, meta, unidad) {

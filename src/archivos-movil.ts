@@ -19,7 +19,8 @@ import crypto from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { fechaLocal, type Db } from './db.ts'
 
-export type MetaArchivo = { nombre: string; mime: string; nota?: string | null; en?: number | null; lat?: number | null; lon?: number | null; dispositivo: string }
+/** auto (Mobile 2.1): la mandó el teléfono solo (una foto nueva de la galería), no él: se guarda sin abrir charla en Hoy. */
+export type MetaArchivo = { nombre: string; mime: string; nota?: string | null; en?: number | null; lat?: number | null; lon?: number | null; dispositivo: string; auto?: boolean }
 
 /** Un proceso (ffmpeg) sin trabar el servidor. */
 function correr(cmd: string, args: string[], ms = 120_000): Promise<{ ok: boolean; salida: string }> {
@@ -123,9 +124,12 @@ async function procesarFoto(db: Db, datos: Buffer, m: MetaArchivo) {
   const { comoLectura } = await import('./chat/adjuntos.ts')
   const lectura = comoLectura(await externos.leer(db, { datos: foto.datos, mime: foto.mime }))
   const pieza = guardarLectura(db, lectura, { datos: foto.datos, url: foto.url, canal: m.dispositivo, nota: m.nota ?? null })
+  // Una foto automática con su hora: si no trae lugar, que lo busque en el recorrido (después, al ubicar piezas).
   const lugar = lugarDe(m)
   if (lugar) db.prepare(`UPDATE corpus SET meta = json_set(COALESCE(meta, '{}'), '$.lugar', json(?)) WHERE id = ?`).run(JSON.stringify(lugar), pieza)
   void import('./google/drive.ts').then((d) => d.alDrive(db, { datos, nombre: m.nombre, tipo: 'imagen', origen: m.dispositivo, descripcion: [m.nota, lectura.titulo, lectura.descripcion].filter(Boolean).join('\n\n'), adjunto: path.basename(foto.url) })).catch(() => {})
+  // La galería sola (Mobile 2.1): queda leída y guardada, sin abrir charla en Hoy por cada foto.
+  if (m.auto) return
   const { lecturaComoTexto } = await import('./lectura-imagen.ts')
   await externos.charlar(db, `(Te mandé una foto desde ${m.dispositivo}, ya leída entera y guardada en su corpus [#${pieza}]. Lo que dice:\n${lecturaComoTexto(lectura).slice(0, 12_000)})${m.nota ? `\n${m.nota}` : ''}`)
 }

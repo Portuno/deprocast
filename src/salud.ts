@@ -5,7 +5,7 @@
  */
 import { ajuste, fechaLocal, fijarAjuste, json, type Db } from './db.ts'
 
-export const TIPOS_SALUD = ['comida', 'ejercicio', 'sueno', 'medida', 'sintoma', 'otro'] as const
+export const TIPOS_SALUD = ['comida', 'ejercicio', 'sueno', 'medida', 'sintoma', 'animo', 'otro'] as const
 export type TipoSalud = (typeof TIPOS_SALUD)[number]
 export type RegistroSalud = { id: number; fecha: string; hora: string | null; tipo: TipoSalud; titulo: string; datos: Record<string, any>; foto: string | null; fuente: string; creadoEn: number }
 
@@ -18,6 +18,8 @@ const CAMPOS: Record<TipoSalud, string[]> = {
   sueno: ['horas', 'calidad'],
   medida: ['peso', 'grasa_corporal', 'cintura'],
   sintoma: ['intensidad'],
+  // Mobile 2.1: cómo venís, de 1 a 5 (desde los avisos del teléfono o a mano).
+  animo: ['animo', 'energia'],
   otro: [],
 }
 const TEXTOS = ['items', 'intensidad_texto', 'nota', 'que', 'sospechoso', 'dormir', 'despertar', 'origen', 'confianza']
@@ -30,6 +32,7 @@ function limpiarDatos(tipo: TipoSalud, d: Record<string, unknown> = {}): Record<
   }
   if (tipo === 'ejercicio' && typeof d.intensidad === 'string') out.intensidad_texto = d.intensidad.slice(0, 30)
   if (tipo === 'sueno' && out.calidad != null) out.calidad = Math.min(3, Math.max(1, Math.round(Number(out.calidad))))
+  if (tipo === 'animo') for (const k of ['animo', 'energia']) if (out[k] != null) out[k] = Math.min(5, Math.max(1, Math.round(Number(out[k]))))
   for (const k of TEXTOS) {
     if (Array.isArray(d[k])) out[k] = (d[k] as unknown[]).map(String).filter(Boolean).slice(0, 12)
     else if (typeof d[k] === 'string' && (d[k] as string).trim()) out[k] = (d[k] as string).trim().slice(0, 400)
@@ -38,7 +41,7 @@ function limpiarDatos(tipo: TipoSalud, d: Record<string, unknown> = {}): Record<
 }
 
 const tipoValido = (t: unknown): TipoSalud => (TIPOS_SALUD as readonly string[]).includes(String(t)) ? t as TipoSalud : 'otro'
-const TITULO: Record<TipoSalud, string> = { comida: 'Comida', ejercicio: 'Ejercicio', sueno: 'Sueño', medida: 'Medida', sintoma: 'Síntoma', otro: 'Nota' }
+const TITULO: Record<TipoSalud, string> = { comida: 'Comida', ejercicio: 'Ejercicio', sueno: 'Sueño', medida: 'Medida', sintoma: 'Síntoma', animo: 'Ánimo', otro: 'Nota' }
 
 export function leerSalud(db: Db, id: number): RegistroSalud | null {
   const r = db.prepare('SELECT * FROM salud WHERE id = ?').get(id)

@@ -2041,7 +2041,7 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
       try {
         const datos = await leerCrudo(req, 310 * 1024 * 1024)
         const n = (k: string) => (q.get(k) != null && q.get(k) !== '' && Number.isFinite(Number(q.get(k))) ? Number(q.get(k)) : null)
-        const r = (await import('./archivos-movil.ts')).recibirArchivoMovil(db, datos, { nombre: q.get('nombre') || 'archivo', mime: q.get('tipo') || String(req.headers['content-type'] ?? ''), nota: q.get('nota'), en: n('en'), lat: n('lat'), lon: n('lon'), dispositivo: disp.nombre })
+        const r = (await import('./archivos-movil.ts')).recibirArchivoMovil(db, datos, { nombre: q.get('nombre') || 'archivo', mime: q.get('tipo') || String(req.headers['content-type'] ?? ''), nota: q.get('nota'), en: n('en'), lat: n('lat'), lon: n('lon'), dispositivo: disp.nombre, auto: q.get('auto') === '1' })
         const cuerpo = { tipo: r.tipo, bytes: r.bytes, procesando: true }
         if (clave) d.cerrarEnvio(db, disp.id, clave, cuerpo)
         return responder(202, cuerpo)
@@ -2050,6 +2050,30 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
         const m = e instanceof Error ? e.message : String(e)
         return responder(/vacío|Por ahora|pesa más/i.test(m) ? 422 : 503, { error: m })
       }
+    }
+    // Mobile 2.1: cuándo estuvo enchufado (para el sueño estimado), cómo venís (ánimo y energía) y lo que soñaste.
+    if (ruta === 'carga' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 512 * 1024)).toString('utf8') || '{}')
+      return responder(200, { guardadas: (await import('./carga-telefono.ts')).recibirCarga(db, `disp:${disp.id}`, b.muestras) })
+    }
+    if (ruta === 'animo' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 16 * 1024)).toString('utf8') || '{}')
+      const animo = Number(b.animo), energia = b.energia == null ? null : Number(b.energia)
+      if (!(animo >= 1 && animo <= 5)) return responder(422, { error: 'El ánimo va de 1 a 5' })
+      const en = Number.isFinite(Number(b.en)) && Number(b.en) > 0 ? Number(b.en) : Date.now()
+      const r = (await import('./salud.ts')).registrarSalud(db, {
+        tipo: 'animo', fuente: 'teléfono', fecha: fechaLocal(en), hora: new Date(en).toTimeString().slice(0, 5),
+        titulo: `Ánimo ${animo}/5${energia ? ` · energía ${energia}/5` : ''}`, datos: { animo, ...(energia ? { energia } : {}), ...(b.nota ? { nota: String(b.nota) } : {}) },
+      }, Date.now())
+      return responder(201, { id: r.id, titulo: r.titulo })
+    }
+    if (ruta === 'sueno' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 64 * 1024)).toString('utf8') || '{}')
+      if (!String(b.texto ?? '').trim()) return responder(422, { error: 'Falta lo que soñaste' })
+      const sn = await import('./suenos.ts')
+      const s = await sn.registrarSueno(db, { texto: String(b.texto), despertar: b.despertar ?? null, fecha: b.fecha ?? null, origen: `teléfono:${disp.nombre}` })
+      if (enLaNube()) void sn.destilarSueno(db, s.id).catch((e) => console.error('  sueño:', e instanceof Error ? e.message : e))
+      return responder(201, { id: s.id, fecha: s.fecha })
     }
     // Mobile 1.0: la marca barata de «algo cambió en Hoy» (el teléfono la pregunta cada 5 s mientras está abierto).
     if (ruta === 'cambio' && req.method === 'GET') return responder(200, await d.marcaHoy(db))

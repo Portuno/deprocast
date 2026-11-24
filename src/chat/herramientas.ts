@@ -1724,7 +1724,7 @@ ${a.detalle ?? ''}`)
       id: int('id del registro (de ver_salud)'), titulo: str('Título corregido'), fecha: str('YYYY-MM-DD'), hora: str('HH:MM'),
       kcal: { type: 'number' }, proteina: { type: 'number' }, carbos: { type: 'number' }, grasa: { type: 'number' }, minutos: { type: 'number' }, distancia_km: { type: 'number' },
       horas: { type: 'number' }, calidad: int('sueño: 1 a 3'), peso: { type: 'number' }, pasos: { type: 'number' },
-      tipo: str('Para corregir el tipo', { enum: ['comida', 'ejercicio', 'sueno', 'medida', 'sintoma', 'otro'] }),
+      tipo: str('Para corregir el tipo', { enum: [...TIPOS_SALUD] }),
     }, ['id']),
     ejecutar: (a, { db }) => {
       const antes = leerSalud(db, a.id)

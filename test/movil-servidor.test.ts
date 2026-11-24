@@ -75,6 +75,17 @@ test('Mobile 1.0, por HTTP: la marca de Hoy cambia con un mensaje; un mensaje re
     assert.equal(marcado.tipo, 'casa')
     const lugares = await (await fetch(`${base}/api/dispositivo/lugares`, { headers: h })).json()
     assert.equal(lugares.lugares.find((l: any) => l.nombre === 'Casa')?.tipo, 'casa')
+
+    // Mobile 2.1: la carga (para el sueño), el ánimo y lo que soñaste.
+    const post = (ruta: string, cuerpo: unknown) => fetch(`${base}/api/dispositivo/${ruta}`, { method: 'POST', headers: { ...h, 'content-type': 'application/json' }, body: JSON.stringify(cuerpo) })
+    assert.equal((await (await post('carga', { muestras: [{ en: ahora - 60_000, cargando: true, nivel: 0.5 }] })).json()).guardadas, 1)
+    const animo = await post('animo', { animo: 4, energia: 3, en: ahora })
+    assert.equal(animo.status, 201)
+    assert.equal((await animo.json()).titulo, 'Ánimo 4/5 · energía 3/5')
+    assert.equal((await post('animo', { animo: 9 })).status, 422)
+    const sueno = await post('sueno', { texto: 'Soñé que volaba sobre Valencia', despertar: '07:30' })
+    assert.equal(sueno.status, 201)
+    assert.equal((await post('sueno', { texto: '  ' })).status, 422)
   } finally {
     srv.kill()
     await new Promise((ok) => setTimeout(ok, 300))

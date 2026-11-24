@@ -2011,7 +2011,7 @@ CREATE TABLE IF NOT EXISTS salud (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   fecha TEXT NOT NULL,                -- YYYY-MM-DD (el sueño: el día en que se despertó)
   hora TEXT,                          -- HH:MM
-  tipo TEXT NOT NULL,                 -- comida | ejercicio | sueno | medida | sintoma | otro
+  tipo TEXT NOT NULL,                 -- comida | ejercicio | sueno | medida | sintoma | animo | otro
   titulo TEXT NOT NULL,
   datos TEXT NOT NULL DEFAULT '{}',   -- JSON: kcal, proteina, carbos, grasa, minutos, intensidad, distancia_km, horas, calidad, peso…
   foto TEXT,                          -- /adjuntos/<archivo>

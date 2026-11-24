@@ -4,15 +4,18 @@
  * - la pantalla del teléfono prendida (las sesiones que manda la app con «Acceso a uso»): la señal más fuerte;
  * - los pasos del teléfono por hora (una hora con 150 pasos o más es que andabas);
  * - lo que le escribiste a Mastropiero (chat, Telegram, WhatsApp);
- * - la escucha: minutos en que hablaste o caminaste.
+ * - la escucha: minutos en que hablaste o caminaste;
+ * - la carga (Mobile 2.1): enchufar o desenchufar el teléfono es un gesto tuyo; y una noche enchufado y sin actividad
+ *   sube la confianza.
  * El sueño es el hueco sin actividad más largo de la noche (de 19 a 14, de al menos 2 h 30). Si al lado hay otro hueco
  * largo separado por un ratito (una mirada al teléfono a las 4), se junta y cuenta como interrupción. Hace falta
  * actividad antes y después: si no, no se estima. Queda en salud como sueño «estimado» (nunca pisa uno que anotaste
  * vos) y así entra al Diario.
  */
 import { fechaLocal, type Db } from './db.ts'
+import { cambiosDeCarga, muestrasEntre, parteEnchufado } from './carga-telefono.ts'
 
-export type Senal = 'pantalla' | 'pasos' | 'chat' | 'escucha'
+export type Senal = 'pantalla' | 'pasos' | 'chat' | 'escucha' | 'carga'
 type Tramo = { desde: number; hasta: number; fuente: Senal }
 export type SuenoEstimado = { fecha: string; dormir: string; despertar: string; horas: number; interrupciones: number; confianza: 'alta' | 'media' | 'baja'; fuentes: Senal[]; desde: number; hasta: number }
 
@@ -40,6 +43,9 @@ export function actividadEntre(db: Db, a: number, b: number): Tramo[] {
   for (const f of db.prepare(`SELECT en FROM mensajes WHERE rol = 'operador' AND en >= ? AND en < ?`).all(a, b) as { en: number }[]) out.push({ desde: f.en, hasta: f.en + MIN, fuente: 'chat' })
   if (existe(db, 'capas_minuto')) {
     for (const f of db.prepare(`SELECT minuto FROM capas_minuto WHERE minuto >= ? AND minuto < ? AND (hablo > 0 OR pasos > 20)`).all(a, b) as { minuto: number }[]) out.push({ desde: f.minuto, hasta: f.minuto + MIN, fuente: 'escucha' })
+  }
+  if (existe(db, 'carga_telefono')) {
+    for (const x of cambiosDeCarga(muestrasEntre(db, a - 3_600_000, b + 3_600_000))) if (x.en >= a && x.en < b) out.push({ desde: x.en, hasta: x.en + MIN, fuente: 'carga' })
   }
   return out.sort((x, y) => x.desde - y.desde)
 }
@@ -69,6 +75,9 @@ export function estimarSueno(db: Db, fecha: string): SuenoEstimado | null {
   if (desde <= a || hasta >= b) return null
   const cerca = tramos.filter((t) => t.hasta >= desde - 3 * 3_600_000 && t.desde <= hasta + 3 * 3_600_000)
   const fuentes = [...new Set(cerca.map((t) => t.fuente))]
+  // Enchufado la mayor parte del hueco: una señal más de que dormías.
+  const enchufado = existe(db, 'carga_telefono') && parteEnchufado(muestrasEntre(db, desde - 3_600_000, hasta), desde, hasta) >= 0.6
+  if (enchufado && !fuentes.includes('carga')) fuentes.push('carga')
   const confianza = fuentes.includes('pantalla') ? 'alta' : fuentes.length >= 2 ? 'media' : 'baja'
   return { fecha, dormir: hm(desde), despertar: hm(hasta), horas: Math.round(((hasta - desde) / 3_600_000) * 10) / 10, interrupciones, confianza, fuentes, desde, hasta }
 }
