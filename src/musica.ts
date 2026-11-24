@@ -31,7 +31,7 @@ export function asegurarEscuchas(db: Db): void {
 /** Menos de 30 segundos no cuenta como reproducción (el mismo umbral que usa Spotify); el tiempo sí suma. */
 export const MS_REPRODUCCION = 30_000
 
-export type Escucha = { en: string; artista: string; tema: string; album: string | null; ms: number; fuente?: 'spotify' | 'youtube' }
+export type Escucha = { en: string; artista: string; tema: string; album: string | null; ms: number; fuente?: 'spotify' | 'youtube' | 'telefono' }
 
 /** YouTube no dice cuánto sonó cada tema: se cuenta como un tema promedio (3 minutos y medio). */
 export const MS_ESTIMADO = 210_000
@@ -144,4 +144,22 @@ export function gustoEnTexto(db: Db): string | null {
 /** Deshacer una carga: sus escuchas se van con ella. */
 export function borrarEscuchasDeCarga(db: Db, cargaId: number): number {
   try { return Number(db.prepare('DELETE FROM escuchas WHERE carga_id = ?').run(cargaId).changes) } catch { return 0 }
+}
+
+/**
+ * Lo que suena en el teléfono (Mobile 2.3): los avisos de reproducción de las apps de música (tema, artista y cuándo
+ * empezó). Cada uno dura hasta el siguiente (como mucho 10 minutos: después ya no se sabe); menos de 30 s no es escucha.
+ * Devuelve cuántas son nuevas.
+ */
+export function escuchasDelTelefono(db: Db, xs: unknown): number {
+  const ys = (Array.isArray(xs) ? xs : []).map((x: any) => ({ en: Number(x?.en), tema: String(x?.tema ?? '').trim(), artista: String(x?.artista ?? '').trim() }))
+    .filter((x) => Number.isFinite(x.en) && x.en > 0 && x.tema).sort((a, b) => a.en - b.en).slice(0, 2000)
+  const escuchas: Escucha[] = []
+  ys.forEach((x, i) => {
+    const ms = Math.min(10 * 60_000, (ys[i + 1]?.en ?? x.en + MS_ESTIMADO) - x.en)
+    if (ms < MS_REPRODUCCION) return
+    const fin = new Date(x.en + ms).toISOString()
+    escuchas.push({ en: `${fin.slice(0, 10)} ${fin.slice(11, 16)}`, artista: x.artista || 'Desconocido', tema: x.tema, album: null, ms: Math.round(ms), fuente: 'telefono' })
+  })
+  return guardarEscuchas(db, escuchas).nuevas
 }

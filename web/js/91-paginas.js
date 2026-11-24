@@ -29,6 +29,7 @@ const QUE_ES_VISTA = {
   mapa: ['Dónde estuviste: el recorrido del celular y los lugares.'],
   salud: ['Comidas, ejercicio, sueño y peso contra tus metas.', 'salud'],
   tudia: ['Tu día en el mapa y en números.'],
+  diariodia: ['Todo lo capturado de un día en una línea: sueño, recorrido, fotos, charlas, comidas, ánimo y gastos.'],
   personas: ['La gente de tu vida: fichas, relaciones y puentes.', 'personas'],
   escalas: ['Tu vida por escalas: cada día desde sus piezas, y la semana, el mes… hasta el lustro.'],
   monedero: ['El Monedero del Tesorero: patrimonio, cuentas, arcas de cada agente y arquetipo, y lo que espera tu firma.'],

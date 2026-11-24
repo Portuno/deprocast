@@ -123,7 +123,7 @@ async function procesarFoto(db: Db, datos: Buffer, m: MetaArchivo) {
   const { guardarLectura } = await import('./lectura-imagen.ts')
   const { comoLectura } = await import('./chat/adjuntos.ts')
   const lectura = comoLectura(await externos.leer(db, { datos: foto.datos, mime: foto.mime }))
-  const pieza = guardarLectura(db, lectura, { datos: foto.datos, url: foto.url, canal: m.dispositivo, nota: m.nota ?? null })
+  const pieza = guardarLectura(db, lectura, { datos: foto.datos, url: foto.url, canal: m.dispositivo, nota: m.nota ?? null }, m.auto && m.en ? m.en : Date.now())
   // Una foto automática con su hora: si no trae lugar, que lo busque en el recorrido (después, al ubicar piezas).
   const lugar = lugarDe(m)
   if (lugar) db.prepare(`UPDATE corpus SET meta = json_set(COALESCE(meta, '{}'), '$.lugar', json(?)) WHERE id = ?`).run(JSON.stringify(lugar), pieza)

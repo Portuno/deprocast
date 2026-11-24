@@ -22,6 +22,8 @@ function asegurar(db: Db) {
     apps TEXT NOT NULL DEFAULT '[]', actualizado INTEGER NOT NULL, PRIMARY KEY (fecha, fuente))`)
   // Mobile 1.5 (para el sueño estimado, Fragua #298): cuándo estuvo prendida la pantalla, [[desde, hasta], …].
   if (!(db.prepare(`SELECT 1 FROM pragma_table_info('uso_telefono') WHERE name = 'sesiones'`).get())) db.exec(`ALTER TABLE uso_telefono ADD COLUMN sesiones TEXT`)
+  // Mobile 2.3 (para el foco): cada vez que pasó a otra app, [[t, paquete], …].
+  if (!(db.prepare(`SELECT 1 FROM pragma_table_info('uso_telefono') WHERE name = 'cambios'`).get())) db.exec(`ALTER TABLE uso_telefono ADD COLUMN cambios TEXT`)
 }
 
 /** Las sesiones de pantalla de un día: ordenadas, dentro del día y sin basura (como mucho 400). */
@@ -68,8 +70,8 @@ const esDistraccion = (a: { paquete: string; nombre: string; categoria: Categori
 export function recibirUso(db: Db, fuente: string, dias: unknown, ahora = Date.now()): number {
   asegurar(db)
   let n = 0
-  const alta = db.prepare(`INSERT INTO uso_telefono (fecha, fuente, pantalla_min, desbloqueos, apps, actualizado, sesiones) VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT (fecha, fuente) DO UPDATE SET pantalla_min = excluded.pantalla_min, desbloqueos = excluded.desbloqueos, apps = excluded.apps, actualizado = excluded.actualizado, sesiones = COALESCE(excluded.sesiones, uso_telefono.sesiones)`)
+  const alta = db.prepare(`INSERT INTO uso_telefono (fecha, fuente, pantalla_min, desbloqueos, apps, actualizado, sesiones, cambios) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (fecha, fuente) DO UPDATE SET pantalla_min = excluded.pantalla_min, desbloqueos = excluded.desbloqueos, apps = excluded.apps, actualizado = excluded.actualizado, sesiones = COALESCE(excluded.sesiones, uso_telefono.sesiones), cambios = COALESCE(excluded.cambios, uso_telefono.cambios)`)
   for (const d of (Array.isArray(dias) ? dias : []).slice(0, 14) as Partial<DiaUso>[]) {
     if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(String(d.fecha))) continue
     const apps = (Array.isArray(d.apps) ? d.apps : [])
@@ -78,7 +80,8 @@ export function recibirUso(db: Db, fuente: string, dias: unknown, ahora = Date.n
       .sort((a, b) => b.min - a.min)
       .slice(0, 60)
     const pantalla = Math.max(0, Math.min(1440, Math.round(Number(d.pantallaMin) || 0)))
-    alta.run(String(d.fecha), fuente.slice(0, 40), pantalla, Math.max(0, Math.round(Number(d.desbloqueos) || 0)), JSON.stringify(apps), ahora, Array.isArray((d as any).sesiones) ? JSON.stringify(limpiarSesiones(String(d.fecha), (d as any).sesiones)) : null)
+    const cambios = Array.isArray((d as any).cambios) ? JSON.stringify(((d as any).cambios as unknown[]).filter((x): x is [number, string] => Array.isArray(x) && Number.isFinite(Number(x[0])) && typeof x[1] === 'string').slice(-3000).map(([t, p]) => [Math.round(Number(t)), String(p).slice(0, 120)])) : null
+    alta.run(String(d.fecha), fuente.slice(0, 40), pantalla, Math.max(0, Math.round(Number(d.desbloqueos) || 0)), JSON.stringify(apps), ahora, Array.isArray((d as any).sesiones) ? JSON.stringify(limpiarSesiones(String(d.fecha), (d as any).sesiones)) : null, cambios)
     n++
   }
   return n
@@ -87,7 +90,7 @@ export function recibirUso(db: Db, fuente: string, dias: unknown, ahora = Date.n
 /** Un día: pantalla, desbloqueos, distracción, por categoría y las apps (de todos los teléfonos, sumado). */
 export function usoDelDia(db: Db, fecha = fechaLocal()) {
   asegurar(db)
-  const filas = db.prepare('SELECT pantalla_min, desbloqueos, apps FROM uso_telefono WHERE fecha = ?').all(fecha) as { pantalla_min: number; desbloqueos: number; apps: string }[]
+  const filas = db.prepare('SELECT pantalla_min, desbloqueos, apps, sesiones, cambios FROM uso_telefono WHERE fecha = ?').all(fecha) as { pantalla_min: number; desbloqueos: number; apps: string; sesiones: string | null; cambios: string | null }[]
   const propias = distraccionesPropias(db)
   const porApp = new Map<string, AppUso & { categoria: Categoria }>()
   for (const f of filas) for (const a of json<AppUso[]>(f.apps, [])) {
@@ -108,7 +111,28 @@ export function usoDelDia(db: Db, fecha = fechaLocal()) {
     distraccionMin: apps.filter((a) => a.distraccion).reduce((s, a) => s + a.min, 0),
     porCategoria,
     apps: apps.slice(0, 25),
+    foco: focoDelTelefono(filas.flatMap((f) => json<[number, number][]>(f.sesiones, [])), filas.flatMap((f) => json<[number, string][]>(f.cambios, [])), (p) => porApp.get(p)?.nombre ?? p),
   }
+}
+
+/**
+ * El foco en el teléfono (Mobile 2.3), como el del Directo en la compu: el tramo más largo en una sola app sin saltar a
+ * otra (dentro de una sesión de pantalla), cuántas veces cambió de app por hora de pantalla, y en qué app fue ese tramo.
+ * null si el teléfono no mandó los cambios (un APK viejo).
+ */
+export function focoDelTelefono(sesiones: [number, number][], cambios: [number, string][], nombre: (p: string) => string = (p) => p): { tramoMasLargoMin: number; app: string | null; cambiosPorHora: number } | null {
+  if (!cambios.length) return null
+  const cs = [...cambios].filter(([, p]) => !IGNORAR.test(p)).sort((a, b) => a[0] - b[0])
+  let mejor = 0, app: string | null = null
+  for (let i = 0; i < cs.length; i++) {
+    const [t, p] = cs[i]
+    // El tramo termina con el próximo cambio o con el fin de su sesión de pantalla, lo que pase primero.
+    const ses = sesiones.find(([a, b]) => t >= a - 1000 && t <= b)
+    const fin = Math.min(cs[i + 1]?.[0] ?? Infinity, ses?.[1] ?? t)
+    if (fin - t > mejor) { mejor = fin - t; app = p }
+  }
+  const pantallaH = sesiones.reduce((s, [a, b]) => s + Math.max(0, b - a), 0) / 3_600_000
+  return { tramoMasLargoMin: Math.round(mejor / 60_000), app: app ? nombre(app) : null, cambiosPorHora: pantallaH > 0 ? Math.round(cs.length / pantallaH) : 0 }
 }
 
 /** Varios días (los últimos n): cada día resumido, el promedio y las apps que más se llevaron. */

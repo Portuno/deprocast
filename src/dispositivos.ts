@@ -189,6 +189,6 @@ export async function paqueteHoy(db: Db, o: { mensajes?: number } = {}) {
   // Mobile 1.2: la actividad del día (pasos, minutos caminando, km) para la tarjeta de Hoy.
   const actividad = await import('./territorio.ts').then((t) => t.actividadDelDia(db)).catch(() => null)
   // Mobile 1.3: el uso del teléfono de hoy (pantalla y distracción), para la tarjeta de Hoy.
-  const uso = await import('./uso-telefono.ts').then((u) => { const x = u.usoDelDia(db); return x.hayDatos ? { pantallaMin: x.pantallaMin, distraccionMin: x.distraccionMin, desbloqueos: x.desbloqueos, apps: x.apps.slice(0, 5).map((a) => ({ nombre: a.nombre, min: a.min, distraccion: a.distraccion })) } : null }).catch(() => null)
+  const uso = await import('./uso-telefono.ts').then((u) => { const x = u.usoDelDia(db); return x.hayDatos ? { pantallaMin: x.pantallaMin, distraccionMin: x.distraccionMin, desbloqueos: x.desbloqueos, apps: x.apps.slice(0, 5).map((a) => ({ nombre: a.nombre, min: a.min, distraccion: a.distraccion })), foco: x.foco } : null }).catch(() => null)
   return { conversacion: c.id, mensajes: ms.filter((m) => (m.rol === 'operador' || m.rol === 'asistente') && m.texto).map((m) => ({ id: m.id, rol: m.rol, texto: m.texto, en: m.en })), paraValidar, servidorEn: Date.now(), marca: `${c.id}:${ultimo}:${paraValidar}`, actividad, uso }
 }

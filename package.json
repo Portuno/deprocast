@@ -16,7 +16,8 @@
     "medir": "node --disable-warning=ExperimentalWarning scripts/medir.ts",
     "prepare": "node scripts/hooks.ts",
     "probar-voz": "node --disable-warning=ExperimentalWarning scripts/probar-voz.ts",
-    "grafo:muestra": "node --disable-warning=ExperimentalWarning scripts/grafo-muestra.ts"
+    "grafo:muestra": "node --disable-warning=ExperimentalWarning scripts/grafo-muestra.ts",
+    "contrato": "node --disable-warning=ExperimentalWarning scripts/contrato.ts"
   },
   "devDependencies": {
     "@types/node": "^24.19.1",

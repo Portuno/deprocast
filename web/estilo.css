@@ -3846,3 +3846,30 @@ circle.jg-fig { fill: var(--acento); }
 .arq-run-ajustes label { display: flex; flex-direction: column; gap: 2px; }
 .arq-banda .fila { margin-top: 4px; }
 .arq-res { flex: 1; margin: 0; }
+
+/* ─── Diario del día (Mobile 2.2) ─── */
+.ddia { max-width: 1200px; margin: 0 auto; padding: var(--e-5); display: grid; gap: var(--e-4); }
+.ddia-cab { display: flex; align-items: center; justify-content: space-between; gap: var(--e-3); flex-wrap: wrap; }
+.ddia-cab h1 { margin: 0; }
+.ddia-nav { display: flex; align-items: center; gap: var(--e-2); }
+.ddia-nums { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--e-2); }
+.ddia-num b { font-size: var(--t-7); }
+.ddia-num small { color: var(--tenue); }
+.ddia-grilla { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: var(--e-4); align-items: start; }
+@media (max-width: 1000px) { .ddia-grilla { grid-template-columns: 1fr; } }
+.ddia-mapa { position: sticky; top: var(--e-4); padding: 0; overflow: hidden; }
+#dd-mapa { height: 520px; }
+.ddia-horas { display: flex; align-items: flex-end; gap: 3px; height: 56px; }
+.ddia-horas i { flex: 1; background: var(--linea); border-radius: 2px; }
+.ddia-horas i.con { background: var(--acento); }
+.ddia-eje { display: flex; justify-content: space-between; font-size: var(--t-1); }
+.ddia-linea { list-style: none; margin: 0; padding: 0; display: grid; }
+.ddia-m { display: grid; grid-template-columns: 3.2em 1.6em minmax(0, 1fr); gap: var(--e-2); padding: var(--e-2) 0; border-bottom: 1px solid var(--linea); }
+.ddia-m[data-lat] { cursor: pointer; }
+.ddia-m[data-lat]:hover { background: var(--panel); }
+.ddia-hora { color: var(--tenue); font-variant-numeric: tabular-nums; }
+.ddia-txt { display: grid; gap: 2px; min-width: 0; }
+.ddia-txt small { color: var(--tenue); overflow-wrap: anywhere; }
+.ddia-txt img { max-width: 260px; max-height: 200px; border-radius: var(--r-m); margin-top: var(--e-1); object-fit: cover; }
+.ddia-trayecto .ddia-txt b, .ddia-parada .ddia-txt b { color: var(--acento); }
+.ddia-pin { display: flex; align-items: center; justify-content: center; background: var(--acento); color: var(--sobre-acento); border-radius: 50%; font-weight: 700; border: 2px solid var(--fondo); }

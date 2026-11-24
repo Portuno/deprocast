@@ -791,6 +791,8 @@ const rutas: [string, RegExp, Ruta][] = [
   // El video como fuente (#165) y el diario propio (#166).
   ['GET', /^\/api\/videos$/, async () => (await import('./video.ts')).listarVideos(db)],
   ['GET', /^\/api\/prensa$/, async (_, __, q) => (await import('./prensa.ts')).diarioDe(db, q.get('fecha'))],
+  // Mobile 2.2: el Diario del día (todo lo capturado de un día, en una línea de tiempo).
+  ['GET', /^\/api\/diario-dia$/, async (_, __, q) => (await import('./diario-dia.ts')).diarioDelDia(db, /^\d{4}-\d{2}-\d{2}$/.test(q.get('fecha') ?? '') ? q.get('fecha')! : undefined)],
   ['POST', /^\/api\/prensa$/, async (b) => (await import('./prensa.ts')).procesarPrensa(db, String(b.texto ?? ''), { fecha: b.fecha, origen: 'pegado' })],
   ['POST', /^\/api\/prensa\/(\d+)\/voto$/, async (b, [n]) => (await import('./prensa.ts')).votarNota(db, id(n), b.voto === 1 || b.voto === true ? 1 : b.voto === 0 || b.voto === false ? 0 : null)],
   // La ficha de empresa (Fragua #164).
@@ -1976,6 +1978,8 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
       const r = d.vincular(db, { codigo: b.codigo, nombre: b.nombre, plataforma: b.plataforma, tipo: b.tipo })
       return responder(201, { token: r.token, dispositivo: r.dispositivo })
     }
+    // Mobile 2.2: lo que no está en el contrato (src/contrato-dispositivo.ts) no se atiende.
+    if (!(await import('./contrato-dispositivo.ts')).rutaDe(ruta, req.method ?? 'GET')) return responder(404, { error: `No existe ${req.method} /api/dispositivo/${ruta} (mirá docs/api-dispositivo.json)` })
     const disp = d.autenticarDispositivo(db, req.headers.authorization)
     if (!disp) return responder(401, { error: 'Falta el token del dispositivo o no es válido (Authorization: Bearer dpd_…)' })
     if (ruta === 'hoy' && req.method === 'GET') return responder(200, { dispositivo: disp.nombre, estado: disp.estado, ...(await d.paqueteHoy(db)) })
@@ -2052,6 +2056,19 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
       }
     }
     // Mobile 2.1: cuándo estuvo enchufado (para el sueño estimado), cómo venís (ánimo y energía) y lo que soñaste.
+    if (ruta === 'diario' && req.method === 'GET') {
+      const f = url.searchParams.get('fecha')
+      return responder(200, await (await import('./diario-dia.ts')).diarioDelDia(db, f && /^\d{4}-\d{2}-\d{2}$/.test(f) ? f : undefined))
+    }
+    // Mobile 2.3: lo que sonó en el teléfono y su contexto (wifi y audio Bluetooth).
+    if (ruta === 'escuchas' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 1024 * 1024)).toString('utf8') || '{}')
+      return responder(200, { nuevas: (await import('./musica.ts')).escuchasDelTelefono(db, b.escuchas) })
+    }
+    if (ruta === 'contexto' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 16 * 1024)).toString('utf8') || '{}')
+      return responder(200, { guardado: (await import('./contexto-telefono.ts')).recibirContexto(db, `disp:${disp.id}`, b) })
+    }
     if (ruta === 'carga' && req.method === 'POST') {
       const b = JSON.parse((await leerCrudo(req, 512 * 1024)).toString('utf8') || '{}')
       return responder(200, { guardadas: (await import('./carga-telefono.ts')).recibirCarga(db, `disp:${disp.id}`, b.muestras) })
@@ -2791,6 +2808,8 @@ deFondo(() => setInterval(latidoPensar, 15 * 60_000).unref())
 deFondo(() => setTimeout(latidoPensar, 60_000).unref())
 // Los PDF escaneados que quedaron con el OCR pendiente (Fragua #326): si la primera lectura falló, se reintenta.
 deFondo(() => setInterval(() => { const fin = marcar('ocr'); void import('./ocr-pdf.ts').then((o) => o.ocrPendientes(db)).catch((e) => console.error('  ocr:', e instanceof Error ? e.message : e)).finally(fin) }, 10 * 60_000).unref())
+// Mobile 2.2: si el teléfono deja de mandar más de 3 h de día, Mastropiero lo dice en Hoy (una vez por silencio).
+deFondo(() => setInterval(() => { const fin = marcar('vigia-captura'); void import('./vigia-captura.ts').then((v) => v.vigilarCaptura(db)).catch((e) => console.error('  vigía de captura:', e instanceof Error ? e.message : e)).finally(fin) }, 15 * 60_000).unref())
 // Los audios de Telegram o WhatsApp cuya transcripción falló se reintentan solos (Fragua #328).
 deFondo(() => setInterval(() => { const fin = marcar('audios'); void import('./telegram.ts').then((t) => t.reintentarAudios(db)).catch((e) => console.error('  audios:', e instanceof Error ? e.message : e)).finally(fin) }, 10 * 60_000).unref())
 
