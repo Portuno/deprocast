@@ -1,8 +1,0 @@
-{
-  "name": "uso-telefono",
-  "version": "0.1.0",
-  "description": "Lee cuánto tiempo pasó en cada app (Android, con el permiso Acceso a uso).",
-  "main": "index.ts",
-  "private": true,
-  "license": "MIT"
-}

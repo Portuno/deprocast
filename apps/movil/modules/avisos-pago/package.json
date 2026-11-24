@@ -1,8 +1,0 @@
-{
-  "name": "avisos-pago",
-  "version": "0.1.0",
-  "description": "Lee los avisos de las apps de pago y banco para el Monedero.",
-  "main": "index.ts",
-  "private": true,
-  "license": "MIT"
-}

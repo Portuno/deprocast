@@ -127,37 +127,11 @@ test('la prueba de humo dice que no si el servidor no levanta; el diff sin git m
   assert.match(diffDe('nuevo.ts', null, 'hola\n'), /^--- \/dev\/null\n\+\+\+ b\/nuevo\.ts/)
 })
 
-test('#266: la copia de la nube para forjar lleva el código de la app nativa (su test compara la conciencia acústica), sin dist ni node_modules', async () => {
-  const { prepararCopia, borrarCopia } = await import('../src/fragua-nube.ts')
-  const fs = await import('node:fs')
-  const os = await import('node:os')
-  const path = await import('node:path')
-  const origen = fs.mkdtempSync(path.join(os.tmpdir(), 'forja-origen-'))
-  for (const f of ['src/conciencia/acustica.ts', 'apps/movil/src/conciencia/acustica.ts', 'apps/movil/dist/bundle.js', 'apps/movil/App.tsx', 'test/movil.test.ts']) {
-    fs.mkdirSync(path.dirname(path.join(origen, f)), { recursive: true })
-    fs.writeFileSync(path.join(origen, f), 'x')
-  }
-  const destino = path.join(os.tmpdir(), `forja-copia-${Date.now()}`)
-  prepararCopia(origen, destino)
-  assert.ok(fs.existsSync(path.join(destino, 'apps/movil/src/conciencia/acustica.ts')))
-  assert.ok(!fs.existsSync(path.join(destino, 'apps/movil/dist')), 'lo armado no viaja')
-  borrarCopia(destino)
-})
-
-test('Mobile 1.0 · bloque 5: todo archivo de la app móvil que leen los tests viaja en la copia que se forja en la nube (si falta uno, falla acá y no en cada forja)', async () => {
+test('Mobile 2.0: la app móvil vive en su propio repo: ningún test de acá la lee y la copia de la nube no la lleva', async () => {
   const { COPIAR } = await import('../src/fragua-nube.ts')
   const fs = await import('node:fs')
-  const cubierto = (ruta: string) => COPIAR.some((c) => ruta === c || ruta.startsWith(`${c}/`))
-  const leidos = new Set<string>()
-  for (const f of fs.readdirSync('test').filter((x) => x.endsWith('.ts'))) {
-    for (const m of fs.readFileSync(`test/${f}`, 'utf8').matchAll(/['"`](?:\.\.\/)?(apps\/movil\/[\w./${}-]+)/g)) {
-      if (/\/dist(\/|$)/.test(m[1])) continue // lo armado no viaja a propósito (el test de #266 lo verifica)
-      // Una ruta con ${…} (armada en el test) vale por su carpeta.
-      leidos.add(m[1].includes('${') ? m[1].slice(0, m[1].indexOf('${')).replace(/\/[^/]*$/, '') : m[1])
-    }
-  }
-  assert.ok(leidos.size >= 5, [...leidos].join(', '))
-  for (const r of leidos) assert.ok(cubierto(r), `los tests leen ${r}, pero la copia de la nube no lo lleva (sumalo a COPIAR)`)
+  assert.ok(!COPIAR.some((c) => c.startsWith('apps/')), 'la copia no lleva la app')
+  for (const f of fs.readdirSync('test').filter((x) => x.endsWith('.ts'))) assert.doesNotMatch(fs.readFileSync(`test/${f}`, 'utf8'), /\.\.\/apps\/movil\//, `${f} lee la app`)
   assert.ok(!COPIAR.some((c) => /node_modules|dist/.test(c)), 'nada armado ni dependencias')
 })
 

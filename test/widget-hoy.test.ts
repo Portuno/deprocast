@@ -4,9 +4,6 @@ import { abrir, fechaLocal } from '../src/db.ts'
 import { crearMision } from '../src/misiones.ts'
 import { _probarAvisos, ahoraEnDosLineas, proximosAvisos } from '../src/avisos-movil.ts'
 
-// Con la ruta en una variable: Node lo carga, y tsc no lo mezcla con el servidor (la app no es ESM).
-const atajo: any = await import(`../apps/movil/src/logica/${'atajo'}.ts`)
-
 test('Mobile · el widget: lo de ahora en dos líneas (la banda en curso, lo que sigue, lo próximo de la agenda)', async () => {
   const db = abrir(':memory:')
   const hoy = new Date(); hoy.setHours(10, 5, 0, 0)
@@ -29,9 +26,4 @@ test('Mobile · el widget: lo de ahora en dos líneas (la banda en curso, lo que
   assert.deepEqual(ahoraEnDosLineas(db, T), { titulo: 'Escribir el mail', sub: 'Hasta las 10:25 · 0 de 2 bandas hechas' })
   assert.deepEqual(ahoraEnDosLineas(db, T + 22 * 60_000), { titulo: 'Lo que sigue: Revisar el contrato', sub: 'A las 10:30 · 0 de 2 hechas' })
 
-  // Los botones del widget abren la app en su pestaña.
-  assert.equal(atajo.pestanaDelLink('deprocast://validar'), 'validar')
-  assert.equal(atajo.pestanaDelLink('deprocast://hoy'), 'hoy')
-  assert.equal(atajo.pestanaDelLink('deprocast://dictar'), null, 'dictar va por su propio camino')
-  assert.equal(atajo.pestanaDelLink(null), null)
 })
