@@ -2069,6 +2069,15 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
       const b = JSON.parse((await leerCrudo(req, 16 * 1024)).toString('utf8') || '{}')
       return responder(200, { guardado: (await import('./contexto-telefono.ts')).recibirContexto(db, `disp:${disp.id}`, b) })
     }
+    // Mobile 2.4: quién te llama y quién te escribe (nunca lo que se dice).
+    if (ruta === 'llamadas' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 1024 * 1024)).toString('utf8') || '{}')
+      return responder(200, { nuevas: await (await import('./comunicaciones.ts')).recibirLlamadas(db, `disp:${disp.id}`, b.llamadas) })
+    }
+    if (ruta === 'recibidos' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 1024 * 1024)).toString('utf8') || '{}')
+      return responder(200, { nuevos: await (await import('./comunicaciones.ts')).recibirMensajes(db, `disp:${disp.id}`, b.mensajes) })
+    }
     if (ruta === 'carga' && req.method === 'POST') {
       const b = JSON.parse((await leerCrudo(req, 512 * 1024)).toString('utf8') || '{}')
       return responder(200, { guardadas: (await import('./carga-telefono.ts')).recibirCarga(db, `disp:${disp.id}`, b.muestras) })

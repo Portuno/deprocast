@@ -9,7 +9,7 @@
  */
 
 /** Sube con cada ruta nueva o cambio compatible. */
-export const VERSION = 5
+export const VERSION = 6
 
 export type Ruta = {
   /** Lo que va después de /api/dispositivo/. «:id» es un número; «:archivo», un nombre de archivo. */
@@ -60,6 +60,8 @@ export const RUTAS: Ruta[] = [
   { ruta: 'sueno', metodo: 'POST', para: 'Lo que soñaste', pide: '{ texto, despertar?: HH:MM, fecha? }', da: '{ id, fecha }', desde: '2.1' },
   { ruta: 'escuchas', metodo: 'POST', para: 'Lo que sonó en las apps de música (de sus avisos de reproducción)', pide: '{ escuchas[{en, tema, artista, app?}] }', da: '{ nuevas }', desde: '2.3' },
   { ruta: 'contexto', metodo: 'POST', para: 'A qué wifi y a qué audio Bluetooth estaba conectado (cuando cambia)', pide: '{ en, wifi: string|null, bt: string[] }', da: '{ guardado }', desde: '2.3' },
+  { ruta: 'llamadas', metodo: 'POST', para: 'Las llamadas del registro (quién, cuándo, cuánto, de qué tipo; nunca lo hablado)', pide: '{ llamadas[{en, numero?, nombre?, tipo: entrante|saliente|perdida|rechazada, duracionS}] }', da: '{ nuevas }', desde: '2.4' },
+  { ruta: 'recibidos', metodo: 'POST', para: 'Quién te escribió (de los avisos de las apps de mensajería; nunca el texto)', pide: '{ mensajes[{en, app, remitente, conversacion?, grupo}] }', da: '{ nuevos }', desde: '2.4' },
   { ruta: 'diario', metodo: 'GET', para: 'El Diario del día: todo lo capturado en una línea', pide: '?fecha=AAAA-MM-DD', da: 'DiarioDia { fecha, resumen, momentos, pasosPorHora, mapa }', desde: '2.2' },
 ]
 

@@ -13,7 +13,7 @@ import { metros } from './ubicacion.ts'
 
 export type Momento = {
   en: number
-  tipo: 'sueno' | 'sonado' | 'evento' | 'parada' | 'trayecto' | 'foto' | 'charla' | 'comida' | 'ejercicio' | 'animo' | 'salud' | 'gasto' | 'musica' | 'bluetooth'
+  tipo: 'sueno' | 'sonado' | 'evento' | 'parada' | 'trayecto' | 'foto' | 'charla' | 'comida' | 'ejercicio' | 'animo' | 'salud' | 'gasto' | 'musica' | 'bluetooth' | 'llamada' | 'mensajes'
   icono: string
   titulo: string
   sub: string | null
@@ -22,7 +22,7 @@ export type Momento = {
   lon?: number | null
   foto?: string | null
 }
-export type Resumen = { pasos: number; km: number; pantallaMin: number | null; desbloqueos: number | null; suenoHoras: number | null; animo: number | null; gastos: number; fotos: number; charlas: number; paradas: number; mensajes: number }
+export type Resumen = { llamadas: number; recibidos: number; pasos: number; km: number; pantallaMin: number | null; desbloqueos: number | null; suenoHoras: number | null; animo: number | null; gastos: number; fotos: number; charlas: number; paradas: number; mensajes: number }
 export type DiarioDia = { fecha: string; resumen: Resumen; momentos: Momento[]; pasosPorHora: number[]; mapa: { puntos: [number, number][]; paradas: { lat: number; lon: number; n: number; lugar: string | null }[] } }
 
 const MIN = 60_000
@@ -152,6 +152,29 @@ export async function diarioDelDia(db: Db, fecha = fechaLocal(), o: { agenda?: b
     }
   }
 
+  // ─── quién te llamó y quién te escribió (Mobile 2.4): cada llamada, y los mensajes por hora ───
+  let llamadas = 0, recibidos = 0
+  if (existe(db, 'llamadas_telefono')) {
+    const { llamadasEntre, recibidosEntre } = await import('./comunicaciones.ts')
+    for (const l of llamadasEntre(db, a, b)) {
+      llamadas++
+      const quien = l.nombre ?? l.numero ?? 'Número oculto'
+      const icono = l.tipo === 'perdida' || l.tipo === 'rechazada' ? '📵' : l.tipo === 'saliente' ? '📞' : '📲'
+      momentos.push({ en: l.en, hasta: l.en + l.duracionS * 1000, tipo: 'llamada', icono, titulo: quien, sub: l.tipo === 'perdida' ? 'Perdida' : l.tipo === 'rechazada' ? 'Rechazada' : `${l.tipo === 'saliente' ? 'Llamaste' : 'Te llamó'} · ${l.duracionS >= 60 ? dur(Math.round(l.duracionS / 60)) : `${l.duracionS} s`}` })
+    }
+    const xs = recibidosEntre(db, a, b)
+    const porHora = new Map<number, typeof xs>()
+    recibidos = xs.length
+    for (const m of xs) { const h = Math.floor(m.en / 3_600_000); porHora.set(h, [...(porHora.get(h) ?? []), m]) }
+    for (const [, ms] of porHora) {
+      const cuenta = new Map<string, number>()
+      for (const m of ms) { const k = m.grupo && m.conversacion ? m.conversacion : m.remitente; cuenta.set(k, (cuenta.get(k) ?? 0) + 1) }
+      const quienes = [...cuenta].sort((x, y) => y[1] - x[1]).map(([k, n]) => (n > 1 ? `${k} (${n})` : k))
+      const apps = [...new Set(ms.map((m) => m.app))]
+      momentos.push({ en: ms[0].en, hasta: ms.at(-1)!.en, tipo: 'mensajes', icono: '💬', titulo: `${ms.length} mensaje${ms.length === 1 ? '' : 's'} · ${apps.join(', ')}`, sub: recorte(quienes.join(', '), 200) })
+    }
+  }
+
   // ─── la agenda (de la red: si no contesta, sigue sin ella) ───
   if (o.agenda !== false) {
     try {
@@ -168,6 +191,7 @@ export async function diarioDelDia(db: Db, fecha = fechaLocal(), o: { agenda?: b
   const uso = await import('./uso-telefono.ts').then((u) => u.usoDelDia(db, fecha)).catch(() => null)
   const mensajes = (db.prepare(`SELECT COUNT(*) AS n FROM mensajes WHERE rol = 'operador' AND en >= ? AND en < ?`).get(a, b) as { n: number }).n
   const resumen: Resumen = {
+    llamadas, recibidos,
     pasos: Math.max(act?.pasos ?? 0, pasosPorHora.reduce((s, x) => s + x, 0)),
     km: distanciaKm(puntos),
     pantallaMin: uso?.hayDatos ? uso.pantallaMin : null,

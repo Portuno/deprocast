@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "base": "/api/dispositivo/",
   "autenticacion": "Authorization: Bearer dpd_… (salvo vincular)",
   "rutas": [
@@ -252,6 +252,22 @@
       "pide": "{ en, wifi: string|null, bt: string[] }",
       "da": "{ guardado }",
       "desde": "2.3"
+    },
+    {
+      "ruta": "llamadas",
+      "metodo": "POST",
+      "para": "Las llamadas del registro (quién, cuándo, cuánto, de qué tipo; nunca lo hablado)",
+      "pide": "{ llamadas[{en, numero?, nombre?, tipo: entrante|saliente|perdida|rechazada, duracionS}] }",
+      "da": "{ nuevas }",
+      "desde": "2.4"
+    },
+    {
+      "ruta": "recibidos",
+      "metodo": "POST",
+      "para": "Quién te escribió (de los avisos de las apps de mensajería; nunca el texto)",
+      "pide": "{ mensajes[{en, app, remitente, conversacion?, grupo}] }",
+      "da": "{ nuevos }",
+      "desde": "2.4"
     },
     {
       "ruta": "diario",

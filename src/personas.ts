@@ -9,6 +9,7 @@
 import { fechaLocal, type Db } from './db.ts'
 import { asegurarEntidad, coocurrencias } from './entidades.ts'
 import { entidadDelJugador } from './personajes.ts'
+import { ultimosContactos } from './comunicaciones.ts'
 
 export const VINCULOS = ['familia', 'pareja', 'amistad', 'trabajo', 'proyecto', 'mentor', 'contacto'] as const
 export const CLASES_PERSONA = ['fisica', 'juridica', 'ficticia'] as const
@@ -181,6 +182,8 @@ export function personas(db: Db, f: FiltroPersonas = {}, ahora = Date.now()): Pe
     .all(...[yo ?? -1, ...(f.id ? [f.id] : []), ...(f.q ? [`%${f.q}%`, `%${f.q}%`] : [])]) as any[]
   const corpus = delCorpus(db)
   const chat = delChat(db, ahora)
+  // Mobile 2.4: las llamadas y los mensajes del teléfono también son contacto.
+  const telefono = (() => { try { return ultimosContactos(db) } catch { return new Map<number, string>() } })()
   const enProyectos = proyectosPorPersona(db)
   let ps: Persona[] = filas.map((r) => {
     const c = corpus.get(r.id)
@@ -188,7 +191,7 @@ export function personas(db: Db, f: FiltroPersonas = {}, ahora = Date.now()): Pe
     const pila = r.nombre.split(/\s+/)[0].toLowerCase()
     const enChat = pila.length >= 4 ? chat.get(palabras(pila).find(Boolean) ?? pila) : undefined
     const vecesChat = enChat?.veces ?? 0
-    const ultimo = [r.ultimo_contacto, c?.propia ?? null, enChat?.ultima ?? null].filter((x): x is string => !!x).sort().at(-1) ?? null
+    const ultimo = [r.ultimo_contacto, c?.propia ?? null, enChat?.ultima ?? null, telefono.get(r.id) ?? null].filter((x): x is string => !!x).sort().at(-1) ?? null
     const sin = ultimo ? dias(ultimo, hoy) : null
     const menciones = c?.menciones ?? 0
     const nivel = r.nivel ?? null
