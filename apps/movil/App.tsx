@@ -1,10 +1,11 @@
 /**
- * Deprocast en el teléfono (plan v33, paso 2). Desde Mobile 1.1 la escucha es de la app (EscuchaGlobal): sigue viva al cambiar de pestaña.
- * Sin vincular: la pantalla de Vincular. Vinculado: Hoy (el chat,
- * local-first), Escucha (la conciencia acústica) y Mapa (el recorrido, aparte de la escucha desde 1.0.1). El menú ⋯: Captura y permisos (Mobile 1.0) y Desvincular (borra el token
- * y todo lo guardado en el teléfono).
- * Mobile 1.3: «Compartir → Deprocast» desde cualquier app abre la pantalla Compartir; al abrir se registran la tarea de
- * fondo (pasos, uso del teléfono y avisos) y los avisos.
+ * Deprocast en el teléfono. Mobile 2.0: la navegación se rehace alrededor de un menú directo.
+ * - Abajo, cuatro botones fijos: Hoy (el chat), Mapa, Escucha y Menú.
+ * - El Menú tiene todos los módulos a un toque, cada uno con su estado en una línea (Validar, Actividad, Audios,
+ *   Captura y permisos…) y lo del teléfono (sincronización, desvincular).
+ * La escucha sigue siendo de la app (EscuchaGlobal): no se apaga al cambiar de módulo, y el botón de Escucha lo dice con
+ * un punto (dorado escuchando, rojo grabando).
+ * Sin vincular: Vincular; recién vinculado: Rescate; lo que llega por «Compartir → Deprocast», Compartir.
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Linking, Pressable, StyleSheet, Text, View } from 'react-native'
@@ -18,8 +19,6 @@ import { sincronizar, useSincronizacion } from './src/sincronizar'
 import { recuperarTramos } from './src/tramos'
 import { registrarCapas } from './src/capas'
 import { registrarCaptura } from './src/captura'
-import { Captura } from './src/pantallas/Captura'
-import { Mapa } from './src/pantallas/Mapa'
 import { registrarRecorrido } from './src/recorrido'
 import { registrarArchivos } from './src/archivos'
 import { registrarPasos } from './src/pasos'
@@ -27,25 +26,28 @@ import { registrarFondo } from './src/fondo'
 import { registrarAvisos } from './src/avisos'
 import { registrarPagos } from './src/pagos'
 import { subirUsoTelefono } from './src/uso'
+import { borrarCarpetaAudios } from './src/audios'
+import { Captura } from './src/pantallas/Captura'
+import { Mapa } from './src/pantallas/Mapa'
 import { Compartir } from './src/pantallas/Compartir'
 import { Validar } from './src/pantallas/Validar'
-import { Cartel } from './src/cartel'
 import { Vincular } from './src/pantallas/Vincular'
 import { Hoy } from './src/pantallas/Hoy'
 import { Escucha } from './src/pantallas/Escucha'
-import { EscuchaGlobal } from './src/escuchaGlobal'
 import { Rescate } from './src/pantallas/Rescate'
+import { Menu } from './src/pantallas/Menu'
+import { Actividad } from './src/pantallas/Actividad'
+import { Audios } from './src/pantallas/Audios'
+import { Cartel } from './src/cartel'
+import { EscuchaGlobal, useEscuchaGlobal } from './src/escuchaGlobal'
+import { type Modulo, MODULOS, BARRA } from './src/modulos'
 import { ESP, LETRA, TOQUE, useTema } from './src/tema'
-
-type Pestana = 'hoy' | 'validar' | 'escucha' | 'mapa'
-const NOMBRE_PESTANA: Record<Pestana, string> = { hoy: 'Hoy', validar: 'Validar', escucha: 'Escucha', mapa: 'Mapa' }
 
 export default function App() {
   const t = useTema()
   const [c, setC] = useState<Credenciales | null | undefined>(undefined)
-  const [pestana, setPestana] = useState<Pestana>('hoy')
+  const [modulo, setModulo] = useState<Modulo>('hoy')
   const [rescate, setRescate] = useState(false)
-  const [verCaptura, setVerCaptura] = useState(false)
   // La confirmación de lo compartido (Fragua #313): un cartel arriba que se va solo, no un diálogo que tapa Hoy.
   const [cartel, setCartel] = useState<string | null>(null)
   const cerrarCartel = useCallback(() => setCartel(null), [])
@@ -55,10 +57,10 @@ export default function App() {
   const [dictar, setDictar] = useState(0)
   useEffect(() => {
     const ver = (url: string | null | undefined) => {
-      if (esPedidoDeDictado(url)) { setPestana('hoy'); setVerCaptura(false); setDictar(Date.now()); return }
+      if (esPedidoDeDictado(url)) { setModulo('hoy'); setDictar(Date.now()); return }
       // El widget: Validar abre la tanda; tocarlo, Hoy.
       const p = pestanaDelLink(url)
-      if (p) { setPestana(p); setVerCaptura(false) }
+      if (p) setModulo(p)
     }
     void Linking.getInitialURL().then(ver).catch(() => {})
     const x = Linking.addEventListener('url', (e) => ver(e.url))
@@ -68,7 +70,7 @@ export default function App() {
   useEffect(() => { void leerCredenciales().then(setC) }, [])
   // Un teléfono recién vinculado (o que quedó a mitad) pasa primero por el rescate. Sin red, se sigue y se pregunta después.
   useEffect(() => { if (c) void estadoRescate(c).then((r) => setRescate(r.estado === 'rescate')).catch(() => {}) }, [c])
-  // La sincronización es de la app, no de una pantalla (Mobile 1.0): corre en Hoy y en Escucha por igual.
+  // La sincronización es de la app, no de una pantalla (Mobile 1.0).
   const hayPendientes = useCallback(async () => { const n = await cuantoEnCola(); return n.textos + n.voces > 0 }, [])
   useSincronizacion(c && !rescate ? c : null, hayPendientes)
   // Al abrir: lo que quedó a medias (la app se cerró grabando) vuelve a la cola, y las capas salen con cada sincronización.
@@ -85,14 +87,9 @@ export default function App() {
     void recuperarTramos().then((n) => { if (n) void sincronizar(c) }).catch(() => {})
   }, [c])
 
-  const menu = () => Alert.alert(c?.nombre ?? 'Este teléfono', undefined, [
-    { text: 'Captura y permisos', onPress: () => setVerCaptura(true) },
-    { text: 'Desvincular', style: 'destructive', onPress: desvincular },
+  const desvincular = () => Alert.alert('¿Desvincular este teléfono?', 'Se borra el token y todo lo guardado acá, audios incluidos. En Deprocast, revocalo también en Apps conectadas.', [
     { text: 'Cancelar', style: 'cancel' },
-  ])
-  const desvincular = () => Alert.alert('¿Desvincular este teléfono?', 'Se borra el token y todo lo guardado acá. En Deprocast, revocalo también en Apps conectadas.', [
-    { text: 'Cancelar', style: 'cancel' },
-    { text: 'Desvincular', style: 'destructive', onPress: async () => { await olvidarCredenciales(); await borrarTodo(); setC(null) } },
+    { text: 'Desvincular', style: 'destructive', onPress: async () => { await olvidarCredenciales(); await borrarTodo(); borrarCarpetaAudios(); setC(null) } },
   ])
 
   if (c === undefined) return <View style={{ flex: 1, backgroundColor: t.fondo }} />
@@ -102,18 +99,20 @@ export default function App() {
     <SafeAreaView edges={['top', 'bottom', 'left', 'right']} style={[s.raiz, { backgroundColor: t.fondo }]}>
       <StatusBar style="auto" />
       {!c ? <Vincular alVincular={(x) => { setC(x); setRescate(true) }} /> : rescate ? <Rescate c={c} alTerminar={() => setRescate(false)} /> : items.length ? (
-        <Compartir c={c} items={items} resolviendo={compartido.isResolving} listo={(m) => { compartido.clearSharedPayloads(); setPestana('hoy'); setCartel(m) }} />
-      ) : verCaptura ? <Captura cerrar={() => { setVerCaptura(false); void registrarFondo(); if (c) void registrarAvisos(c).catch(() => {}) }} /> : (
+        <Compartir c={c} items={items} resolviendo={compartido.isResolving} listo={(m) => { compartido.clearSharedPayloads(); setModulo('hoy'); setCartel(m) }} />
+      ) : (
         <EscuchaGlobal c={c}>
-          <View style={[s.barra, { borderColor: t.linea }]}>
-            {(['hoy', 'validar', 'escucha', 'mapa'] as const).map((p) => (
-              <Pressable key={p} onPress={() => setPestana(p)} style={[s.pestana, pestana === p && { borderColor: t.acento }]} accessibilityRole="tab" accessibilityState={{ selected: pestana === p }}>
-                <Text style={[LETRA.cuerpo, { color: pestana === p ? t.texto : t.tenue, fontWeight: '600' }]}>{NOMBRE_PESTANA[p]}</Text>
-              </Pressable>
-            ))}
-            <Pressable onPress={menu} style={s.menu} accessibilityLabel="Menú: captura y permisos, desvincular"><Text style={[LETRA.chica, { color: t.tenue }]} numberOfLines={1}>{c.nombre} ⋯</Text></Pressable>
+          <View style={s.cuerpo}>
+            {modulo === 'hoy' ? <Hoy c={c} irA={setModulo} dictar={dictar} />
+              : modulo === 'mapa' ? <Mapa c={c} />
+              : modulo === 'escucha' ? <Escucha c={c} />
+              : modulo === 'validar' ? <Validar c={c} />
+              : modulo === 'actividad' ? <Actividad irA={setModulo} />
+              : modulo === 'audios' ? <Audios />
+              : modulo === 'captura' ? <Captura cerrar={() => { setModulo('menu'); void registrarFondo(); void registrarAvisos(c).catch(() => {}) }} />
+              : <Menu c={c} irA={setModulo} desvincular={desvincular} />}
           </View>
-          {pestana === 'hoy' ? <Hoy c={c} irAEscucha={() => setPestana('escucha')} dictar={dictar} /> : pestana === 'validar' ? <Validar c={c} /> : pestana === 'escucha' ? <Escucha c={c} /> : <Mapa c={c} />}
+          <Barra actual={modulo} irA={setModulo} />
         </EscuchaGlobal>
       )}
     </SafeAreaView>
@@ -122,9 +121,34 @@ export default function App() {
   )
 }
 
+/** Los cuatro botones de abajo. Un módulo que no está en la barra ilumina «Menú». */
+function Barra({ actual, irA }: { actual: Modulo; irA: (m: Modulo) => void }) {
+  const t = useTema()
+  const e = useEscuchaGlobal()
+  return (
+    <View style={[s.barra, { borderColor: t.linea, backgroundColor: t.panel }]} accessibilityRole="tablist">
+      {BARRA.map((m) => {
+        const activo = actual === m || (m === 'menu' && !BARRA.includes(actual))
+        const punto = m === 'escucha' && e.activa ? (e.grabando ? t.mal : t.acento) : null
+        return (
+          <Pressable key={m} onPress={() => irA(m)} style={s.boton} accessibilityRole="tab" accessibilityState={{ selected: activo }} accessibilityLabel={MODULOS[m].nombre}>
+            <View>
+              <Text style={[LETRA.titulo, s.icono, { opacity: activo ? 1 : 0.55 }]}>{MODULOS[m].icono}</Text>
+              {punto ? <View style={[s.punto, { backgroundColor: punto, borderColor: t.panel }]} /> : null}
+            </View>
+            <Text style={[LETRA.chica, { color: activo ? t.acento : t.tenue, fontWeight: activo ? '700' : '500' }]}>{MODULOS[m].nombre}</Text>
+          </Pressable>
+        )
+      })}
+    </View>
+  )
+}
+
 const s = StyleSheet.create({
   raiz: { flex: 1 },
-  barra: { flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, paddingHorizontal: ESP(2) },
-  pestana: { minHeight: TOQUE, justifyContent: 'center', paddingHorizontal: ESP(3), borderBottomWidth: 2, borderColor: 'transparent' },
-  menu: { marginLeft: 'auto', minHeight: TOQUE, justifyContent: 'center', paddingHorizontal: ESP(3), flexShrink: 1 },
+  cuerpo: { flex: 1 },
+  barra: { flexDirection: 'row', borderTopWidth: 1 },
+  boton: { flex: 1, minHeight: TOQUE + ESP(4), alignItems: 'center', justifyContent: 'center', paddingVertical: ESP(1) },
+  icono: { textAlign: 'center' },
+  punto: { position: 'absolute', top: 0, right: -ESP(2), width: ESP(3), height: ESP(3), borderRadius: ESP(2), borderWidth: 2 },
 })

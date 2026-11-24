@@ -28,6 +28,8 @@ async function base(): Promise<SQLite.SQLiteDatabase> {
       CREATE TABLE IF NOT EXISTS archivos_cola (id TEXT PRIMARY KEY, uri TEXT NOT NULL, nombre TEXT NOT NULL, tipo TEXT NOT NULL, nota TEXT, en INTEGER, lat REAL, lon REAL, intentos INTEGER NOT NULL DEFAULT 0, error TEXT);
       CREATE TABLE IF NOT EXISTS pasos_dia (fecha TEXT PRIMARY KEY, pasos INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS pasos_hora (hora TEXT PRIMARY KEY, pasos INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS audios (id TEXT PRIMARY KEY, uri TEXT NOT NULL, inicio INTEGER NOT NULL, fin INTEGER, modo TEXT NOT NULL, texto TEXT, destino TEXT, hablante TEXT, bytes INTEGER NOT NULL DEFAULT 0, lat REAL, lon REAL);
+      CREATE INDEX IF NOT EXISTS audios_inicio ON audios (inicio);
     `)
     // Columnas nuevas (1.0) sobre una base que ya existía: si ya están, el ALTER falla y no pasa nada.
     for (const sql of ['ALTER TABLE cola ADD COLUMN clave TEXT', 'ALTER TABLE voz_cola ADD COLUMN intentos INTEGER NOT NULL DEFAULT 0']) {
@@ -158,7 +160,7 @@ export async function sacarMinutos(minutos: number[]) {
 
 /** Al desvincular: se borra todo lo local. */
 export async function borrarTodo() {
-  await (await base()).execAsync('DELETE FROM mensajes; DELETE FROM cola; DELETE FROM estado; DELETE FROM voz_cola; DELETE FROM tramos_en_curso; DELETE FROM capas_cola; DELETE FROM pasos_dia; DELETE FROM pasos_hora;')
+  await (await base()).execAsync('DELETE FROM mensajes; DELETE FROM cola; DELETE FROM estado; DELETE FROM voz_cola; DELETE FROM tramos_en_curso; DELETE FROM capas_cola; DELETE FROM pasos_dia; DELETE FROM pasos_hora; DELETE FROM audios;')
 }
 
 // ─── Mobile 1.2: la actividad, la cola de archivos y los pasos ──────────
@@ -202,3 +204,18 @@ export const pasosHoraDesde = async (desde: string) => (await base()).getAllAsyn
 export const pasosPorHora = async (fecha: string) => (await base()).getAllAsync<{ hora: string; pasos: number }>('SELECT hora, pasos FROM pasos_hora WHERE hora LIKE ?', fecha + '%')
 export const pasosDe = async (fecha: string) => ((await (await base()).getFirstAsync<{ pasos: number }>('SELECT pasos FROM pasos_dia WHERE fecha = ?', fecha))?.pasos ?? 0)
 export const pasosRecientes = async (dias = 3) => (await base()).getAllAsync<{ fecha: string; pasos: number }>('SELECT fecha, pasos FROM pasos_dia ORDER BY fecha DESC LIMIT ?', dias)
+/** Las horas con pasos entre dos fechas ('AAAA-MM-DD', las dos incluidas): para ubicar los pasos en el mapa. */
+export const pasosHoraEntre = async (desde: string, hasta: string) => (await base()).getAllAsync<{ hora: string; pasos: number }>('SELECT hora, pasos FROM pasos_hora WHERE hora >= ? AND hora <= ? ORDER BY hora', `${desde}T00`, `${hasta}T23`)
+
+// ─── Mobile 2.0: los audios quedan en el teléfono ───────────────────────
+export type AudioGuardado = { id: string; uri: string; inicio: number; fin: number | null; modo: string; texto: string | null; destino: string | null; hablante: string | null; bytes: number; lat: number | null; lon: number | null }
+export async function anotarAudio(a: AudioGuardado) {
+  await (await base()).runAsync('INSERT OR REPLACE INTO audios (id, uri, inicio, fin, modo, texto, destino, hablante, bytes, lat, lon) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', a.id, a.uri, a.inicio, a.fin, a.modo, a.texto, a.destino, a.hablante, a.bytes, a.lat, a.lon)
+}
+export const leerAudios = async (o: { desde?: number; limite?: number } = {}) => (await base()).getAllAsync<AudioGuardado>('SELECT * FROM audios WHERE inicio >= ? ORDER BY inicio DESC LIMIT ?', o.desde ?? 0, o.limite ?? 200)
+export const audiosAntesDe = async (t: number) => (await base()).getAllAsync<AudioGuardado>('SELECT * FROM audios WHERE inicio < ?', t)
+export async function olvidarAudio(id: string) { await (await base()).runAsync('DELETE FROM audios WHERE id = ?', id) }
+export async function resumenAudios(): Promise<{ n: number; bytes: number; desde: number | null }> {
+  const r = await (await base()).getFirstAsync<{ n: number; bytes: number | null; desde: number | null }>('SELECT COUNT(*) AS n, SUM(bytes) AS bytes, MIN(inicio) AS desde FROM audios')
+  return { n: r?.n ?? 0, bytes: r?.bytes ?? 0, desde: r?.desde ?? null }
+}

@@ -74,11 +74,11 @@ export function puntosEntre(db: Db, desde: number, hasta: number): Punto[] {
 }
 
 /** Los lugares suyos con coordenadas (entidades tipo lugar). */
-export function lugaresConCoordenadas(db: Db): { id: number; nombre: string; lat: number; lon: number }[] {
+export function lugaresConCoordenadas(db: Db): { id: number; nombre: string; lat: number; lon: number; tipo: string | null }[] {
   return (db.prepare(`SELECT id, nombre, meta FROM entidades WHERE tipo = 'lugar'`).all() as { id: number; nombre: string; meta: string | null }[])
     .map((l) => ({ id: l.id, nombre: l.nombre, m: json<any>(l.meta, {}) }))
     .filter((l) => Number.isFinite(Number(l.m.lat)) && Number.isFinite(Number(l.m.lon)))
-    .map((l) => ({ id: l.id, nombre: l.nombre, lat: Number(l.m.lat), lon: Number(l.m.lon) }))
+    .map((l) => ({ id: l.id, nombre: l.nombre, lat: Number(l.m.lat), lon: Number(l.m.lon), tipo: typeof l.m.clase === 'string' ? l.m.clase : null }))
 }
 
 /** Dónde estaba a una hora: el punto más cercano en ±10 minutos y, si hay un lugar suyo a 200 m, su nombre. */
@@ -157,12 +157,17 @@ export async function buscarPorLugar(db: Db, que: string, o: { radio?: number; d
 // ─── lugares como entidad ───────────────────────────────────────────────
 
 /** Un lugar suyo con nombre y coordenadas (nuevo, o le pone coordenadas a uno que ya existía). */
-export async function guardarLugar(db: Db, l: { nombre: string; lat: number; lon: number; direccion?: string | null; nota?: string | null }, ahora = Date.now()) {
+/** Las clases de lugar que se marcan desde el mapa del teléfono (Mobile 2.0). */
+export const TIPOS_LUGAR = ['casa', 'trabajo', 'empresa', 'destino', 'frecuente', 'otro'] as const
+
+export async function guardarLugar(db: Db, l: { nombre: string; lat: number; lon: number; direccion?: string | null; nota?: string | null; tipo?: string | null }, ahora = Date.now()) {
   if (!l.nombre.trim() || !Number.isFinite(l.lat) || !Number.isFinite(l.lon)) throw new Error('Un lugar necesita nombre y coordenadas.')
   const { asegurarEntidad } = await import('./entidades.ts')
   const id = asegurarEntidad(db, { tipo: 'lugar', nombre: l.nombre.trim().slice(0, 100), notas: l.nota ?? null, meta: { lat: l.lat, lon: l.lon, ...(l.direccion ? { direccion: l.direccion } : {}) } }, ahora)
   db.prepare(`UPDATE entidades SET meta = json_set(json_set(COALESCE(meta, '{}'), '$.lat', ?), '$.lon', ?) WHERE id = ?`).run(l.lat, l.lon, id)
-  return { id, nombre: l.nombre.trim() }
+  const tipo = (TIPOS_LUGAR as readonly string[]).includes(String(l.tipo)) ? String(l.tipo) : null
+  if (tipo) db.prepare(`UPDATE entidades SET meta = json_set(COALESCE(meta, '{}'), '$.clase', ?) WHERE id = ?`).run(tipo, id)
+  return { id, nombre: l.nombre.trim(), tipo }
 }
 
 /** Las paradas que se repiten (3 días distintos o más en el último mes) y no tienen nombre: para que les ponga uno. */

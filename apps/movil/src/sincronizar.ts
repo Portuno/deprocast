@@ -14,6 +14,7 @@ import { AppState } from 'react-native'
 import { ErrorApi, mandarMensaje, subirVoz, traerHoy, traerMarca, type Credenciales } from './api'
 import { anotarError, cola, colaVoz, estadoSincro, guardarPaquete, sacarDeCola, sacarVoz, sumarIntento } from './almacen'
 import { claseDe, unaALaVez } from './logica/sincro'
+import { archivar } from './audios'
 
 export type Subido = { id: string | undefined; modo: string; texto: string; destino?: string }
 export type Resultado = { ok: boolean; error?: string; subidos: Subido[]; descartados: number }
@@ -60,12 +61,14 @@ async function vaciarVoces(c: Credenciales, puedeSubirAudio: () => Promise<boole
     const meta = JSON.parse(v.meta)
     try {
       const r = await subirVoz(c, v.uri, meta)
-      // Borrado local recién cuando el servidor confirmó.
-      await sacarVoz(v.id); borrar()
+      // Mobile 2.0: ya no se borra. Cuando el servidor confirmó, el audio se muda al archivo del teléfono (audios.ts).
+      await sacarVoz(v.id)
+      await archivar(v.uri, meta, r)
       subidos.push({ id: meta.id, modo: meta.modo, texto: r.texto, destino: r.destino })
     } catch (e) {
       const clase = claseDe(statusDe(e))
-      if (clase === 'descartar' || (statusDe(e) != null && v.intentos + 1 >= MAX_INTENTOS_VOZ)) { await sacarVoz(v.id); borrar(); descartados++; continue }
+      // Lo que el servidor rechaza (sin voz, roto) sale de la cola, pero el audio igual se guarda: puede servir después.
+      if (clase === 'descartar' || (statusDe(e) != null && v.intentos + 1 >= MAX_INTENTOS_VOZ)) { await sacarVoz(v.id); if (!(await archivar(v.uri, meta, null))) borrar(); descartados++; continue }
       if (statusDe(e) != null) await sumarIntento(v.id)
       error = mensajeDe(e)
       if (statusDe(e) == null) break // sin red: los demás tampoco van a salir ahora

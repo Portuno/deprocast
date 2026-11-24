@@ -13,6 +13,11 @@
  * Tu día en capas (plan v38, fase 6): cada minuto, cuánto hablaste, cuánto escuchaste, ruido y silencio, el nivel de tu
  * voz y del ambiente, los pasos y dónde estabas (el último punto del recorrido, si está prendido en la pestaña Mapa: la
  * ubicación va aparte desde 1.0.1). Solo números, a la cola en disco.
+ *
+ * Mobile 2.0: la conversación ya no es un interruptor. Por defecto (Auto) la escucha se da cuenta sola de que estás en una
+ * charla (logica/escucha.ts): graba la voz de los demás solo si hablaste hace poco, y un tramo con otra voz de verdad va
+ * como conversación (por turnos, con quién dijo qué). «Solo yo» y «Charla» quedan como preferencias fijas. Y el audio
+ * ya no se borra: después de subir, queda guardado en el teléfono (audios.ts).
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppState } from 'react-native'
@@ -32,6 +37,8 @@ import { capta } from './logica/captura'
 import { apagarAvisoEscucha, prenderAvisoEscucha, ultimoPunto } from './recorrido'
 import { ajustesCaptura } from './captura'
 import { corteEntre, resumenRetorno, sesionNueva, textoDeCierre, type Sesion } from './logica/vigia'
+import { cuentaComoVoz, enCharla, modoDelTramo, OTRA_VOZ_CONVERSACION, type Preferencia } from './logica/escucha'
+import { fijarAjuste, leerAjuste } from './almacen'
 
 export type Envio = { en: number; modo: string; texto: string | null; error?: string }
 const CUADRO_MS = 100
@@ -43,13 +50,17 @@ const FIN_CONV_MS = 800
 type Acumulado = { minuto: number; hablo: number; escucho: number; ruido: number; silencio: number; voz: number; vozN: number; cerca: number; cercaN: number; piso: number; pisoN: number; pasos0: number; caminando: number }
 const nuevoMinuto = (t: number, pasos: number): Acumulado => ({ minuto: Math.floor(t / 60_000) * 60_000, hablo: 0, escucho: 0, ruido: 0, silencio: 0, voz: 0, vozN: 0, cerca: 0, cercaN: 0, piso: 0, pisoN: 0, pasos0: pasos, caminando: 0 })
 const prom = (s: number, n: number) => (n ? Math.round((s / n) * 10) / 10 : null)
-type Tramo = { id: string; uri: string; inicio: number; ultimaVoz: number; dictado: number; escucha: number; ruido: number; voz: number; caminando: boolean; conv: boolean; grabando: Promise<unknown> }
+type Tramo = { id: string; uri: string; inicio: number; ultimaVoz: number; dictado: number; escucha: number; ruido: number; voz: number; otras: number; caminando: boolean; conv: boolean; grabando: Promise<unknown> }
+const CLAVE_PREF = 'escucha_preferencia'
 
 export function useEscucha(c: Credenciales | null) {
   const [activa, setActiva] = useState(false)
+  // Auto, Solo yo o Charla (queda guardada en el teléfono). «conversacion»: si ahora mismo está en una charla.
+  const [preferencia, setPref] = useState<Preferencia>('auto')
+  const prefRef = useRef<Preferencia>('auto')
+  useEffect(() => { void leerAjuste(CLAVE_PREF).then((v) => { if (v === 'auto' || v === 'yo' || v === 'charla') { prefRef.current = v; setPref(v) } }) }, [])
+  const setPreferencia = useCallback((p: Preferencia) => { prefRef.current = p; setPref(p); void fijarAjuste(CLAVE_PREF, p) }, [])
   const [conversacion, setConversacion] = useState(false)
-  const modoConv = useRef(false)
-  useEffect(() => { modoConv.current = conversacion }, [conversacion])
   const [ultimo, setUltimo] = useState(0)
   const [lectura, setLectura] = useState<Lectura | null>(null)
   // Lo que está haciendo, para decirlo claro (1.0.1): si está grabando un tramo, desde cuándo y a dónde va.
@@ -76,6 +87,8 @@ export function useEscucha(c: Credenciales | null) {
     pedSub: null as null | { remove: () => void }, pasosSensor: null as number | null,
     // La lectura se muestra a lo sumo dos veces por segundo (antes diez: la pantalla temblaba).
     pintadoEn: 0, estadoPintado: '',
+    // Mobile 2.0: la última vez que hablaste vos (para saber si estás en una charla) y lo último que se pintó.
+    ultimaVozPropia: null as number | null, charlaPintada: false,
   })
 
   // Lo que sube la sincronización de la app (de cualquier pantalla) aparece en «lo que se dijo».
@@ -111,8 +124,8 @@ export function useEscucha(c: Credenciales | null) {
     await tramo.grabando.catch(() => {})
     try { await stream.stopFileRecordingAsync() } catch { /* no había grabación: el archivo, si existe, lo recupera el próximo arranque */ }
     const dur = tramo.ultimaVoz - tramo.inicio
-    const modo = tramo.conv ? 'conversacion' as const : tramo.dictado >= tramo.escucha ? 'dictado' as const : 'pasivo' as const
-    const poca = tramo.conv ? tramo.voz < 4 : tramo.dictado + tramo.escucha < 4
+    const modo = modoDelTramo(prefRef.current, tramo)
+    const poca = modo === 'conversacion' ? tramo.voz < 4 : tramo.dictado + tramo.escucha < 4
     const ses = e.sesion
     if (dur < MIN_MS || poca || !c) {
       try { new File(tramo.uri).delete() } catch { /* ya no está */ }
@@ -152,9 +165,15 @@ export function useEscucha(c: Credenciales | null) {
     if (e.caminando) a.caminando++
     if (e.ocupado) return
     if (e.silenciada && !e.tramo) return // Mastropiero está hablando: no se empieza a grabar
-    // En conversación vale cualquier voz (la tuya y la de los demás); si no, solo tu voz directa.
-    const conv = modoConv.current
-    const hayVoz = conv ? r.voz >= 0.6 && l.snr >= 3 : l.fuente === 'voz_directa'
+    // Tu voz directa siempre; la de los demás, solo si estás en una charla (Auto: hablaste hace poco; Charla: siempre).
+    const pref = prefRef.current
+    const directa = l.fuente === 'voz_directa'
+    const otra = !directa && r.voz >= 0.6 && l.snr >= 3
+    if (directa) e.ultimaVozPropia = t
+    const charla = enCharla(pref, e.ultimaVozPropia, t)
+    if (charla !== e.charlaPintada) { e.charlaPintada = charla; setConversacion(charla) }
+    const hayVoz = cuentaComoVoz(pref, { directa, otra }, charla)
+    const conv = pref === 'charla' || (pref === 'auto' && otra)
     if (hayVoz) {
       if (!e.tramo) {
         const id = claveNueva(t)
@@ -162,7 +181,7 @@ export function useEscucha(c: Credenciales | null) {
         const meta = { modo: l.estado === 'dictado' ? 'dictado' : 'pasivo', caminando: !!e.caminando, conv }
         // Primero anotado en disco, después a grabar: si la app se corta, el tramo se recupera al abrir.
         const grabando = anotarTramo(id, uri, t, meta).then(() => stream.startFileRecordingAsync({ format: 'wav', uri }))
-        e.tramo = { id, uri, inicio: t, ultimaVoz: t, dictado: 0, escucha: 0, ruido: 0, voz: 0, caminando: !!e.caminando, conv, grabando }
+        e.tramo = { id, uri, inicio: t, ultimaVoz: t, dictado: 0, escucha: 0, ruido: 0, voz: 0, otras: 0, caminando: !!e.caminando, conv, grabando }
         setGrabando({ desde: t, conv })
         e.ocupado = true
         void grabando.catch(() => { if (e.tramo?.id === id) e.tramo = null; void cerrarTramoEnDisco(id, null) }).finally(() => { e.ocupado = false })
@@ -172,6 +191,9 @@ export function useEscucha(c: Credenciales | null) {
     }
     if (e.tramo) {
       if (hayVoz) e.tramo.voz++
+      if (otra) e.tramo.otras++
+      // En Auto, el tramo pasa a conversación (se corta por turnos) en cuanto hubo otra voz de verdad.
+      if (!e.tramo.conv && pref === 'auto' && e.tramo.otras >= OTRA_VOZ_CONVERSACION) { e.tramo.conv = true; setGrabando({ desde: e.tramo.inicio, conv: true }) }
       if (l.estado === 'dictado') e.tramo.dictado++
       else if (l.estado === 'escucha') e.tramo.escucha++
       else e.tramo.ruido++
@@ -245,7 +267,7 @@ export function useEscucha(c: Credenciales | null) {
   const empezar = useCallback(async () => {
     setError(null)
     const aj = await ajustesCaptura()
-    if (!capta(aj, 'audio')) return setError(aj.todo ? 'El micrófono está apagado en Captura y permisos (⋯).' : 'La captura está toda apagada (⋯ → Captura y permisos).')
+    if (!capta(aj, 'audio')) return setError(aj.todo ? 'El micrófono está apagado en Menú → Permisos.' : 'La captura está toda apagada (Menú → Permisos).')
     const p = await requestRecordingPermissionsAsync()
     if (!p.granted) return setError('Sin permiso de micrófono no puedo escuchar.')
     await setAudioModeAsync({ allowsRecording: true, allowsBackgroundRecording: true, shouldPlayInBackground: true })
@@ -282,6 +304,9 @@ export function useEscucha(c: Credenciales | null) {
     if (e.acum) { cerrarMinuto(Date.now()); e.acum = null }
     e.pedSub?.remove(); e.pedSub = null; e.pasosSensor = null
     setActiva(false)
+    setConversacion(false)
+    e.charlaPintada = false
+    e.ultimaVozPropia = null
     setLectura(null)
     setGrabando(null)
     // El cierre (Fragua #284): qué guardó y dónde, en palabras.
@@ -301,5 +326,5 @@ export function useEscucha(c: Credenciales | null) {
     if (si && e.tramo && !e.ocupado) { e.ocupado = true; void cerrarTramo().finally(() => { e.ocupado = false }) }
   }, [cerrarTramo])
 
-  return { activa, lectura, envios, enCola, enviadosHoy, grabando, error, empezar, parar, conversacion, setConversacion, ultimo, sesion, cierre, retorno, cerrarRetorno: () => setRetorno(null), conAviso, silenciar }
+  return { activa, lectura, envios, enCola, enviadosHoy, grabando, error, empezar, parar, conversacion, preferencia, setPreferencia, ultimo, sesion, cierre, retorno, cerrarRetorno: () => setRetorno(null), conAviso, silenciar }
 }

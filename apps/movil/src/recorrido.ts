@@ -84,14 +84,16 @@ export async function recorridoPrendido(): Promise<boolean> {
  * (en Android 11+ eso abre los ajustes del sistema). Devuelve qué pasó, en palabras.
  */
 export async function prenderRecorrido(): Promise<{ ok: boolean; aviso: string | null }> {
-  if (!capta(await ajustesCaptura(), 'ubicacion')) return { ok: false, aviso: 'La ubicación está apagada en Captura y permisos (⋯).' }
+  if (!capta(await ajustesCaptura(), 'ubicacion')) return { ok: false, aviso: 'La ubicación está apagada en Menú → Permisos.' }
   const L = await import('expo-location')
   if (!(await L.requestForegroundPermissionsAsync()).granted) return { ok: false, aviso: 'Sin permiso de ubicación no puedo anotar el recorrido.' }
   const fondo = await L.requestBackgroundPermissionsAsync().catch(() => ({ granted: false }))
   try {
+    // Mobile 2.0: con GPS (High) y cada 15 m / 15 s. Con «Balanced» Android ubicaba por antenas y wifi (±100 m): el trazo
+    // caminando salía hecho un zigzag o ni salía. Quieto, el GPS no marca (no hay 15 m nuevos), así que casi no gasta más.
     await L.startLocationUpdatesAsync(TAREA, {
-      accuracy: L.Accuracy.Balanced, timeInterval: 30_000, distanceInterval: 25, deferredUpdatesInterval: 0,
-      foregroundService: { notificationTitle: 'Deprocast anota tu recorrido', notificationBody: 'Se apaga desde la pestaña Mapa.', killServiceOnDestroy: false },
+      accuracy: L.Accuracy.High, timeInterval: 15_000, distanceInterval: 15, deferredUpdatesInterval: 0,
+      foregroundService: { notificationTitle: 'Deprocast anota tu recorrido', notificationBody: 'Se apaga desde el Mapa.', killServiceOnDestroy: false },
     })
   } catch (e) {
     return { ok: false, aviso: `No pude prender el recorrido: ${e instanceof Error ? e.message : String(e)}. Si te lo pidió, dale a la ubicación «Permitir todo el tiempo».` }

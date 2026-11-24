@@ -150,3 +150,12 @@ export type Tarjeta = { tipo: string; id: number | string; grupo: string; texto:
 export const traerTanda = (c: Credenciales, n = 10) => pedir<{ total: number; tarjetas: Tarjeta[] }>(c, `validar?n=${n}`)
 export const responderTarjeta = (c: Credenciales, t: Pick<Tarjeta, 'tipo' | 'id'>, accion: 'aceptar' | 'descartar') => pedir<{ ok: true }>(c, 'validar', { method: 'POST', body: JSON.stringify({ tipo: t.tipo, id: t.id, accion }) })
 export const traerAvisos = (c: Credenciales) => pedir<{ minutosAntes: number; avisos: AvisoApi[]; ahora?: { titulo: string; sub: string }; paraValidar?: number }>(c, 'avisos')
+
+// ─── Mobile 2.0: lo adjunto en la charla y los lugares con su tipo ──────
+/** La dirección de un adjunto del chat (una foto, un PDF) y la cabecera con el token: el teléfono no tiene la clave. */
+export const urlAdjunto = (c: Credenciales, archivo: string, ancho?: number) => `${servidorSeguro(c.servidor)}/api/dispositivo/adjunto/${encodeURIComponent(archivo)}${ancho ? `?ancho=${ancho}` : ''}`
+export const cabeceraDe = (c: Credenciales) => ({ authorization: `Bearer ${c.token}` })
+export type TipoLugar = 'casa' | 'trabajo' | 'empresa' | 'destino' | 'frecuente' | 'otro'
+export type LugarPropio = { id: number; nombre: string; lat: number; lon: number; tipo: TipoLugar | null }
+export const traerLugaresPropios = (c: Credenciales) => pedir<{ frecuentes: Frecuente[]; lugares: LugarPropio[] }>(c, 'lugares')
+export const marcarLugar = (c: Credenciales, l: { nombre: string; lat: number; lon: number; tipo: TipoLugar }) => pedir<{ id: number; nombre: string; tipo: TipoLugar | null }>(c, 'lugares', { method: 'POST', body: JSON.stringify(l) })

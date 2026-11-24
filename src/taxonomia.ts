@@ -28,6 +28,7 @@ import { ESTADOS_OPORTUNIDAD, TIPOS_OPORTUNIDAD } from './radar.ts'
 import { FINALES } from './bucles.ts'
 import { ACCIONES as ACCIONES_DECISION, TIPOS as TIPOS_DECISION } from './decisiones.ts'
 import { TIPOS_SALUD } from './salud.ts'
+import { TIPOS_LUGAR } from './territorio.ts'
 import { TIPOS_CAPTURA } from './captura.ts'
 import { CATEGORIAS as CATEGORIAS_PLATA } from './finanzas.ts'
 import { CAPAS_CAL } from './agenda.ts'
@@ -105,6 +106,7 @@ export function taxonomia(): Tipo[] {
     // ─── mundo
     t({ id: 'entidad.tipo', familia: 'mundo', nombre: 'Tipo de entidad', valores: TIPOS_ENTIDAD, origen: 'TIPOS_ENTIDAD', modulo: 'src/entidades.ts', tabla: 'entidades', columna: 'tipo', lee: ['listar_entidades', 'ver_entidad'], escribe: ['editar_entidad', 'fusionar_entidades', 'crear_proyecto', 'crear_dominio'], variantes: [{ modulo: 'src/segmento.ts', valores: TIPOS_ENTIDAD_SEGMENTO }] }),
     t({ id: 'entidad.alias', familia: 'mundo', nombre: 'Alias y menciones', descripcion: 'Cada entidad guarda sus otros nombres; las menciones y las coocurrencias arman los nodos y las aristas del grafo.', valores: null, origen: 'esquema de entidades', modulo: 'src/entidades.ts', tabla: 'entidades', columna: 'alias', lee: ['ver_entidad', 'ver_duplicados', 'ver_grafo', 'conectar_conceptos'], escribe: ['editar_entidad', 'fusionar_entidades', 'no_son_lo_mismo'] }),
+    t({ id: 'lugar.tipo', familia: 'mundo', nombre: 'Tipo de lugar', descripcion: 'Lo que marca desde el mapa del teléfono (Mobile 2.0): su casa, el trabajo, una empresa, un destino. Va en la meta del lugar como «clase».', valores: [...TIPOS_LUGAR], origen: 'TIPOS_LUGAR', modulo: 'src/territorio.ts', tabla: 'entidades', columna: 'meta.clase', lee: ['ver_recorrido'], escribe: [] }),
     t({ id: 'ficha.tipo', familia: 'mundo', nombre: 'Tipo de ficha', valores: TIPOS_FICHA, origen: 'TIPOS_FICHA', modulo: 'src/fichas.ts', lee: ['ver_ficha'], escribe: ['ficha_empresa', 'editar_ficha', 'investigar_ficha', 'abrir_ficha_idea'] }),
     t({ id: 'pagina.tipo', familia: 'mundo', nombre: 'Tipo de página', valores: TIPOS_PAGINA, origen: 'TIPOS_PAGINA', modulo: 'src/paginas.ts', lee: ['ver_pagina'], escribe: ['instruir_pagina'] }),
     t({ id: 'idea.tipo', familia: 'mundo', nombre: 'Tipo de idea', valores: null, origen: '—', modulo: 'src/fichas.ts', lee: ['ver_ficha'], escribe: ['abrir_ficha_idea', 'difundir_idea'], falta: 'Las ideas no tienen clasificación propia: viven como fichas y como texto suelto para difundir.' }),

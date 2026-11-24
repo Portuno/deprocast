@@ -46,7 +46,7 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "Deprocast escucha tu voz para que le hables o pienses en voz alta. El audio se procesa y se borra.",
+          "microphonePermission": "Deprocast escucha tu voz para que le hables o pienses en voz alta. El audio se transcribe y queda guardado en tu teléfono.",
           "enableBackgroundRecording": true
         }
       ],

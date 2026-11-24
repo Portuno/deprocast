@@ -61,6 +61,20 @@ test('Mobile 1.0, por HTTP: la marca de Hoy cambia con un mensaje; un mensaje re
     const mapa = await (await fetch(`${base}/api/dispositivo/mapa`, { headers: h })).json()
     assert.equal(mapa.puntos.length, 8)
     assert.equal(mapa.paradas.length, 1, '7 minutos en el mismo lugar: una parada')
+
+    // Mobile 2.0: lo adjunto en la charla se ve en el teléfono, con su token (y solo con él).
+    fs.mkdirSync(path.join(dir, 'adjuntos'), { recursive: true })
+    fs.writeFileSync(path.join(dir, 'adjuntos', 'nota-prueba.txt'), 'hola adjunto')
+    const adj = await fetch(`${base}/api/dispositivo/adjunto/nota-prueba.txt`, { headers: h })
+    assert.equal(adj.status, 200)
+    assert.equal(await adj.text(), 'hola adjunto')
+    assert.equal((await fetch(`${base}/api/dispositivo/adjunto/nota-prueba.txt`)).status, 401, 'sin token, nada')
+    assert.equal((await fetch(`${base}/api/dispositivo/adjunto/..%2Fx.db`, { headers: h })).status, 404, 'no sale de la carpeta de adjuntos')
+    // Y los lugares se marcan con su tipo (casa, trabajo, empresa…).
+    const marcado = await (await fetch(`${base}/api/dispositivo/lugares`, { method: 'POST', headers: { ...h, 'content-type': 'application/json' }, body: JSON.stringify({ nombre: 'Casa', lat: 39.5018, lon: -0.4405, tipo: 'casa' }) })).json()
+    assert.equal(marcado.tipo, 'casa')
+    const lugares = await (await fetch(`${base}/api/dispositivo/lugares`, { headers: h })).json()
+    assert.equal(lugares.lugares.find((l: any) => l.nombre === 'Casa')?.tipo, 'casa')
   } finally {
     srv.kill()
     await new Promise((ok) => setTimeout(ok, 300))

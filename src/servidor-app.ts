@@ -1936,6 +1936,35 @@ async function vozDeDispositivo(req: http.IncomingMessage, url: URL, disp: impor
   return { codigo: 201, cuerpo: r }
 }
 
+/**
+ * Un adjunto del chat (imagen, audio, PDF, documento), aislado: nunca corre nada en la página. Lo usan la pantalla
+ * (/adjuntos/…, con la clave) y el teléfono (/api/dispositivo/adjunto/…, con su token: Mobile 2.0, para ver en Hoy lo
+ * que se adjuntó en la charla).
+ */
+async function servirAdjunto(req: http.IncomingMessage, res: http.ServerResponse, url: URL, nombre: string) {
+  const archivo = path.join(dirAdjuntos(), path.basename(nombre))
+  if (!fs.existsSync(archivo)) {
+    // Lo que él mandó vive en su Drive (la copia de acá se borra al subir): se trae de ahí cuando alguien lo mira.
+    const datos = await (await import('./google/drive.ts')).medioDeAdjunto(db, archivo).catch(() => null)
+    if (!datos) return void res.writeHead(404).end('No encontrado')
+    const extD = path.extname(archivo).toLowerCase()
+    const tipoD = TIPOS_MIME[extD] ?? 'application/octet-stream'
+    return void res.writeHead(200, { 'content-type': tipoD, 'content-length': String(datos.length), 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox', 'content-disposition': /^(image|audio|video)\//.test(tipoD) ? 'inline' : 'attachment' }).end(datos)
+  }
+  const ext = path.extname(archivo).toLowerCase()
+  // Imágenes y PDF se ven en el navegador (aislados); lo demás se baja. Nunca corre nada en la página.
+  const tipo = TIPOS_MIME[ext] ?? ({ '.pdf': 'application/pdf', '.txt': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.csv': 'text/plain; charset=utf-8' } as Record<string, string>)[ext] ?? 'application/octet-stream'
+  const ver = /^image\/(jpeg|png|webp)$/.test(tipo) || /^audio\//.test(tipo) || ext === '.pdf' || tipo.startsWith('text/plain')
+  // Una foto en una lista va como miniatura (?ancho=480): se genera una vez y queda guardada al lado.
+  const ancho = Number(url.searchParams.get('ancho'))
+  if (ancho && /^image\/(jpeg|png|webp)$/.test(tipo)) {
+    const mini = await miniaturaDe(archivo, ancho)
+    if (mini) return void servirArchivo(req, res, mini, { 'content-type': 'image/jpeg', 'cache-control': 'private, max-age=31536000', 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox' })
+  }
+  // Con ETag y Range: un audio o un video se puede adelantar, y lo que ya bajó no se vuelve a bajar.
+  return void servirArchivo(req, res, archivo, { 'content-type': ext === '.json' ? 'text/plain; charset=utf-8' : tipo, 'cache-control': 'private, max-age=31536000', 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox', 'content-disposition': `${ver ? 'inline' : 'attachment'}; filename="${path.basename(archivo).replace(/^\d+-[0-9a-f]+\./, 'adjunto.')}"` })
+}
+
 async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerResponse, url: URL) {
   const responder = (codigo: number, cuerpo: unknown) => void res.writeHead(codigo, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }).end(JSON.stringify(cuerpo))
   const d = await import('./dispositivos.ts')
@@ -1950,6 +1979,8 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
     const disp = d.autenticarDispositivo(db, req.headers.authorization)
     if (!disp) return responder(401, { error: 'Falta el token del dispositivo o no es válido (Authorization: Bearer dpd_…)' })
     if (ruta === 'hoy' && req.method === 'GET') return responder(200, { dispositivo: disp.nombre, estado: disp.estado, ...(await d.paqueteHoy(db)) })
+    // Mobile 2.0: lo adjunto en la charla (fotos, documentos, audios), para verlo en el Hoy del teléfono.
+    if (ruta.startsWith('adjunto/') && req.method === 'GET') return servirAdjunto(req, res, url, decodeURIComponent(ruta.slice('adjunto/'.length)))
     // El recorrido (Mobile 1.0.1): los puntos del teléfono (pestaña Mapa, en segundo plano) y el mapa del día.
     if (ruta === 'puntos' && req.method === 'POST') {
       const b = JSON.parse((await leerCrudo(req, 4 * 1024 * 1024)).toString('utf8') || '{}')
@@ -1997,7 +2028,7 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
     if (ruta === 'lugares' && req.method === 'GET') { const t = await import('./territorio.ts'); return responder(200, { frecuentes: t.paradasFrecuentes(db), lugares: t.lugaresConCoordenadas(db) }) }
     if (ruta === 'lugares' && req.method === 'POST') {
       const b = JSON.parse((await leerCrudo(req, 16 * 1024)).toString('utf8') || '{}')
-      return responder(201, await (await import('./territorio.ts')).guardarLugar(db, { nombre: String(b.nombre ?? ''), lat: Number(b.lat), lon: Number(b.lon), direccion: b.direccion ?? null }))
+      return responder(201, await (await import('./territorio.ts')).guardarLugar(db, { nombre: String(b.nombre ?? ''), lat: Number(b.lat), lon: Number(b.lon), direccion: b.direccion ?? null, tipo: b.tipo ?? null }))
     }
     // Mobile 1.2: una foto o un video desde el Hoy del teléfono (galería o cámara). Responde enseguida; lo procesa de fondo.
     if (ruta === 'archivo' && req.method === 'POST') {
@@ -2297,29 +2328,7 @@ const servidor = http.createServer(async (req, res) => {
   }
   // Lo que crea el Taller: siempre aislado (un juego escrito por el modelo no puede tocar la app ni la API).
   // Imágenes adjuntas en el chat.
-  if (url.pathname.startsWith('/adjuntos/')) {
-    const archivo = path.join(dirAdjuntos(), path.basename(decodeURIComponent(url.pathname)))
-    if (!fs.existsSync(archivo)) {
-      // Lo que él mandó vive en su Drive (la copia de acá se borra al subir): se trae de ahí cuando alguien lo mira.
-      const datos = await (await import('./google/drive.ts')).medioDeAdjunto(db, archivo).catch(() => null)
-      if (!datos) return void res.writeHead(404).end('No encontrado')
-      const extD = path.extname(archivo).toLowerCase()
-      const tipoD = TIPOS_MIME[extD] ?? 'application/octet-stream'
-      return void res.writeHead(200, { 'content-type': tipoD, 'content-length': String(datos.length), 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox', 'content-disposition': /^(image|audio|video)\//.test(tipoD) ? 'inline' : 'attachment' }).end(datos)
-    }
-    const ext = path.extname(archivo).toLowerCase()
-    // Imágenes y PDF se ven en el navegador (aislados); lo demás se baja. Nunca corre nada en la página.
-    const tipo = TIPOS_MIME[ext] ?? ({ '.pdf': 'application/pdf', '.txt': 'text/plain; charset=utf-8', '.md': 'text/plain; charset=utf-8', '.csv': 'text/plain; charset=utf-8' } as Record<string, string>)[ext] ?? 'application/octet-stream'
-    const ver = /^image\/(jpeg|png|webp)$/.test(tipo) || /^audio\//.test(tipo) || ext === '.pdf' || tipo.startsWith('text/plain')
-    // Una foto en una lista va como miniatura (?ancho=480): se genera una vez y queda guardada al lado.
-    const ancho = Number(url.searchParams.get('ancho'))
-    if (ancho && /^image\/(jpeg|png|webp)$/.test(tipo)) {
-      const mini = await miniaturaDe(archivo, ancho)
-      if (mini) return void servirArchivo(req, res, mini, { 'content-type': 'image/jpeg', 'cache-control': 'private, max-age=31536000', 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox' })
-    }
-    // Con ETag y Range: un audio o un video se puede adelantar, y lo que ya bajó no se vuelve a bajar.
-    return void servirArchivo(req, res, archivo, { 'content-type': ext === '.json' ? 'text/plain; charset=utf-8' : tipo, 'cache-control': 'private, max-age=31536000', 'x-content-type-options': 'nosniff', 'content-security-policy': 'sandbox', 'content-disposition': `${ver ? 'inline' : 'attachment'}; filename="${path.basename(archivo).replace(/^\d+-[0-9a-f]+\./, 'adjunto.')}"` })
-  }
+  if (url.pathname.startsWith('/adjuntos/')) return servirAdjunto(req, res, url, decodeURIComponent(url.pathname))
   if (url.pathname.startsWith('/taller/')) {
     const archivo = path.join(dirTaller(), path.normalize(decodeURIComponent(url.pathname.slice('/taller/'.length))))
     if (!archivo.startsWith(dirTaller()) || !fs.existsSync(archivo) || fs.statSync(archivo).isDirectory()) return void res.writeHead(404).end('No encontrado')

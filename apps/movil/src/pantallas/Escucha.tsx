@@ -1,114 +1,96 @@
 /**
- * Escucha (plan v33): el micrófono con la conciencia acústica.
- * - Normal: solo tu voz (dictado → chat de Hoy, pensar en voz alta → nota).
- * - Modo conversación (lo prendés vos, con aviso visible): graba a todos y corta por turnos; cada turno vuelve con su
- *   hablante (Hablante 1, 2… o su nombre si ya lo vinculaste). Tocando un hablante le ponés nombre: «soy yo» o una
- *   persona de tus entidades. Desde ahí lo reconoce.
- * Abajo, «Lo que se dijo»: la lista con la hora, quién y qué.
- * 1.0.1: la tarjeta dice en palabras qué está haciendo (apagada, atenta, grabando: cuánto y a dónde va), con alto fijo; los
- * datos técnicos (fuente, distancia, señal/ruido) van plegados en «Detalles», con ancho fijo, para que nada salte.
+ * Escucha (Mobile 2.0): un botón grande que dice en qué está (Apagada, Escuchando, Grabando), cómo escucha (Auto, Solo
+ * yo, Charla) y lo que se dijo. Nada más: la explicación larga se fue.
+ * - Auto (por defecto): se da cuenta sola de que estás en una charla y graba también a los demás (logica/escucha.ts).
+ * - Cada audio queda guardado en el teléfono: ▶ lo vuelve a tocar.
+ * - Tocando quién habló le ponés nombre a esa voz («soy yo» o una persona tuya): desde ahí la reconoce.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
-import { destinoDe, type Estado } from '../conciencia/acustica'
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { buscarPersonas, olvidarHablante, traerTurnos, vincularHablante, type Credenciales, type Hablante, type Turno } from '../api'
+import type { AudioGuardado } from '../almacen'
+import { audioCerca, audiosRecientes } from '../audios'
 import { useEscuchaGlobal } from '../escuchaGlobal'
+import { PREFERENCIAS } from '../logica/escucha'
+import { tocar, useSonando } from '../reproductor'
 import { AREA_EXTRA, ESP, LETRA, TOQUE, useTema } from '../tema'
 
-const NOMBRE: Record<Estado, string> = { dictado: 'dictado', escucha: 'pensar en voz alta', silencio_intencional: 'silencio', ruido: 'ruido' }
-const FUENTE: Record<string, string> = { voz_directa: 'tu voz', voz: 'otra voz', ruido: 'ruido', silencio: 'silencio' }
-const quien = (h: Hablante | null) => (h ? h.nombre ?? h.etiqueta : 'Sin identificar')
+const quien = (h: Hablante | null) => (h ? h.nombre ?? h.etiqueta : '¿Quién?')
 const hora = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
+const BOTON = 200
 
 export function Escucha({ c }: { c: Credenciales }) {
   const t = useTema()
-  const { activa, lectura: l, enCola, enviadosHoy, grabando, error, empezar, parar, conversacion, setConversacion, ultimo, sesion, cierre, retorno, cerrarRetorno, conAviso } = useEscuchaGlobal()
-  const [detalles, setDetalles] = useState(false)
+  const { activa, enCola, grabando, error, empezar, parar, conversacion, preferencia, setPreferencia, ultimo, sesion, retorno, cerrarRetorno, silenciar } = useEscuchaGlobal()
   const [, setTic] = useState(0)
-  // Mientras graba, el contador de segundos avanza (una vez por segundo, no más).
-  // Prendida sin grabar, «hace cuánto» avanza cada 15 s.
-  useEffect(() => { if (!activa) return; const x = setInterval(() => setTic((n) => n + 1), grabando ? 1000 : 15_000); return () => clearInterval(x) }, [grabando, activa])
-  const minutosDe = (ms: number) => Math.max(0, Math.round((Date.now() - ms) / 60_000))
-  // La señal del micrófono: si llegó una lectura hace poco, hay señal (Fragua #284: «no entiendo si está escuchando»).
-  const conSenal = activa && !!l
+  // Grabando, el contador de segundos avanza una vez por segundo.
+  useEffect(() => { if (!grabando) return; const x = setInterval(() => setTic((n) => n + 1), 1000); return () => clearInterval(x) }, [grabando])
   const [turnos, setTurnos] = useState<Turno[]>([])
+  const [audios, setAudios] = useState<AudioGuardado[]>([])
   const [elegido, setElegido] = useState<Hablante | null>(null)
+  const sonando = useSonando()
 
-  const traer = useCallback(async () => { try { setTurnos((await traerTurnos(c, Date.now() - 24 * 3_600_000)).turnos) } catch { /* sin red: queda lo que había */ } }, [c])
+  const traer = useCallback(async () => {
+    setAudios(await audiosRecientes(24).catch(() => []))
+    try { setTurnos((await traerTurnos(c, Date.now() - 24 * 3_600_000)).turnos) } catch { /* sin red: queda lo que había */ }
+  }, [c])
   useEffect(() => { void traer() }, [traer, ultimo])
   useEffect(() => { if (!activa) return; const x = setInterval(traer, 8000); return () => clearInterval(x) }, [activa, traer])
 
+  const color = grabando ? t.mal : activa ? t.acento : t.linea
+  const segundos = grabando ? Math.max(0, Math.round((Date.now() - grabando.desde) / 1000)) : 0
+  const titulo = !activa ? 'Apagada' : grabando ? `${segundos} s` : 'Escuchando'
+  const bajada = !activa ? 'Tocá para escuchar' : grabando ? (grabando.conv ? '● Grabando la charla' : '● Grabando tu voz') : conversacion ? 'En una charla' : 'Atenta a tu voz'
+  const cuenta = sesion ? [sesion.dictados && `${sesion.dictados} al chat`, sesion.notas && `${sesion.notas} nota${sesion.notas === 1 ? '' : 's'}`, sesion.charlas && `${sesion.charlas} de charla`, enCola && `${enCola} por subir`].filter(Boolean).join(' · ') : enCola ? `${enCola} por subir` : ''
+
   return (
     <ScrollView style={{ backgroundColor: t.fondo }} contentContainerStyle={s.raiz}>
-      <View style={[s.tarjeta, { backgroundColor: t.panel, borderColor: grabando ? t.mal : activa ? t.acento : t.linea }]}>
-        <Text style={[s.estado, { color: grabando ? t.mal : activa ? t.acento : t.tenue }]} numberOfLines={1}>
-          {!activa ? 'Apagada' : grabando ? `● Grabando ${Math.max(0, Math.round((Date.now() - grabando.desde) / 1000))} s` : conversacion ? 'Escuchando la charla' : 'Atenta a tu voz'}
-        </Text>
-        <Text style={[s.texto, { color: t.texto }]} numberOfLines={3}>
-          {!activa
-            ? 'No escucha. Tocá «Escuchar» y seguí con lo tuyo: sigue con la pantalla bloqueada (con un aviso fijo).'
-            : grabando
-              ? (grabando.conv ? 'Grabo la conversación y separo quién dice qué. Avisales a los demás.' : l?.estado === 'dictado' ? 'Te oigo cerca: lo que digas va al chat de Hoy como mensaje.' : 'Pensás en voz alta: queda como nota de voz.')
-              : conversacion ? 'Grabo cuando alguien habla; el silencio y el ruido no se guardan.' : 'No guarda nada hasta que hables cerca del teléfono. El ruido y las voces de otros se ignoran.'}
-        </Text>
-        {activa && sesion ? (
-          <Text style={[s.dato, { color: t.tenue }]} numberOfLines={2}>
-            {`Desde las ${hora(sesion.desde)} (hace ${minutosDe(sesion.desde)} min) · micrófono ${conSenal ? 'con señal' : 'sin señal todavía'} · ${conAviso ? 'aviso fijo en la barra' : 'sin aviso fijo: con la pantalla apagada puede cortarse'}`}
-          </Text>
-        ) : null}
-        <Text style={[s.dato, { color: t.tenue }]} numberOfLines={2}>
-          {activa && sesion
-            ? `Esta vez: ${sesion.dictados} al chat de Hoy · ${sesion.notas} nota${sesion.notas === 1 ? '' : 's'} al corpus${sesion.charlas ? ` · ${sesion.charlas} de charla` : ''}${sesion.descartados ? ` · ${sesion.descartados} ruido${sesion.descartados === 1 ? '' : 's'} descartado${sesion.descartados === 1 ? '' : 's'}` : ''}${enCola ? ` · ${enCola} esperando subir` : ''}`
-            : `Hoy: ${enviadosHoy} tramo${enviadosHoy === 1 ? '' : 's'} enviado${enviadosHoy === 1 ? '' : 's'}${enCola ? ` · ${enCola} esperando en el teléfono` : ''}`}
-        </Text>
-        {activa ? (
-          <Pressable onPress={() => setDetalles((x) => !x)} style={s.detallesBoton} hitSlop={AREA_EXTRA} accessibilityRole="button">
-            <Text style={[LETRA.chica, { color: t.tenue }]}>{detalles ? '▾ Detalles' : '▸ Detalles'}</Text>
+      <View style={s.centro}>
+        <Pressable onPress={activa ? parar : empezar} style={[s.boton, { borderColor: color, backgroundColor: activa ? t.panel : 'transparent' }]} accessibilityRole="button" accessibilityLabel={activa ? 'Dejar de escuchar' : 'Escuchar'}>
+          <View style={[s.nucleo, { backgroundColor: grabando ? t.mal : activa ? t.acento : t.panel }]}>
+            <Text style={[LETRA.grande, { color: activa ? t.sobreAcento : t.tenue, fontWeight: '700' }]} numberOfLines={1}>{titulo}</Text>
+          </View>
+        </Pressable>
+        <Text style={[LETRA.cuerpo, { color: grabando ? t.mal : activa ? t.acento : t.tenue, fontWeight: '600' }]} numberOfLines={1}>{bajada}</Text>
+        {cuenta ? <Text style={[LETRA.chica, { color: t.tenue }]} numberOfLines={1}>{cuenta}</Text> : null}
+      </View>
+
+      <View style={[s.segmentos, { borderColor: t.linea }]} accessibilityRole="radiogroup">
+        {PREFERENCIAS.map((p) => (
+          <Pressable key={p.clave} onPress={() => setPreferencia(p.clave)} style={[s.segmento, preferencia === p.clave && { backgroundColor: t.acento }]} accessibilityRole="radio" accessibilityState={{ selected: preferencia === p.clave }}>
+            <Text style={[LETRA.chica, { color: preferencia === p.clave ? t.sobreAcento : t.texto, fontWeight: '700' }]}>{p.nombre}</Text>
           </Pressable>
-        ) : null}
-        {activa && detalles ? (
-          <Text style={[s.dato, s.fijo, { color: t.tenue }]} numberOfLines={1}>
-            {l ? `${(FUENTE[l.fuente] ?? l.fuente).padEnd(9)} · ${String(l.distancia).padEnd(5)} · señal/ruido ${String(Math.round(l.snr)).padStart(3)} dB · ${NOMBRE[l.estado]}${conversacion ? '' : ` → ${destinoDe(l.estado) ?? 'nada'}`}` : '…'}
-          </Text>
-        ) : null}
+        ))}
       </View>
-      <View style={[s.fila, { borderColor: t.linea }]}>
-        <View style={{ flex: 1 }}>
-          <Text style={[LETRA.cuerpo, { color: t.texto, fontWeight: '600' }]}>Modo conversación</Text>
-          <Text style={[s.dato, { color: t.tenue }]}>Graba también a los demás y reconoce quién habla. El audio se borra; las huellas de voz quedan solo en tu Deprocast.</Text>
-        </View>
-        <Switch value={conversacion} onValueChange={setConversacion} trackColor={{ true: t.acento }} />
-      </View>
+
+      {error ? <Text style={[LETRA.chica, { color: t.mal, textAlign: 'center' }]}>{error}</Text> : null}
       {retorno ? (
-        <Pressable onPress={cerrarRetorno} style={[s.aviso, { borderColor: t.acento }]} accessibilityRole="button" accessibilityLabel="Cerrar el aviso">
-          <Text style={[s.texto, { color: t.texto }]}>{retorno}</Text>
-          <Text style={[s.dato, { color: t.tenue }]}>Tocá para cerrar</Text>
+        <Pressable onPress={cerrarRetorno} style={[s.aviso, { borderColor: t.linea }]} accessibilityRole="button" accessibilityLabel="Cerrar el aviso">
+          <Text style={[LETRA.chica, { color: t.texto }]}>{retorno}</Text>
         </Pressable>
       ) : null}
-      {!activa && cierre ? (
-        <View style={[s.aviso, { borderColor: t.linea }]}>
-          <Text style={[s.dato, { color: t.tenue }]}>La última escucha</Text>
-          <Text style={[s.texto, { color: t.texto }]}>{cierre}</Text>
-        </View>
-      ) : null}
-      {error ? <Text style={[s.texto, { color: t.mal }]}>{error}</Text> : null}
-      <Pressable onPress={activa ? parar : empezar} style={[s.boton, { backgroundColor: activa ? t.panel : t.acento, borderColor: t.linea }]} accessibilityRole="button">
-        <Text style={[LETRA.cuerpo, { color: activa ? t.texto : t.sobreAcento, fontWeight: '700' }]}>{activa ? '■ Dejar de escuchar' : '● Escuchar'}</Text>
-      </Pressable>
 
-      <Text style={[s.sub, { color: t.tenue }]}>Lo que se dijo (últimas 24 h)</Text>
-      {turnos.length ? [...turnos].reverse().map((x) => (
-        <View key={x.id} style={[s.turno, { borderColor: t.linea }]}>
-          <View style={s.cabTurno}>
-            <Text style={[s.dato, { color: t.tenue }]}>{hora(x.inicio)}</Text>
-            <Pressable onPress={() => x.hablante && setElegido(x.hablante)} style={[s.chip, { borderColor: x.hablante?.nombre ? t.acento : t.linea }]} hitSlop={AREA_EXTRA} accessibilityRole="button" accessibilityLabel={`Ponerle nombre a ${quien(x.hablante)}`}>
-              <Text style={[LETRA.chica, { color: x.hablante?.nombre ? t.acento : t.texto, fontWeight: '600' }]}>{quien(x.hablante)}</Text>
-            </Pressable>
-            <Text style={[s.dato, { color: t.tenue }]}>{x.modo === 'dictado' ? '→ chat' : x.modo === 'pasivo' ? '→ nota' : ''}</Text>
+      <Text style={[LETRA.chica, s.sub, { color: t.tenue }]}>LO QUE SE DIJO · 24 H</Text>
+      {turnos.length ? [...turnos].reverse().map((x) => {
+        const a = audioCerca(audios, x.inicio)
+        return (
+          <View key={x.id} style={[s.turno, { borderColor: t.linea }]}>
+            <View style={s.cabTurno}>
+              <Text style={[LETRA.chica, { color: t.tenue }]}>{hora(x.inicio)}</Text>
+              <Pressable onPress={() => x.hablante && setElegido(x.hablante)} style={[s.chip, { borderColor: x.hablante?.nombre ? t.acento : t.linea }]} hitSlop={AREA_EXTRA} accessibilityRole="button" accessibilityLabel={`Ponerle nombre a ${quien(x.hablante)}`}>
+                <Text style={[LETRA.chica, { color: x.hablante?.nombre ? t.acento : t.texto, fontWeight: '600' }]}>{quien(x.hablante)}</Text>
+              </Pressable>
+              <Text style={[LETRA.chica, { color: t.tenue, flex: 1 }]}>{x.modo === 'dictado' ? '→ chat' : x.modo === 'pasivo' ? '→ nota' : ''}</Text>
+              {a ? (
+                <Pressable onPress={() => tocar(a.id, a.uri, silenciar)} style={s.play} hitSlop={AREA_EXTRA} accessibilityRole="button" accessibilityLabel={sonando === a.id ? 'Parar' : 'Escuchar el audio'}>
+                  <Text style={[LETRA.cuerpo, { color: t.acento, fontWeight: '700' }]}>{sonando === a.id ? '■' : '▶'}</Text>
+                </Pressable>
+              ) : null}
+            </View>
+            <Text style={[LETRA.cuerpo, { color: t.texto }]}>{x.texto}</Text>
           </View>
-          <Text style={[LETRA.cuerpo, { color: t.texto }]}>{x.texto}</Text>
-        </View>
-      )) : <Text style={[s.dato, { color: t.tenue }]}>Todavía nada.</Text>}
+        )
+      }) : <Text style={[LETRA.chica, { color: t.tenue }]}>Todavía nada.</Text>}
 
       <ElegirPersona c={c} h={elegido} cerrar={(cambio) => { setElegido(null); if (cambio) void traer() }} />
     </ScrollView>
@@ -132,15 +114,14 @@ function ElegirPersona({ c, h, cerrar }: { c: Credenciales; h: Hablante | null; 
     <Modal visible={!!h} transparent animationType="slide" onRequestClose={() => cerrar(false)}>
       <Pressable style={s.velo} onPress={() => cerrar(false)} />
       <View style={[s.hoja, { backgroundColor: t.panel, borderColor: t.linea }]}>
-        <Text style={[s.titulo, { color: t.texto }]}>¿Quién es {h ? quien(h) : ''}?</Text>
-        <Text style={[s.dato, { color: t.tenue }]}>{h ? `${h.tramos} tramo(s) de esta voz.` : ''} Al ponerle nombre, la reconozco de acá en más.</Text>
+        <Text style={[LETRA.titulo, { color: t.texto, fontWeight: '700' }]}>¿Quién es {h ? quien(h) : ''}?</Text>
         <Pressable onPress={() => h && hacer(() => vincularHablante(c, h.id, { yo: true }))} style={[s.opcion, { borderColor: t.acento }]}><Text style={[LETRA.cuerpo, { color: t.acento, fontWeight: '700' }]}>Soy yo</Text></Pressable>
         <TextInput value={q} onChangeText={setQ} placeholder="Buscar en tus personas…" placeholderTextColor={t.tenue} style={[s.campo, { color: t.texto, borderColor: t.linea }]} autoCorrect={false} />
         {personas.map((p) => (
           <Pressable key={p.id} onPress={() => h && hacer(() => vincularHablante(c, h.id, { entidadId: p.id }))} style={[s.opcion, { borderColor: t.linea }]}><Text style={[LETRA.cuerpo, { color: t.texto }]}>{p.nombre}</Text></Pressable>
         ))}
-        {error ? <Text style={[s.dato, { color: t.mal }]}>{error}</Text> : null}
-        <Pressable onPress={() => h && hacer(() => olvidarHablante(c, h.id))} style={s.olvidar}><Text style={[LETRA.cuerpo, { color: t.mal }]}>Olvidar esta voz (borra su huella)</Text></Pressable>
+        {error ? <Text style={[LETRA.chica, { color: t.mal }]}>{error}</Text> : null}
+        <Pressable onPress={() => h && hacer(() => olvidarHablante(c, h.id))} style={s.olvidar}><Text style={[LETRA.cuerpo, { color: t.mal }]}>Olvidar esta voz</Text></Pressable>
       </View>
     </Modal>
   )
@@ -148,20 +129,17 @@ function ElegirPersona({ c, h, cerrar }: { c: Credenciales; h: Hablante | null; 
 
 const s = StyleSheet.create({
   raiz: { padding: ESP(5), gap: ESP(4) },
-  titulo: { ...LETRA.titulo, fontWeight: '700' },
-  texto: { ...LETRA.cuerpo },
-  sub: { ...LETRA.chica, marginTop: ESP(2) },
-  tarjeta: { borderWidth: 1, borderRadius: 14, padding: ESP(4), gap: ESP(2), minHeight: 224 },
-  estado: { ...LETRA.grande, fontWeight: '700' },
-  detallesBoton: { alignSelf: 'flex-start', paddingVertical: ESP(1) },
-  aviso: { borderWidth: 1, borderRadius: 12, padding: ESP(3), gap: ESP(1), minHeight: TOQUE },
-  fijo: { fontVariant: ['tabular-nums'] },
-  dato: { ...LETRA.chica },
-  fila: { flexDirection: 'row', alignItems: 'center', gap: ESP(3), borderWidth: 1, borderRadius: 12, padding: ESP(3), minHeight: TOQUE },
-  boton: { minHeight: TOQUE + ESP(3), justifyContent: 'center', borderRadius: 12, paddingVertical: ESP(4), alignItems: 'center', borderWidth: 1 },
+  centro: { alignItems: 'center', gap: ESP(2), paddingVertical: ESP(4) },
+  boton: { width: BOTON, height: BOTON, minHeight: TOQUE, borderRadius: BOTON, borderWidth: 2, padding: ESP(3), alignItems: 'center', justifyContent: 'center' },
+  nucleo: { width: '100%', height: '100%', borderRadius: BOTON, alignItems: 'center', justifyContent: 'center', padding: ESP(4) },
+  segmentos: { flexDirection: 'row', alignSelf: 'center', borderWidth: 1, borderRadius: 999, padding: ESP(1), gap: ESP(1) },
+  segmento: { minHeight: TOQUE - ESP(2), minWidth: 88, justifyContent: 'center', alignItems: 'center', borderRadius: 999, paddingHorizontal: ESP(4) },
+  aviso: { borderWidth: 1, borderRadius: 12, padding: ESP(3), minHeight: TOQUE, justifyContent: 'center' },
+  sub: { marginTop: ESP(2), letterSpacing: 1 },
   turno: { borderBottomWidth: 1, paddingVertical: ESP(2), gap: ESP(1) },
-  cabTurno: { flexDirection: 'row', alignItems: 'center', gap: ESP(2), flexWrap: 'wrap' },
+  cabTurno: { flexDirection: 'row', alignItems: 'center', gap: ESP(2) },
   chip: { borderWidth: 1, borderRadius: 999, paddingHorizontal: ESP(3), paddingVertical: ESP(1) },
+  play: { minWidth: ESP(8), alignItems: 'center' },
   velo: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
   hoja: { borderTopLeftRadius: 18, borderTopRightRadius: 18, borderWidth: 1, padding: ESP(5), gap: ESP(3), paddingBottom: ESP(9) },
   opcion: { minHeight: TOQUE, justifyContent: 'center', borderWidth: 1, borderRadius: 10, paddingHorizontal: ESP(3) },

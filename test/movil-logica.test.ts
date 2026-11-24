@@ -174,14 +174,17 @@ test('Mobile 1.0.1: el teclado ya no tapa lo que escribís; la ubicación va apa
   const r = fs.readFileSync('apps/movil/src/recorrido.ts', 'utf8')
   assert.match(r, /TaskManager\.defineTask\(TAREA/)
   assert.match(r, /foregroundService: \{ notificationTitle: 'Deprocast anota tu recorrido'/)
-  assert.match(fs.readFileSync('apps/movil/App.tsx', 'utf8'), /\['hoy', 'validar', 'escucha', 'mapa'\]/, 'Validar (Mobile 1.6) entre Hoy y Escucha; el Mapa, aparte')
+  // Mobile 2.0: abajo, Hoy, Mapa, Escucha y Menú; Validar y lo demás, en el Menú.
+  assert.match(fs.readFileSync('apps/movil/src/modulos.ts', 'utf8'), /BARRA: Modulo\[\] = \['hoy', 'mapa', 'escucha', 'menu'\]/)
   const app = JSON.parse(fs.readFileSync('apps/movil/app.json', 'utf8')).expo
   const loc = app.plugins.find((p: any) => Array.isArray(p) && p[0] === 'expo-location')[1]
   assert.equal(loc.isAndroidBackgroundLocationEnabled, true)
+  // Mobile 2.0: la escucha dice en qué está en una palabra (y cuánto lleva grabando), sin la explicación larga.
   const pantalla = fs.readFileSync('apps/movil/src/pantallas/Escucha.tsx', 'utf8')
-  assert.match(pantalla, /Grabando \$\{/, 'dice que está grabando y cuánto')
-  assert.match(pantalla, /detalles \? '▾ Detalles' : '▸ Detalles'/, 'lo técnico, plegado')
-  assert.match(pantalla, /numberOfLines=\{1\}>\s*\{l \?/, 'los datos técnicos en una línea fija')
+  assert.match(pantalla, /'Apagada'/)
+  assert.match(pantalla, /\$\{segundos\} s/, 'cuánto lleva grabando')
+  assert.match(pantalla, /● Grabando/)
+  assert.doesNotMatch(pantalla, /Tocá «Escuchar» y seguí con lo tuyo/, 'sin la explicación larga')
 })
 
 test('Mobile 1.1 · el vigía: un hueco de más de 5 s es un corte; al volver dice si siguió, con cortes, o si sigue cortada', async () => {
