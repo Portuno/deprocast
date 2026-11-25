@@ -9,7 +9,7 @@
  */
 
 /** Sube con cada ruta nueva o cambio compatible. */
-export const VERSION = 9
+export const VERSION = 10
 
 export type Ruta = {
   /** Lo que va después de /api/dispositivo/. «:id» es un número; «:archivo», un nombre de archivo. */
@@ -77,6 +77,12 @@ export const RUTAS: Ruta[] = [
   { ruta: 'plata', metodo: 'POST', para: 'Anotar un gasto (monto negativo) o un ingreso', pide: '{ monto, descripcion?, categoria?, fecha? }', da: '{ id, monto, descripcion, categoria } (422: monto inválido)', desde: '2.6' },
   { ruta: 'plata/sugerido', metodo: 'POST', para: 'Firmar o descartar un movimiento sugerido', pide: '{ id, accion: aceptar|descartar }', da: '{ ok }', desde: '2.6' },
   { ruta: 'semana', metodo: 'GET', para: 'Los últimos 7 días en números y sus promedios', da: '{ dias[{fecha, pasos, km, suenoHoras, animo, pantallaMin, gastos, llamadas, recibidos, fotos}], promedio }', desde: '2.6' },
+  { ruta: 'buscar', metodo: 'GET', para: 'Buscar en todo: corpus (palabras y significado), personas, misiones, lugares y la charla', pide: '?q=', da: '{ piezas[{id, titulo, fuente, fecha, extracto}], personas[], misiones[], lugares[], charla[] }', desde: '2.8' },
+  { ruta: 'pieza/:id', metodo: 'GET', para: 'Una pieza del corpus para leer', da: '{ id, titulo, fuente, nivel, fecha, autor, url, contenido, largo }', desde: '2.8' },
+  { ruta: 'gente', metodo: 'GET', para: 'Tu gente: a quién le toca (se pasó su «cada cuántos días») y las importantes con más silencio', da: '{ toca[Ficha], importantes[Ficha] }', desde: '2.8' },
+  { ruta: 'gente/contacto', metodo: 'POST', para: '«Hablé hoy con …»: queda como último contacto', pide: '{ id }', da: '{ id, ultimoContacto }', desde: '2.8' },
+  { ruta: 'respirar', metodo: 'GET', para: 'Los ejercicios de respiración (con sus fases) y cómo viene el mes', da: '{ ejercicios[{id, nombre, intencion, descripcion, fases[{tipo, seg}], ciclos, minutos, segundos}], resumen }', desde: '2.8' },
+  { ruta: 'respirar', metodo: 'POST', para: 'Anotar una sesión', pide: '{ ejercicio, segundos, completa?, animo?: mejor|igual|peor, nota? }', da: '{ anotada, id? }', desde: '2.8' },
   { ruta: 'diario', metodo: 'GET', para: 'El Diario del día: todo lo capturado en una línea', pide: '?fecha=AAAA-MM-DD', da: 'DiarioDia { fecha, resumen, momentos, pasosPorHora, mapa }', desde: '2.2' },
 ]
 

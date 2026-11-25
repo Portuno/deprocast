@@ -162,3 +162,61 @@ export async function semanaParaTelefono(db: Db, ahora = Date.now()) {
   }
   return { dias, promedio: { pasos: prom('pasos'), suenoHoras: prom('suenoHoras'), animo: prom('animo'), pantallaMin: prom('pantallaMin'), gastos: prom('gastos') } }
 }
+
+// ─── buscar, tu gente y respirar (Mobile 2.8) ────────────────────────────
+
+/** Buscar en todo desde el teléfono: tu corpus (por palabras y por significado), personas, misiones, lugares y la charla. */
+export async function buscarParaTelefono(db: Db, q: string) {
+  const consulta = q.trim().slice(0, 200)
+  if (consulta.length < 2) return { piezas: [], personas: [], misiones: [], lugares: [], charla: [] }
+  const piezas = await import('./semantica.ts').then((s) => s.buscarHibrido(db, consulta, 15)).catch(() => [])
+  const { personas } = await import('./personas.ts')
+  const { buscarMisiones } = await import('./misiones.ts')
+  const { lugaresConCoordenadas } = await import('./territorio.ts')
+  const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+  const n = norm(consulta)
+  return {
+    piezas: piezas.map((p) => ({ id: p.id, titulo: p.titulo, fuente: p.fuente, fecha: p.fecha, extracto: String(p.fragmento ?? p.contenido ?? '').replace(/\s+/g, ' ').slice(0, 220) })),
+    personas: personas(db, { q: consulta, limite: 8 }).map((p) => ({ id: p.id, nombre: p.nombre, ultimoContacto: p.ultimoContacto })),
+    misiones: buscarMisiones(db, consulta, 6).map((m) => ({ id: m.id, titulo: m.titulo, nivel: m.nivel, estado: m.estado })),
+    lugares: lugaresConCoordenadas(db).filter((l) => norm(l.nombre).includes(n)).slice(0, 6),
+    charla: (db.prepare(`SELECT id, rol, texto, en FROM mensajes WHERE texto LIKE ? AND rol IN ('operador', 'asistente') ORDER BY id DESC LIMIT 8`).all(`%${consulta}%`) as any[])
+      .map((m) => ({ id: m.id, rol: m.rol, en: m.en, extracto: String(m.texto).replace(/\s+/g, ' ').slice(0, 220) })),
+  }
+}
+
+export async function piezaParaTelefono(db: Db, id: number) {
+  const p = (await import('./corpus.ts')).leerPieza(db, id)
+  if (!p) return null
+  return { id: p.id, titulo: p.titulo, fuente: p.fuente, nivel: p.nivel, fecha: p.fecha, autor: p.autor, url: p.url, contenido: p.contenido.slice(0, 20_000), largo: p.contenido.length }
+}
+
+/**
+ * Tu gente (Mobile 2.8): primero a quién le toca (las que tienen un «cada cuántos días» y ya se pasó), después las más
+ * importantes según cuánto hace que no sabés de ellas. Con el último contacto (que ya incluye llamadas y mensajes).
+ */
+export async function genteParaTelefono(db: Db, ahora = Date.now()) {
+  const { personas } = await import('./personas.ts')
+  const xs = personas(db, { limite: 400 }, ahora).filter((p) => p.tipo === 'persona' && p.estado !== 'por_conocer')
+  const ficha = (p: (typeof xs)[number]) => ({ id: p.id, nombre: p.nombre, nivel: p.nivel, importancia: p.importancia, ultimoContacto: p.ultimoContacto, diasSinContacto: p.diasSinContacto, cadaDias: p.cadaDias, vinculo: p.vinculo })
+  const toca = xs.filter((p) => p.cadaDias && (p.diasSinContacto == null || p.diasSinContacto >= p.cadaDias))
+    .sort((a, b) => (b.diasSinContacto ?? 999) / b.cadaDias! - (a.diasSinContacto ?? 999) / a.cadaDias!)
+  const peso = (p: (typeof xs)[number]) => (p.importancia ?? p.nivel ?? 0) * Math.min(p.diasSinContacto ?? 60, 60)
+  const resto = xs.filter((p) => !toca.includes(p) && ((p.importancia ?? 0) >= 6 || (p.nivel ?? 0) >= 6)).sort((a, b) => peso(b) - peso(a))
+  return { toca: toca.slice(0, 30).map(ficha), importantes: resto.slice(0, 30).map(ficha) }
+}
+
+/** «Hablé hoy con X»: queda como último contacto. */
+export async function contactoHoy(db: Db, id: number, ahora = Date.now()) {
+  const p = (await import('./personas.ts')).guardarRelacion(db, id, { contacto: true }, ahora)
+  return { id: p.id, ultimoContacto: p.ultimoContacto }
+}
+
+/** Los ejercicios de respiración (los de siempre y los tuyos) y cómo viene el mes. */
+export async function respirarParaTelefono(db: Db) {
+  const m = await import('./meditacion.ts')
+  return {
+    ejercicios: [...m.BASE, ...m.listar(db)].filter((e) => e.fases.length).map((e) => ({ id: e.id, nombre: e.nombre, intencion: e.intencion, descripcion: e.descripcion, fases: e.fases, ciclos: e.ciclos, minutos: e.minutos, segundos: m.duracion(e) })),
+    resumen: m.resumen(db),
+  }
+}

@@ -2118,6 +2118,20 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
       const b = JSON.parse((await leerCrudo(req, 16 * 1024)).toString('utf8') || '{}')
       try { (await import('./finanzas.ts')).resolverSugerido(db, Number(b.id), b.accion === 'descartar' ? 'descartar' : 'aceptar'); return responder(200, { ok: true }) } catch (e) { return responder(422, { error: e instanceof Error ? e.message : String(e) }) }
     }
+    // Mobile 2.8: buscar en todo, leer una pieza, tu gente (a quién le toca) y respirar.
+    if (ruta === 'buscar' && req.method === 'GET') return responder(200, await (await import('./movil.ts')).buscarParaTelefono(db, url.searchParams.get('q') ?? ''))
+    const mp = /^pieza\/(\d+)$/.exec(ruta)
+    if (mp && req.method === 'GET') { const p = await (await import('./movil.ts')).piezaParaTelefono(db, Number(mp[1])); return responder(p ? 200 : 404, p ?? { error: 'No existe esa pieza' }) }
+    if (ruta === 'gente' && req.method === 'GET') return responder(200, await (await import('./movil.ts')).genteParaTelefono(db))
+    if (ruta === 'gente/contacto' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 8 * 1024)).toString('utf8') || '{}')
+      try { return responder(200, await (await import('./movil.ts')).contactoHoy(db, Number(b.id))) } catch (e) { return responder(422, { error: e instanceof Error ? e.message : String(e) }) }
+    }
+    if (ruta === 'respirar' && req.method === 'GET') return responder(200, await (await import('./movil.ts')).respirarParaTelefono(db))
+    if (ruta === 'respirar' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 8 * 1024)).toString('utf8') || '{}')
+      try { return responder(200, (await import('./meditacion.ts')).registrarSesion(db, b)) } catch (e) { return responder(422, { error: e instanceof Error ? e.message : String(e) }) }
+    }
     if (ruta === 'semana' && req.method === 'GET') return responder(200, await (await import('./movil.ts')).semanaParaTelefono(db))
     if (ruta === 'cerca' && req.method === 'GET') return responder(200, { regiones: await (await import('./movil.ts')).regionesCerca(db) })
     if (ruta === 'estado' && req.method === 'GET') return responder(200, { servidorEn: Date.now(), ultimas: (await import('./movil.ts')).estadoDesdeServidor(db, disp.id) })
