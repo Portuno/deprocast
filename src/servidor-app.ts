@@ -2170,11 +2170,16 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
     if (ruta === 'rescate/subir' && req.method === 'POST') return responder(200, await rs.salvar(db, disp, String(url.searchParams.get('clave') ?? ''), await leerCrudo(req, 50 * 1024 * 1024)))
     if (ruta === 'rescate/cerrar' && req.method === 'POST') { const r = rs.cerrarRescate(db, disp); void r.trabajo.catch(() => {}); return responder(200, { ...r, trabajo: undefined }) }
     // Validar en 5 minutos (el teléfono): la tanda de tarjetas, y el sí o no de cada una (lo mismo que la bandeja de la web).
-    if (ruta === 'validar' && req.method === 'GET') return responder(200, (await import('./sombra.ts')).tandaParaValidar(db, Math.min(30, Number(url.searchParams.get('n')) || 10)))
+    // Mobile 2.7: la tanda con filtros (tipos=a,b) y orden (peso | nuevo | viejo | azar), y exportar lo cribado y lo que falta.
+    if (ruta === 'validar' && req.method === 'GET') {
+      const q = url.searchParams
+      return responder(200, (await import('./sombra.ts')).tandaFiltrada(db, { n: Number(q.get('n')) || 10, tipos: (q.get('tipos') ?? '').split(',').map((x) => x.trim()).filter(Boolean), orden: q.get('orden') ?? 'peso' }))
+    }
+    if (ruta === 'validar/exportar' && req.method === 'GET') return responder(200, (await import('./sombra.ts')).exportarValidacion(db))
     if (ruta === 'validar' && req.method === 'POST') {
       const b = JSON.parse((await leerCrudo(req, 64 * 1024)).toString('utf8') || '{}')
       if (!['aceptar', 'descartar'].includes(String(b.accion))) return responder(400, { error: 'La acción va «aceptar» o «descartar»' })
-      const r = await (await import('./sombra.ts')).resolverLote(db, [{ tipo: String(b.tipo), id: typeof b.id === 'number' ? b.id : String(b.id), accion: String(b.accion) }])
+      const r = await (await import('./sombra.ts')).resolverLote(db, [{ tipo: String(b.tipo), id: typeof b.id === 'number' ? b.id : String(b.id), accion: String(b.accion), texto: b.texto ?? null, sub: b.sub ?? null, via: `teléfono:${disp.nombre}` }])
       return responder(r.hechas ? 200 : 422, r.hechas ? { ok: true } : { error: r.errores[0] ?? 'No se pudo' })
     }
     if (ruta === 'mensaje' && req.method === 'POST') {

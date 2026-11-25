@@ -1,5 +1,5 @@
 {
-  "version": 8,
+  "version": 9,
   "base": "/api/dispositivo/",
   "autenticacion": "Authorization: Bearer dpd_… (salvo vincular)",
   "rutas": [
@@ -192,16 +192,23 @@
     {
       "ruta": "validar",
       "metodo": "GET",
-      "para": "Una tanda de tarjetas para validar",
-      "pide": "?n=10",
-      "da": "{ total, tarjetas[Tarjeta] }",
+      "para": "Una tanda de tarjetas para validar (desde 2.7, filtrada por tipo y ordenada)",
+      "pide": "?n=10&tipos=recuerdo,sueno&orden=peso|nuevo|viejo|azar",
+      "da": "{ total, filtrado, tipos[{tipo, nombre, n}], orden, tarjetas[Tarjeta + en] }",
       "desde": "1.6"
+    },
+    {
+      "ruta": "validar/exportar",
+      "metodo": "GET",
+      "para": "Lo cribado (cada decisión) y lo que falta (todo lo pendiente, con fecha), con un resumen por tipo",
+      "da": "{ generado, fecha, resumen{tipo: {pendientes, aceptadas, rechazadas, editadas, solo, deshechas}}, validadas[{tipo, ref, accion, texto, sub, via, en}], cribadas[decisiones], pendientes[] }",
+      "desde": "2.7"
     },
     {
       "ruta": "validar",
       "metodo": "POST",
       "para": "Sí o no a una tarjeta",
-      "pide": "{ tipo, id, accion: aceptar|descartar }",
+      "pide": "{ tipo, id, accion: aceptar|descartar, texto?, sub? (lo que se mostró, para el registro) }",
       "da": "{ ok }",
       "desde": "1.6"
     },

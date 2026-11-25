@@ -61,18 +61,20 @@ type Grupo = { tipo: string; nombre: string; n: number; peso: number; items: Ite
 /** Todo lo que espera tu ok, por clase, lo que más bloquea primero; lo que hizo solo hoy; y lo que podría pasar a «auto». */
 const ESTADO_OBRA: Record<string, string> = { quiero: 'quiero', en_curso: 'en curso', terminado: 'terminada', abandonado: 'abandonada' }
 /** Las obras propuestas, para la bandeja (sin cargar el módulo: consultas directas). */
-function require_obras(db: Db) {
+function require_obras(db: Db, L = 8) {
   const n = (db.prepare(`SELECT COUNT(*) AS n FROM obras_propuestas WHERE estado = 'pendiente'`).get() as { n: number }).n
-  const items = (db.prepare(`SELECT id, tipo, titulo, autor, estado_obra FROM obras_propuestas WHERE estado = 'pendiente' ORDER BY id DESC LIMIT 8`).all() as any[])
+  const items = (db.prepare(`SELECT id, tipo, titulo, autor, estado_obra FROM obras_propuestas WHERE estado = 'pendiente' ORDER BY id DESC LIMIT ${L}`).all() as any[])
     .map((o) => ({ id: o.id, texto: `${o.titulo}${o.autor ? ` · ${o.autor}` : ''}`, sub: `${o.tipo} · ${ESTADO_OBRA[o.estado_obra] ?? o.estado_obra}` }))
   return { n, items }
 }
 
-export function bandeja(db: Db, ahora = Date.now()) {
+export function bandeja(db: Db, ahora = Date.now(), o: { limite?: number } = {}) {
+  // Cuántos de cada grupo (8 para la pantalla; más para ordenar por fecha o exportar, Mobile 2.7).
+  const L = Math.max(8, Math.min(5000, o.limite ?? 8))
   const g: Grupo[] = []
   const ss = sugeridos(db)
-  g.push({ tipo: 'monto', nombre: 'Montos que contaste', n: ss.length, peso: 3, items: ss.slice(0, 8).map((s) => ({ id: s.id, texto: `${s.descripcion}: ${s.monto > 0 ? '+' : ''}${s.monto} ${s.moneda}`, sub: s.fecha })), acciones: [['aceptar', '✓ Anotar'], ['descartar', '✕']], ir: null })
-  const prims = db.prepare(`SELECT id, titulo, detalle, semana FROM misiones WHERE personaje = 'jugador' AND nivel IN ('primaria', 'principal') AND estado = 'sugerida' ORDER BY id DESC LIMIT 8`).all() as any[]
+  g.push({ tipo: 'monto', nombre: 'Montos que contaste', n: ss.length, peso: 3, items: ss.slice(0, L).map((s) => ({ id: s.id, texto: `${s.descripcion}: ${s.monto > 0 ? '+' : ''}${s.monto} ${s.moneda}`, sub: s.fecha })), acciones: [['aceptar', '✓ Anotar'], ['descartar', '✕']], ir: null })
+  const prims = db.prepare(`SELECT id, titulo, detalle, semana FROM misiones WHERE personaje = 'jugador' AND nivel IN ('primaria', 'principal') AND estado = 'sugerida' ORDER BY id DESC LIMIT ${L}`).all() as any[]
   g.push({ tipo: 'primaria', nombre: 'Primarias que te propone', n: n(db, `SELECT COUNT(*) AS n FROM misiones WHERE personaje = 'jugador' AND nivel IN ('primaria', 'principal') AND estado = 'sugerida'`), peso: 3, items: prims.map((m) => ({ id: m.id, texto: m.titulo, sub: m.detalle })), acciones: [['aceptar', '✓ Aceptar'], ['descartar', '✕']], ir: null })
   // Lo que vio el Directo (también el que sigue prendido): cada propuesta se resuelve acá mismo, una por una o todas.
   // Con el Directo prendido, lo suyo va primero: es lo que está pasando ahora.
@@ -83,39 +85,39 @@ export function bandeja(db: Db, ahora = Date.now()) {
     items: dir.slice(0, 40).map((p) => ({ id: `${p.sesionId}:${p.id}`, texto: `${ETIQUETA_DIRECTO[p.tipo] ?? p.tipo}: ${p.titulo}`, sub: p.tipo === 'conexion' && p.de && p.con ? `${p.de} ↔ ${p.con}${p.detalle ? ` · ${p.detalle}` : ''}` : p.parecida ? `¿Es ${p.parecida.nombre}? (ya está en tus entidades)` : p.detalle ?? p.oido ?? null })),
   })
   // Las sorpresas de La Mano que todavía no respondió (cada clase con sus respuestas).
-  const sorpresas = db.prepare(`SELECT id, tipo, texto, ids FROM mano_eventos WHERE estado IN ('pendiente', 'sin_hipotesis') ORDER BY id DESC LIMIT 30`).all() as { id: number; tipo: string; texto: string | null; ids: string }[]
+  const sorpresas = db.prepare(`SELECT id, tipo, texto, ids FROM mano_eventos WHERE estado IN ('pendiente', 'sin_hipotesis') ORDER BY id DESC LIMIT ${Math.max(30, L)}`).all() as { id: number; tipo: string; texto: string | null; ids: string }[]
   for (const [tipo, nombre, acciones] of SORPRESAS_MANO) {
     const xs = sorpresas.filter((s) => s.tipo === tipo)
     const textos = (s: { ids: string }) => (json<number[]>(s.ids, []).map((i) => (db.prepare('SELECT texto FROM quantomos WHERE id = ?').get(i) as { texto: string } | undefined)?.texto).filter(Boolean) as string[])
-    g.push({ tipo: `mano_${tipo}`, nombre, n: xs.length, peso: 1, ir: null, acciones, items: xs.slice(0, 8).map((s) => ({ id: s.id, texto: textos(s).map((t) => `«${t.slice(0, 90)}»`).join(' · ') || (s.texto ?? ''), sub: s.texto })) })
+    g.push({ tipo: `mano_${tipo}`, nombre, n: xs.length, peso: 1, ir: null, acciones, items: xs.slice(0, L).map((s) => ({ id: s.id, texto: textos(s).map((t) => `«${t.slice(0, 90)}»`).join(' · ') || (s.texto ?? ''), sub: s.texto })) })
   }
   // Lo que la Academia le propone aprender (por sus metas y lo que viene con fecha).
-  const apr = db.prepare(`SELECT id, tema, por_que, sugerencia FROM aprendizajes WHERE estado = 'sugerido' ORDER BY creado_en DESC, id DESC LIMIT 8`).all() as any[]
+  const apr = db.prepare(`SELECT id, tema, por_que, sugerencia FROM aprendizajes WHERE estado = 'sugerido' ORDER BY creado_en DESC, id DESC LIMIT ${L}`).all() as any[]
   g.push({ tipo: 'aprender', nombre: 'Para aprender (tu Academia)', n: apr.length, peso: 2, ir: null, acciones: [['aceptar', '✓ Lo aprendo'], ['descartar', '✕']], items: apr.map((a) => {
     const s = json<any>(a.sugerencia, {}) ?? {}
     return { id: a.id, texto: a.tema, sub: [s.porQue ?? a.por_que, s.para ? `para ${s.para}${s.fecha ? ` (${s.fecha})` : ''}` : null, s.horizonte ? `${s.horizonte} plazo` : null].filter(Boolean).join(' · ') || null }
   }) })
   // Lo que redactaron los agentes de una misión (plan v26): él lo revisa y lo manda; y los ingresos que pueden ser de una pista.
   // Lo que redactó para sus cuentas (una idea en todas sus redes, una campaña, los redactados de siempre): él lo aprueba.
-  const pubs = db.prepare(`SELECT p.id, p.texto, p.origen, c.red, c.usuario FROM publicaciones p JOIN cuentas c ON c.id = p.cuenta_id WHERE p.estado = 'borrador' ORDER BY p.id DESC LIMIT 30`).all() as { id: number; texto: string; origen: string; red: string; usuario: string }[]
+  const pubs = db.prepare(`SELECT p.id, p.texto, p.origen, c.red, c.usuario FROM publicaciones p JOIN cuentas c ON c.id = p.cuenta_id WHERE p.estado = 'borrador' ORDER BY p.id DESC LIMIT ${Math.max(30, L)}`).all() as { id: number; texto: string; origen: string; red: string; usuario: string }[]
   g.push({ tipo: 'publicacion', nombre: 'Para publicar (tus cuentas)', n: n(db, `SELECT COUNT(*) AS n FROM publicaciones WHERE estado = 'borrador'`), peso: 2, ir: null, acciones: [['aceptar', '✓ Aprobar'], ['descartar', '✕']],
     items: pubs.map((p) => ({ id: p.id, texto: `${p.red} · ${p.usuario}${p.origen.startsWith('idea:') ? ' · una idea' : p.origen.startsWith('campana:') ? ' · campaña' : ''}`, sub: p.texto })) })
   const bs = borradoresEsperando(db)
-  g.push({ tipo: 'agente_borrador', nombre: 'Borradores de tus agentes', n: bs.length, peso: 2, ir: null, acciones: [['aceptar', '✓ Lo mando'], ['descartar', '✕']], items: bs.slice(0, 12) })
+  g.push({ tipo: 'agente_borrador', nombre: 'Borradores de tus agentes', n: bs.length, peso: 2, ir: null, acciones: [['aceptar', '✓ Lo mando'], ['descartar', '✕']], items: bs.slice(0, Math.max(12, L)) })
   const ing = ingresosPorConfirmar(db)
   g.push({ tipo: 'agente_cliente', nombre: '¿Ingresos de tus pistas?', n: ing.length, peso: 2, ir: null, acciones: [['aceptar', '✓ Sí'], ['descartar', '✕ No']], items: ing })
-  const inv = db.prepare(`SELECT id, nombre, detalle FROM inventario WHERE personaje = 'jugador' AND estado = 'sugerido' ORDER BY id DESC LIMIT 8`).all() as any[]
+  const inv = db.prepare(`SELECT id, nombre, detalle FROM inventario WHERE personaje = 'jugador' AND estado = 'sugerido' ORDER BY id DESC LIMIT ${L}`).all() as any[]
   g.push({ tipo: 'inventario', nombre: 'Lo que tenés (según lo que contaste)', n: n(db, `SELECT COUNT(*) AS n FROM inventario WHERE personaje = 'jugador' AND estado = 'sugerido'`), peso: 1, items: inv.map((i) => ({ id: i.id, texto: i.nombre, sub: i.detalle })), acciones: [['aceptar', '✓ Es mío'], ['descartar', '✕']], ir: null })
-  const recs = db.prepare(`SELECT id, texto, fecha FROM memoria WHERE estado = 'vigente' AND revisada = 0 AND creada_por IN ${MAQUINA} ORDER BY id DESC LIMIT 8`).all() as any[]
+  const recs = db.prepare(`SELECT id, texto, fecha FROM memoria WHERE estado = 'vigente' AND revisada = 0 AND creada_por IN ${MAQUINA} ORDER BY id DESC LIMIT ${L}`).all() as any[]
   g.push({ tipo: 'recuerdo', nombre: 'Lo que anotó de vos', n: n(db, `SELECT COUNT(*) AS n FROM memoria WHERE estado = 'vigente' AND revisada = 0 AND creada_por IN ${MAQUINA}`), peso: 1, items: recs.map((r) => ({ id: r.id, texto: r.texto, sub: r.fecha })), acciones: [['aceptar', '✓ Es así'], ['descartar', '✕ No']], ir: null })
   // Para delegar (plan v38): encargos que Mastropiero puede hacer solo.
   try {
     const n = (db.prepare(`SELECT COUNT(*) AS n FROM encargos_sugeridos WHERE estado = 'pendiente'`).get() as { n: number }).n
-    if (n) g.push({ tipo: 'delegar', nombre: 'Para delegar (encargos que hago solo)', n, peso: 1, ir: null, acciones: [['aceptar', '✓ Programar'], ['descartar', '✕']], items: (db.prepare(`SELECT id, titulo, cuando, pedido FROM encargos_sugeridos WHERE estado = 'pendiente' ORDER BY id DESC LIMIT 8`).all() as any[]).map((e) => ({ id: e.id, texto: `${e.titulo} · ${e.cuando}`, sub: e.pedido })) })
+    if (n) g.push({ tipo: 'delegar', nombre: 'Para delegar (encargos que hago solo)', n, peso: 1, ir: null, acciones: [['aceptar', '✓ Programar'], ['descartar', '✕']], items: (db.prepare(`SELECT id, titulo, cuando, pedido FROM encargos_sugeridos WHERE estado = 'pendiente' ORDER BY id DESC LIMIT ${L}`).all() as any[]).map((e) => ({ id: e.id, texto: `${e.titulo} · ${e.cuando}`, sub: e.pedido })) })
   } catch { /* sin la tabla todavía */ }
   // Obras que mencionó, para la Librería (Fragua #181).
   try {
-    const om = require_obras(db)
+    const om = require_obras(db, L)
     if (om.n) g.push({ tipo: 'obra', nombre: 'Para tu Librería (lo que mencionaste)', n: om.n, peso: 1, ir: null, acciones: [['aceptar', '✓ Sumar'], ['descartar', '✕']], items: om.items })
   } catch { /* sin la tabla todavía */ }
   // Lo que propone el Tesorero (repartos): espera su firma (Fragua #255 y #261).
@@ -136,7 +138,7 @@ export function bandeja(db: Db, ahora = Date.now()) {
   g.push({ tipo: 'nombre', nombre: 'Nombres del archivo', n: n(db, `SELECT COUNT(*) AS n FROM takeout_nombres WHERE estado = 'propuesta'`), peso: 0.5, items: [], acciones: null, ir: 'takeout' })
   // Las de La Fragua que todavía no decidió (aceptar la deja abierta con prioridad alta, para construirla: ya no se pregunta).
   const sinDecidir = `estado = 'abierta' AND CAST(id AS TEXT) NOT IN (SELECT ref FROM decisiones WHERE tipo = 'propuesta')`
-  const props = db.prepare(`SELECT id, titulo, detalle FROM propuestas WHERE ${sinDecidir} ORDER BY id DESC LIMIT 8`).all() as any[]
+  const props = db.prepare(`SELECT id, titulo, detalle FROM propuestas WHERE ${sinDecidir} ORDER BY id DESC LIMIT ${L}`).all() as any[]
   g.push({ tipo: 'propuesta', nombre: 'Propuestas de mejora (La Fragua)', n: n(db, `SELECT COUNT(*) AS n FROM propuestas WHERE ${sinDecidir}`), peso: 0.5, items: props.map((p) => ({ id: p.id, texto: p.titulo ?? '', sub: p.detalle ?? null })), acciones: [['aceptar', '✓ Construir'], ['descartar', '✕']], ir: null })
   g.push({ tipo: 'quantomo', nombre: 'Quántomos proto para pesar', n: n(db, `SELECT COUNT(*) AS n FROM quantomos WHERE etapa = 'proto'`), peso: 0.2, items: [], acciones: null, ir: 'quantomos' })
   const grupos = g.filter((x) => x.n > 0).sort((a, b) => b.peso * Math.min(b.n, 10) - a.peso * Math.min(a.n, 10))
@@ -160,7 +162,26 @@ const SORPRESAS_MANO: [string, string, [string, string][]][] = [
  * Resolver algo desde la bandeja: va por el camino de siempre (y queda anotado ahí). Directo: id «sesión:propuesta».
  * La Mano: la acción es la respuesta de la sorpresa (real, casualidad, actualizo…).
  */
-export async function resolverBandeja(db: Db, tipo: string, id: number | string, accion: string, ahora = Date.now()) {
+/**
+ * El registro de lo validado (Mobile 2.7): cada respuesta, de cualquier tipo y desde cualquier lado, con lo que se
+ * mostró (el texto de la tarjeta, si vino), la acción y por dónde. Es la base para estudiar el criterio y armar un
+ * mejor sistema; decisiones guarda solo algunos tipos y sin el texto.
+ */
+function asegurarRegistro(db: Db) {
+  db.exec(`CREATE TABLE IF NOT EXISTS validaciones (id INTEGER PRIMARY KEY AUTOINCREMENT, tipo TEXT NOT NULL, ref TEXT NOT NULL, accion TEXT NOT NULL, texto TEXT, sub TEXT, via TEXT, en INTEGER NOT NULL)`)
+}
+export function anotarValidacion(db: Db, v: { tipo: string; ref: number | string; accion: string; texto?: string | null; sub?: string | null; via?: string | null }, ahora = Date.now()) {
+  asegurarRegistro(db)
+  db.prepare('INSERT INTO validaciones (tipo, ref, accion, texto, sub, via, en) VALUES (?, ?, ?, ?, ?, ?, ?)').run(v.tipo.slice(0, 40), String(v.ref).slice(0, 80), v.accion.slice(0, 20), v.texto?.slice(0, 2000) ?? null, v.sub?.slice(0, 2000) ?? null, v.via?.slice(0, 40) ?? null, ahora)
+}
+
+export async function resolverBandeja(db: Db, tipo: string, id: number | string, accion: string, ahora = Date.now(), o: { texto?: string | null; sub?: string | null; via?: string | null } = {}) {
+  const r = await resolverBandejaSinRegistro(db, tipo, id, accion, ahora)
+  try { anotarValidacion(db, { tipo, ref: id, accion, texto: o.texto, sub: o.sub, via: o.via ?? null }, ahora) } catch { /* el registro no frena la respuesta */ }
+  return r
+}
+
+async function resolverBandejaSinRegistro(db: Db, tipo: string, id: number | string, accion: string, ahora: number) {
   if (tipo === 'directo') {
     const [sesion, ...resto] = String(id).split(':')
     if (accion !== 'aceptar' && accion !== 'descartar') throw new Error('Aceptar o descartar')
@@ -196,19 +217,19 @@ export async function resolverBandeja(db: Db, tipo: string, id: number | string,
   throw new Error(`«${tipo}» se resuelve en su sección`)
 }
 
-type Pedido = { tipo: string; id: number | string; accion: string }
+type Pedido = { tipo: string; id: number | string; accion: string; texto?: string | null; sub?: string | null; via?: string | null }
 
 /** Varias de una («aceptar todas las tareas», «todo»): cada una por su camino; lo que falle se informa sin frenar el resto. */
 export async function resolverLote(db: Db, items: Pedido[], ahora = Date.now()) {
   const errores: string[] = []
   let hechas = 0
   for (const x of items.slice(0, 200)) {
-    try { await resolverBandeja(db, String(x.tipo), x.id, String(x.accion), ahora); hechas++ } catch (e) { errores.push(e instanceof Error ? e.message : String(e)) }
+    try { await resolverBandeja(db, String(x.tipo), x.id, String(x.accion), ahora, { texto: x.texto, sub: x.sub, via: x.via }); hechas++ } catch (e) { errores.push(e instanceof Error ? e.message : String(e)) }
   }
   return { hechas, errores }
 }
 
-export type Tarjeta = { tipo: string; id: number | string; grupo: string; texto: string; sub: string | null; si: string; no: string }
+export type Tarjeta = { tipo: string; id: number | string; grupo: string; texto: string; sub: string | null; si: string; no: string; en?: number | null }
 
 /**
  * Una tanda para validar en el teléfono (mobile, «Validar en 5 minutos»): lo que más pesa de la bandeja, de a una
@@ -264,4 +285,85 @@ export function avisoBandeja(db: Db, ahora = Date.now()): { texto: string; boton
 export function responderOferta(db: Db, tipo: string, si: boolean) {
   if (si) fijarModo(db, tipo, 'auto')
   return { tipo, modo: modoDe(db, tipo) }
+}
+
+// ─── la tanda del teléfono, con filtros y orden; y exportar (Mobile 2.7) ──
+
+/** De qué tabla y columna sale la fecha de cada tipo (lo que no está, no tiene fecha y va al final). */
+const FECHA_DE: Record<string, [string, string]> = {
+  monto: ['movimientos_sugeridos', 'creado_en'], primaria: ['misiones', 'creada_en'], aprender: ['aprendizajes', 'creado_en'],
+  publicacion: ['publicaciones', 'creada_en'], inventario: ['inventario', 'creado_en'], recuerdo: ['memoria', 'creada_en'],
+  delegar: ['encargos_sugeridos', 'creado'], propuesta: ['propuestas', 'creada_en'], sueno: ['suenos_noche', 'creada_en'],
+  obra: ['obras_propuestas', 'creada'], mano_puente: ['mano_eventos', 'creado_en'], mano_contradiccion: ['mano_eventos', 'creado_en'], mano_combo: ['mano_eventos', 'creado_en'],
+}
+function fechaDeItem(db: Db, tipo: string, id: number | string): number | null {
+  const t = FECHA_DE[tipo]
+  if (!t) return null
+  try {
+    const v = (db.prepare(`SELECT ${t[1]} AS v FROM ${t[0]} WHERE id = ?`).get(id) as { v: unknown } | undefined)?.v
+    if (typeof v === 'number') return v < 1e12 ? v * 1000 : v
+    if (typeof v === 'string') { const x = Date.parse(v); return Number.isFinite(x) ? x : null }
+  } catch { /* sin la tabla */ }
+  return null
+}
+
+export type OrdenTanda = 'peso' | 'nuevo' | 'viejo' | 'azar'
+const ORDENES: OrdenTanda[] = ['peso', 'nuevo', 'viejo', 'azar']
+
+/**
+ * La tanda del teléfono con filtros: solo los tipos elegidos (vacío = todos) y en el orden pedido: lo que más pesa (como
+ * siempre: hasta 4 por tipo, para que mezcle), lo más nuevo, lo más viejo o al azar. Devuelve también los tipos que hay
+ * (con cuántos) para armar el menú de filtros.
+ */
+export function tandaFiltrada(db: Db, o: { n?: number; tipos?: string[]; orden?: string } = {}, ahora = Date.now(), azar: () => number = Math.random) {
+  const orden: OrdenTanda = ORDENES.includes(o.orden as OrdenTanda) ? (o.orden as OrdenTanda) : 'peso'
+  const max = Math.max(1, Math.min(30, o.n ?? 10))
+  const b = bandeja(db, ahora, { limite: orden === 'peso' ? 8 : 300 })
+  const conSiNo = b.grupos.map((g) => ({ g, si: g.acciones?.find(([a]) => a === 'aceptar'), no: g.acciones?.find(([a]) => a === 'descartar') })).filter((x) => x.si && x.no)
+  const tipos = conSiNo.map(({ g }) => ({ tipo: g.tipo, nombre: g.nombre, n: g.n }))
+  const elegidos = o.tipos?.length ? conSiNo.filter(({ g }) => o.tipos!.includes(g.tipo)) : conSiNo
+  const tarjeta = (x: (typeof conSiNo)[number], i: Item): Tarjeta => ({
+    tipo: x.g.tipo, id: i.id, grupo: x.g.nombre, texto: String(i.texto ?? '').slice(0, 600), sub: i.sub ? String(i.sub).slice(0, 600) : null,
+    si: x.si![1].replace(/^✓\s*/, '') || 'Sí', no: x.no![1].replace(/^✕\s*/, '') || 'No', en: fechaDeItem(db, x.g.tipo, i.id),
+  })
+  let tarjetas: Tarjeta[]
+  if (orden === 'peso') {
+    tarjetas = []
+    for (const x of elegidos) for (const i of x.g.items.slice(0, o.tipos?.length === 1 ? max : 4)) if (tarjetas.length < max) tarjetas.push(tarjeta(x, i))
+  } else {
+    const todas = elegidos.flatMap((x) => x.g.items.map((i) => tarjeta(x, i)))
+    if (orden === 'azar') {
+      for (let i = todas.length - 1; i > 0; i--) { const j = Math.floor(azar() * (i + 1)); [todas[i], todas[j]] = [todas[j], todas[i]] }
+    } else {
+      const signo = orden === 'nuevo' ? -1 : 1
+      todas.sort((a, c) => (a.en == null ? 1 : c.en == null ? -1 : signo * (a.en - c.en)))
+    }
+    tarjetas = todas.slice(0, max)
+  }
+  return { total: b.total, filtrado: elegidos.reduce((s, x) => s + x.g.n, 0), tipos, orden, tarjetas }
+}
+
+/**
+ * Exportar lo de validar (Mobile 2.7): por un lado lo que ya se cribó (cada decisión: qué tipo, qué cosa, aceptada o
+ * rechazada, si la hizo solo, cuándo) y por el otro lo que falta (todo lo pendiente, con su fecha), más un resumen por
+ * tipo. Para estudiar el criterio y construir un mejor sistema.
+ */
+export function exportarValidacion(db: Db, ahora = Date.now()) {
+  const b = bandeja(db, ahora, { limite: 5000 })
+  const pendientes = b.grupos.flatMap((g) => g.items.map((i) => ({ tipo: g.tipo, grupo: g.nombre, id: i.id, texto: String(i.texto ?? ''), sub: i.sub ?? null, en: fechaDeItem(db, g.tipo, i.id) })))
+  asegurarRegistro(db)
+  // Lo que respondiste (con lo que se mostró) y, aparte, lo que el sistema decidió o anotó en decisiones (incluye lo que hizo solo).
+  const validadas = (db.prepare('SELECT tipo, ref, accion, texto, sub, via, en FROM validaciones ORDER BY en').all() as any[])
+  const cribadas = (db.prepare('SELECT tipo, ref, accion, cambios, confianza, en, deshecha_en FROM decisiones ORDER BY en').all() as any[])
+    .map((r) => ({ tipo: r.tipo, ref: r.ref, accion: r.accion, cambios: json<unknown>(r.cambios, r.cambios), confianza: r.confianza, en: r.en, deshechaEn: r.deshecha_en }))
+  const resumen: Record<string, { pendientes: number; aceptadas: number; rechazadas: number; editadas: number; solo: number; deshechas: number }> = {}
+  const de = (t: string) => (resumen[t] ??= { pendientes: 0, aceptadas: 0, rechazadas: 0, editadas: 0, solo: 0, deshechas: 0 })
+  for (const g of b.grupos) de(g.tipo).pendientes += g.n
+  for (const v of validadas) { const r = de(v.tipo); if (v.accion === 'aceptar') r.aceptadas++; else if (v.accion === 'descartar') r.rechazadas++ }
+  for (const c of cribadas) {
+    const r = de(String(c.tipo).split(':')[0])
+    if (c.accion === 'editada') r.editadas++; else if (c.accion === 'auto') r.solo++
+    if (c.deshechaEn) r.deshechas++
+  }
+  return { generado: ahora, fecha: fechaLocal(ahora), resumen, validadas, cribadas, pendientes }
 }

@@ -9,7 +9,7 @@
  */
 
 /** Sube con cada ruta nueva o cambio compatible. */
-export const VERSION = 8
+export const VERSION = 9
 
 export type Ruta = {
   /** Lo que va después de /api/dispositivo/. «:id» es un número; «:archivo», un nombre de archivo. */
@@ -52,8 +52,9 @@ export const RUTAS: Ruta[] = [
   { ruta: 'uso', metodo: 'POST', para: 'El uso del teléfono por día (pantalla, desbloqueos, apps, sesiones y, desde 2.3, los cambios de app)', pide: '{ dias[DiaUso + cambios?[[t, paquete]]] }', da: '{ guardados, hoy }', desde: '1.3' },
   { ruta: 'avisos', metodo: 'GET', para: 'Lo que viene (para programar avisos locales) y el widget', da: '{ minutosAntes, avisos[{clave, titulo, cuerpo, en}], ahora?, paraValidar? }', desde: '1.3' },
   { ruta: 'pagos', metodo: 'POST', para: 'Los avisos de las apps de pago y banco', pide: '{ avisos[{paquete, app, titulo, texto, en}] }', da: '{ recibidos, sugeridos }', desde: '1.3' },
-  { ruta: 'validar', metodo: 'GET', para: 'Una tanda de tarjetas para validar', pide: '?n=10', da: '{ total, tarjetas[Tarjeta] }', desde: '1.6' },
-  { ruta: 'validar', metodo: 'POST', para: 'Sí o no a una tarjeta', pide: '{ tipo, id, accion: aceptar|descartar }', da: '{ ok }', desde: '1.6' },
+  { ruta: 'validar', metodo: 'GET', para: 'Una tanda de tarjetas para validar (desde 2.7, filtrada por tipo y ordenada)', pide: '?n=10&tipos=recuerdo,sueno&orden=peso|nuevo|viejo|azar', da: '{ total, filtrado, tipos[{tipo, nombre, n}], orden, tarjetas[Tarjeta + en] }', desde: '1.6' },
+  { ruta: 'validar/exportar', metodo: 'GET', para: 'Lo cribado (cada decisión) y lo que falta (todo lo pendiente, con fecha), con un resumen por tipo', da: '{ generado, fecha, resumen{tipo: {pendientes, aceptadas, rechazadas, editadas, solo, deshechas}}, validadas[{tipo, ref, accion, texto, sub, via, en}], cribadas[decisiones], pendientes[] }', desde: '2.7' },
+  { ruta: 'validar', metodo: 'POST', para: 'Sí o no a una tarjeta', pide: '{ tipo, id, accion: aceptar|descartar, texto?, sub? (lo que se mostró, para el registro) }', da: '{ ok }', desde: '1.6' },
   { ruta: 'adjunto/:archivo', metodo: 'GET', para: 'Un adjunto del chat (foto, PDF…)', pide: '?ancho= (miniatura)', da: 'el archivo', desde: '2.0' },
   { ruta: 'carga', metodo: 'POST', para: 'Cuándo estuvo enchufado (para el sueño estimado)', pide: '{ muestras[{en, cargando, nivel}] }', da: '{ guardadas }', desde: '2.1' },
   { ruta: 'animo', metodo: 'POST', para: 'Ánimo y energía, de 1 a 5', pide: '{ animo, energia?, en?, nota? }', da: '{ id, titulo } (422: fuera de 1–5)', desde: '2.1' },
