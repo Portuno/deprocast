@@ -9,7 +9,7 @@
  */
 
 /** Sube con cada ruta nueva o cambio compatible. */
-export const VERSION = 6
+export const VERSION = 7
 
 export type Ruta = {
   /** Lo que va después de /api/dispositivo/. «:id» es un número; «:archivo», un nombre de archivo. */
@@ -48,7 +48,7 @@ export const RUTAS: Ruta[] = [
   { ruta: 'actividad', metodo: 'POST', para: 'Los pasos por día y por hora', pide: '{ dias[{fecha, pasos}], horas?[{hora, pasos}] }', da: 'Actividad', desde: '1.2' },
   { ruta: 'archivo', metodo: 'POST', para: 'Una foto, un video, un audio o un documento; se procesa de fondo', pide: 'cuerpo: archivo · ?id&nombre&tipo&nota&en&lat&lon&auto=1', da: '{ tipo, bytes, procesando } (202)', desde: '1.2' },
   { ruta: 'lugares', metodo: 'GET', para: 'Tus lugares y los que frecuentás sin nombre', da: '{ lugares[{id, nombre, lat, lon, tipo}], frecuentes[{lat, lon, dias, horas}] }', desde: '1.2' },
-  { ruta: 'lugares', metodo: 'POST', para: 'Marcar un lugar', pide: '{ nombre, lat, lon, tipo?: casa|trabajo|empresa|destino|frecuente|otro }', da: '{ id, nombre, tipo }', desde: '1.2' },
+  { ruta: 'lugares', metodo: 'POST', para: 'Marcar un lugar', pide: '{ nombre, lat, lon, tipo?: casa|trabajo|empresa|tienda|destino|frecuente|otro }', da: '{ id, nombre, tipo }', desde: '1.2' },
   { ruta: 'uso', metodo: 'POST', para: 'El uso del teléfono por día (pantalla, desbloqueos, apps, sesiones y, desde 2.3, los cambios de app)', pide: '{ dias[DiaUso + cambios?[[t, paquete]]] }', da: '{ guardados, hoy }', desde: '1.3' },
   { ruta: 'avisos', metodo: 'GET', para: 'Lo que viene (para programar avisos locales) y el widget', da: '{ minutosAntes, avisos[{clave, titulo, cuerpo, en}], ahora?, paraValidar? }', desde: '1.3' },
   { ruta: 'pagos', metodo: 'POST', para: 'Los avisos de las apps de pago y banco', pide: '{ avisos[{paquete, app, titulo, texto, en}] }', da: '{ recibidos, sugeridos }', desde: '1.3' },
@@ -62,6 +62,16 @@ export const RUTAS: Ruta[] = [
   { ruta: 'contexto', metodo: 'POST', para: 'A qué wifi y a qué audio Bluetooth estaba conectado (cuando cambia)', pide: '{ en, wifi: string|null, bt: string[] }', da: '{ guardado }', desde: '2.3' },
   { ruta: 'llamadas', metodo: 'POST', para: 'Las llamadas del registro (quién, cuándo, cuánto, de qué tipo; nunca lo hablado)', pide: '{ llamadas[{en, numero?, nombre?, tipo: entrante|saliente|perdida|rechazada, duracionS}] }', da: '{ nuevas }', desde: '2.4' },
   { ruta: 'recibidos', metodo: 'POST', para: 'Quién te escribió (de los avisos de las apps de mensajería; nunca el texto)', pide: '{ mensajes[{en, app, remitente, conversacion?, grupo}] }', da: '{ nuevos }', desde: '2.4' },
+  { ruta: 'run', metodo: 'GET', para: 'La run de hoy (en curso o propuesta): sus bandas, cuál toca y cuál sigue', da: '{ run|null, bandas[{id, titulo, detalle, categoria, inicio, fin, minutos, estado, nota}], ahora, siguiente, hechas }', desde: '2.5' },
+  { ruta: 'run/banda', metodo: 'POST', para: 'Marcar una banda', pide: '{ id, estado: hecha|parcial|no|activa, nota? }', da: '{ id, estado }', desde: '2.5' },
+  { ruta: 'run/arrancar', metodo: 'POST', para: 'Arrancar la run propuesta', pide: '{ id }', da: 'RunTelefono', desde: '2.5' },
+  { ruta: 'run/siguiente', metodo: 'POST', para: 'Cerrar la banda de ahora y adelantar la que sigue', pide: '{ id }', da: 'RunTelefono', desde: '2.5' },
+  { ruta: 'compras', metodo: 'GET', para: 'La lista de compras', da: '{ pendientes[Compra], comprados[Compra] }', desde: '2.5' },
+  { ruta: 'compras', metodo: 'POST', para: 'Sumar a la lista', pide: '{ items[{item, cantidad?, nota?}] }', da: '{ nuevos[Compra], yaEstaban[Compra] }', desde: '2.5' },
+  { ruta: 'compras/marcar', metodo: 'POST', para: 'Tachar (o volver a poner) de la lista', pide: '{ ids[], estado: comprado|pendiente|descartado }', da: '{ compras }', desde: '2.5' },
+  { ruta: 'cerca', metodo: 'GET', para: 'Las geovallas a vigilar: side quests con lugar y tiendas si hay compras', da: '{ regiones[{id, tipo: side|compras, lat, lon, radio, titulo, cuerpo}] }', desde: '2.5' },
+  { ruta: 'estado', metodo: 'GET', para: 'La última vez que llegó cada cosa de este teléfono', da: '{ servidorEn, ultimas{recorrido, escucha, pasos, uso, carga, llamadas, mensajes} }', desde: '2.5' },
+  { ruta: 'error', metodo: 'POST', para: 'Un error de la app (para arreglarlo sin ver el teléfono)', pide: '{ mensaje, donde?, pila?, version?, en? }', da: '{ anotado }', desde: '2.5' },
   { ruta: 'diario', metodo: 'GET', para: 'El Diario del día: todo lo capturado en una línea', pide: '?fecha=AAAA-MM-DD', da: 'DiarioDia { fecha, resumen, momentos, pasosPorHora, mapa }', desde: '2.2' },
 ]
 

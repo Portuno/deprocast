@@ -158,7 +158,7 @@ export async function buscarPorLugar(db: Db, que: string, o: { radio?: number; d
 
 /** Un lugar suyo con nombre y coordenadas (nuevo, o le pone coordenadas a uno que ya existía). */
 /** Las clases de lugar que se marcan desde el mapa del teléfono (Mobile 2.0). */
-export const TIPOS_LUGAR = ['casa', 'trabajo', 'empresa', 'destino', 'frecuente', 'otro'] as const
+export const TIPOS_LUGAR = ['casa', 'trabajo', 'empresa', 'tienda', 'destino', 'frecuente', 'otro'] as const
 
 export async function guardarLugar(db: Db, l: { nombre: string; lat: number; lon: number; direccion?: string | null; nota?: string | null; tipo?: string | null }, ahora = Date.now()) {
   if (!l.nombre.trim() || !Number.isFinite(l.lat) || !Number.isFinite(l.lon)) throw new Error('Un lugar necesita nombre y coordenadas.')

@@ -475,6 +475,15 @@ export const HERRAMIENTAS: Herramienta[] = [
     },
   },
   {
+    nombre: 'ver_errores_telefono', familia: 'lectura',
+    descripcion: 'Los errores que reportó la app del teléfono (los últimos días): cuándo, en qué parte, el mensaje, la versión y el comienzo de la pila. Para entender por qué algo del teléfono no anda sin tenerlo en la mano.',
+    parametros: S({ dias: { type: 'integer', description: 'Cuántos días mirar (por defecto 7)' } }),
+    ejecutar: async (a, { db }) => {
+      const xs = (await import('../movil.ts')).erroresRecientes(db, Math.max(1, Math.min(30, Number(a.dias) || 7)))
+      return xs.length ? { errores: xs } : { nota: 'La app no reportó errores en esos días.' }
+    },
+  },
+  {
     nombre: 'ver_recorrido', familia: 'lectura',
     descripcion: 'Por dónde anduvo un día (el recorrido del teléfono, y las ubicaciones que mandó por Telegram o WhatsApp): las paradas con hora, cuánto estuvo y el lugar suyo más cercano, la distancia y las fuentes. Para analizarlo: dónde pasó el día, cuánto se movió, y cruzarlo con lo que dijo en esas horas (sus audios, ver_dia).',
     parametros: S({ fecha: str('YYYY-MM-DD; vacío = hoy') }),
@@ -3193,7 +3202,7 @@ export const GRUPOS: Record<string, string[]> = {
   // Lo que era «vida» (93 herramientas, unos 15.500 tokens), en grupos chicos: cada mensaje trae solo lo suyo.
   salud: ['crear_meditacion', 'ver_meditacion', 'ver_salud', 'corregir_registro_salud', 'borrar_registro_salud', 'fijar_metas_salud', 'ver_actividad', 'ver_uso_telefono', 'estimar_sueno', 'marcar_distracciones'],
   plata: ['ver_finanzas', 'fijar_meta_mes', 'ver_compras', 'marcar_compras', 'ver_monedero', 'asentar_en_monedero', 'atribuir_ingreso', 'ajustar_monedero', 'ver_mercados', 'anotar_cuotas', 'anotar_encuestas'],
-  agenda: ['ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'reservar', 'ver_reservas', 'actualizar_reserva', 'recordar_en_telefono', 'ver_diario_dia', 'ver_recorrido', 'buscar_por_lugar', 'guardar_lugar', 'privacidad_recorrido', 'recorrido_rango', 'ver_escala'],
+  agenda: ['ver_errores_telefono', 'ver_calendario', 'crear_evento_calendario', 'editar_evento_calendario', 'borrar_evento_calendario', 'agendar_en_calendario', 'reservar', 'ver_reservas', 'actualizar_reserva', 'recordar_en_telefono', 'ver_diario_dia', 'ver_recorrido', 'buscar_por_lugar', 'guardar_lugar', 'privacidad_recorrido', 'recorrido_rango', 'ver_escala'],
   gente: ['ver_comunicaciones', 'buscar_contacto', 'ver_relaciones', 'editar_persona', 'nueva_persona', 'ver_persona', 'editar_yo', 'ver_personas', 'ficha_empresa', 'ver_ficha', 'editar_ficha', 'investigar_ficha'],
   aprender: ['crear_aprendizaje', 'crear_dominio', 'sugerir_aprendizajes', 'buscar_fuentes_dominio', 'sumar_material_dominio', 'fijar_meta_dominio', 'entregar_proyecto', 'ver_revision', 'ver_huecos', 'preparar_sesion_tutor', 'registrar_practica', 'ver_aprendizajes', 'ver_idiomas', 'crear_idioma'],
   mente: ['responder_pregunta', 'votar_criba', 'ver_bucles', 'cerrar_bucle', 'ver_evidencia', 'anotar_evidencia', 'ver_suenos', 'anotar_sueno', 'ver_modelos', 'que_haria', 'sumar_modelo', 'ver_bitacora', 'ver_gemelo', 'ver_hipotesis', 'probar_hipotesis', 'ver_brujula', 'preguntarle_despues', 'ver_respuestas', 'armar_criba', 'ver_cribas', 'audio_de_voz', 'ver_pagina', 'instruir_pagina', 'nombrar_arquetipo'],

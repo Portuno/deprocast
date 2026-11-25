@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "base": "/api/dispositivo/",
   "autenticacion": "Authorization: Bearer dpd_… (salvo vincular)",
   "rutas": [
@@ -162,7 +162,7 @@
       "ruta": "lugares",
       "metodo": "POST",
       "para": "Marcar un lugar",
-      "pide": "{ nombre, lat, lon, tipo?: casa|trabajo|empresa|destino|frecuente|otro }",
+      "pide": "{ nombre, lat, lon, tipo?: casa|trabajo|empresa|tienda|destino|frecuente|otro }",
       "da": "{ id, nombre, tipo }",
       "desde": "1.2"
     },
@@ -268,6 +268,82 @@
       "pide": "{ mensajes[{en, app, remitente, conversacion?, grupo}] }",
       "da": "{ nuevos }",
       "desde": "2.4"
+    },
+    {
+      "ruta": "run",
+      "metodo": "GET",
+      "para": "La run de hoy (en curso o propuesta): sus bandas, cuál toca y cuál sigue",
+      "da": "{ run|null, bandas[{id, titulo, detalle, categoria, inicio, fin, minutos, estado, nota}], ahora, siguiente, hechas }",
+      "desde": "2.5"
+    },
+    {
+      "ruta": "run/banda",
+      "metodo": "POST",
+      "para": "Marcar una banda",
+      "pide": "{ id, estado: hecha|parcial|no|activa, nota? }",
+      "da": "{ id, estado }",
+      "desde": "2.5"
+    },
+    {
+      "ruta": "run/arrancar",
+      "metodo": "POST",
+      "para": "Arrancar la run propuesta",
+      "pide": "{ id }",
+      "da": "RunTelefono",
+      "desde": "2.5"
+    },
+    {
+      "ruta": "run/siguiente",
+      "metodo": "POST",
+      "para": "Cerrar la banda de ahora y adelantar la que sigue",
+      "pide": "{ id }",
+      "da": "RunTelefono",
+      "desde": "2.5"
+    },
+    {
+      "ruta": "compras",
+      "metodo": "GET",
+      "para": "La lista de compras",
+      "da": "{ pendientes[Compra], comprados[Compra] }",
+      "desde": "2.5"
+    },
+    {
+      "ruta": "compras",
+      "metodo": "POST",
+      "para": "Sumar a la lista",
+      "pide": "{ items[{item, cantidad?, nota?}] }",
+      "da": "{ nuevos[Compra], yaEstaban[Compra] }",
+      "desde": "2.5"
+    },
+    {
+      "ruta": "compras/marcar",
+      "metodo": "POST",
+      "para": "Tachar (o volver a poner) de la lista",
+      "pide": "{ ids[], estado: comprado|pendiente|descartado }",
+      "da": "{ compras }",
+      "desde": "2.5"
+    },
+    {
+      "ruta": "cerca",
+      "metodo": "GET",
+      "para": "Las geovallas a vigilar: side quests con lugar y tiendas si hay compras",
+      "da": "{ regiones[{id, tipo: side|compras, lat, lon, radio, titulo, cuerpo}] }",
+      "desde": "2.5"
+    },
+    {
+      "ruta": "estado",
+      "metodo": "GET",
+      "para": "La última vez que llegó cada cosa de este teléfono",
+      "da": "{ servidorEn, ultimas{recorrido, escucha, pasos, uso, carga, llamadas, mensajes} }",
+      "desde": "2.5"
+    },
+    {
+      "ruta": "error",
+      "metodo": "POST",
+      "para": "Un error de la app (para arreglarlo sin ver el teléfono)",
+      "pide": "{ mensaje, donde?, pila?, version?, en? }",
+      "da": "{ anotado }",
+      "desde": "2.5"
     },
     {
       "ruta": "diario",

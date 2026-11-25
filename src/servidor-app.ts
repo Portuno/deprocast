@@ -2078,6 +2078,42 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
       const b = JSON.parse((await leerCrudo(req, 1024 * 1024)).toString('utf8') || '{}')
       return responder(200, { nuevos: await (await import('./comunicaciones.ts')).recibirMensajes(db, `disp:${disp.id}`, b.mensajes) })
     }
+    // Mobile 2.5: la run en el bolsillo, las compras, lo que pide un lugar, el estado de la captura y los errores de la app.
+    if (ruta === 'run' && req.method === 'GET') return responder(200, await (await import('./movil.ts')).runParaTelefono(db))
+    if (ruta === 'run/banda' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 16 * 1024)).toString('utf8') || '{}')
+      return responder(200, await (await import('./movil.ts')).marcarBandaTelefono(db, Number(b.id), String(b.estado ?? ''), b.nota ?? null))
+    }
+    if (ruta === 'run/arrancar' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 16 * 1024)).toString('utf8') || '{}')
+      ;(await import('./misiones.ts')).arrancarRun(db, Number(b.id))
+      return responder(200, await (await import('./movil.ts')).runParaTelefono(db))
+    }
+    if (ruta === 'run/siguiente' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 16 * 1024)).toString('utf8') || '{}')
+      ;(await import('./misiones.ts')).pasarASiguiente(db, Number(b.id))
+      return responder(200, await (await import('./movil.ts')).runParaTelefono(db))
+    }
+    if (ruta === 'compras' && req.method === 'GET') {
+      const c = await import('./compras.ts')
+      return responder(200, { pendientes: c.listarCompras(db, { estado: 'pendiente', limite: 200 }), comprados: c.listarCompras(db, { estado: 'comprado', limite: 20 }) })
+    }
+    if (ruta === 'compras' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 64 * 1024)).toString('utf8') || '{}')
+      const items = (Array.isArray(b.items) ? b.items : [b]).map((x: any) => ({ item: String(x?.item ?? '').trim(), cantidad: x?.cantidad ?? null, nota: x?.nota ?? null })).filter((x: { item: string }) => x.item)
+      return responder(200, (await import('./compras.ts')).anotarCompras(db, items, { origen: `teléfono:${disp.nombre}` } as any))
+    }
+    if (ruta === 'compras/marcar' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 16 * 1024)).toString('utf8') || '{}')
+      const estado = ['pendiente', 'comprado', 'descartado'].includes(b.estado) ? b.estado : 'comprado'
+      return responder(200, { compras: (await import('./compras.ts')).marcarCompras(db, Array.isArray(b.ids) ? b.ids : [], estado) })
+    }
+    if (ruta === 'cerca' && req.method === 'GET') return responder(200, { regiones: await (await import('./movil.ts')).regionesCerca(db) })
+    if (ruta === 'estado' && req.method === 'GET') return responder(200, { servidorEn: Date.now(), ultimas: (await import('./movil.ts')).estadoDesdeServidor(db, disp.id) })
+    if (ruta === 'error' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 64 * 1024)).toString('utf8') || '{}')
+      return responder(200, { anotado: (await import('./movil.ts')).anotarError(db, disp.id, b) })
+    }
     if (ruta === 'carga' && req.method === 'POST') {
       const b = JSON.parse((await leerCrudo(req, 512 * 1024)).toString('utf8') || '{}')
       return responder(200, { guardadas: (await import('./carga-telefono.ts')).recibirCarga(db, `disp:${disp.id}`, b.muestras) })
