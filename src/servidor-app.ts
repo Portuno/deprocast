@@ -2108,6 +2108,17 @@ async function atenderDispositivo(req: http.IncomingMessage, res: http.ServerRes
       const estado = ['pendiente', 'comprado', 'descartado'].includes(b.estado) ? b.estado : 'comprado'
       return responder(200, { compras: (await import('./compras.ts')).marcarCompras(db, Array.isArray(b.ids) ? b.ids : [], estado) })
     }
+    // Mobile 2.6: la plata (anotar, firmar lo que vino del banco) y la semana en números.
+    if (ruta === 'plata' && req.method === 'GET') return responder(200, await (await import('./movil.ts')).plataParaTelefono(db))
+    if (ruta === 'plata' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 16 * 1024)).toString('utf8') || '{}')
+      try { return responder(201, await (await import('./movil.ts')).anotarPlata(db, b)) } catch (e) { return responder(422, { error: e instanceof Error ? e.message : String(e) }) }
+    }
+    if (ruta === 'plata/sugerido' && req.method === 'POST') {
+      const b = JSON.parse((await leerCrudo(req, 16 * 1024)).toString('utf8') || '{}')
+      try { (await import('./finanzas.ts')).resolverSugerido(db, Number(b.id), b.accion === 'descartar' ? 'descartar' : 'aceptar'); return responder(200, { ok: true }) } catch (e) { return responder(422, { error: e instanceof Error ? e.message : String(e) }) }
+    }
+    if (ruta === 'semana' && req.method === 'GET') return responder(200, await (await import('./movil.ts')).semanaParaTelefono(db))
     if (ruta === 'cerca' && req.method === 'GET') return responder(200, { regiones: await (await import('./movil.ts')).regionesCerca(db) })
     if (ruta === 'estado' && req.method === 'GET') return responder(200, { servidorEn: Date.now(), ultimas: (await import('./movil.ts')).estadoDesdeServidor(db, disp.id) })
     if (ruta === 'error' && req.method === 'POST') {

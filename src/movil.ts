@@ -121,3 +121,44 @@ export function erroresRecientes(db: Db, dias = 7, ahora = Date.now()) {
   return (db.prepare('SELECT e.*, d.nombre FROM errores_telefono e LEFT JOIN dispositivos d ON d.id = e.dispositivo_id WHERE e.en > ? ORDER BY e.en DESC LIMIT 50').all(ahora - dias * 86_400_000) as any[])
     .map((r) => ({ cuando: `${fechaLocal(r.en)} ${hm(r.en)}`, telefono: r.nombre, donde: r.donde, mensaje: r.mensaje, version: r.version, pila: r.pila ? String(r.pila).split('\n').slice(0, 6).join('\n') : null }))
 }
+
+// ─── la plata (Mobile 2.6) ───────────────────────────────────────────────
+
+/** El mes, lo de hoy y lo que espera tu firma (lo que vino de los avisos del banco). */
+export async function plataParaTelefono(db: Db, ahora = Date.now()) {
+  const f = await import('./finanzas.ts')
+  const hoy = fechaLocal(ahora)
+  return {
+    mes: f.resumenMes(db, hoy.slice(0, 7)),
+    hoy: f.listarMovimientos(db, { mes: hoy.slice(0, 7), limite: 200 }).filter((m) => m.fecha === hoy).map((m) => ({ id: m.id, monto: m.monto, moneda: m.moneda, descripcion: m.descripcion, categoria: m.categoria })),
+    sugeridos: f.sugeridos(db).map((s) => ({ id: s.id, fecha: s.fecha, monto: s.monto, moneda: s.moneda, descripcion: s.descripcion })),
+    categorias: [...f.CATEGORIAS],
+  }
+}
+
+/** Un gasto (monto negativo) o un ingreso, anotado desde el teléfono. */
+export async function anotarPlata(db: Db, b: any, ahora = Date.now()) {
+  const f = await import('./finanzas.ts')
+  const monto = Number(String(b?.monto ?? '').replace(',', '.'))
+  if (!Number.isFinite(monto) || monto === 0) throw new Error('El monto tiene que ser un número distinto de cero')
+  const m = f.registrarMovimiento(db, { monto, descripcion: String(b?.descripcion ?? '').slice(0, 200), categoria: b?.categoria ?? null, origen: 'teléfono', fecha: b?.fecha ?? undefined }, ahora)
+  return m ? { id: m.id, monto: m.monto, descripcion: m.descripcion, categoria: m.categoria } : { repetido: true }
+}
+
+// ─── la semana (Mobile 2.6) ──────────────────────────────────────────────
+
+/** Los últimos 7 días en números (sin la agenda, que es de la red) y los promedios de los días con dato. */
+export async function semanaParaTelefono(db: Db, ahora = Date.now()) {
+  const { diarioDelDia } = await import('./diario-dia.ts')
+  const dias: { fecha: string; pasos: number; km: number; suenoHoras: number | null; animo: number | null; pantallaMin: number | null; gastos: number; llamadas: number; recibidos: number; fotos: number }[] = []
+  for (let i = 6; i >= 0; i--) {
+    const fecha = fechaLocal(ahora - i * 86_400_000)
+    const r = (await diarioDelDia(db, fecha, { agenda: false })).resumen
+    dias.push({ fecha, pasos: r.pasos, km: r.km, suenoHoras: r.suenoHoras, animo: r.animo, pantallaMin: r.pantallaMin, gastos: r.gastos, llamadas: r.llamadas, recibidos: r.recibidos, fotos: r.fotos })
+  }
+  const prom = (k: keyof (typeof dias)[number]) => {
+    const xs = dias.map((d) => d[k]).filter((x): x is number => typeof x === 'number' && x > 0)
+    return xs.length ? Math.round((xs.reduce((s, x) => s + x, 0) / xs.length) * 10) / 10 : null
+  }
+  return { dias, promedio: { pasos: prom('pasos'), suenoHoras: prom('suenoHoras'), animo: prom('animo'), pantallaMin: prom('pantallaMin'), gastos: prom('gastos') } }
+}

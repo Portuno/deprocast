@@ -9,7 +9,7 @@
  */
 
 /** Sube con cada ruta nueva o cambio compatible. */
-export const VERSION = 7
+export const VERSION = 8
 
 export type Ruta = {
   /** Lo que va después de /api/dispositivo/. «:id» es un número; «:archivo», un nombre de archivo. */
@@ -72,6 +72,10 @@ export const RUTAS: Ruta[] = [
   { ruta: 'cerca', metodo: 'GET', para: 'Las geovallas a vigilar: side quests con lugar y tiendas si hay compras', da: '{ regiones[{id, tipo: side|compras, lat, lon, radio, titulo, cuerpo}] }', desde: '2.5' },
   { ruta: 'estado', metodo: 'GET', para: 'La última vez que llegó cada cosa de este teléfono', da: '{ servidorEn, ultimas{recorrido, escucha, pasos, uso, carga, llamadas, mensajes} }', desde: '2.5' },
   { ruta: 'error', metodo: 'POST', para: 'Un error de la app (para arreglarlo sin ver el teléfono)', pide: '{ mensaje, donde?, pila?, version?, en? }', da: '{ anotado }', desde: '2.5' },
+  { ruta: 'plata', metodo: 'GET', para: 'El mes, lo gastado hoy y lo que espera tu firma (de los avisos del banco)', da: '{ mes{ingresos, gastos, neto, porCategoria, meta, avanceMeta}, hoy[Movimiento], sugeridos[{id, fecha, monto, moneda, descripcion}], categorias[] }', desde: '2.6' },
+  { ruta: 'plata', metodo: 'POST', para: 'Anotar un gasto (monto negativo) o un ingreso', pide: '{ monto, descripcion?, categoria?, fecha? }', da: '{ id, monto, descripcion, categoria } (422: monto inválido)', desde: '2.6' },
+  { ruta: 'plata/sugerido', metodo: 'POST', para: 'Firmar o descartar un movimiento sugerido', pide: '{ id, accion: aceptar|descartar }', da: '{ ok }', desde: '2.6' },
+  { ruta: 'semana', metodo: 'GET', para: 'Los últimos 7 días en números y sus promedios', da: '{ dias[{fecha, pasos, km, suenoHoras, animo, pantallaMin, gastos, llamadas, recibidos, fotos}], promedio }', desde: '2.6' },
   { ruta: 'diario', metodo: 'GET', para: 'El Diario del día: todo lo capturado en una línea', pide: '?fecha=AAAA-MM-DD', da: 'DiarioDia { fecha, resumen, momentos, pasosPorHora, mapa }', desde: '2.2' },
 ]
 
